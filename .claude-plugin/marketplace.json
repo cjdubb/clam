@@ -17,6 +17,18 @@
       "source": "./plugins/decision-log",
       "description": "Record technical decisions: one-shot DL drafting, section-by-section collaborative authoring, and pending-decision rundowns.",
       "version": "0.1.0"
+    },
+    {
+      "name": "tracking",
+      "source": "./plugins/tracking",
+      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, and resume-after-/clear via SessionStart injection.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "statusline",
+      "source": "./plugins/statusline",
+      "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
+      "version": "0.1.0"
     }
   ]
 }

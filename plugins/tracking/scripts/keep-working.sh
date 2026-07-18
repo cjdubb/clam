@@ -1,0 +1,420 @@
+#!/bin/bash
+# Stop hook: prevents the agent from ending its turn while .local/TODO.md
+# State is In Progress / Not Started. Allows stop only when State indicates
+# work is genuinely complete or paused for the user.
+#
+# Enabling the tracking plugin is the opt-in (clam-code gated this behind the
+# clam alias's $CLAM_SESSION; plugins are enabled per-repo instead). Escape
+# hatch: CLAM_TRACKING_STOP_GATE=disabled turns the hook off entirely.
+#
+# Allows stop when:
+#   - CLAM_TRACKING_STOP_GATE is set to disabled (gated out — no log entry written)
+#   - jq is unavailable (cannot safely parse input/emit JSON)
+#   - stop_hook_active is true (prevents infinite loops if we already nudged once)
+#   - .local/TODO.md does not exist (Go Commando, ad-hoc sessions)
+#   - State is Blocked or Waiting For Decision (needs the user). Waiting For
+#     Decision carries a once-per-epoch decision-file nudge: a park whose
+#     Decision Needed field lacks a .local/decisions/ pointer, or that has no
+#     open decision file, is blocked once with instructions, then allowed
+#     (marker .local/.decision-nudge-fired, cleared on SessionStart/PostCompact)
+#   - State is a parked Awaiting * state (the manifest's parked category;
+#     see lib/states.tsv) — parked on delegated work, CI, review, or
+#     the merge queue; resumes on its own, no user action. The five PR-watched
+#     parked states (Awaiting CI, Awaiting Bot Review, Awaiting Reviewer
+#     Assignment, Awaiting Human Review, Awaiting Merge Queue) carry the
+#     PR-cron backstop below; the three human-review-adjacent ones also carry
+#     the independent-review backstop. Every other parked state allows freely.
+#   - State is Complete AND any open PR on the current branch has a matching
+#     monitoring cron in .claude/scheduled_tasks.json (or there is no open PR),
+#     AND the independent-review backstop is satisfied
+#
+# PR-cron backstop: the hook blocks if the current branch has an open PR but
+# no entry in .claude/scheduled_tasks.json whose prompt contains "PR #<number>".
+# It fires at State=Complete AND at the five parked states above (#264: a
+# park with no watch is blind to an out-of-band merge/close/enqueue/drift).
+# This catches PRs parked or completed without the create-pr skill's mandatory
+# CronCreate steps. Fail-open: no-op when CLAM_PR_CRONS is disabled, the branch
+# is a default branch, there is no open PR, or gh is unavailable.
+#
+# Independent-review backstop: when CLAM_INDEPENDENT_REVIEW=enabled, the hook
+# blocks if the current branch has an open PR (#<N>) but no report at
+# .local/INDEPENDENT-REVIEW-PR-<N>.md, so the auto-run self-review cannot be
+# silently skipped before a human reviews. It fires on Awaiting Reviewer
+# Assignment / Awaiting Human Review / Awaiting Merge Queue / Complete; on those
+# it composes with the PR-cron backstop (both must pass to allow). It does NOT
+# fire at Awaiting CI / Awaiting Bot Review (which precede human handoff).
+# Unset / disabled CLAM_INDEPENDENT_REVIEW makes this a full no-op.
+#
+# Stop log: every invocation past the stop-gate check appends a JSONL
+# entry to $CLAUDE_STOP_LOG (default ~/.claude/stop-log.jsonl) recording
+# the disposition for later auditing. Logging is best-effort and silent
+# on failure.
+
+set -e
+
+[[ "${CLAM_TRACKING_STOP_GATE:-enabled}" == "enabled" ]] || exit 0
+
+command -v jq &>/dev/null || exit 0
+
+# Session-State metadata (parked-state list, categories) from the shared
+# manifest. Fail open (allow stop) if the lib is missing, matching the jq guard.
+STATES_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/states.sh"
+[[ -f "$STATES_LIB" ]] || exit 0
+# shellcheck source=/dev/null
+source "$STATES_LIB"
+
+LOG_FILE="${CLAUDE_STOP_LOG:-$HOME/.claude/stop-log.jsonl}"
+
+input=$(cat)
+
+session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+stop_hook_active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)
+
+log_stop() {
+    local decision="$1"
+    local state="${2:-}"
+    local reason="${3:-}"
+    local ts
+    ts=$(date "+%Y-%m-%dT%H:%M:%S%z")
+    local worktree=""
+    [[ -n "$cwd" ]] && worktree=$(basename "$cwd")
+    {
+        mkdir -p "$(dirname "$LOG_FILE")"
+        jq -nc \
+            --arg ts "$ts" \
+            --arg cwd "$cwd" \
+            --arg worktree "$worktree" \
+            --arg session_id "$session_id" \
+            --arg decision "$decision" \
+            --arg state "$state" \
+            --argjson stop_hook_active "$stop_hook_active" \
+            --arg reason "$reason" \
+            '{ts:$ts, cwd:$cwd, worktree:$worktree, session_id:$session_id, decision:$decision, state:$state, stop_hook_active:$stop_hook_active, reason:$reason}' \
+            >> "$LOG_FILE"
+    } 2>/dev/null || true
+}
+
+# Populates $PR_NUM and $PR_BLOCK_REASON. Returns 0 when monitoring is satisfied
+# (no open PR for the current branch, OR a matching cron exists in
+# .claude/scheduled_tasks.json). Returns 1 when an open PR exists but no
+# matching cron is found.
+# Reads outer-scope $cwd (worktree path) and $state (the park State, used to
+# name the park-appropriate watch in the block reason).
+check_pr_monitoring() {
+    PR_NUM=""
+    PR_BLOCK_REASON=""
+
+    # PR monitoring crons are opt-IN via CLAM_PR_CRONS in the plugin port
+    # (clam-code defaulted unset to enabled). Standalone, without the
+    # pr-workflow plugin's create-pr skill scheduling watch crons, "no
+    # matching cron" carries no meaning and must not block stop — so unset
+    # means disabled. Export CLAM_PR_CRONS=enabled to restore the backstop.
+    [[ "${CLAM_PR_CRONS:-disabled}" == "enabled" ]] || return 0
+
+    local branch=""
+    branch=$(git -C "$cwd" branch --show-current 2>/dev/null || true)
+    [[ -z "$branch" ]] && return 0
+
+    case "$branch" in
+        master|main|develop|trunk) return 0 ;;
+    esac
+
+    command -v gh &>/dev/null || return 0
+
+    # No `timeout` here: GNU coreutils isn't on macOS by default. The hook
+    # itself has a timeout configured in hooks/hooks.json which is
+    # the backstop if gh hangs.
+    # Note: under merge queue, an enqueued PR still reports --state open
+    # until queue CI completes and the merge lands (or the queue ejects it).
+    # The cron-presence check below applies uniformly; monitoring should
+    # stay alive through both the pre-enqueue and in-queue phases.
+    local pr_num=""
+    pr_num=$(cd "$cwd" && gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+    [[ -z "$pr_num" ]] && return 0
+
+    PR_NUM="$pr_num"
+
+    local tasks_file="$cwd/.claude/scheduled_tasks.json"
+    if [[ -f "$tasks_file" ]]; then
+        local match_count="0"
+        match_count=$(jq -r --arg n "PR #$pr_num" '[.tasks[]? | select(.prompt | contains($n))] | length' "$tasks_file" 2>/dev/null || echo 0)
+        [[ "${match_count:-0}" -gt 0 ]] && return 0
+    fi
+
+    # Name the park-appropriate watch template so the block reason points at
+    # the right create-pr section for the state that triggered it.
+    local watch_hint
+    case "$state" in
+        "Awaiting CI")                  watch_hint="the CI watch" ;;
+        "Awaiting Bot Review")          watch_hint="the bot-review watch" ;;
+        "Awaiting Reviewer Assignment") watch_hint="the PR-state watch" ;;
+        "Awaiting Human Review")        watch_hint="the human-review watch" ;;
+        "Awaiting Merge Queue")         watch_hint="the merge-queue watch" ;;
+        *)                              watch_hint="a CI watch and a bot-review watch" ;;
+    esac
+
+    PR_BLOCK_REASON="Stop hook: TODO State is ${state}, but PR #${pr_num} on branch ${branch} has no monitoring cron in ${tasks_file}.
+
+Schedule ${watch_hint} via the /create-pr skill's watch-cron templates, with durable: true. Every watch carries the literal 'PR #${pr_num}' token this hook greps for, opens with the terminal-state preamble, and self-deletes when its condition is met.
+
+If you are intentionally handing off without monitoring (PR awaiting merge, work picked up by a human, etc.), set State: Blocked in .local/TODO.md with a reason and end the turn that way."
+    return 1
+}
+
+# Populates $IR_BLOCK_REASON. Returns 0 when the independent review is satisfied
+# (feature off, no open PR for the current branch, or the report file exists).
+# Returns 1 when an open PR exists but its .local/INDEPENDENT-REVIEW-PR-<N>.md
+# report is absent. Mirrors check_pr_monitoring's shape; gated independently by
+# CLAM_INDEPENDENT_REVIEW so the two backstops compose without coupling.
+check_independent_review() {
+    IR_BLOCK_REASON=""
+
+    # Independent-review enforcement is opt-in via CLAM_INDEPENDENT_REVIEW (see
+    # setup.sh). Unset / disabled is a full no-op: the create-pr skill skips the
+    # auto-run, so "no report" carries no meaning and must not block stop.
+    [[ "${CLAM_INDEPENDENT_REVIEW:-disabled}" == "enabled" ]] || return 0
+
+    local branch=""
+    branch=$(git -C "$cwd" branch --show-current 2>/dev/null || true)
+    [[ -z "$branch" ]] && return 0
+
+    case "$branch" in
+        master|main|develop|trunk) return 0 ;;
+    esac
+
+    command -v gh &>/dev/null || return 0
+
+    # Same open-PR detection as check_pr_monitoring; the hook's 5s managed
+    # timeout is the backstop if gh hangs (no `timeout` on macOS by default).
+    local pr_num=""
+    pr_num=$(cd "$cwd" && gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+    [[ -z "$pr_num" ]] && return 0
+
+    local report_file="$cwd/.local/INDEPENDENT-REVIEW-PR-${pr_num}.md"
+    [[ -f "$report_file" ]] && return 0
+
+    IR_BLOCK_REASON="Stop hook: CLAM_INDEPENDENT_REVIEW is enabled, but PR #${pr_num} on branch ${branch} has no independent-review report at ${report_file}.
+
+The independent self-review must run before the work reaches a human reviewer. Run /independent-review (it parks State: Awaiting Independent Agent Review, spawns a fresh read-only reviewer subagent, and writes the report). It supplements the configured bot reviewer and human review; it does not replace them, and the reviewer posts nothing to the PR.
+
+If the review genuinely cannot run (e.g. the reviewer subagent repeatedly fails), set State: Blocked in .local/TODO.md with a reason and end the turn that way."
+    return 1
+}
+
+# Populates $WFD_BLOCK_REASON. Returns 0 when a Waiting For Decision park
+# complies with the decision-file mandate (PR #237): the TODO's Decision Needed
+# field references a .local/decisions/ file AND at least one file under
+# .local/decisions/ has Status: Open. Returns 1 with the reason otherwise.
+# Mirrors the other check_* helpers' shape; the once-per-epoch marker handling
+# lives at the call site.
+check_decision_file() {
+    WFD_BLOCK_REASON=""
+
+    local needed=""
+    needed=$(todo_field "$todo" "Decision Needed")
+
+    local has_pointer=1
+    [[ "$needed" == *".local/decisions/"* ]] && has_pointer=0
+
+    # Guarded glob: when .local/decisions/ is absent or empty, grep sees the
+    # unexpanded pattern, errors into /dev/null, and open_files stays empty.
+    local open_files=""
+    open_files=$(grep -l '^Status: Open' "$cwd"/.local/decisions/*.md 2>/dev/null || true)
+
+    if [[ "$has_pointer" -eq 0 && -n "$open_files" ]]; then
+        return 0
+    fi
+
+    local failed=""
+    [[ "$has_pointer" -ne 0 ]] && failed="the Decision Needed field does not reference a .local/decisions/ file"
+    if [[ -z "$open_files" ]]; then
+        [[ -n "$failed" ]] && failed="$failed, and "
+        failed="${failed}no file under .local/decisions/ has Status: Open"
+    fi
+
+    WFD_BLOCK_REASON="Stop hook: TODO State is Waiting For Decision, but ${failed}.
+
+Write the full decision analysis to .local/decisions/NNN-<slug>.md following the decision-log plugin's rundown template (the /decision-log:rundown skill hosts it; without that plugin, capture the options, the evidence for each, your recommendation, and the if-deferred path in that file), then put the file path in Decision Needed: alongside the question and the recommended option.
+
+Exemption: if this is a single yes/no confirmation with no real alternatives, or live back-and-forth while the user is actively responding, end the turn again; this nudge fires at most once per session epoch."
+    return 1
+}
+
+# Populates $PLAN_GATE_BLOCK_REASON. Returns 0 when the Lego Block plan gate is
+# satisfied — .local/PLAN.md is absent (nothing to gate) OR contains a line
+# matching '^## Block Design'. Returns 1 when PLAN.md exists without that heading.
+# Recurring by design (no once-per-epoch marker): a non-compliant plan blocks
+# EVERY turn-end until the section is added. Gates heading PRESENCE only — content
+# quality (real design vs sound N/A reason) stays with human plan review. Mirrors
+# the other check_* helpers' shape; the arg is the worktree cwd.
+check_plan_block_design() {
+    local wt="$1"
+    PLAN_GATE_BLOCK_REASON=""
+
+    local plan="$wt/.local/PLAN.md"
+    # An absent plan is compliant: Go Commando, pre-plan, and ad-hoc sessions
+    # have nothing to gate.
+    [[ -f "$plan" ]] || return 0
+
+    grep -qE '^## Block Design' "$plan" 2>/dev/null && return 0
+
+    PLAN_GATE_BLOCK_REASON="Stop hook: .local/PLAN.md has no '## Block Design' section.
+
+Every plan requires a '## Block Design' section. Its body is EITHER the interface design (### Blocks + ### Composition) OR the single line 'N/A — <reason>' when the change has no meaningful decomposition. Add the section, then end the turn.
+
+This gate checks only that the '## Block Design' heading is present; the design's content is for human plan review, not this hook."
+    return 1
+}
+
+if [[ "$stop_hook_active" == "true" ]]; then
+    log_stop "allow_loop_guard"
+    exit 0
+fi
+
+if [[ -z "$cwd" ]]; then
+    log_stop "allow_no_cwd"
+    exit 0
+fi
+
+todo="$cwd/.local/TODO.md"
+if [[ ! -f "$todo" ]]; then
+    log_stop "allow_no_todo"
+    exit 0
+fi
+
+state=$(todo_field "$todo" State)
+
+# Plan gate (Lego Block methodology): every .local/PLAN.md must carry a
+# '## Block Design' section (a real design or an explicit N/A — <reason>). This
+# composes in FRONT of the State case, so it applies in all states — its escape
+# is always available (add the section). Recurring by design: no epoch marker, so
+# a non-compliant plan blocks every turn-end until backfilled. See
+# decision-logs/HOOKS-DECISIONS.md.
+if ! check_plan_block_design "$cwd"; then
+    log_stop "block_plan_block_design" "$state" "$PLAN_GATE_BLOCK_REASON"
+    jq -n --arg r "$PLAN_GATE_BLOCK_REASON" '{decision: "block", reason: $r}'
+    exit 0
+fi
+
+# Parked states (the manifest's parked category) allow stop — work resumes on
+# its own, no user action. state_is_parked / state_parked_list come from
+# lib/states.sh, the single source that also feeds the reject message
+# below, so the allow-check and the printed list cannot drift (#137).
+#
+# Needs-user and terminal states get bespoke handling; Complete carries the
+# PR-monitoring backstop.
+case "$state" in
+    Complete)
+        # Two independent backstops compose: both must pass to allow Complete.
+        # Independent-review is checked first so its block reason wins when both
+        # are unsatisfied (it is the earlier semantic deadline).
+        if ! check_independent_review; then
+            log_stop "block_independent_review_missing" "$state" "$IR_BLOCK_REASON"
+            jq -n --arg r "$IR_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        if check_pr_monitoring; then
+            log_stop "allow_state_complete" "$state"
+            exit 0
+        fi
+        log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
+        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        exit 0
+        ;;
+    Blocked)
+        log_stop "allow_state_blocked" "$state"
+        exit 0
+        ;;
+    "Waiting For Decision")
+        # Decision-file nudge (#238): a WFD park must carry the decision
+        # analysis mandated by the system prompt (PR #237). Non-compliant
+        # parks are blocked ONCE per session epoch; session-context.sh clears
+        # the marker on every SessionStart event (startup, resume, clear, compact), the
+        # same epoch scheme clam-code used.
+        marker="$cwd/.local/.decision-nudge-fired"
+        if [[ -f "$marker" ]]; then
+            log_stop "allow_state_waiting_nudged" "$state"
+            exit 0
+        fi
+        if check_decision_file; then
+            log_stop "allow_state_waiting" "$state"
+            exit 0
+        fi
+        # Fail open when the marker cannot be written: an unwritable
+        # filesystem must never block parking.
+        if ! : > "$marker" 2>/dev/null; then
+            log_stop "allow_state_waiting" "$state"
+            exit 0
+        fi
+        log_stop "block_wfd_decision_file_missing" "$state" "$WFD_BLOCK_REASON"
+        jq -n --arg r "$WFD_BLOCK_REASON" '{decision: "block", reason: $r}'
+        exit 0
+        ;;
+    "Awaiting CI"|"Awaiting Bot Review")
+        # Watched parked states before human handoff: an open PR here must carry
+        # its monitoring cron (CI watch / bot-review watch), else a merge, close,
+        # or bot-review event during the park goes undetected (#264). These two
+        # precede the human-review handoff, so the independent-review backstop
+        # does NOT fire here — only PR monitoring. check_pr_monitoring is a no-op
+        # when CLAM_PR_CRONS is disabled or there is no open PR (fail-open).
+        if check_pr_monitoring; then
+            log_stop "allow_state_$(printf '%s' "$state" | tr 'A-Z ' 'a-z_')" "$state"
+            exit 0
+        fi
+        log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
+        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        exit 0
+        ;;
+    "Awaiting Reviewer Assignment"|"Awaiting Human Review"|"Awaiting Merge Queue")
+        # Human-review-adjacent parked states: TWO backstops compose (both must
+        # pass to allow). Independent-review is checked first so its reason wins
+        # when both are unsatisfied (it is the earlier semantic deadline: the
+        # self-review must land before a human reviewer sees the work). PR
+        # monitoring then enforces that the park is not blind to a merge, close,
+        # enqueue, or drift while it waits (#264). Every other parked state
+        # (Awaiting Independent Agent Review while the review legitimately runs,
+        # Awaiting Agent) falls through to the generic parked allow below. Both
+        # checks are no-ops when their flag is off or there is no open PR.
+        if ! check_independent_review; then
+            log_stop "block_independent_review_missing" "$state" "$IR_BLOCK_REASON"
+            jq -n --arg r "$IR_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        if check_pr_monitoring; then
+            log_stop "allow_state_$(printf '%s' "$state" | tr 'A-Z ' 'a-z_')" "$state"
+            exit 0
+        fi
+        log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
+        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        exit 0
+        ;;
+esac
+
+# Parked states allow stop. Derive the log label from the state name so the
+# allow_state_awaiting_* label scheme stays in lockstep with the manifest.
+if state_is_parked "$state"; then
+    log_stop "allow_state_$(printf '%s' "$state" | tr 'A-Z ' 'a-z_')" "$state"
+    exit 0
+fi
+
+# Unrecognised state: block, and SHOW the valid turn-ending states so a
+# near-miss (typo, abbreviation, renamed state) can self-correct instead of
+# being rationalised into a false Complete.
+parked_list=$(state_parked_list | awk 'NR > 1 {printf " | "} {printf "%s", $0}')
+
+reason="Stop hook: .local/TODO.md State is \"${state:-<unset>}\", which is not a State that permits ending the turn.
+
+States that END the turn (these must match EXACTLY):
+  - Complete: work done (an open PR still needs a monitoring cron).
+  - Blocked / Waiting For Decision: needs the user. Set the reason field, then run notify <worktree-name> if the notify helper is installed (check with command -v notify; skip silently otherwise).
+  - Parked, resumes on its own with no user action: ${parked_list}
+
+If you wrote a near-miss (e.g. \"Awaiting Review\" instead of \"Awaiting Human Review\"), correct it to the precise name above. Do NOT downgrade to Complete just to satisfy this hook; that reports the work as finished when it is not.
+
+If you need the user: set Blocked or Waiting For Decision (with a reason in Blocked Reason: or Decision Needed:), run notify <worktree-name> if that helper is installed, then write a final user-facing message that restates the blocker/decision in plain terms (the user sees this screen-bottom line first; do not assume they will scroll up).
+
+Otherwise the work is not done: continue working. Do NOT invent work just because this reminder fired."
+
+log_stop "block" "$state" "$reason"
+jq -n --arg r "$reason" '{decision: "block", reason: $r}'

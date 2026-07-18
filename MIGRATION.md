@@ -31,15 +31,51 @@ superseded by this plugin.
 - Agents: `reviewer`
 - Hooks: `pr-status.sh` (Stop)
 
+## tracking — ported (from clam-code)
+
+The tracking-document approach, carved out of what was originally mapped
+across session-modes and agent-dash: `.local/TODO.md` as session state of
+record, the 13-state lifecycle, Stop-hook enforcement, and resume-after-/clear.
+
+- Templates: `TODO-TEMPLATE.md` → `templates/TODO.md`
+- Lib: `general/lib/states.sh` + `states.tsv` (canonical home; statusline
+  plugin vendors a copy)
+- Hooks: `keep-working.sh` (Stop), `awaiting-user.sh` (Stop +
+  UserPromptSubmit), new `session-context.sh` (SessionStart) carrying the
+  system-prompt Work Management rules + resume pointer + epoch-marker resets
+  (the marker-clearing duties of `session-track.sh`/`post-compact.sh`)
+
+Port changes: the `CLAM_SESSION` alias gate became
+`CLAM_TRACKING_STOP_GATE` (default enabled; plugin enablement is the opt-in);
+**`CLAM_PR_CRONS` unset now means disabled** (clam-code: enabled) — export
+`CLAM_PR_CRONS=enabled` to keep the PR-cron backstop; decision-file nudge text
+points at `/decision-log:rundown`; `notify` calls are conditional on the
+helper existing.
+
+## statusline — ported (from clam-code)
+
+Reassigned from the out-of-scope list: plugins cannot set `statusLine` (no
+manifest field; `${CLAUDE_PLUGIN_ROOT}` doesn't resolve in settings.json), so
+the plugin ships the scripts plus an explicit `/statusline:setup` skill that
+performs the one settings.json write at the user's request — the
+install-changes-nothing constraint holds.
+
+- Scripts: `general/statusline/{context.sh,ccost.sh,prices.json}` + both test
+  suites
+- Lib: `lib/platform.sh` vendored; `states.sh`/`states.tsv` vendored copy
+  (canonical in tracking — keep in lockstep)
+
 ## session-modes — planned
 
 - Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
   `whats-cooking`, `planning`, `orchestrator-handover`
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
-  replaces the `clam` alias — content sourced from `general/system-prompt.md`),
-  `keep-working.sh`, `awaiting-user.sh`, `flush-nudge.sh`,
+  replaces the `clam` alias — content sourced from `general/system-prompt.md`;
+  the Work Management section is already carried by the tracking plugin's
+  injection, so session-modes must not duplicate it), `flush-nudge.sh`,
   `capture-make-progress.sh`, `prompt-timestamp.sh`,
   `capture-permission-mode.sh`, `post-compact.sh`, `precompact-snapshot.sh`
+- (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**)
 
 ## decision-log — ported (from clam-code)
 
@@ -104,7 +140,6 @@ are not carried into this repo:
   the alias mechanism itself dies
 - `general/clam-settings.json` sidecar, `global-settings-bundle.json`,
   `managed-settings-setup.sh`, `managed-version-lock.json`
-- `general/statusline/` (ccost, context, prices)
 - `setup.sh`, `update.sh`, `cleanup.sh`, `cleanup-legacy.sh`,
   `setup-git-repo-with-trees.sh`, `claude-rules*.sh`
 - `general/lib/` shell helpers (ported piecemeal only if a hook needs one)

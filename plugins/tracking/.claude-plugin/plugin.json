@@ -1,0 +1,9 @@
+{
+  "name": "tracking",
+  "description": "Tracking-document workflow: .local/TODO.md as the session's single source of truth, a 13-state lifecycle with summons semantics, Stop-hook enforcement, and SessionStart injection that lets a /clear'd or fresh orchestrator session resume exactly where the last one parked. Powers the agent-dash and statusline State displays.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

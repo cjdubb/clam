@@ -1,0 +1,13 @@
+{
+  "_comment": "Claude API list prices in USD per million tokens. Source: https://platform.claude.com/docs/en/about-claude/pricing. Keys are matched as longest-prefix against the model ID in JSONL transcripts (e.g. 'claude-opus-4-1' matches the 'claude-opus-4-1' row, not the shorter 'claude-opus-4' prefix). Update when Anthropic publishes new prices.",
+  "claude-opus-4-8":   { "input": 5,    "output": 25,   "cache_5m": 6.25,  "cache_1h": 10,   "cache_read": 0.5  },
+  "claude-opus-4-7":   { "input": 5,    "output": 25,   "cache_5m": 6.25,  "cache_1h": 10,   "cache_read": 0.5  },
+  "claude-opus-4-6":   { "input": 5,    "output": 25,   "cache_5m": 6.25,  "cache_1h": 10,   "cache_read": 0.5  },
+  "claude-opus-4-1":   { "input": 15,   "output": 75,   "cache_5m": 18.75, "cache_1h": 30,   "cache_read": 1.5  },
+  "claude-opus-4":     { "input": 15,   "output": 75,   "cache_5m": 18.75, "cache_1h": 30,   "cache_read": 1.5  },
+  "claude-sonnet-4-6": { "input": 3,    "output": 15,   "cache_5m": 3.75,  "cache_1h": 6,    "cache_read": 0.3  },
+  "claude-sonnet-4-5": { "input": 3,    "output": 15,   "cache_5m": 3.75,  "cache_1h": 6,    "cache_read": 0.3  },
+  "claude-sonnet-4":   { "input": 3,    "output": 15,   "cache_5m": 3.75,  "cache_1h": 6,    "cache_read": 0.3  },
+  "claude-haiku-4-5":  { "input": 1,    "output": 5,    "cache_5m": 1.25,  "cache_1h": 2,    "cache_read": 0.1  },
+  "claude-haiku-3-5":  { "input": 0.8,  "output": 4,    "cache_5m": 1,     "cache_1h": 1.6,  "cache_read": 0.08 }
+}

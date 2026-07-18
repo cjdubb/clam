@@ -20,6 +20,21 @@ untouched.
 
 Enable per repo (or per machine) — take only the clusters you want.
 
+## Update
+
+```
+/plugin marketplace update clam        # re-fetch this repo, refresh the catalog
+claude plugin update <plugin>@clam     # update one installed plugin (CLI only — no /plugin update)
+```
+
+Auto-update is **off by default** for third-party marketplaces like this one.
+Turn it on per marketplace under `/plugin` → Marketplaces → clam →
+Enable auto-update; Claude Code then checks shortly after session startup and
+applies updates on the next launch (it prompts `/reload-plugins` when
+something updated). With auto-update off, `/plugin marketplace update clam`
+is the manual refresh; it also updates installed plugins when auto-update is
+enabled for the marketplace, otherwise follow it with `claude plugin update`.
+
 ## Plugins
 
 | Plugin | Status | What it does |

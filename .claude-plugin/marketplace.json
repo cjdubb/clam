@@ -1,0 +1,16 @@
+{
+  "name": "clam",
+  "description": "Cam's Claude Code plugins: the lego workflow plus workflow clusters converted from clam-code (PR workflow, session modes, decision logs, team review, worktrees, guards).",
+  "owner": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  },
+  "plugins": [
+    {
+      "name": "lego",
+      "source": "./plugins/lego",
+      "description": "Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves.",
+      "version": "0.4.0"
+    }
+  ]
+}

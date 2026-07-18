@@ -1,0 +1,10 @@
+{
+  "commands": {
+    "test": "REPLACE: your test command (required)"
+  },
+  "models": {
+    "testWriter": "sonnet",
+    "implementer": "sonnet"
+  },
+  "testPatterns": []
+}

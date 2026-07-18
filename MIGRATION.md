@@ -25,7 +25,8 @@ superseded by this plugin.
 - Skills: `create-pr`, `address-pr-feedback`, `get-pr-comments`,
   `find-reviewer`, `pr-author-checklist`, `pre-pr-verify`, `pr-retrospective`,
   `pr-review`, `pr-review-perfect`, `pr-status`, `status-sync`,
-  `issue-tracker` (keeps its jira/github/none provider seam and `CLAM_*` knobs)
+  `issue-tracker` (keeps its jira/github/none provider seam and `CLAM_*` knobs),
+  `doc-sync` (pre-PR documentation-accuracy gate; reassigned from decision-log)
 - Docs: `skills/PR-WORKFLOW.md`
 - Agents: `reviewer`
 - Hooks: `pr-status.sh` (Stop)
@@ -40,10 +41,25 @@ superseded by this plugin.
   `capture-make-progress.sh`, `prompt-timestamp.sh`,
   `capture-permission-mode.sh`, `post-compact.sh`, `precompact-snapshot.sh`
 
-## decision-log — planned
+## decision-log — ported (from clam-code)
 
-- Skills: `decision-log`, `decision-log-interactive`, `decision-rundown`,
-  `doc-sync`
+Skills renamed: `decision-log` → `/decision-log:create`,
+`decision-log-interactive` → `/decision-log:interactive`, `decision-rundown` →
+`/decision-log:rundown`. Soft dependencies (issue-tracker, render-doc,
+team-council) degrade gracefully when the providing plugin/skill is absent.
+
+`doc-sync` was originally mapped here but its content is a pre-PR verification
+gate (slots into the `pre-pr-verify` sequence, blocks `create-pr`) — it moved
+to **pr-workflow**.
+
+Port-time notes for later plugins:
+
+- clam-code's `general/system-prompt.md` references `/decision-rundown` and
+  the `decision-rundown` template by name — the session-modes port must update
+  those to `/decision-log:rundown`.
+- The rundown skill's HTML-render gate still points at clam-code's
+  `~/.claude/skills/render-doc/`; re-point it when render-doc gets a plugin
+  home.
 
 ## team-review — planned
 

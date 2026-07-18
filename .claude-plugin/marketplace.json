@@ -11,6 +11,12 @@
       "source": "./plugins/lego",
       "description": "Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves.",
       "version": "0.4.0"
+    },
+    {
+      "name": "decision-log",
+      "source": "./plugins/decision-log",
+      "description": "Record technical decisions: one-shot DL drafting, section-by-section collaborative authoring, and pending-decision rundowns.",
+      "version": "0.1.0"
     }
   ]
 }

@@ -1,0 +1,9 @@
+{
+  "name": "decision-log",
+  "description": "Record technical decisions: one-shot Decision Log drafting (create), section-by-section collaborative authoring (interactive), and rendering or deepening pending decision files at park time (rundown).",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

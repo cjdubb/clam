@@ -117,10 +117,16 @@ Port-time notes for later plugins:
   previously unmapped — the enforcement leg of `subagent-orchestration`'s
   "the orchestrator never implements" rule)
 
-## worktrees — planned
+## worktrees — ported (fresh-written)
 
-- Skills: `creating-worktrees`, `parallel-branch-work`
-- Scripts: `general/todo-worktree.sh`
+Skills `usage` and `per-worker` are fresh-written against current
+git-helpers, not ported from clam-code's `creating-worktrees` and
+`parallel-branch-work` skills — those had gone stale relative to the
+current `newtree`/`rmtree`/`copyenv`/`cloneBareRepo` shell functions.
+
+`general/todo-worktree.sh` was deliberately **not** ported: it depends on
+clam-code session tooling this repo doesn't have yet. Revisit it alongside
+the tracking plugin.
 
 ## notifications — planned
 

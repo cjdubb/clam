@@ -22,6 +22,11 @@ statusline plugin's State segment.
   being rationalised into a false `Complete`.
 - **Stop/UserPromptSubmit** (`scripts/awaiting-user.sh`) maintains the
   `.local/.awaiting-user` marker consumers use for summons-epoch semantics.
+- **PreToolUse** (`scripts/block-task-tools.sh`) denies the built-in
+  TaskCreate/TaskUpdate/TaskList/TaskGet tools: they write to
+  `~/.claude/tasks/`, which the tracking docs, agent-dash, and the statusline
+  never see. The deny message redirects tracking to `.local/TODO.md`.
+  TeamCreate and the other team-coordination tools are not matched.
 - **`lib/states.tsv`** is the canonical State manifest (13 states; category,
   emoji, colour, summons). `lib/states.sh` holds the shared readers
   (`todo_field`, `state_category`, …). The statusline plugin vendors a copy —
@@ -33,6 +38,7 @@ statusline plugin's State segment.
 | Env var | Default | Effect |
 |---------|---------|--------|
 | `CLAM_TRACKING_STOP_GATE` | `enabled` | `disabled` turns off the Stop-hook enforcement entirely. |
+| `CLAM_TRACKING_TASK_TOOLS_GATE` | `enabled` | `disabled` turns off the built-in task-tools deny. |
 | `CLAM_PR_CRONS` | `disabled` | `enabled` blocks parking/completing with an open PR that has no monitoring cron (needs the pr-workflow plugin's create-pr watch crons; opt-in here, unlike clam-code where unset meant enabled). |
 | `CLAM_INDEPENDENT_REVIEW` | `disabled` | `enabled` blocks human-handoff states without an independent-review report (needs the independent-review skill). |
 | `CLAUDE_STOP_LOG` | `~/.claude/stop-log.jsonl` | Stop-hook audit log location. |
@@ -56,5 +62,7 @@ All optional; everything degrades gracefully when absent:
 ```
 
 Installing changes nothing globally; the hooks apply only where the plugin is
-enabled, and sessions without a `.local/TODO.md` are untouched (ad-hoc
-sessions stay ad-hoc).
+enabled. Sessions without a `.local/TODO.md` skip the Stop-hook enforcement
+(ad-hoc sessions stay ad-hoc); the task-tools deny is the one hook that fires
+regardless, since tracking anywhere but `.local/TODO.md` is exactly what it
+exists to prevent.

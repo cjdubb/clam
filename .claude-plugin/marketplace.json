@@ -1,6 +1,6 @@
 {
   "name": "clam",
-  "description": "Cam's Claude Code plugins: the lego workflow plus workflow clusters converted from clam-code (PR workflow, session modes, decision logs, team review, worktrees, guards).",
+  "description": "Cam's Claude Code plugins: the lego workflow plus workflow clusters converted from clam-code (PR workflow, session modes, decision logs, team review, worktrees, notifications, and focused guard plugins).",
   "owner": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"
@@ -21,8 +21,8 @@
     {
       "name": "tracking",
       "source": "./plugins/tracking",
-      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, and resume-after-/clear via SessionStart injection.",
-      "version": "0.1.0"
+      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, and resume-after-/clear via SessionStart injection.",
+      "version": "0.2.0"
     },
     {
       "name": "statusline",

@@ -37,6 +37,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "TaskCreate|TaskUpdate|TaskList|TaskGet",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-task-tools.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

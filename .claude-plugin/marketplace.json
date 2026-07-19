@@ -29,6 +29,12 @@
       "source": "./plugins/statusline",
       "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
       "version": "0.1.0"
+    },
+    {
+      "name": "worktrees",
+      "source": "./plugins/worktrees",
+      "description": "Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents.",
+      "version": "0.1.0"
     }
   ]
 }

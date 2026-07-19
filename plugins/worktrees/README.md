@@ -40,16 +40,48 @@ Edge cases: a skills/<dir>/ without SKILL.md is a defect, not ignorable.
 
 # worktrees
 
-TODO(B01): NotImplemented — plugin purpose paragraph.
+Claude Code skills for the git worktree workflow: recognizing a bare-clone
+worktree root and driving it through the `newtree` / `rmtree` / `copyenv` /
+`cloneBareRepo` shell functions, plus the worktree-per-worker pattern for
+handing isolated working directories to parallel agents or subagents.
+Installing this plugin changes nothing globally — it teaches Claude Code
+how to use tooling that already lives in your shell; it does not install,
+configure, or modify that tooling itself.
 
 ## Prerequisite: git-helpers
 
-TODO(B01): NotImplemented.
+This plugin is documentation and skills, not tooling. It has a hard
+prerequisite on [cjdubb/git-helpers](https://github.com/cjdubb/git-helpers),
+the repo that actually provides `newtree`, `rmtree`, `copyenv`, and
+`cloneBareRepo` as sourceable shell functions. This plugin never installs
+git-helpers on your behalf — that stays a deliberate, explicit step you run
+yourself:
+
+```bash
+~/github/git-helpers/setup.sh
+```
+
+`setup.sh` writes a managed block into your shell config that sources
+`worktree-helpers.sh`, so pulling updates to git-helpers takes effect in new
+shells without re-running it. If git-helpers is not installed on a given
+machine, the skills in this plugin degrade to instructions for installing
+it — they explain what `setup.sh` does and point at the upstream repo,
+rather than failing outright or pretending the helpers exist.
 
 ## Skills
 
-TODO(B01): NotImplemented.
+- **usage** — how to recognize a worktree root and correctly invoke
+  `newtree`, `rmtree`, `copyenv`, and `cloneBareRepo` from the Bash tool.
+- **per-worker** — the worktree-per-worker pattern: giving each parallel
+  worker its own isolated worktree so concurrent git writes never race.
 
 ## Dependencies
 
-TODO(B01): NotImplemented.
+- **Requires:** [cjdubb/git-helpers](https://github.com/cjdubb/git-helpers)
+  installed and sourced in the shell (see Prerequisite above); Claude Code
+  itself to load the skills.
+- **Provides:** the `usage` and `per-worker` skills — model-invocable
+  guidance for the worktree workflow. No shell functions, scripts, or
+  global configuration; installing the plugin changes nothing globally.
+- **Consumes:** nothing beyond git-helpers' shell functions when a skill's
+  guidance leads Claude Code to run them via the Bash tool.

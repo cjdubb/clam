@@ -29,7 +29,10 @@ superseded by this plugin.
   `doc-sync` (pre-PR documentation-accuracy gate; reassigned from decision-log)
 - Docs: `skills/PR-WORKFLOW.md`
 - Agents: `reviewer`
-- Hooks: `pr-status.sh` (Stop)
+- Hooks: `pr-status.sh` (Stop), `log-skill-trigger.sh` (PreToolUse +
+  PostToolUse on Skill; reassigned from the dissolved guards cluster — its
+  only consumer is `pr-retrospective`. Generic telemetry: split into its own
+  plugin if a second consumer appears)
 
 ## tracking — ported (from clam-code)
 
@@ -52,6 +55,12 @@ Port changes: the `CLAM_SESSION` alias gate became
 points at `/decision-log:rundown`; `notify` calls are conditional on the
 helper existing.
 
+Tracking v0.2.0 adds `block-task-tools.sh` (PreToolUse deny on
+TaskCreate/TaskUpdate/TaskList/TaskGet; reassigned from the dissolved guards
+cluster) — the enforcement leg of ".local/TODO.md is the state of record",
+same rationale as `keep-working.sh`. Port change: gated behind
+`CLAM_TRACKING_TASK_TOOLS_GATE` (default enabled).
+
 ## statusline — ported (from clam-code)
 
 Reassigned from the out-of-scope list: plugins cannot set `statusLine` (no
@@ -73,9 +82,11 @@ install-changes-nothing constraint holds.
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
   injection, so session-modes must not duplicate it), `flush-nudge.sh`,
-  `capture-make-progress.sh`, `prompt-timestamp.sh`,
+  `capture-make-progress.sh`,
   `capture-permission-mode.sh`, `post-compact.sh`, `precompact-snapshot.sh`
-- (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**)
+- (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
+  `prompt-timestamp.sh` moved to **notifications**, whose `stop-notify.sh` is
+  its sole consumer)
 
 ## decision-log — ported (from clam-code)
 
@@ -102,17 +113,87 @@ Port-time notes for later plugins:
 - Skills: `team-code-review`, `team-council`, `team-exploration`,
   `independent-review`, `independence-protocol`, `subagent-orchestration`
 - Agents: `Explore`, `browser`
+- Hooks: `orchestrator-guard.sh` (PreToolUse on Edit|Write|NotebookEdit;
+  previously unmapped — the enforcement leg of `subagent-orchestration`'s
+  "the orchestrator never implements" rule)
 
 ## worktrees — planned
 
 - Skills: `creating-worktrees`, `parallel-branch-work`
 - Scripts: `general/todo-worktree.sh`
 
-## guards — planned
+## notifications — planned
 
-- Hooks: `git-guard.sh`, `cron-guard.sh`, `block-task-tools.sh`,
-  `permission-audit.sh`, `notify.sh`, `push-notify.sh`, `stop-notify.sh`,
-  `log-skill-trigger.sh`
+The summoning stack, carved out of the dissolved guards cluster: the hooks
+that turn tracking's summoning states into bells, desktop notifications, and
+phone pushes. Porting this is what activates tracking's conditional `notify`
+calls.
+
+- Hooks: `notify.sh` (Notification: bell + desktop + tmux tint, suppressed
+  for parked non-summoning states), `push-notify.sh` (Notification: ntfy
+  phone push; permission prompts always page, idle events page only in
+  summoning states), `stop-notify.sh` (Stop: rings once on the transition
+  into a summoning state), `prompt-timestamp.sh` (UserPromptSubmit; moved
+  from session-modes — `stop-notify.sh` is its sole consumer: elapsed-turn
+  timer + summons-epoch reset)
+- Lib: `desktop-notify.sh` and `notify.sh` (the shared `notify()` helper the
+  tracking plugin calls when present) + their test suites; vendored
+  `states.sh`/`states.tsv` copy (canonical in tracking — keep in lockstep)
+- Tests: `push-notify.test.sh`, `stop-notify.test.sh`
+
+## permissions — planned
+
+The audit-then-allowlist loop: a guard that observes plus skills that act on
+the corpus.
+
+- Hooks: `permission-audit.sh` (PermissionRequest; appends every prompted
+  tool/command to `~/.claude/permission-audit.log`)
+- Skills: `analyze-permissions.sh` promoted from an unwired CLI helper
+  (previously unmapped) to `/permissions:analyze`
+- Gap: clam-code's docs reference a `fewer-permission-prompts` skill that was
+  never built. Decide at port time whether to build it here or drop the
+  references.
+
+## git-guard — planned
+
+Single guard. Hard-blocks force-push when the PR carries a non-author human
+review; soft-warns on `git add -A`/`--all`/`.`. Kept standalone rather than
+folded into pr-workflow: the staging warn is generic and the safety rails are
+useful without the PR machinery.
+
+- Hooks: `git-guard.sh` (PreToolUse on Bash) + `git-guard.test.sh`
+- Knob shared with pr-workflow: `CLAM_AUTO_REVIEWER` names the bot reviewer
+  exempt from the force-push block — document in both places.
+
+## cron-guard — planned
+
+Single guard. Caps active crons per session and keeps the audit ledger.
+
+- Hooks: `cron-guard.sh` (PreToolUse on CronCreate + PostToolUse on
+  CronCreate/CronDelete) + `cron-guard.test.sh`
+- Knobs and couplings to document at port time: `CLAM_CRON_CAP` (default 6,
+  sized for pr-workflow's park-scoped watch stacking); `.local/.cron-count`
+  mirror read by agent-dash (soft dependency); ledger at
+  `~/.claude/cron-audit.log`.
+
+## Guard inventory
+
+Every guard-type hook in clam-code and where it is tracked. Being tracked
+here does not commit to porting it; any row can still move to out of scope or
+dropped.
+
+| Guard | Destination | Status |
+|-------|-------------|--------|
+| `notify.sh`, `push-notify.sh`, `stop-notify.sh` (+ `prompt-timestamp.sh`, moved from session-modes) | notifications | planned |
+| `permission-audit.sh` (+ unwired `analyze-permissions.sh`) | permissions | planned |
+| `git-guard.sh` | git-guard | planned |
+| `cron-guard.sh` | cron-guard | planned |
+| `block-task-tools.sh` | tracking | ported |
+| `log-skill-trigger.sh` | pr-workflow | planned |
+| `orchestrator-guard.sh` | team-review | planned |
+| `keep-working.sh` | tracking | ported |
+| realm gate (`realm-gate.sh` + `realm-check.sh`) | lego | ported |
+| `lego-dispatch-guard.sh` | — (superseded by lego) | dropped |
 
 ## agent-dash — planned
 

@@ -3,7 +3,7 @@ profile-version: 1
 landing-strategy: github-pr
 landing-target: master
 landing-merged-by: user
-landing-verify: for t in plugins/*/scripts/*.test.sh; do bash "$t" || exit 1; done; jq -e . .claude-plugin/marketplace.json >/dev/null
+landing-verify: for t in plugins/*/scripts/*.test.sh plugins/*/lib/*.test.sh; do [ -f "$t" ] || continue; bash "$t" || exit 1; done; jq -e . .claude-plugin/marketplace.json >/dev/null
 ---
 
 # Workflow notes

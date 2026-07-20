@@ -98,7 +98,7 @@ check "decision-log entry untouched (source/version)" \
   '{"source":"./plugins/decision-log","version":"0.1.0"}'
 check "tracking entry untouched (source/version)" \
   "$(jq -c '.plugins[]? | select(.name=="tracking") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/tracking","version":"0.1.0"}'
+  '{"source":"./plugins/tracking","version":"0.2.0"}'
 check "statusline entry untouched (source/version)" \
   "$(jq -c '.plugins[]? | select(.name=="statusline") | {source,version}' "$MARKETPLACE")" \
   '{"source":"./plugins/statusline","version":"0.1.0"}'

@@ -29,6 +29,12 @@
       "source": "./plugins/statusline",
       "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
       "version": "0.1.0"
+    },
+    {
+      "name": "landing",
+      "source": "./plugins/landing",
+      "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.md (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
+      "version": "0.1.0"
     }
   ]
 }

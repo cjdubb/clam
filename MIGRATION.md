@@ -33,6 +33,28 @@ superseded by this plugin.
   PostToolUse on Skill; reassigned from the dissolved guards cluster — its
   only consumer is `pr-retrospective`. Generic telemetry: split into its own
   plugin if a second consumer appears)
+- When ported, `create-pr` also becomes the delegated github-pr provider
+  behind `/landing:land` (see **landing**), and `pre-pr-verify` should be
+  reconciled with the profile's `landing-verify` command.
+
+## landing — new (not a port)
+
+No clam-code ancestor; born 2026-07-20 from the "generic config across repo
+variances" work. Owns the landing seam: a repo-committed policy file
+(`.claude/clam-profile.md`, flat namespaced frontmatter keys shared with
+future seams) plus the generic `/landing:land` verb with `github-pr` and
+`local-merge` strategies, `/landing:init` policy setup, and a SessionStart
+policy injection.
+
+Couplings to honor at later ports:
+
+- **pr-workflow**: `create-pr` slots in behind the github-pr strategy (the
+  delegation seam is already written into the land skill).
+- **worktrees**: the local-merge strategy locates target checkouts and can
+  remove work worktrees — keep conventions aligned when that plugin lands.
+- **issue-tracker** (inside pr-workflow): its jira/github/none provider knob
+  is the natural second resident of the profile file — namespaced keys in
+  `.claude/clam-profile.md`, not a new file.
 
 ## tracking — ported (from clam-code)
 

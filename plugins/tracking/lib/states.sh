@@ -3,15 +3,17 @@
 # notifications plugins carry vendored copies (plugins/{statusline,notifications}/lib/);
 # keep them in lockstep.
 # Single source of truth for clam workflow session States (the TODO.md `State:`
-# field). Sourced by the Stop hook (general/hooks/keep-working.sh), the
-# stop notifier (general/hooks/stop-notify.sh), the statusline
-# (general/statusline/context.sh), and the orchestrator chunk-status script
-# (general/skills/subagent-orchestration/scripts/check-chunk-status.sh). The
-# bold-tolerant field reader todo_field() is also mirrored in general/lib/notify.sh.
+# field). Consumers, each sourcing its own plugin's copy of this lib: the
+# tracking plugin's Stop hook (scripts/keep-working.sh) and SessionStart
+# injection (scripts/session-context.sh), the statusline State segment
+# (scripts/context.sh), and the notifications hooks
+# (scripts/{notify,push-notify,stop-notify}.sh). The bold-tolerant field reader
+# todo_field() is also mirrored (as _clam_todo_field) in the notifications
+# plugin's lib/notify.sh.
 #
-# To add or change a State, edit general/lib/states.tsv. general/lib/states.test.sh
-# guards the markdown enumerations (system-prompt.md, TODO-TEMPLATE.md,
-# reference.md) against drift from this manifest.
+# To add or change a State, edit states.tsv in the canonical home
+# (plugins/tracking/lib/) and copy it into the vendored plugins so every copy
+# stays identical.
 #
 # bash 3.2 safe: macOS /bin/bash (which runs the hooks) is 3.2, so NO
 # associative arrays. Lookups are awk over the tiny TSV. The manifest is

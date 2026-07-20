@@ -170,8 +170,8 @@ tmux: ${tmux_session}:${tmux_window:-?}.${tmux_pane:-0}"
 
     # User activity gate: skip when the user submitted a prompt to any clam
     # agent within the threshold — typing into agent B should suppress agent
-    # A's pushes too. Reads the cross-worktree timestamp written by
-    # general/hooks/prompt-timestamp.sh.
+    # A's pushes too. Reads the cross-worktree timestamp written by this
+    # plugin's UserPromptSubmit hook (scripts/prompt-timestamp.sh).
     # Set CLAUDE_PUSH_ACTIVITY_GATE_SECONDS=0 to disable.
     local activity_gate="${CLAUDE_PUSH_ACTIVITY_GATE_SECONDS:-30}"
     if (( activity_gate > 0 )); then

@@ -23,10 +23,12 @@ if command -v jq &>/dev/null; then
     cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null)
 fi
 
+PLUGIN_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
+
 # State gate: suppress when the session is parked and not summoning. The shared
 # states lib provides state_is_parked()/state_summons(); a missing lib means a
 # broken install, so degrade to the old unconditional-fire behavior (safe default).
-STATES_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/states.sh"
+STATES_LIB="$PLUGIN_LIB_DIR/states.sh"
 if [[ -n "$cwd" ]] && [[ -f "$STATES_LIB" ]]; then
     # shellcheck source=/dev/null
     source "$STATES_LIB"
@@ -64,7 +66,7 @@ fi
 # Desktop notification (title = worktree/directory name): osascript on macOS,
 # notify-send/paplay on Linux, silent no-op otherwise. Quote-escaping for the
 # osascript AppleScript string lives in the shared helper now.
-DESKTOP_NOTIFY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/desktop-notify.sh"
+DESKTOP_NOTIFY_LIB="$PLUGIN_LIB_DIR/desktop-notify.sh"
 if [[ -f "$DESKTOP_NOTIFY_LIB" ]]; then
     # shellcheck source=../lib/desktop-notify.sh
     source "$DESKTOP_NOTIFY_LIB"

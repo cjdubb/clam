@@ -49,11 +49,13 @@ if [[ -f "$silent_flag" ]]; then
     exit 0
 fi
 
+PLUGIN_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
+
 # Shared session-State metadata + the bold-tolerant field reader from the
 # manifest lib (../lib/states.sh, vendored; canonical in the tracking plugin).
 # A missing lib means a broken plugin install; degrade to a silent no-op
 # (consistent with this hook's other silent exits) rather than mis-reading State.
-STATES_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/states.sh"
+STATES_LIB="$PLUGIN_LIB_DIR/states.sh"
 [[ -f "$STATES_LIB" ]] || exit 0
 # shellcheck source=/dev/null
 source "$STATES_LIB"
@@ -125,7 +127,7 @@ command -v jq &>/dev/null && jq -nc --arg seq "$(printf '\007')" '{terminalSeque
 # Desktop notification: osascript on macOS, notify-send/paplay on Linux,
 # silent no-op otherwise. Quote-escaping for the osascript AppleScript string
 # lives in the shared helper now.
-DESKTOP_NOTIFY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/desktop-notify.sh"
+DESKTOP_NOTIFY_LIB="$PLUGIN_LIB_DIR/desktop-notify.sh"
 if [[ -f "$DESKTOP_NOTIFY_LIB" ]]; then
     # shellcheck source=../lib/desktop-notify.sh
     source "$DESKTOP_NOTIFY_LIB"

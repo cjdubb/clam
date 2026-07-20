@@ -30,8 +30,9 @@
 #
 # CLAM_NOTIFICATIONS_GATE=disabled at launch turns off every hook in this
 # plugin (hooks do not see mid-session exports).
-
-set -e
+#
+# No set -e, matching the plugin's other hooks: a notification hook that hits
+# an unexpected non-zero should degrade silently, not abort the event.
 
 [[ "${CLAM_NOTIFICATIONS_GATE:-enabled}" == "enabled" ]] || exit 0
 [[ -z "$CLAUDE_PUSH_NTFY_TOPIC" ]] && exit 0

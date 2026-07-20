@@ -10,6 +10,11 @@ whole flow hangs off: test-writers test against it, implementers fill it in,
 and the compiler (where one exists) proves the design composes. Scaffolding is
 orchestrator work; do not delegate it.
 
+Scaffolding happens on the **integration branch** — the branch lego was
+started on. Every work unit's worktree forks from the integration tip, so all
+stubs must land there first: each work unit then sees every sibling block's
+*stub* but never a sibling's *tests* or *implementation*.
+
 Precondition: an approved plan in `.local/plans/` with blocks at `Status: Planned`.
 
 ## Step 1: Write the stubs
@@ -72,9 +77,13 @@ that fails its gate must not be dispatched.
 ## Step 3: Update state and checkpoint
 
 - Set every scaffolded block to `Status: Scaffolded` and fill in its `Code:`
-  path(s) in `.local/blocks.md`.
+  field in `.local/blocks.md` with each block's **actual** path(s), verified
+  pairwise disjoint across work units. A violation goes back to `/lego:plan`
+  as a decomposition defect rather than being resolved silently here.
 - Commit the scaffold (with the engineer's consent) as a phase boundary. Clean
   phase-boundary commits are what make realm verification precise in dispatch:
-  each wave's diff can then be checked in isolation.
+  each wave's diff can then be checked in isolation. This commit is what every
+  work unit's worktree forks from — dispatch runs `worktree.sh add` against
+  this commit's branch tip.
 
 Then proceed to `/lego:dispatch`.

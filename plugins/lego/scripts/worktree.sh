@@ -1,0 +1,652 @@
+#!/usr/bin/env bash
+# worktree.sh — lego unit-worktree lifecycle helper.
+#
+# Contract: B01 worktree-lib
+#
+# Behavior:
+#   Manages the git worktrees, branches, and delivery PRs for lego work
+#   units. Run from the repo root of the integration worktree (the branch
+#   lego was started on). Subcommands:
+#
+#   add <plan-slug> <unit-id> <unit-slug>
+#     Creates branch "lego/<plan-slug>/<unit-id>-<unit-slug>" at the current
+#     HEAD plus a git worktree for it at
+#     "<worktreeDir>/<repo-basename>-<unit-id>", where <worktreeDir> is
+#     delivery.worktreeDir from .local/config.json (missing/empty → the
+#     parent directory of the repo root; a relative value resolves against
+#     the repo root) and <repo-basename> is the basename of the repo root.
+#     Seeds the new worktree's .local/ directory:
+#       - .local/config.json copied verbatim
+#       - .local/unit.md: the single line "# Unit <unit-id>", then exactly
+#         the "## B<NN> — ..." sections of the integration worktree's
+#         .local/blocks.md whose "- Unit:" field equals <unit-id>, verbatim
+#       - every .local/contracts/B<NN>-*.md whose B<NN> belongs to one of
+#         those sections, copied to the same relative path (silently skipped
+#         when no such file exists)
+#     Then runs the repo test command (commands.test) inside the new worktree
+#     as a baseline check. On success prints the new worktree's absolute path
+#     as the LAST line of stdout and exits 0.
+#
+#   merge <unit-id>
+#     From the integration worktree: finds the unique local branch matching
+#     glob "lego/*/<unit-id>-*" and merges it into the current branch with
+#     --no-ff and commit message "lego: merge <branch-name>". Refuses when
+#     the working tree has uncommitted tracked changes.
+#
+#   deliver <base-branch> <unit-id> [<unit-id>...]
+#     Builds delivery branch "lego/deliver/<unit-id>[+<unit-id>...]" (ids in
+#     argument order) from <base-branch> in a temporary worktree. For each
+#     unit, in argument order:
+#       - resolves the unit branch (unique match of "lego/*/<unit-id>-*") and
+#         the unit's block paths: the comma-separated "- Code:" entries of
+#         every blocks.md section whose "- Unit:" equals the unit id, each
+#         path trimmed of surrounding spaces
+#       - finds on the unit branch the newest commit with subject exactly
+#         "lego(<unit-id>): tests" and the newest with subject exactly
+#         "lego(<unit-id>): implementation"; the implementation commit is
+#         required, the tests commit is optional (untested prose units)
+#       - when the tests commit exists: restores the block paths from it and
+#         commits with subject "lego(<unit-id>): contract + tests"; then
+#         restores the block paths from the implementation commit and commits
+#         with subject "lego(<unit-id>): implementation". A restore that
+#         produces no changes creates no commit.
+#     Pushes the delivery branch to the "origin" remote and opens a PR
+#     against <base-branch> with `gh pr create`; the PR title is
+#     "lego: <unit-id list>" and the body lists, for every delivered block,
+#     its "## B<NN> — ..." heading line and its "- Contract:" line from
+#     blocks.md. Removes the temporary worktree (the local delivery branch
+#     remains) and prints the PR URL as the LAST line of stdout.
+#
+#   remove <unit-id>
+#     Removes the unit's worktree via `git worktree remove` (fails on a dirty
+#     tree) and deletes its branch with `git branch -d` (fails when unmerged).
+#
+# Inputs:
+#   Positional arguments as above. .local/config.json (jq-parsed;
+#   commands.test required; delivery.worktreeDir optional). .local/blocks.md
+#   with "- Unit:" and "- Code:" fields per block section. Must run inside a
+#   git work tree, at the repo root.
+#
+# Outputs:
+#   Human-readable progress on stderr only. Machine-consumable result — the
+#   worktree path (add) or PR URL (deliver) — as the last stdout line.
+#   Exit 0 on success.
+#
+# Errors:
+#   exit 2 — usage error: unknown subcommand, wrong argument count, or an id/
+#            slug containing characters outside [A-Za-z0-9._-]; prints usage
+#            to stderr.
+#   exit 3 — missing dependency or input: jq absent; gh absent (deliver
+#            only); .local/config.json missing or commands.test absent/empty;
+#            .local/blocks.md missing; not inside a git work tree.
+#   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
+#            branch or worktree path already exists (add); zero or multiple
+#            unit-branch matches (merge/deliver/remove); dirty working tree
+#            (merge); baseline test failure (add); required implementation
+#            commit missing (deliver); delivery branch already exists
+#            (deliver); unmerged branch (remove); underlying git/gh failure.
+#   Every error prints exactly one line starting "ERROR: " to stderr.
+#
+# Invariants:
+#   - Files in the invoking worktree are modified only by `merge`, and only
+#     through `git merge` itself; no subcommand edits files there directly.
+#   - `add` cleans up everything it created in the same invocation on any
+#     failure: no half-created branch, worktree, or seed survives.
+#   - Only creates or deletes branches under "lego/" and worktrees it created
+#     itself; all other branches and worktrees are untouched.
+#   - Deterministic: identical repo state and arguments produce identical
+#     names and results.
+#
+# Edge cases:
+#   - Multiple blocks sharing one unit: unit.md carries all their sections;
+#     deliver restores the union of their Code paths.
+#   - Code paths containing spaces are preserved verbatim (comma is the only
+#     separator in a "- Code:" list).
+#   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
+#     artifacts are never silently reused.
+#   - A unit whose blocks have no "- Code:" paths cannot be delivered
+#     (treated as unit-id matching no deliverable content, exit 4).
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Low-level helpers
+# ---------------------------------------------------------------------------
+
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <unit-id> | worktree.sh deliver <base-branch> <unit-id> [<unit-id>...] | worktree.sh remove <unit-id>"
+
+# err/die print the single mandated "ERROR: " stderr line. Only ever call
+# these from a function invoked as a plain statement (never from inside a
+# $(...) command substitution) -- exit inside a substitution's subshell would
+# only kill that subshell, not the script.
+err() { printf 'ERROR: %s\n' "$1" >&2; }
+die() { err "$2"; exit "$1"; }
+usage_die() { die 2 "$USAGE_MSG"; }
+
+valid_token() {
+  case "$1" in
+    '') return 1 ;;
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+REPO_ROOT=""
+require_repo_root() {
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+  if [ -z "$REPO_ROOT" ]; then
+    die 3 "must be run inside a git work tree"
+  fi
+}
+
+require_jq() {
+  command -v jq >/dev/null 2>&1 || die 3 "jq is required"
+}
+
+require_gh() {
+  command -v gh >/dev/null 2>&1 || die 3 "gh is required"
+}
+
+CONFIG_JSON=""
+require_config_json() {
+  CONFIG_JSON="$REPO_ROOT/.local/config.json"
+  [ -f "$CONFIG_JSON" ] || die 3 "missing .local/config.json"
+}
+
+TEST_CMD=""
+require_test_cmd() {
+  TEST_CMD="$(jq -r '.commands.test // empty' "$CONFIG_JSON" 2>/dev/null)"
+  [ -n "$TEST_CMD" ] || die 3 "commands.test missing or empty in .local/config.json"
+}
+
+BLOCKS_MD=""
+require_blocks_md() {
+  BLOCKS_MD="$REPO_ROOT/.local/blocks.md"
+  [ -f "$BLOCKS_MD" ] || die 3 "missing .local/blocks.md"
+}
+
+# resolve_unit_branch <unit-id> -- prints the unique local branch matching
+# "lego/*/<unit-id>-*" on stdout and returns 0; returns 1 on zero matches, 2
+# on multiple matches. Never calls die/exit (safe to invoke via $(...)).
+resolve_unit_branch() {
+  local unit_id="$1"
+  local matches count
+  matches="$(git -C "$REPO_ROOT" branch --list --format='%(refname:short)' "lego/*/$unit_id-*" 2>/dev/null)"
+  if [ -z "$matches" ]; then
+    return 1
+  fi
+  count="$(printf '%s\n' "$matches" | grep -c '')"
+  if [ "$count" -ne 1 ]; then
+    return 2
+  fi
+  printf '%s' "$matches"
+  return 0
+}
+
+# find_worktree_for_branch <branch> -- prints the worktree path with that
+# branch checked out, or nothing if none. Never calls die/exit.
+find_worktree_for_branch() {
+  local branch="$1"
+  git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v want="refs/heads/$branch" '
+    /^worktree / { wt = substr($0, 10) }
+    /^branch /   { if (substr($0, 8) == want) { print wt; exit } }
+  '
+}
+
+# newest_commit_with_subject <branch> <exact-subject> -- prints the sha of
+# the newest commit on <branch> whose subject equals <exact-subject> exactly,
+# or nothing if none. Never calls die/exit.
+newest_commit_with_subject() {
+  local branch="$1" subject="$2"
+  local sha subj
+  while IFS=$'\t' read -r sha subj; do
+    if [ "$subj" = "$subject" ]; then
+      printf '%s' "$sha"
+      return 0
+    fi
+  done < <(git -C "$REPO_ROOT" log --format='%H%x09%s' "$branch" 2>/dev/null)
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# blocks.md parsing
+# ---------------------------------------------------------------------------
+
+# read_blocks_sections <blocks.md-path> <unit-id> -- populates globals for
+# every "## B<NN> - ..." section whose "- Unit:" field equals <unit-id>, in
+# file order:
+#   MATCHED_SECTIONS  full verbatim section text (heading through the line
+#                     before the next heading or EOF), one array item each
+#   MATCHED_BLOCK_IDS "B<NN>" token from the heading
+#   MATCHED_HEADINGS  the heading line itself
+#   MATCHED_CODE      the raw "- Code:" value (may be empty)
+#   MATCHED_CONTRACT  the full "- Contract:" line (may be empty)
+read_blocks_sections() {
+  local file="$1" unit_filter="$2"
+  MATCHED_SECTIONS=(); MATCHED_BLOCK_IDS=(); MATCHED_HEADINGS=()
+  MATCHED_CODE=(); MATCHED_CONTRACT=()
+
+  local cur_id="" cur_unit="" cur_text="" cur_heading="" cur_code="" cur_contract=""
+  local in_section=0
+  local line
+  local -a lines=()
+  mapfile -t lines < "$file"
+  lines+=("## __END__")
+
+  for line in "${lines[@]}"; do
+    if [[ "$line" == "## "* ]]; then
+      if [ "$in_section" -eq 1 ] && [ "$cur_unit" = "$unit_filter" ]; then
+        MATCHED_SECTIONS+=("$cur_text")
+        MATCHED_BLOCK_IDS+=("$cur_id")
+        MATCHED_HEADINGS+=("$cur_heading")
+        MATCHED_CODE+=("$cur_code")
+        MATCHED_CONTRACT+=("$cur_contract")
+      fi
+      cur_heading="$line"
+      cur_id="${line#"## "}"
+      cur_id="${cur_id%% *}"
+      cur_unit=""
+      cur_code=""
+      cur_contract=""
+      cur_text="$line"$'\n'
+      in_section=1
+      continue
+    fi
+    cur_text+="$line"$'\n'
+    case "$line" in
+      "- Unit: "*) cur_unit="${line#"- Unit: "}" ;;
+      "- Code: "*) cur_code="${line#"- Code: "}" ;;
+      "- Contract: "*) cur_contract="$line" ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------------------------
+# add
+# ---------------------------------------------------------------------------
+
+# seed_contracts <new-worktree> <block-id>... -- copies every
+# .local/contracts/B<NN>-*.md for the given block ids into the new worktree;
+# silently skips block ids with no such file. Returns 1 on a copy failure.
+seed_contracts() {
+  local new_wt="$1"; shift
+  local block_id f have=0
+  for block_id in "$@"; do
+    for f in "$REPO_ROOT/.local/contracts/${block_id}-"*.md; do
+      [ -e "$f" ] || continue
+      if [ "$have" -eq 0 ]; then
+        mkdir -p -- "$new_wt/.local/contracts" || return 1
+        have=1
+      fi
+      cp -- "$f" "$new_wt/.local/contracts/$(basename -- "$f")" || return 1
+    done
+  done
+  return 0
+}
+
+add_cleanup() {
+  local wt="$1" branch="$2"
+  if [ -n "$wt" ]; then
+    git -C "$REPO_ROOT" worktree remove --force -- "$wt" >/dev/null 2>&1
+    rm -rf -- "$wt" 2>/dev/null
+  fi
+  if [ -n "$branch" ]; then
+    git -C "$REPO_ROOT" branch -D -- "$branch" >/dev/null 2>&1
+  fi
+}
+
+cmd_add() {
+  [ "$#" -eq 3 ] || usage_die
+  local plan_slug="$1" unit_id="$2" unit_slug="$3"
+  if ! valid_token "$plan_slug" || ! valid_token "$unit_id" || ! valid_token "$unit_slug"; then
+    usage_die
+  fi
+
+  require_repo_root
+  require_jq
+  require_config_json
+  require_test_cmd
+  require_blocks_md
+
+  local worktree_dir
+  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' "$CONFIG_JSON" 2>/dev/null)"
+
+  local base_dir
+  if [ -z "$worktree_dir" ]; then
+    base_dir="$REPO_ROOT/.."
+  else
+    case "$worktree_dir" in
+      /*) base_dir="$worktree_dir" ;;
+      *) base_dir="$REPO_ROOT/$worktree_dir" ;;
+    esac
+  fi
+  base_dir="$(realpath -m -- "$base_dir")"
+
+  local new_wt branch
+  new_wt="$base_dir/$(basename -- "$REPO_ROOT")-$unit_id"
+  branch="lego/$plan_slug/$unit_id-$unit_slug"
+
+  read_blocks_sections "$BLOCKS_MD" "$unit_id"
+  if [ "${#MATCHED_SECTIONS[@]}" -eq 0 ]; then
+    die 4 "no blocks.md section found for unit $unit_id"
+  fi
+
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch"; then
+    die 4 "branch $branch already exists"
+  fi
+
+  if [ -e "$new_wt" ]; then
+    die 4 "worktree path already exists: $new_wt"
+  fi
+
+  if ! git -C "$REPO_ROOT" worktree add -q -b "$branch" "$new_wt" HEAD >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" branch -D -- "$branch" >/dev/null 2>&1
+    rm -rf -- "$new_wt" 2>/dev/null
+    die 4 "failed to create worktree for unit $unit_id"
+  fi
+
+  local seed_ok=1
+  mkdir -p -- "$new_wt/.local" 2>/dev/null || seed_ok=0
+  if [ "$seed_ok" -eq 1 ]; then
+    cp -- "$CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
+  fi
+  if [ "$seed_ok" -eq 1 ]; then
+    {
+      printf '# Unit %s\n\n' "$unit_id"
+      local s
+      for s in "${MATCHED_SECTIONS[@]}"; do
+        printf '%s' "$s"
+      done
+    } > "$new_wt/.local/unit.md" 2>/dev/null || seed_ok=0
+  fi
+  if [ "$seed_ok" -eq 1 ]; then
+    seed_contracts "$new_wt" "${MATCHED_BLOCK_IDS[@]}" || seed_ok=0
+  fi
+
+  if [ "$seed_ok" -ne 1 ]; then
+    add_cleanup "$new_wt" "$branch"
+    die 4 "failed to seed .local in new worktree for unit $unit_id"
+  fi
+
+  if ! ( cd "$new_wt" && eval "$TEST_CMD" ) >/dev/null 2>&1; then
+    add_cleanup "$new_wt" "$branch"
+    die 4 "baseline test command failed in new worktree"
+  fi
+
+  printf '%s\n' "$new_wt"
+}
+
+# ---------------------------------------------------------------------------
+# merge
+# ---------------------------------------------------------------------------
+
+cmd_merge() {
+  [ "$#" -eq 1 ] || usage_die
+  local unit_id="$1"
+  valid_token "$unit_id" || usage_die
+
+  require_repo_root
+
+  local branch rc
+  branch="$(resolve_unit_branch "$unit_id")"
+  rc=$?
+  if [ "$rc" -eq 1 ]; then
+    die 4 "no branch found for unit $unit_id"
+  elif [ "$rc" -eq 2 ]; then
+    die 4 "multiple branches found for unit $unit_id"
+  fi
+
+  local dirty
+  dirty="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no 2>/dev/null)"
+  if [ -n "$dirty" ]; then
+    die 4 "working tree has uncommitted tracked changes"
+  fi
+
+  if ! git -C "$REPO_ROOT" merge --no-ff -m "lego: merge $branch" -- "$branch" >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" merge --abort >/dev/null 2>&1
+    die 4 "merge of $branch failed"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# deliver
+# ---------------------------------------------------------------------------
+
+# restore_and_commit <worktree> <sha> <subject> <path>... -- restores <path>s
+# from <sha> and commits with <subject> if that produced a diff. Returns 1 on
+# an underlying git failure, 0 otherwise (including the no-op case).
+restore_and_commit() {
+  local wt="$1" sha="$2" subject="$3"; shift 3
+  local -a paths=("$@")
+  [ "${#paths[@]}" -gt 0 ] || return 0
+
+  if ! git -C "$wt" checkout -q "$sha" -- "${paths[@]}" >/dev/null 2>&1; then
+    return 1
+  fi
+  if git -C "$wt" diff --cached --quiet -- "${paths[@]}" 2>/dev/null; then
+    return 0
+  fi
+  if ! git -C "$wt" commit -q -m "$subject" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
+deliver_cleanup() {
+  local tmp_wt="$1" tmp_parent="$2" branch="$3"
+  if [ -n "$tmp_wt" ]; then
+    git -C "$REPO_ROOT" worktree remove --force -- "$tmp_wt" >/dev/null 2>&1
+  fi
+  if [ -n "$tmp_parent" ]; then
+    rm -rf -- "$tmp_parent" 2>/dev/null
+  fi
+  if [ -n "$branch" ]; then
+    git -C "$REPO_ROOT" branch -D -- "$branch" >/dev/null 2>&1
+  fi
+}
+
+cmd_deliver() {
+  [ "$#" -ge 2 ] || usage_die
+  local base_branch="$1"; shift
+  local -a unit_ids=("$@")
+
+  valid_token "$base_branch" || usage_die
+  local u
+  for u in "${unit_ids[@]}"; do
+    valid_token "$u" || usage_die
+  done
+
+  require_repo_root
+  require_jq
+  require_config_json
+  require_blocks_md
+  require_gh
+
+  local delivery_suffix="" sep=""
+  for u in "${unit_ids[@]}"; do
+    delivery_suffix="${delivery_suffix}${sep}${u}"
+    sep="+"
+  done
+  local delivery_branch="lego/deliver/$delivery_suffix"
+
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$delivery_branch"; then
+    die 4 "delivery branch $delivery_branch already exists"
+  fi
+
+  # ---- Pass 1: resolve and validate everything, read-only ----
+  local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=() UNIT_PATHS_JOINED=()
+  local -a ALL_HEADINGS=() ALL_CONTRACTS=()
+
+  for u in "${unit_ids[@]}"; do
+    local branch rc
+    branch="$(resolve_unit_branch "$u")"
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+      die 4 "no branch found for unit $u"
+    elif [ "$rc" -eq 2 ]; then
+      die 4 "multiple branches found for unit $u"
+    fi
+
+    read_blocks_sections "$BLOCKS_MD" "$u"
+    if [ "${#MATCHED_SECTIONS[@]}" -eq 0 ]; then
+      die 4 "no blocks.md section found for unit $u"
+    fi
+
+    local -a unit_paths=()
+    local i code_val part
+    for i in "${!MATCHED_CODE[@]}"; do
+      ALL_HEADINGS+=("${MATCHED_HEADINGS[$i]}")
+      ALL_CONTRACTS+=("${MATCHED_CONTRACT[$i]}")
+      code_val="${MATCHED_CODE[$i]}"
+      if [ -n "$code_val" ]; then
+        local -a parts=()
+        IFS=',' read -ra parts <<< "$code_val"
+        for part in "${parts[@]}"; do
+          unit_paths+=("$(trim "$part")")
+        done
+      fi
+    done
+
+    if [ "${#unit_paths[@]}" -eq 0 ]; then
+      die 4 "unit $u has no Code paths to deliver"
+    fi
+    UNIT_PATHS_JOINED+=("$(printf '%s\n' "${unit_paths[@]}")")
+
+    local tests_sha impl_sha
+    tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests")"
+    impl_sha="$(newest_commit_with_subject "$branch" "lego($u): implementation")"
+    if [ -z "$impl_sha" ]; then
+      die 4 "unit $u is missing the required implementation commit"
+    fi
+    UNIT_TESTS_SHA+=("$tests_sha")
+    UNIT_IMPL_SHA+=("$impl_sha")
+  done
+
+  # ---- Pass 2: build the delivery branch in a temporary worktree ----
+  local tmp_parent tmp_wt
+  tmp_parent="$(mktemp -d)"
+  tmp_wt="$tmp_parent/wt"
+
+  if ! git -C "$REPO_ROOT" worktree add -q -b "$delivery_branch" "$tmp_wt" "$base_branch" >/dev/null 2>&1; then
+    deliver_cleanup "" "$tmp_parent" "$delivery_branch"
+    die 4 "failed to create delivery branch from $base_branch"
+  fi
+
+  local idx=0 build_failed=0
+  for u in "${unit_ids[@]}"; do
+    local -a unit_paths=()
+    mapfile -t unit_paths <<< "${UNIT_PATHS_JOINED[$idx]}"
+    local tests_sha="${UNIT_TESTS_SHA[$idx]}"
+    local impl_sha="${UNIT_IMPL_SHA[$idx]}"
+
+    if [ -n "$tests_sha" ]; then
+      restore_and_commit "$tmp_wt" "$tests_sha" "lego($u): contract + tests" "${unit_paths[@]}"
+      if [ "$?" -ne 0 ]; then
+        build_failed=1
+        break
+      fi
+    fi
+
+    restore_and_commit "$tmp_wt" "$impl_sha" "lego($u): implementation" "${unit_paths[@]}"
+    if [ "$?" -ne 0 ]; then
+      build_failed=1
+      break
+    fi
+
+    idx=$((idx + 1))
+  done
+
+  if [ "$build_failed" -eq 1 ]; then
+    deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
+    die 4 "failed to build delivery branch content"
+  fi
+
+  if ! git -C "$REPO_ROOT" push -q origin "$delivery_branch" >/dev/null 2>&1; then
+    deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
+    die 4 "failed to push $delivery_branch to origin"
+  fi
+
+  local pr_title="lego: ${unit_ids[*]}"
+  local pr_body=""
+  local n
+  for n in "${!ALL_HEADINGS[@]}"; do
+    pr_body="${pr_body}${ALL_HEADINGS[$n]}"$'\n'
+    if [ -n "${ALL_CONTRACTS[$n]}" ]; then
+      pr_body="${pr_body}${ALL_CONTRACTS[$n]}"$'\n'
+    fi
+    pr_body="${pr_body}"$'\n'
+  done
+
+  local pr_url
+  pr_url="$(cd "$REPO_ROOT" && gh pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"
+  local gh_rc=$?
+
+  if [ "$gh_rc" -ne 0 ] || [ -z "$pr_url" ]; then
+    deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
+    die 4 "gh pr create failed"
+  fi
+
+  git -C "$REPO_ROOT" worktree remove --force -- "$tmp_wt" >/dev/null 2>&1
+  rm -rf -- "$tmp_parent" 2>/dev/null
+
+  printf '%s\n' "$pr_url"
+}
+
+# ---------------------------------------------------------------------------
+# remove
+# ---------------------------------------------------------------------------
+
+cmd_remove() {
+  [ "$#" -eq 1 ] || usage_die
+  local unit_id="$1"
+  valid_token "$unit_id" || usage_die
+
+  require_repo_root
+
+  local branch rc
+  branch="$(resolve_unit_branch "$unit_id")"
+  rc=$?
+  if [ "$rc" -eq 1 ]; then
+    die 4 "no branch found for unit $unit_id"
+  elif [ "$rc" -eq 2 ]; then
+    die 4 "multiple branches found for unit $unit_id"
+  fi
+
+  local wt_path
+  wt_path="$(find_worktree_for_branch "$branch")"
+
+  if [ -n "$wt_path" ]; then
+    if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then
+      die 4 "failed to remove worktree for unit $unit_id (dirty?)"
+    fi
+  fi
+
+  if ! git -C "$REPO_ROOT" branch -d -- "$branch" >/dev/null 2>&1; then
+    die 4 "failed to delete branch $branch (unmerged?)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+main() {
+  [ "$#" -ge 1 ] || usage_die
+  local sub="$1"
+  shift
+  case "$sub" in
+    add) cmd_add "$@" ;;
+    merge) cmd_merge "$@" ;;
+    deliver) cmd_deliver "$@" ;;
+    remove) cmd_remove "$@" ;;
+    *) usage_die ;;
+  esac
+}
+
+main "$@"

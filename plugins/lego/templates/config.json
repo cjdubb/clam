@@ -6,5 +6,9 @@
     "testWriter": "sonnet",
     "implementer": "sonnet"
   },
-  "testPatterns": []
+  "testPatterns": [],
+  "delivery": {
+    "mode": "local-only",
+    "worktreeDir": ""
+  }
 }

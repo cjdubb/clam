@@ -21,9 +21,11 @@ system never sees. Blocks are recursive; compositions are themselves blocks
 2. `/lego:scaffold` — the orchestrator (this session) writes runtime-present,
    deliberately unimplemented stubs carrying full behavioral contracts, then runs
    the scaffold gate (strongest available check).
-3. `/lego:dispatch` — test wave (lego-test-writer agents), orchestrator
-   verification, then implementation wave (lego-implementer agents), orchestrator
-   acceptance. Dependency-ordered, parallel where independent.
+3. `/lego:dispatch` — per-unit pipeline, each work unit dispatched in its own
+   dedicated worktree: test wave (lego-test-writer agents), orchestrator
+   verification, then implementation wave (lego-implementer agents),
+   orchestrator acceptance, local merge, and incremental delivery.
+   Dependency-ordered, parallel where independent.
 
 ## Standing rules
 
@@ -45,6 +47,13 @@ system never sees. Blocks are recursive; compositions are themselves blocks
   clauses, never internals.
 - The engineer may claim any block (Owner: engineer). Same contract, same tests,
   same acceptance gate; sibling blocks proceed against stubs meanwhile.
+- Every work unit (one block by default) is dispatched in a dedicated worktree
+  forked from the integration branch; workers see only their own unit's tests
+  and contract.
+- Accepted units always merge locally into the integration branch. Under
+  `main-prs` delivery mode, PR groups are raised as PRs targeting master/main
+  only (never another branch), each containing only complete blocks (contract
+  + tests + implementation).
 - Keep `.local/blocks.md` current in real time. It is the engineer's mental model
   of the system; a stale map is a defect.
 - Repo specifics (verify commands, model tiers) come ONLY from `.local/config.json`.

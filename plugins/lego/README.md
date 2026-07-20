@@ -9,10 +9,14 @@ block with its own contract and tests.
 The engineer and an orchestrator (your main session, presumed frontier-tier)
 plan and decompose the deliverable together. The orchestrator scaffolds every
 block as a runtime-present, deliberately unimplemented stub carrying its full
-contract, then dispatches cheaper realm-restricted workers: a **test wave**
-writes tests against the contracts, an **implementation wave** makes them pass.
-The orchestrator verifies every wave against explicit checklists, and a living
-block map keeps the engineer's mental model current at the contract level.
+contract, then dispatches each work unit through a per-unit pipeline in its
+own dedicated git worktree, forked from the integration branch, using cheaper
+realm-restricted workers: a **test wave** writes tests against the contract,
+an **implementation wave** makes them pass. The orchestrator verifies every
+wave against explicit checklists; accepted units merge locally and, under
+`main-prs` delivery mode, deliver incrementally as PR groups raised to
+master/main. A living block map keeps the engineer's mental model current at
+the contract level.
 
 ## Why it works
 
@@ -29,6 +33,10 @@ block map keeps the engineer's mental model current at the contract level.
   test-writers any non-test file and implementers any test file; a post-hoc
   diff check (`scripts/realm-check.sh`) catches what file hooks can't see. An
   implementer structurally cannot weaken a test to get to green.
+- **Isolation is mechanical too.** Each work unit is dispatched in its own
+  dedicated worktree: a worker cannot even see a sibling block's tests, let
+  alone its contract under review. Delivery is incremental — each PR is one
+  reviewable chunk of contract + tests + implementation, never a bare stub.
 - **Workers never design.** Ambiguity, mis-sized blocks, and wrong-seeming
   tests are escalated to the orchestrator; contract changes go through the
   engineer, always.
@@ -56,8 +64,11 @@ repo is untouched. That is a hard design constraint of this project.
    can remove that exclude entry and commit `.local/` deliberately.
 2. `/lego:scaffold` — the orchestrator writes stubs + contracts and proves
    the design composes (typecheck > build > lint, whatever your repo has).
-3. `/lego:dispatch` — test wave, verification, implementation wave,
-   acceptance. You watch the block map; you build any block you claimed.
+3. `/lego:dispatch` — per-unit pipeline: each work unit dispatched in its own
+   dedicated worktree for a test wave, verification, implementation wave, and
+   acceptance, then a local merge to the integration branch and incremental
+   delivery (PR groups raised to master/main under `main-prs` delivery mode).
+   You watch the block map; you build any block you claimed.
 
 Repo specifics live in one place: `.local/config.json` (see
 `docs/config-schema.md`). The workflow is deliberately opinionated with no
@@ -71,7 +82,8 @@ skills/           plan, scaffold, dispatch
 agents/           lego-test-writer, lego-implementer (sonnet by default)
 hooks/            PreToolUse realm gate, SessionStart context injection
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
-                  realm-gate.sh, session-context.sh
+                  realm-gate.sh, session-context.sh, worktree.sh (unit
+                  worktree lifecycle + delivery)
 templates/        starter .local/config.json and blocks.md
 docs/             config schema / repo-interface spec
 ```

@@ -30,8 +30,9 @@
 #
 # CLAM_NOTIFICATIONS_GATE=disabled at launch turns off every hook in this
 # plugin (hooks do not see mid-session exports).
-
-set -e
+#
+# No set -e, matching the plugin's other hooks: a notification hook that hits
+# an unexpected non-zero should degrade silently, not abort the event.
 
 [[ "${CLAM_NOTIFICATIONS_GATE:-enabled}" == "enabled" ]] || exit 0
 [[ -z "$CLAUDE_PUSH_NTFY_TOPIC" ]] && exit 0
@@ -54,11 +55,11 @@ if [[ -f "$mode_file" ]] && [[ "$(cat "$mode_file" 2>/dev/null)" == "plan" ]]; t
     exit 0
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
 
 push_now() {
     # shellcheck source=../lib/notify.sh
-    source "$SCRIPT_DIR/../lib/notify.sh"
+    source "$PLUGIN_LIB_DIR/notify.sh"
     # Pass the worktree name AND its dir (the session cwd): notify resolves the
     # worktree dir from the explicit arg, so any session — wherever its worktree
     # lives — reads the right TODO.md and drops its dedup markers in its own
@@ -111,7 +112,7 @@ fi
 # is missing, or the state is unset/unknown/non-parked: the safe default is to
 # page (a wedged non-parked session must still summon).
 todo="$cwd/.local/TODO.md"
-states_lib="$SCRIPT_DIR/../lib/states.sh"
+states_lib="$PLUGIN_LIB_DIR/states.sh"
 if [[ -f "$todo" && -f "$states_lib" ]]; then
     # shellcheck source=../lib/states.sh
     source "$states_lib"

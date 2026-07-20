@@ -29,6 +29,12 @@
       "source": "./plugins/statusline",
       "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
       "version": "0.1.0"
+    },
+    {
+      "name": "notifications",
+      "source": "./plugins/notifications",
+      "description": "Summoning stack: terminal bell, desktop notification, tmux highlight, and ntfy phone push on the transition into summoning states; silent for parked sessions.",
+      "version": "0.1.0"
     }
   ]
 }

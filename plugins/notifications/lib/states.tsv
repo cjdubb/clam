@@ -1,0 +1,20 @@
+# clam workflow session States — single source of truth.
+# Columns (TAB-separated): name<TAB>category<TAB>emoji<TAB>color<TAB>summons
+#   category: active | parked | needs_user | terminal
+#   color:    256-colour number used by the statusline
+#   summons:  yes if the State pages the user (bell + toast + border + push).
+#             Three States qualify: Blocked, Waiting For Decision, Awaiting User Review.
+# Add a row to add a State; general/lib/states.test.sh guards the prose enums.
+Not Started	active	⚪	245	no
+In Progress	active	⚡	40	no
+Awaiting Agent	parked	🤖	214	no
+Awaiting CI	parked	🧪	214	no
+Awaiting Independent Agent Review	parked	🔬	214	no
+Awaiting User Review	parked	📝	214	yes
+Awaiting Bot Review	parked	🐰	214	no
+Awaiting Reviewer Assignment	parked	📋	214	no
+Awaiting Human Review	parked	👀	214	no
+Awaiting Merge Queue	parked	🚂	214	no
+Waiting For Decision	needs_user	🙋	196	yes
+Blocked	needs_user	🛑	196	yes
+Complete	terminal	✅	34	no

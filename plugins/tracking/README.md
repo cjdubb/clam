@@ -49,8 +49,9 @@ All optional; everything degrades gracefully when absent:
 
 - **decision-log plugin** — `Waiting For Decision` parks expect a
   `.local/decisions/NNN-<slug>.md` file per `/decision-log:rundown`.
-- **notify helper** (clam-code shell block, until the notifications plugin
-  exists) — phone push on summoning transitions; skipped when not installed.
+- **notifications plugin** — bell, desktop notification, tmux highlight, and
+  phone push on summoning transitions; its idle-event backstop delivers the
+  push even when the `notify` shell helper is not installed.
 - **statusline plugin** — shows the State segment; **agent-dash** — reads the
   same files for its dashboard.
 

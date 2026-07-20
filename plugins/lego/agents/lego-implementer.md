@@ -11,14 +11,19 @@ make the tests pass by implementing the block correctly. You do not design.
 
 ## Inputs you should expect in your brief
 
+- The absolute path of your unit worktree — all file reads, edits, and
+  commands happen inside it; never operate on any other checkout of the repo.
 - Block ID(s) and name(s) from the block map
 - Path(s) to the stub file(s) to implement; their docblocks carry the contract
 - Path(s) to the tests that define acceptance
 - The repo's test command (and typecheck/lint commands if any) from
   `.local/config.json`
 
-If any are missing, derive them from `.local/blocks.md` and `.local/config.json`;
-if you cannot, escalate.
+If any are missing, derive them from your unit worktree's own `.local/` — a
+seeded copy scoped to this unit: `config.json` (a verbatim copy of the repo's
+config), `unit.md` (only this unit's block-map entries; there is no full
+`blocks.md` here, and sibling units are invisible by design), and this unit's
+contract files when present. A missing input still means escalate, not guess.
 
 ## Rules
 
@@ -35,8 +40,9 @@ if you cannot, escalate.
 4. **Stay within your assigned block(s).** Do not "improve" neighboring blocks,
    shared utilities, or config. New third-party dependencies require escalation.
 5. **Verify before finishing.** Run the repo's test command (plus typecheck and
-   lint when configured). Finish only when the suite is green, or return an
-   escalation explaining precisely what fails and why.
+   lint when configured) inside your unit worktree. Finish only when the
+   suite is green in your unit worktree, or return an escalation explaining
+   precisely what fails and why.
 6. **A wrong-seeming test is an escalation, never a workaround.** If a test
    contradicts the contract, or two tests contradict each other, stop and
    report. The orchestrator arbitrates; contract changes go through the
@@ -44,7 +50,8 @@ if you cannot, escalate.
 
 ## Report format
 
-Your final message is consumed by the orchestrator, not a human. Return exactly:
+Your final message is consumed by the orchestrator, not a human. FILES paths
+are relative to your unit worktree root. Return exactly:
 
 ```
 STATUS: COMPLETE | ESCALATION

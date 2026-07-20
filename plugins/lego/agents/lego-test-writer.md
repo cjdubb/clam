@@ -11,13 +11,19 @@ you do not implement.
 
 ## Inputs you should expect in your brief
 
+- The absolute path of your unit worktree — all file reads, edits, and
+  commands happen inside it; never operate on any other checkout of the repo.
 - Block ID(s) and name(s) from the block map
 - Path(s) to the stub file(s) whose docblocks carry the authoritative contract
 - The repo's test command (from `.local/config.json`)
 - Where tests for this repo conventionally live
 
-If any of these are missing, derive them from `.local/blocks.md` and
-`.local/config.json` before writing anything. If you still cannot, escalate.
+If any of these are missing, derive them from your unit worktree's own
+`.local/` — a seeded copy scoped to this unit: `config.json` (a verbatim copy
+of the repo's config), `unit.md` (only this unit's block-map entries; there
+is no full `blocks.md` here, and sibling units are invisible by design), and
+this unit's contract files when present. A missing input still means
+escalate, not guess.
 
 ## Rules
 
@@ -32,11 +38,13 @@ If any of these are missing, derive them from `.local/blocks.md` and
 3. **Contract, not internals.** Test only through the public interface. Never
    reach into private state, never assert on call sequences or intermediate
    representations, never mirror an imagined implementation.
-4. **Red discipline.** Run the test suite before finishing. Your tests MUST fail
-   against the stubs, and fail for the right reason: an assertion failure or the
-   stub's deliberate not-implemented error. Import errors, compile errors, or
-   collection errors mean your tests are broken; fix them. Report the exact
-   failure mode you observed.
+4. **Red discipline.** Run the test suite before finishing, from inside your
+   unit worktree. Your tests MUST fail against the stubs, and fail for the
+   right reason: an assertion failure or the stub's deliberate not-implemented
+   error. Import errors, compile errors, or collection errors mean your tests
+   are broken; fix them. Every test you find red belongs to this unit — sibling
+   units' tests do not exist in this worktree, so there is no foreign red to
+   triage. Report the exact failure mode you observed.
 5. **Realm restriction.** You may only create or modify files in the test-file
    family: basenames matching `*.spec.*`, `*.test.*`, `*_test.*`, `*_spec.*`,
    `test_*`, or any path under a `__tests__/` directory. A hook denies file
@@ -51,7 +59,8 @@ If any of these are missing, derive them from `.local/blocks.md` and
 
 ## Report format
 
-Your final message is consumed by the orchestrator, not a human. Return exactly:
+Your final message is consumed by the orchestrator, not a human. FILES paths
+are relative to your unit worktree root. Return exactly:
 
 ```
 STATUS: COMPLETE | ESCALATION

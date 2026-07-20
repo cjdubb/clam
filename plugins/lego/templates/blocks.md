@@ -15,6 +15,8 @@ Implemented → Accepted` (side-state: `Escalated`).
 - Owner: agent
 - Kind: leaf
 - Deps: none
+- Unit: U01
+- PR group: G01
 - Code: src/rate-limiter.ts
 - Contract: token-bucket limiter; allow/deny per key with configurable refill
 - Plan: plans/001-api-hardening.md

@@ -64,6 +64,12 @@ If the repo has no `.local/` directory, ask the engineer for consent to create i
    Schema: see `docs/config-schema.md` in the plugin; starter in
    `templates/config.json`. `commands.test` is required; `typecheck`, `build`,
    `lint` optional; `models.testWriter`/`models.implementer` default to sonnet.
+
+   Also ask the engineer for the **delivery mode** (`delivery.mode`):
+   `main-prs` — each PR group is raised as a PR to master/main, or
+   `local-only` — units are merged locally and the engineer delivers
+   manually. Optionally record `delivery.worktreeDir`, where per-unit
+   worktrees are created.
 2. Create `.local/blocks.md` from `templates/blocks.md`.
 3. Create `.local/plans/`.
 
@@ -100,6 +106,14 @@ For every block, agree with the engineer on:
 - **Owner: agent or engineer.** Ask which blocks the engineer wants to build
   themselves. Engineer-owned blocks get the same contract and the same tests;
   siblings proceed against stubs, so an engineer block never stalls the wave.
+- **Intended file paths**, pairwise disjoint across units. Disjointness is
+  what makes parallel dispatch conflict-free by construction; a later merge
+  conflict is treated as a planning defect.
+- **Unit assignment** (`Unit: U<NN>`): which work unit the block belongs to.
+  Default one block per unit; small, related blocks may share a unit and are
+  then dispatched to the same agents sequentially.
+- **PR group** (`PR group: G<NN>`): default one unit per group; small units
+  may be grouped to share one PR to master/main.
 
 Decomposition happens HERE and only here. Workers never design; if
 implementation later reveals a mis-sized block, it comes back to this skill as a
@@ -108,10 +122,11 @@ re-plan, with the engineer.
 ## Step 4: Write the artifacts
 
 1. **Plan document** at `.local/plans/NNN-<slug>.md` (NNN = next free number):
-   goal, constraints, the block design (table of blocks with contracts summaries,
-   deps, owner, kind), wave order (which blocks dispatch together), risks and
-   open questions, and a Changelog section. Every contract change after approval
-   is appended to the Changelog.
+   goal, constraints, the block design (table of blocks with contract
+   summaries, deps, owner, kind, unit, PR group), the dependency graph / wave
+   order derived from `Deps:` (which work units dispatch in parallel), risks
+   and open questions, and a Changelog section. Every contract change after
+   approval is appended to the Changelog.
 2. **Block map entries** in `.local/blocks.md`, one per block:
 
    ```
@@ -120,6 +135,8 @@ re-plan, with the engineer.
    - Owner: agent | engineer
    - Kind: leaf | composition
    - Deps: B<NN>, ... | none
+   - Unit: U<NN>
+   - PR group: G<NN>
    - Code: <intended path(s)>
    - Contract: <one-line summary; authoritative contract is the docblock at Code>
    - Plan: plans/NNN-<slug>.md

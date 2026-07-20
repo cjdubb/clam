@@ -24,7 +24,11 @@ by default; teams may deliberately commit it instead.
     "testWriter": "sonnet",
     "implementer": "sonnet"
   },
-  "testPatterns": []
+  "testPatterns": [],
+  "delivery": {
+    "mode": "main-prs",
+    "worktreeDir": "../<repo-basename>-lego/"
+  }
 }
 ```
 
@@ -37,6 +41,25 @@ by default; teams may deliberately commit it instead.
 | `models.testWriter` | no | Model passed to lego-test-writer dispatches. Default `sonnet`. |
 | `models.implementer` | no | Model passed to lego-implementer dispatches. Default `sonnet`. |
 | `testPatterns` | no | Extra globs added to the test-file family, matched against basename and full path by `scripts/realm.sh` (requires `jq`; silently skipped without it). Use for repo conventions the built-in family misses (e.g. `conftest.py`, `tests/*`). |
+| `delivery.mode` | no | Delivery mode: `"main-prs"` or `"local-only"`. Absent → behaves as `local-only`. See "Delivery" below. |
+| `delivery.worktreeDir` | no | Directory where unit worktrees are created. Missing/empty → the parent directory of the repo root. A relative value resolves against the repo root. |
+
+## Delivery
+
+`delivery.mode` governs how accepted work units are delivered:
+
+- `main-prs` — each PR group of accepted units is raised as a PR **targeting
+  master/main only**; lego never opens a PR against any other branch. Every
+  PR contains only complete blocks (contract + tests + implementation), never
+  a bare stub.
+- `local-only` — accepted units merge into the integration branch and the
+  engineer delivers manually.
+
+A missing `origin` remote or a missing `gh` CLI degrades `main-prs` behavior
+to `local-only`, with a warning emitted by dispatch.
+
+PR grouping is not config: it is recorded per work unit in the plan document
+and `.local/blocks.md` (`PR group:`), decided with the engineer at plan time.
 
 ## The built-in test-file family
 

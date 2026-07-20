@@ -47,7 +47,7 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | [statusline](plugins/statusline/) | ✅ v0.1.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.md` (github-pr or local-merge); `/landing:init` detects and records it. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
-| worktrees | planned | Worktree creation and parallel branch work. |
+| [worktrees](plugins/worktrees/) | ✅ v0.1.0 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 

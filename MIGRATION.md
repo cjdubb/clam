@@ -104,11 +104,10 @@ install-changes-nothing constraint holds.
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
   injection, so session-modes must not duplicate it), `flush-nudge.sh`,
-  `capture-make-progress.sh`,
-  `capture-permission-mode.sh`, `post-compact.sh`, `precompact-snapshot.sh`
+  `capture-make-progress.sh`, `post-compact.sh`, `precompact-snapshot.sh`
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
-  `prompt-timestamp.sh` moved to **notifications**, whose `stop-notify.sh` is
-  its sole consumer)
+  `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
+  **notifications**, their consumers)
 
 ## decision-log — ported (from clam-code)
 
@@ -139,17 +138,22 @@ Port-time notes for later plugins:
   previously unmapped — the enforcement leg of `subagent-orchestration`'s
   "the orchestrator never implements" rule)
 
-## worktrees — planned
+## worktrees — ported (fresh-written)
 
-- Skills: `creating-worktrees`, `parallel-branch-work`
-- Scripts: `general/todo-worktree.sh`
+Skills `usage` and `per-worker` are fresh-written against current
+git-helpers, not ported from clam-code's `creating-worktrees` and
+`parallel-branch-work` skills — those had gone stale relative to the
+current `newtree`/`rmtree`/`copyenv`/`cloneBareRepo` shell functions.
 
-## notifications — planned
+`general/todo-worktree.sh` was deliberately **not** ported: it depends on
+clam-code session tooling this repo doesn't have yet. Revisit it alongside
+the tracking plugin.
+
+## notifications — ported (from clam-code)
 
 The summoning stack, carved out of the dissolved guards cluster: the hooks
 that turn tracking's summoning states into bells, desktop notifications, and
-phone pushes. Porting this is what activates tracking's conditional `notify`
-calls.
+phone pushes.
 
 - Hooks: `notify.sh` (Notification: bell + desktop + tmux tint, suppressed
   for parked non-summoning states), `push-notify.sh` (Notification: ntfy
@@ -157,11 +161,19 @@ calls.
   summoning states), `stop-notify.sh` (Stop: rings once on the transition
   into a summoning state), `prompt-timestamp.sh` (UserPromptSubmit; moved
   from session-modes — `stop-notify.sh` is its sole consumer: elapsed-turn
-  timer + summons-epoch reset)
-- Lib: `desktop-notify.sh` and `notify.sh` (the shared `notify()` helper the
-  tracking plugin calls when present) + their test suites; vendored
+  timer + summons-epoch reset), `capture-permission-mode.sh`
+  (UserPromptSubmit; also moved from session-modes — `push-notify.sh`'s
+  plan-mode suppression is its real consumer; agent-dash reads the file too)
+- Lib: `desktop-notify.sh` and `notify.sh` + their test suites; vendored
   `states.sh`/`states.tsv` copy (canonical in tracking — keep in lockstep)
 - Tests: `push-notify.test.sh`, `stop-notify.test.sh`
+
+Port changes: every hook is gated behind `CLAM_NOTIFICATIONS_GATE` (default
+enabled; plugin enablement is the opt-in). The agent-side `notify()` shell
+function cannot be injected by a plugin: pushes fall back to the 60s
+idle-event backstop (state-gated in `push-notify.sh`), and the README
+documents sourcing `lib/notify.sh` into the interactive shell for instant
+pushes.
 
 ## permissions — planned
 
@@ -206,7 +218,7 @@ dropped.
 
 | Guard | Destination | Status |
 |-------|-------------|--------|
-| `notify.sh`, `push-notify.sh`, `stop-notify.sh` (+ `prompt-timestamp.sh`, moved from session-modes) | notifications | planned |
+| `notify.sh`, `push-notify.sh`, `stop-notify.sh` (+ `prompt-timestamp.sh` and `capture-permission-mode.sh`, moved from session-modes) | notifications | ported |
 | `permission-audit.sh` (+ unwired `analyze-permissions.sh`) | permissions | planned |
 | `git-guard.sh` | git-guard | planned |
 | `cron-guard.sh` | cron-guard | planned |

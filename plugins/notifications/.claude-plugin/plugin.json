@@ -1,0 +1,9 @@
+{
+  "name": "notifications",
+  "description": "The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by the tracking states — ring once on the transition into a summoning state (Blocked, Waiting For Decision, Awaiting User Review), stay silent for parked sessions that resume on their own.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

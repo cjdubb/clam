@@ -1,7 +1,6 @@
 #!/bin/bash
 # CANONICAL home of the clam session-State manifest. The statusline and
-# notifications plugins carry vendored copies (plugins/{statusline,notifications}/lib/);
-# keep them in lockstep.
+# notifications plugins carry vendored copies; keep them in lockstep.
 # Single source of truth for clam workflow session States (the TODO.md `State:`
 # field). Consumers, each sourcing its own plugin's copy of this lib: the
 # tracking plugin's Stop hook (scripts/keep-working.sh) and SessionStart

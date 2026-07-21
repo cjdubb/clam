@@ -256,16 +256,63 @@ require_gh() {
   command -v gh >/dev/null 2>&1 || die 3 "gh is required"
 }
 
-CONFIG_JSON=""
+# EFFECTIVE_CONFIG holds the resolved config as a JSON string (piped into
+# jq via stdin by callers below, never written to disk). require_config_json
+# computes the jq recursive merge (.[0] * .[1]) of the base
+# (.claude/lego.json) and override (.local/config.json) layers, both
+# optional, at least one required. A present-but-invalid-JSON file is exit 3.
+EFFECTIVE_CONFIG=""
+BASE_CONFIG_JSON=""
+OVERRIDE_CONFIG_JSON=""
 require_config_json() {
-  CONFIG_JSON="$REPO_ROOT/.local/config.json"
-  [ -f "$CONFIG_JSON" ] || die 3 "missing .local/config.json"
+  BASE_CONFIG_JSON="$REPO_ROOT/.claude/lego.json"
+  OVERRIDE_CONFIG_JSON="$REPO_ROOT/.local/config.json"
+
+  local have_base=0 have_override=0
+  [ -f "$BASE_CONFIG_JSON" ] && have_base=1
+  [ -f "$OVERRIDE_CONFIG_JSON" ] && have_override=1
+
+  if [ "$have_base" -eq 0 ] && [ "$have_override" -eq 0 ]; then
+    die 3 "missing config: neither .claude/lego.json nor .local/config.json exists"
+  fi
+
+  if [ "$have_base" -eq 1 ] && ! jq -e . "$BASE_CONFIG_JSON" >/dev/null 2>&1; then
+    die 3 "invalid JSON in .claude/lego.json"
+  fi
+  if [ "$have_override" -eq 1 ] && ! jq -e . "$OVERRIDE_CONFIG_JSON" >/dev/null 2>&1; then
+    die 3 "invalid JSON in .local/config.json"
+  fi
+
+  if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
+    EFFECTIVE_CONFIG="$(jq -s '.[0] * .[1]' "$BASE_CONFIG_JSON" "$OVERRIDE_CONFIG_JSON" 2>/dev/null)"
+  elif [ "$have_base" -eq 1 ]; then
+    EFFECTIVE_CONFIG="$(cat "$BASE_CONFIG_JSON")"
+  else
+    EFFECTIVE_CONFIG="$(cat "$OVERRIDE_CONFIG_JSON")"
+  fi
 }
 
 TEST_CMD=""
 require_test_cmd() {
-  TEST_CMD="$(jq -r '.commands.test // empty' "$CONFIG_JSON" 2>/dev/null)"
-  [ -n "$TEST_CMD" ] || die 3 "commands.test missing or empty in .local/config.json"
+  local raw_type
+  raw_type="$(jq -r '.commands.test | type' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+
+  case "$raw_type" in
+    string)
+      TEST_CMD="$(jq -r '.commands.test' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$TEST_CMD" ] || die 3 "commands.test is an empty string in the effective config"
+      ;;
+    object)
+      local default_key
+      default_key="$(jq -r '.commands.test.default // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$default_key" ] || die 3 "commands.test is an object without a 'default' key in the effective config"
+      TEST_CMD="$(jq -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$TEST_CMD" ] || die 3 "commands.test.default names an absent or empty variant in the effective config"
+      ;;
+    *)
+      die 3 "commands.test missing or empty in the effective config"
+      ;;
+  esac
 }
 
 BLOCKS_MD=""
@@ -433,7 +480,7 @@ cmd_add() {
   require_blocks_md
 
   local worktree_dir
-  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' "$CONFIG_JSON" 2>/dev/null)"
+  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
 
   local base_dir
   if [ -z "$worktree_dir" ]; then
@@ -471,8 +518,8 @@ cmd_add() {
 
   local seed_ok=1
   mkdir -p -- "$new_wt/.local" 2>/dev/null || seed_ok=0
-  if [ "$seed_ok" -eq 1 ]; then
-    cp -- "$CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
+  if [ "$seed_ok" -eq 1 ] && [ -f "$OVERRIDE_CONFIG_JSON" ]; then
+    cp -- "$OVERRIDE_CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
   fi
   if [ "$seed_ok" -eq 1 ]; then
     {

@@ -31,13 +31,17 @@ case "$base" in
   *.spec.*|*.test.*|*_test.*|*_spec.*|test_*) echo test; exit 0 ;;
 esac
 
-config="${LEGO_CONFIG:-.local/config.json}"
-if [ -f "$config" ] && command -v jq >/dev/null 2>&1; then
-  while IFS= read -r pat; do
-    [ -n "$pat" ] || continue
-    case "$base" in $pat) echo test; exit 0 ;; esac
-    case "$path" in $pat) echo test; exit 0 ;; esac
-  done < <(jq -r '.testPatterns[]? // empty' "$config" 2>/dev/null)
+base_config=".claude/lego.json"
+override_config="${LEGO_CONFIG:-.local/config.json}"
+if command -v jq >/dev/null 2>&1; then
+  for config in "$base_config" "$override_config"; do
+    [ -f "$config" ] || continue
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
+      case "$base" in $pat) echo test; exit 0 ;; esac
+      case "$path" in $pat) echo test; exit 0 ;; esac
+    done < <(jq -r '.testPatterns[]? // empty' "$config" 2>/dev/null)
+  done
 fi
 
 echo impl

@@ -60,8 +60,12 @@ input="$(cat)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if command -v jq >/dev/null 2>&1; then
-  agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty')"
-  file_path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')"
+  if ! agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"; then
+    exit 0
+  fi
+  if ! file_path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)"; then
+    exit 0
+  fi
 else
   # Best-effort fallback without jq: extract simple string fields.
   agent_type="$(printf '%s' "$input" | sed -n 's/.*"agent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
@@ -79,13 +83,26 @@ esac
 
 [ -n "$file_path" ] || exit 0
 
-realm="$("$here/realm.sh" "$file_path")"
-
 reason=""
-if [ "$role" = "test" ] && [ "$realm" != "test" ]; then
-  reason="lego-test-writer is realm-restricted to test-family files (*.spec.*, *.test.*, *_test.*, *_spec.*, test_*, __tests__/). $file_path is outside that family. If this file genuinely must change, STOP and return an ESCALATION report to the orchestrator instead."
-elif [ "$role" = "impl" ] && [ "$realm" = "test" ]; then
-  reason="lego-implementer may not modify test-family files. $file_path is in the test family. If a test seems wrong, STOP and return an ESCALATION report to the orchestrator; never adjust tests to fit the implementation."
+
+# (NEW, plan 001) .local/ is orchestrator-owned and read-only for workers.
+# Evaluated before the realm-family rules below; matches a whole path
+# segment exactly ".local" (first, middle, or final; relative or absolute).
+# Substring lookalikes (my.local/b, xlocal/b, a/local/b) must not match.
+case "$file_path" in
+  .local|.local/*|*/.local|*/.local/*)
+    reason=".local/ is orchestrator-owned and read-only for workers. $file_path is under .local/. STOP and return an ESCALATION report to the orchestrator instead."
+    ;;
+esac
+
+if [ -z "$reason" ]; then
+  realm="$("$here/realm.sh" "$file_path")"
+
+  if [ "$role" = "test" ] && [ "$realm" != "test" ]; then
+    reason="lego-test-writer is realm-restricted to test-family files (*.spec.*, *.test.*, *_test.*, *_spec.*, test_*, __tests__/). $file_path is outside that family. If this file genuinely must change, STOP and return an ESCALATION report to the orchestrator instead."
+  elif [ "$role" = "impl" ] && [ "$realm" = "test" ]; then
+    reason="lego-implementer may not modify test-family files. $file_path is in the test family. If a test seems wrong, STOP and return an ESCALATION report to the orchestrator; never adjust tests to fit the implementation."
+  fi
 fi
 
 if [ -n "$reason" ]; then

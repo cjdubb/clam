@@ -51,23 +51,26 @@
 #     as a baseline check. On success prints the new worktree's absolute path
 #     as the LAST line of stdout and exits 0.
 #
-#   merge <unit-id>
-#     From the integration worktree: finds the unique local branch matching
-#     glob "lego/*/<unit-id>-*" and merges it into the current branch with
-#     --no-ff and commit message "lego: merge <branch-name>". Refuses when
-#     the working tree has uncommitted tracked changes.
+#   merge <plan-slug> <unit-id> <unit-slug>
+#     From the integration worktree: constructs the exact branch name
+#     "lego/<plan-slug>/<unit-id>-<unit-slug>", verifies it exists, and
+#     merges it into the current branch with --no-ff and commit message
+#     "lego: merge <branch-name>". Refuses when the working tree has
+#     uncommitted tracked changes.
 #     After a successful merge, removes the unit's worktree as a best-effort
 #     cleanup (via find_worktree_for_branch + git worktree remove). The unit
 #     branch is NOT removed — deliver may still need it. If worktree removal
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters.
 #
-#   deliver <base-branch> <unit-id> [<unit-id>...]
-#     Builds delivery branch "lego/deliver/<unit-id>[+<unit-id>...]" (ids in
-#     argument order) from <base-branch> in a temporary worktree. For each
-#     unit, in argument order:
-#       - resolves the unit branch (unique match of "lego/*/<unit-id>-*") and
-#         the unit's block paths: the comma-separated "- Code:" entries of
+#   deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#     Builds delivery branch
+#     "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]" (ids in argument
+#     order) from <base-branch> in a temporary worktree. For each unit, in
+#     argument order:
+#       - constructs the exact unit branch name
+#         "lego/<plan-slug>/<unit-id>-<unit-slug>" and verifies it exists;
+#         reads the unit's block paths: the comma-separated "- Code:" entries of
 #         every blocks.md section whose "- Unit:" equals the unit id, each
 #         path trimmed of surrounding spaces
 #       - finds on the unit branch the newest commit with subject exactly
@@ -93,13 +96,15 @@
 #     already open). The local delivery branch (lego/deliver/...) is left
 #     intact.
 #
-#   remove <unit-id>
-#     Removes the unit's worktree via `git worktree remove` (fails on a dirty
+#   remove <plan-slug> <unit-id> <unit-slug>
+#     Constructs the exact branch name
+#     "lego/<plan-slug>/<unit-id>-<unit-slug>", verifies it exists, then
+#     removes the unit's worktree via `git worktree remove` (fails on a dirty
 #     tree) and deletes its branch with `git branch -d` (fails when unmerged).
 #
 #   clean
 #     Removes all fully-merged lego branches and their worktrees. Lists
-#     every local branch matching "lego/*/*" or "lego/deliver/*" that is
+#     every local branch matching "lego/*/*" or "lego/deliver/*/*" that is
 #     merged into HEAD. For each: removes its worktree (if any) via
 #     git worktree remove, then deletes the branch with git branch -d.
 #     Also runs git worktree prune to clean up stale worktree entries.
@@ -126,11 +131,12 @@
 #            only); .local/config.json missing or commands.test absent/empty;
 #            .local/blocks.md missing; not inside a git work tree.
 #   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
-#            branch or worktree path already exists (add); zero or multiple
-#            unit-branch matches (merge/deliver/remove); dirty working tree
-#            (merge); baseline test failure (add); required implementation
-#            commit missing (deliver); delivery branch already exists
-#            (deliver); unmerged branch (remove); underlying git/gh failure.
+#            branch or worktree path already exists (add); constructed
+#            unit branch does not exist (merge/deliver/remove); dirty working
+#            tree (merge); baseline test failure (add); required
+#            implementation commit missing (deliver); delivery branch already
+#            exists (deliver); unmerged branch (remove); underlying git/gh
+#            failure.
 #   Every error prints exactly one line starting "ERROR: " to stderr.
 #
 # Invariants:
@@ -170,7 +176,7 @@ set -uo pipefail
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <unit-id> | worktree.sh deliver <base-branch> <unit-id> [<unit-id>...] | worktree.sh remove <unit-id> | worktree.sh clean"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -229,22 +235,28 @@ require_blocks_md() {
   [ -f "$BLOCKS_MD" ] || die 3 "missing .local/blocks.md"
 }
 
-# resolve_unit_branch <unit-id> -- prints the unique local branch matching
-# "lego/*/<unit-id>-*" on stdout and returns 0; returns 1 on zero matches, 2
-# on multiple matches. Never calls die/exit (safe to invoke via $(...)).
-resolve_unit_branch() {
-  local unit_id="$1"
-  local matches count
-  matches="$(git -C "$REPO_ROOT" branch --list --format='%(refname:short)' "lego/*/$unit_id-*" 2>/dev/null)"
-  if [ -z "$matches" ]; then
-    return 1
-  fi
-  count="$(printf '%s\n' "$matches" | grep -c '')"
-  if [ "$count" -ne 1 ]; then
-    return 2
-  fi
-  printf '%s' "$matches"
-  return 0
+# construct_unit_branch <plan-slug> <unit-id> <unit-slug> -- constructs the
+# exact branch name "lego/<plan-slug>/<unit-id>-<unit-slug>" and verifies it
+# exists as a local branch. Returns 0 and prints the branch name on stdout,
+# or returns 1 if the branch does not exist. Never calls die/exit (safe to
+# invoke via $(...)).
+#
+# Contract: B01 worktree-plan-scoping (construct_unit_branch)
+# Behavior:   Constructs a deterministic branch name from the three
+#             components and confirms it exists as a local ref.
+# Inputs:     plan-slug, unit-id, unit-slug — all must be valid tokens
+#             (validated by the caller, not by this function).
+# Outputs:    On success (exit 0): prints the branch name
+#             "lego/<plan-slug>/<unit-id>-<unit-slug>" on stdout.
+#             On failure (exit 1): prints nothing.
+# Errors:     exit 1 — branch does not exist.
+# Invariants: Pure lookup; never creates, deletes, or modifies any ref.
+#             Deterministic: same inputs always produce the same branch name.
+# Edge cases: Does not validate token format (caller's responsibility).
+#             Does not call die/exit — safe inside $(...) substitution.
+construct_unit_branch() {
+  local plan_slug="$1" unit_id="$2" unit_slug="$3"
+  err "NotImplemented: B01 construct_unit_branch"; return 99
 }
 
 # find_worktree_for_branch <branch> -- prints the worktree path with that
@@ -480,19 +492,19 @@ cmd_add() {
 # ---------------------------------------------------------------------------
 
 cmd_merge() {
-  [ "$#" -eq 1 ] || usage_die
-  local unit_id="$1"
-  valid_token "$unit_id" || usage_die
+  [ "$#" -eq 3 ] || usage_die
+  local plan_slug="$1" unit_id="$2" unit_slug="$3"
+  if ! valid_token "$plan_slug" || ! valid_token "$unit_id" || ! valid_token "$unit_slug"; then
+    usage_die
+  fi
 
   require_repo_root
 
   local branch rc
-  branch="$(resolve_unit_branch "$unit_id")"
+  branch="$(construct_unit_branch "$plan_slug" "$unit_id" "$unit_slug")"
   rc=$?
-  if [ "$rc" -eq 1 ]; then
+  if [ "$rc" -ne 0 ]; then
     die 4 "no branch found for unit $unit_id"
-  elif [ "$rc" -eq 2 ]; then
-    die 4 "multiple branches found for unit $unit_id"
   fi
 
   local dirty
@@ -553,14 +565,23 @@ deliver_cleanup() {
 }
 
 cmd_deliver() {
-  [ "$#" -ge 2 ] || usage_die
-  local base_branch="$1"; shift
-  local -a unit_ids=("$@")
+  [ "$#" -ge 4 ] || usage_die
+  local plan_slug="$1" base_branch="$2"; shift 2
+  # Remaining args are <unit-id> <unit-slug> pairs.
+  [ $(( $# % 2 )) -eq 0 ] || usage_die
 
-  valid_token "$base_branch" || usage_die
-  local u
-  for u in "${unit_ids[@]}"; do
-    valid_token "$u" || usage_die
+  if ! valid_token "$plan_slug" || ! valid_token "$base_branch"; then
+    usage_die
+  fi
+
+  local -a unit_ids=() unit_slugs=()
+  while [ "$#" -ge 2 ]; do
+    if ! valid_token "$1" || ! valid_token "$2"; then
+      usage_die
+    fi
+    unit_ids+=("$1")
+    unit_slugs+=("$2")
+    shift 2
   done
 
   require_repo_root
@@ -570,11 +591,12 @@ cmd_deliver() {
   require_gh
 
   local delivery_suffix="" sep=""
+  local u
   for u in "${unit_ids[@]}"; do
     delivery_suffix="${delivery_suffix}${sep}${u}"
     sep="+"
   done
-  local delivery_branch="lego/deliver/$delivery_suffix"
+  local delivery_branch="lego/deliver/$plan_slug/$delivery_suffix"
 
   if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$delivery_branch"; then
     die 4 "delivery branch $delivery_branch already exists"
@@ -584,14 +606,13 @@ cmd_deliver() {
   local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=() UNIT_PATHS_JOINED=()
   local -a ALL_HEADINGS=() ALL_CONTRACTS=()
 
+  local idx_resolve=0
   for u in "${unit_ids[@]}"; do
     local branch rc
-    branch="$(resolve_unit_branch "$u")"
+    branch="$(construct_unit_branch "$plan_slug" "$u" "${unit_slugs[$idx_resolve]}")"
     rc=$?
-    if [ "$rc" -eq 1 ]; then
+    if [ "$rc" -ne 0 ]; then
       die 4 "no branch found for unit $u"
-    elif [ "$rc" -eq 2 ]; then
-      die 4 "multiple branches found for unit $u"
     fi
 
     read_blocks_sections "$BLOCKS_MD" "$u"
@@ -627,6 +648,7 @@ cmd_deliver() {
     fi
     UNIT_TESTS_SHA+=("$tests_sha")
     UNIT_IMPL_SHA+=("$impl_sha")
+    idx_resolve=$((idx_resolve + 1))
   done
 
   # ---- Pass 2: build the delivery branch in a temporary worktree ----
@@ -698,12 +720,14 @@ cmd_deliver() {
 
   printf '%s\n' "$pr_url"
 
+  local idx_cleanup=0
   for u in "${unit_ids[@]}"; do
     local ubranch urc
-    ubranch="$(resolve_unit_branch "$u")"
+    ubranch="$(construct_unit_branch "$plan_slug" "$u" "${unit_slugs[$idx_cleanup]}")"
     urc=$?
     if [ "$urc" -ne 0 ]; then
       err "failed to resolve branch for unit $u during post-deliver cleanup"
+      idx_cleanup=$((idx_cleanup + 1))
       continue
     fi
 
@@ -718,6 +742,7 @@ cmd_deliver() {
     if ! git -C "$REPO_ROOT" branch -d -- "$ubranch" >/dev/null 2>&1; then
       err "failed to delete branch $ubranch after deliver (unmerged?)"
     fi
+    idx_cleanup=$((idx_cleanup + 1))
   done
 }
 
@@ -726,19 +751,19 @@ cmd_deliver() {
 # ---------------------------------------------------------------------------
 
 cmd_remove() {
-  [ "$#" -eq 1 ] || usage_die
-  local unit_id="$1"
-  valid_token "$unit_id" || usage_die
+  [ "$#" -eq 3 ] || usage_die
+  local plan_slug="$1" unit_id="$2" unit_slug="$3"
+  if ! valid_token "$plan_slug" || ! valid_token "$unit_id" || ! valid_token "$unit_slug"; then
+    usage_die
+  fi
 
   require_repo_root
 
   local branch rc
-  branch="$(resolve_unit_branch "$unit_id")"
+  branch="$(construct_unit_branch "$plan_slug" "$unit_id" "$unit_slug")"
   rc=$?
-  if [ "$rc" -eq 1 ]; then
+  if [ "$rc" -ne 0 ]; then
     die 4 "no branch found for unit $unit_id"
-  elif [ "$rc" -eq 2 ]; then
-    die 4 "multiple branches found for unit $unit_id"
   fi
 
   local wt_path
@@ -767,7 +792,7 @@ cmd_clean() {
   local -a candidates=()
   mapfile -t candidates < <(
     git -C "$REPO_ROOT" branch --list --format='%(refname:short)' \
-      'lego/*/*' 'lego/deliver/*' 2>/dev/null | sort -u
+      'lego/*/*' 'lego/deliver/*/*' 2>/dev/null | sort -u
   )
 
   local -a merged=()

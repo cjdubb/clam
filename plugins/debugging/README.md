@@ -47,4 +47,62 @@ Invariants:
 Edge cases: n/a.
 -->
 
-NotImplemented: B11
+# debugging
+
+Root-cause debugging guidance for orchestrator sessions: a single skill
+sequences a bug from reported symptom to a confirmed root cause —
+establishing a reliable reproduction, mining what changed, running a
+differential diagnosis, isolating by binary search, and gathering log and
+database evidence, handing the engineer exact queries to paste results back
+whenever the orchestrator lacks direct access itself.
+
+## Usage
+
+Invoke the loop directly with `/debugging:root-cause`, or let it pick itself
+up: the skill is also model-invocable, so a session that runs into a bug, a
+regression, or any "why is this happening?" question mid-conversation can
+start the loop without an explicit command.
+
+Phase by phase, the orchestrator experiences: intake (expected vs actual,
+scope, first-seen, distilled into a one-line problem statement); session
+setup (`debug-session.sh start <slug>` creates the session directory every
+later phase journals into); reproduce (reach a reliable repro before deep
+diagnosis); what changed (build the candidate-change timeline across every
+change surface); differential diagnosis (a hypothesis table, weighed and
+pruned probe by probe); isolate (binary-search whatever search space
+survives); evidence gathering (logs and database, queried directly or handed
+to the engineer via paste-back); a root-cause gate that accepts a cause only
+once it explains every piece of recorded evidence; and wrap-up, where the
+journal gets its root-cause statement, fix direction, and a note that the
+reproduction becomes the regression test.
+
+## Artifacts
+
+Each investigation gets its own directory, `.local/debug/NNN-<slug>/`,
+sequentially numbered and created by `debug-session.sh start`. Inside it,
+`journal.md` is the running record the orchestrator keeps current through
+every phase, and `queries/` holds one `NN-<name>/` directory per piece of
+external evidence gathered, each pairing the query file itself with a
+`results.md`.
+
+The paste-back flow: when the orchestrator can't reach logs or the database
+directly from the session, it writes the exact query into the query file and
+fills in `results.md`'s header, then hands the engineer that file's path and
+asks them to paste the raw output into its Results section. The orchestrator
+writes the Interpretation only after those results arrive, feeding the
+finding back into the journal's Hypotheses table.
+
+## Components
+
+| Component | Role |
+| --- | --- |
+| `skills/root-cause/SKILL.md` | Sequences the root-cause debugging loop phase by phase; defers technique depth to `references/`. |
+| `references/reproduce.md` | Technique reference for reaching a reliable, quantified reproduction. |
+| `references/what-changed.md` | Technique reference for building the candidate-change timeline across every change surface. |
+| `references/differential-diagnosis.md` | Technique reference for building and weighing the hypothesis table until one survivor explains all evidence. |
+| `references/binary-search.md` | Technique reference for halving history, code path, data, configuration, or environment to isolate a cause. |
+| `references/logs.md` | Technique reference for gathering log evidence, direct or via paste-back, across common log tools. |
+| `references/database.md` | Technique reference for read-only database evidence gathering, direct or via paste-back. |
+| `templates/journal.md` | Per-investigation journal template, copied verbatim into each new session directory. |
+| `templates/query-results.md` | Paste-back results template, copied verbatim into each query directory. |
+| `scripts/debug-session.sh` | CLI that creates the numbered session and query directories from the templates above. |

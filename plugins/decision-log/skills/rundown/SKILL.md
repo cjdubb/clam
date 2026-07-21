@@ -64,7 +64,7 @@ Rules:
 The session writes the file BEFORE setting `State: Waiting For Decision`. The clam session workflow mandates this; this skill hosts the how.
 
 <!--
-Contract: B04 decision-log re-point (NotImplemented: B04)
+Contract: B04 decision-log re-point
 Behavior: the rendered-doc gate below stops invoking a clam-code-era script
 path and instead consumes the render-doc plugin BY SKILL NAME, keeping
 decision-log fully functional when render-doc is absent.
@@ -92,13 +92,9 @@ Edge cases: CLAM_RENDER_DOC values other than exactly `enabled` (e.g. `true`,
 failure -> notice + continue.
 -->
 
-After writing the file, check the rendered-doc gate: run `echo "${CLAM_RENDER_DOC:-disabled}"`. If it prints anything other than `enabled`, skip the render silently and continue with the chat flow (unset means the feature is off by design; no notice needed). If it prints `enabled`, render and open the HTML view so the user reads the decision in the browser (the render script still ships with clam-code — `render-doc` is not yet ported to a plugin; if the script does not exist, treat the gate as disabled and skip silently):
+After writing the file, check the rendered-doc gate: run `echo "${CLAM_RENDER_DOC:-disabled}"`. If it prints anything other than `enabled`, skip the render silently and continue with the chat flow (unset means the feature is off by design; no notice needed). If it prints `enabled`, check whether the skill `render-doc:render` appears in the available skills. If it does not (the render-doc plugin is not installed), treat the gate as disabled and skip silently. If it does, invoke `render-doc:render` on the decision file (`.local/decisions/NNN-<slug>.md`) with the intent to open it in the browser so the user reads the rendered HTML view.
 
-```bash
-bash ~/.claude/skills/render-doc/scripts/render.sh .local/decisions/NNN-<slug>.md --open
-```
-
-If the render exits non-zero, note "HTML render failed — presenting as markdown" and continue with the chat flow; a render failure must NEVER block the decision.
+If the render fails, note "HTML render failed — presenting as markdown" and continue with the chat flow; a render failure must NEVER block the decision.
 
 When the user decides:
 

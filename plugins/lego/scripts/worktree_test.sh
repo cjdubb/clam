@@ -705,6 +705,207 @@ test_add_succeeds_without_gh() {
   [ "$RUN_EXIT" -eq 0 ] || record_fail "gh is a deliver-only dependency; add must succeed without it: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 }
 
+# ---------------------------------------------------------------------------
+# add: status.md seeding (NEW, plan 001)
+# ---------------------------------------------------------------------------
+
+test_add_status_md_content() {
+  local repo expected_wt head_before status_file expected_file diffout
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U02"
+  head_before="$(git -C "$repo" rev-parse HEAD)"
+
+  run_in "$repo" add plan2 U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  status_file="$expected_wt/.local/status.md"
+  if [ ! -f "$status_file" ]; then
+    record_fail "expected seeded .local/status.md to exist in new worktree"
+    return
+  fi
+
+  expected_file="$(mktemp)"
+  track_tmp "$expected_file"
+  {
+    printf '%s\n' "# Unit U02 — status"
+    printf '\n'
+    printf '%s\n' "- Branch: lego/plan2/U02-soloslug"
+    printf '%s\n' "- Created from: $head_before"
+    printf '%s\n' "- Phase: Created"
+    printf '\n'
+    printf '%s\n' "## Blocks"
+    printf '\n'
+    printf '%s\n' "- B03 — solo: Scaffolded"
+    printf '\n'
+    printf '%s\n' "## Timeline"
+    printf '\n'
+    printf '%s\n' "<!-- orchestrator appends one line per event -->"
+  } > "$expected_file"
+
+  diffout="$(diff -u "$expected_file" "$status_file" 2>&1)"
+  if [ -n "$diffout" ]; then
+    record_fail "status.md content does not match the exact contract line sequence (heading, blank, Branch, Created from <full sha>, Phase, blank, ## Blocks, blank, block lines, blank, ## Timeline, blank, comment, trailing newline): $diffout"
+  fi
+}
+
+test_add_status_md_status_field_verbatim_and_empty() {
+  local repo expected_wt status_file line_b01 line_b02
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  cat > "$repo/.local/blocks.md" <<'BLOCKSMD'
+# Block Map
+
+## B01 — nostatus
+- Owner: agent
+- Kind: leaf
+- Deps: none
+- Unit: U01
+- Code: src/a.sh
+- Contract: has no Status field at all
+- Plan: plans/001-test.md
+
+## B02 — withstatus
+- Status: In Progress
+- Owner: agent
+- Kind: leaf
+- Deps: none
+- Unit: U01
+- Code: src/b.sh
+- Contract: carries an explicit Status field
+- Plan: plans/001-test.md
+BLOCKSMD
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 mixedstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  status_file="$expected_wt/.local/status.md"
+  if [ ! -f "$status_file" ]; then
+    record_fail "expected seeded .local/status.md to exist"
+    return
+  fi
+
+  line_b01="$(grep -F -- '- B01 — nostatus:' "$status_file" | head -n1)"
+  line_b02="$(grep -F -- '- B02 — withstatus:' "$status_file" | head -n1)"
+  assert_eq "- B01 — nostatus: " "$line_b01" "Blocks line status is empty (heading + ': ' + nothing) when the section has no '- Status:' field"
+  assert_eq "- B02 — withstatus: In Progress" "$line_b02" "Blocks line status is the section's '- Status:' value verbatim"
+}
+
+test_add_status_md_multiblock_file_order() {
+  local repo expected_wt status_file blocks_lines line1 line2
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  cat > "$repo/.local/blocks.md" <<'BLOCKSMD'
+# Block Map
+
+## B02 — second
+- Status: Delivered
+- Owner: agent
+- Kind: leaf
+- Deps: none
+- Unit: U01
+- Code: src/b.sh
+- Contract: appears first in the file despite the higher block id
+- Plan: plans/001-test.md
+
+## B01 — first
+- Status: Scaffolded
+- Owner: agent
+- Kind: leaf
+- Deps: none
+- Unit: U01
+- Code: src/a.sh
+- Contract: appears second in the file despite the lower block id
+- Plan: plans/001-test.md
+BLOCKSMD
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 mixedstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  status_file="$expected_wt/.local/status.md"
+  if [ ! -f "$status_file" ]; then
+    record_fail "expected seeded .local/status.md to exist"
+    return
+  fi
+
+  blocks_lines="$(awk '/^## Blocks$/{f=1;next} /^## Timeline$/{f=0} f && /^- B/{print}' "$status_file")"
+  line1="$(printf '%s\n' "$blocks_lines" | sed -n '1p')"
+  line2="$(printf '%s\n' "$blocks_lines" | sed -n '2p')"
+  assert_eq "- B02 — second: Delivered" "$line1" "first Blocks line follows blocks.md file order, not block-id order (multi-block unit)"
+  assert_eq "- B01 — first: Scaffolded" "$line2" "second Blocks line follows blocks.md file order, not block-id order (multi-block unit)"
+}
+
+test_add_creates_empty_briefs_and_reports_dirs() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -d "$expected_wt/.local/briefs" ]; then
+    if [ -n "$(ls -A "$expected_wt/.local/briefs" 2>/dev/null)" ]; then
+      record_fail "expected .local/briefs/ to be seeded as an empty directory"
+    fi
+  else
+    record_fail "expected .local/briefs/ to be created"
+  fi
+
+  if [ -d "$expected_wt/.local/reports" ]; then
+    if [ -n "$(ls -A "$expected_wt/.local/reports" 2>/dev/null)" ]; then
+      record_fail "expected .local/reports/ to be seeded as an empty directory"
+    fi
+  else
+    record_fail "expected .local/reports/ to be created"
+  fi
+}
+
+test_add_status_md_deterministic() {
+  local repoA repoB wtA wtB exitA exitB diffout
+  repoA="$(GIT_AUTHOR_DATE='1577836800 +0000' GIT_COMMITTER_DATE='1577836800 +0000' new_git_repo)"
+  write_config_json "$repoA" "true"
+  write_blocks_md "$repoA"
+  write_contracts "$repoA"
+  repoB="$(GIT_AUTHOR_DATE='1577836800 +0000' GIT_COMMITTER_DATE='1577836800 +0000' new_git_repo)"
+  write_config_json "$repoB" "true"
+  write_blocks_md "$repoB"
+  write_contracts "$repoB"
+
+  if [ "$(git -C "$repoA" rev-parse HEAD)" != "$(git -C "$repoB" rev-parse HEAD)" ]; then
+    record_fail "fixture bug: repoA and repoB HEAD shas differ despite pinned author/committer dates, cannot exercise determinism"
+    return
+  fi
+
+  run_in "$repoA" add plan1 U01 greetstuff
+  exitA="$RUN_EXIT"
+  run_in "$repoB" add plan1 U01 greetstuff
+  exitB="$RUN_EXIT"
+
+  [ "$exitA" -eq 0 ] || record_fail "run A: expected exit 0, got $exitA"
+  [ "$exitB" -eq 0 ] || record_fail "run B: expected exit 0, got $exitB"
+
+  wtA="$(dirname "$repoA")/$(basename "$repoA")-U01"
+  wtB="$(dirname "$repoB")/$(basename "$repoB")-U01"
+
+  if [ -f "$wtA/.local/status.md" ] && [ -f "$wtB/.local/status.md" ]; then
+    diffout="$(diff -u "$wtA/.local/status.md" "$wtB/.local/status.md" 2>&1)"
+    if [ -n "$diffout" ]; then
+      record_fail "status.md is not byte-identical across two 'add' runs from identical repo state and arguments (no timestamps/randomness): $diffout"
+    fi
+  else
+    record_fail "expected .local/status.md to exist in both worktrees"
+  fi
+}
+
 # ===========================================================================
 # merge
 # ===========================================================================
@@ -1321,6 +1522,11 @@ run_test "add: worktreeDir resolution (default and relative)" test_add_worktree_
 run_test "add: deterministic across identical repo state and args" test_add_deterministic
 run_test "add: baseline test command runs inside the new worktree, after seeding" test_add_baseline_runs_inside_new_worktree_after_seeding
 run_test "add: succeeds without gh (deliver-only dependency)" test_add_succeeds_without_gh
+run_test "add: status.md seeded with the exact contract line sequence (NEW)" test_add_status_md_content
+run_test "add: status.md Blocks line status is verbatim, empty when Status field absent (NEW)" test_add_status_md_status_field_verbatim_and_empty
+run_test "add: status.md multi-block unit lists one Blocks line per section in blocks.md file order (NEW)" test_add_status_md_multiblock_file_order
+run_test "add: creates .local/briefs/ and .local/reports/ as empty directories (NEW)" test_add_creates_empty_briefs_and_reports_dirs
+run_test "add: status.md is deterministic across identical repo state and args (NEW)" test_add_status_md_deterministic
 
 run_test "merge: usage error on wrong argument count" test_merge_usage
 run_test "merge: usage error on invalid characters in unit-id" test_merge_invalid_chars

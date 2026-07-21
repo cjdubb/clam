@@ -119,7 +119,21 @@ Edge cases:
   that work — but not by inspecting the running worker's worktree.
 -->
 
-NotImplemented: B01 — anti-polling guidance prose goes here.
+While a backgrounded worker agent (test-writer or implementer) is running in
+a unit worktree, the orchestrator must not poll a unit worktree to check on
+its progress — no `git diff --stat`, `wc -l`, `git status`, or any other
+command targeting that worktree.
+
+The Agent tool sends a completion notification when the worker finishes;
+that notification is the only signal the orchestrator acts on. Polling
+wastes context tokens, produces no actionable information (the worker may
+not have written anything yet), and trains bad habits that compound across
+multi-unit dispatches.
+
+This applies to every backgrounded worker dispatch, test wave and
+implementation wave alike. If the orchestrator has independent work to do
+while waiting — preparing briefs for the next unit, updating status files —
+it may do that work, but not by inspecting the running worker's worktree.
 
 ## Unit status file
 
@@ -182,7 +196,21 @@ Edge cases:
   un-added scaffold files).
 -->
 
-NotImplemented: B01 — pre-flight dirty-tree check prose goes here.
+Before creating any unit worktree, the orchestrator checks the integration
+worktree for uncommitted changes — staged, unstaged, and untracked,
+excluding `.local/`. If the tree is dirty, do not create the worktree:
+commit or otherwise resolve the dirty state first, naming the specific
+dirty paths, then proceed to step 1. This catches the case where scaffold
+stubs were written but not committed — a worktree forked from a
+pre-scaffold HEAD would lack stubs entirely, wasting a worker dispatch.
+
+This check runs before EVERY call to worktree.sh add, not just the first.
+It is the orchestrator's responsibility, not worktree.sh's — the worktree
+tooling stays generic and decoupled from lego workflow semantics.
+
+.local/ files are excluded from the check (they are never committed).
+Untracked files outside .local/ are treated as dirty — they may be un-added
+scaffold files.
 
 ### 1. Create the worktree
 

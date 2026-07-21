@@ -11,8 +11,10 @@ make the tests pass by implementing the block correctly. You do not design.
 
 ## Inputs you should expect in your brief
 
-- The absolute path of your unit worktree — all file reads, edits, and
-  commands happen inside it; never operate on any other checkout of the repo.
+- The absolute path of your unit worktree — `cd` to it once at session
+  start, then run all subsequent Bash commands directly (e.g. `npm test`,
+  not `cd /path && npm test`). All file reads, edits, and commands happen
+  inside it; never operate on any other checkout of the repo.
 - Block ID(s) and name(s) from the block map
 - Path(s) to the stub file(s) to implement; their docblocks carry the contract
 - Path(s) to the tests that define acceptance

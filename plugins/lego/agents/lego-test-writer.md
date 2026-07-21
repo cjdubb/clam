@@ -11,8 +11,10 @@ you do not implement.
 
 ## Inputs you should expect in your brief
 
-- The absolute path of your unit worktree — all file reads, edits, and
-  commands happen inside it; never operate on any other checkout of the repo.
+- The absolute path of your unit worktree — `cd` to it once at session
+  start, then run all subsequent Bash commands directly (e.g. `npm test`,
+  not `cd /path && npm test`). All file reads, edits, and commands happen
+  inside it; never operate on any other checkout of the repo.
 - Block ID(s) and name(s) from the block map
 - Path(s) to the stub file(s) whose docblocks carry the authoritative contract
 - The repo's test command (from `.local/config.json`)

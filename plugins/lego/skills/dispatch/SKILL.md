@@ -60,6 +60,13 @@ worktree is a seeded copy scoped to this unit — a copy of `config.json`, a
 `unit.md` carrying only this unit's block-map sections, and this unit's
 contracts — not the live block map and not the full plan.
 
+Workers must `cd` to their unit worktree once at session start, then run all
+subsequent Bash commands directly — e.g. `npm test`, not
+`cd /path/to/worktree && npm test`. Include this instruction in every worker
+brief. Bash permission allowlists match bare commands; compound
+`cd <path> && <command>` forms do not match, causing unnecessary permission
+prompts.
+
 Group only independent blocks within the unit into one wave; dispatch a
 wave's agents in a single message so they run in parallel.
 

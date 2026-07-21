@@ -443,6 +443,14 @@ cmd_merge() {
     git -C "$REPO_ROOT" merge --abort >/dev/null 2>&1
     die 4 "merge of $branch failed"
   fi
+
+  local wt_path
+  wt_path="$(find_worktree_for_branch "$branch")"
+  if [ -n "$wt_path" ]; then
+    if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then
+      err "failed to remove worktree for unit $unit_id after merge (dirty?)"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -627,6 +635,28 @@ cmd_deliver() {
   rm -rf -- "$tmp_parent" 2>/dev/null
 
   printf '%s\n' "$pr_url"
+
+  for u in "${unit_ids[@]}"; do
+    local ubranch urc
+    ubranch="$(resolve_unit_branch "$u")"
+    urc=$?
+    if [ "$urc" -ne 0 ]; then
+      err "failed to resolve branch for unit $u during post-deliver cleanup"
+      continue
+    fi
+
+    local uwt
+    uwt="$(find_worktree_for_branch "$ubranch")"
+    if [ -n "$uwt" ]; then
+      if ! git -C "$REPO_ROOT" worktree remove -- "$uwt" >/dev/null 2>&1; then
+        err "failed to remove worktree for unit $u after deliver (dirty?)"
+      fi
+    fi
+
+    if ! git -C "$REPO_ROOT" branch -d -- "$ubranch" >/dev/null 2>&1; then
+      err "failed to delete branch $ubranch after deliver (unmerged?)"
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -672,9 +702,55 @@ cmd_clean() {
 
   require_repo_root
 
-  # TODO(B01): NotImplemented — enumerate merged lego branches, remove their
-  # worktrees and branches, prune stale entries, print count.
-  printf '0\n'
+  local -a candidates=()
+  mapfile -t candidates < <(
+    git -C "$REPO_ROOT" branch --list --format='%(refname:short)' \
+      'lego/*/*' 'lego/deliver/*' 2>/dev/null | sort -u
+  )
+
+  local -a merged=()
+  mapfile -t merged < <(
+    git -C "$REPO_ROOT" branch --list --format='%(refname:short)' --merged HEAD 2>/dev/null
+  )
+
+  local count=0
+  local b
+  for b in "${candidates[@]}"; do
+    [ -n "$b" ] || continue
+
+    local is_merged=0
+    local m
+    for m in "${merged[@]}"; do
+      if [ "$m" = "$b" ]; then
+        is_merged=1
+        break
+      fi
+    done
+    if [ "$is_merged" -ne 1 ]; then
+      err "skipping unmerged lego branch $b"
+      continue
+    fi
+
+    local wt_path
+    wt_path="$(find_worktree_for_branch "$b")"
+    if [ -n "$wt_path" ]; then
+      if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then
+        err "failed to remove worktree for branch $b (dirty?)"
+        continue
+      fi
+    fi
+
+    if ! git -C "$REPO_ROOT" branch -d -- "$b" >/dev/null 2>&1; then
+      err "failed to delete branch $b"
+      continue
+    fi
+
+    count=$((count + 1))
+  done
+
+  git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1
+
+  printf '%d\n' "$count"
 }
 
 # ---------------------------------------------------------------------------

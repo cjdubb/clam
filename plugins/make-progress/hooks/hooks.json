@@ -1,0 +1,8 @@
+{
+  "hooks": [
+    {
+      "event": "UserPromptSubmit",
+      "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh"
+    }
+  ]
+}

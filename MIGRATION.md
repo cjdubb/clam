@@ -96,18 +96,45 @@ install-changes-nothing constraint holds.
 - Lib: `lib/platform.sh` vendored; `states.sh`/`states.tsv` vendored copy
   (canonical in tracking — keep in lockstep)
 
+## make-progress — ported (from clam-code)
+
+Reassigned from session-modes to a standalone plugin: stall recovery is a
+cross-cutting concern, not session-mode-specific. The concept of "driving
+work to completion" applies in all workflow contexts (lego, pr-workflow, or
+any `.local/`-tracked work). Resolves cjdubb/clam#15.
+
+- Skills: `make-progress` (user-invocable only; workflow-agnostic decision
+  table covering lego dispatch, PR cleanup, feedback routing, and correct-stop
+  resurfacing)
+- Hooks: `capture.sh` (UserPromptSubmit; snapshots session state when the
+  user invokes `/make-progress`, producing labeled `(stall state) → (correct
+  next move)` training examples for eventual automatic-trigger design)
+- Lib: `platform.sh` vendored (canonical in tracking — keep in lockstep)
+
+Port changes: state-file capture generalized from a hardcoded filename list
+(TODO.md, PLAN.md, MODE, INDEPENDENCE, IMPLEMENTATION-PLAN.md) to all
+regular files at depth 1 in `.local/`; subdirectory listings generalized from
+CHUNK-SIGNALS to all `.local/` subdirectories; decision table drops the
+independence-on and chunk-dispatch rows (no independence protocol or
+chunk-based orchestration in clam plugins yet), adds a lego-aware row that
+reads `.local/blocks.md` when the lego plugin is active; skill references
+the capture script via `${CLAUDE_PLUGIN_ROOT}` instead of clam-code's
+symlink path; platform.sh sourced from plugin-local `lib/` instead of
+`../../lib/`.
+
 ## session-modes — planned
 
-- Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
+- Skills: `start`, `orient`, `sitrep`, `role-check`,
   `whats-cooking`, `planning`, `orchestrator-handover`
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
   injection, so session-modes must not duplicate it), `flush-nudge.sh`,
-  `capture-make-progress.sh`, `post-compact.sh`, `precompact-snapshot.sh`
+  `post-compact.sh`, `precompact-snapshot.sh`
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
   `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
-  **notifications**, their consumers)
+  **notifications**, their consumers; `make-progress` and
+  `capture-make-progress.sh` moved to standalone **make-progress** plugin)
 
 ## decision-log — ported (from clam-code)
 

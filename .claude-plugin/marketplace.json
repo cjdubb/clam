@@ -47,6 +47,12 @@
       "source": "./plugins/landing",
       "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.md (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
       "version": "0.1.0"
+    },
+    {
+      "name": "make-progress",
+      "source": "./plugins/make-progress",
+      "description": "Stall recovery: /make-progress assesses why the session stopped, takes the next in-plan action, and records the stall as labeled training data for automatic-trigger design.",
+      "version": "0.1.0"
     }
   ]
 }

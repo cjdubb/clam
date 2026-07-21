@@ -455,13 +455,13 @@ test_requires_git_work_tree() {
   run_in "$dir" add plan1 U01 slug1
   [ "$RUN_EXIT" -eq 3 ] || record_fail "add outside git worktree: expected exit 3, got $RUN_EXIT"
 
-  run_in "$dir" merge U01
+  run_in "$dir" merge plan1 U01 slug1
   [ "$RUN_EXIT" -eq 3 ] || record_fail "merge outside git worktree: expected exit 3, got $RUN_EXIT"
 
-  run_in "$dir" deliver master U01
+  run_in "$dir" deliver plan1 master U01 slug1
   [ "$RUN_EXIT" -eq 3 ] || record_fail "deliver outside git worktree: expected exit 3, got $RUN_EXIT"
 
-  run_in "$dir" remove U01
+  run_in "$dir" remove plan1 U01 slug1
   [ "$RUN_EXIT" -eq 3 ] || record_fail "remove outside git worktree: expected exit 3, got $RUN_EXIT"
 }
 
@@ -908,6 +908,13 @@ test_add_status_md_deterministic() {
 
 # ===========================================================================
 # merge
+#
+# merge <plan-slug> <unit-id> <unit-slug> -- construct_unit_branch replaces
+# the old glob-based resolve_unit_branch: the branch name is built directly
+# from the three arguments, so "multiple branches found" is no longer
+# possible. What used to be tested as ambiguity is now tested as cross-plan
+# isolation: a same-unit-id branch under a different plan must never be
+# picked up or touched.
 # ===========================================================================
 
 test_merge_usage() {
@@ -917,36 +924,67 @@ test_merge_usage() {
   run_in "$repo" merge
   [ "$RUN_EXIT" -eq 2 ] || record_fail "no args: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" merge U01 extra
+  run_in "$repo" merge plan1
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "1 arg: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" merge plan1 U01
   [ "$RUN_EXIT" -eq 2 ] || record_fail "2 args: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" merge plan1 U01 greetstuff extra
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "4 args: expected exit 2, got $RUN_EXIT"
 }
 
 test_merge_invalid_chars() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" merge "U0 1"
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in unit-id: expected exit 2, got $RUN_EXIT"
+  run_in "$repo" merge "plan slug" U01 greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" merge plan1 "U0/1" greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "slash in unit-id: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" merge plan1 U01 'slug;rm'
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "semicolon in unit-slug: expected exit 2, got $RUN_EXIT"
 }
 
 test_merge_no_branch_match() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" merge U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "zero branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "zero branch matches"
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "constructed branch absent: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "constructed branch absent (also proves construct_unit_branch never itself calls die/err on a lookup miss: a second 'ERROR:' line would fail this assertion)"
 }
 
-test_merge_multiple_branch_match() {
-  local repo
-  repo="$(new_git_repo)"
-  git -C "$repo" branch "lego/planA/U01-slugone"
-  git -C "$repo" branch "lego/planB/U01-slugtwo"
+test_merge_branch_construction_deterministic() {
+  local repoA repoB branch
+  branch="lego/plan1/U01-greetstuff"
 
-  run_in "$repo" merge U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "multiple branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "multiple branch matches"
+  repoA="$(new_git_repo)"
+  git -C "$repoA" checkout -q -b "$branch"
+  git -C "$repoA" commit -q --allow-empty -m "unit work"
+  git -C "$repoA" checkout -q master
+
+  repoB="$(new_git_repo)"
+  git -C "$repoB" checkout -q -b "$branch"
+  git -C "$repoB" commit -q --allow-empty -m "unit work"
+  git -C "$repoB" checkout -q master
+
+  run_in "$repoA" merge plan1 U01 greetstuff
+  local exitA="$RUN_EXIT"
+  local subjectA
+  subjectA="$(git -C "$repoA" log -1 --format=%s HEAD 2>/dev/null || echo "")"
+
+  run_in "$repoB" merge plan1 U01 greetstuff
+  local exitB="$RUN_EXIT"
+  local subjectB
+  subjectB="$(git -C "$repoB" log -1 --format=%s HEAD 2>/dev/null || echo "")"
+
+  [ "$exitA" -eq 0 ] || record_fail "run A: expected exit 0, got $exitA"
+  [ "$exitB" -eq 0 ] || record_fail "run B: expected exit 0, got $exitB"
+  assert_eq "$subjectA" "$subjectB" "identical repo state and args construct the identical branch name (construct_unit_branch is deterministic)"
+  assert_eq "lego: merge $branch" "$subjectA" "constructed branch name lego/<plan-slug>/<unit-id>-<unit-slug> appears verbatim in the merge commit subject"
 }
 
 test_merge_dirty_tracked_tree_refuses() {
@@ -958,7 +996,7 @@ test_merge_dirty_tracked_tree_refuses() {
 
   printf 'uncommitted change\n' >> "$repo/README.md"
 
-  run_in "$repo" merge U01
+  run_in "$repo" merge plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "dirty tracked tree: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "dirty tracked tree"
 }
@@ -974,7 +1012,7 @@ test_merge_untracked_only_does_not_block() {
 
   printf 'scratch\n' > "$repo/scratch.txt"
 
-  run_in "$repo" merge U01
+  run_in "$repo" merge plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "untracked-only tree should not block merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 }
 
@@ -989,7 +1027,7 @@ test_merge_success() {
   git -C "$repo" checkout -q master
   head_before="$(git -C "$repo" rev-parse HEAD)"
 
-  run_in "$repo" merge U01
+  run_in "$repo" merge plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   local head_after
@@ -1012,8 +1050,51 @@ test_merge_success() {
   fi
 }
 
+test_merge_cross_plan_isolation() {
+  local repo branchA branchB shaB_before
+  repo="$(new_git_repo)"
+  branchA="lego/planA/U01-foo"
+  branchB="lego/planB/U01-bar"
+
+  git -C "$repo" checkout -q -b "$branchA"
+  printf 'planA feature\n' > "$repo/planA.txt"
+  git -C "$repo" add planA.txt
+  git -C "$repo" commit -q -m "planA unit work"
+  git -C "$repo" checkout -q master
+
+  git -C "$repo" checkout -q -b "$branchB"
+  printf 'planB feature\n' > "$repo/planB.txt"
+  git -C "$repo" add planB.txt
+  git -C "$repo" commit -q -m "planB unit work"
+  git -C "$repo" checkout -q master
+
+  shaB_before="$(git -C "$repo" rev-parse "$branchB")"
+
+  run_in "$repo" merge planA U01 foo
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ ! -f "$repo/planA.txt" ]; then
+    record_fail "expected planA's branch to have been merged (planA.txt present)"
+  fi
+  if [ -f "$repo/planB.txt" ]; then
+    record_fail "expected planB's same-unit-id branch to be left untouched by 'merge planA U01 foo' (planB.txt should not be present)"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branchB"; then
+    record_fail "expected planB's branch $branchB to still exist"
+  fi
+  local shaB_after
+  shaB_after="$(git -C "$repo" rev-parse "$branchB" 2>/dev/null || echo "")"
+  assert_eq "$shaB_before" "$shaB_after" "planB's branch ref is byte-for-byte unchanged (construct_unit_branch is a pure lookup: it never creates, deletes, or modifies any ref)"
+}
+
 # ===========================================================================
 # deliver
+#
+# deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id>
+# <unit-slug>...] -- as with merge, exact construction removes the old
+# "multiple branches found" ambiguity error; cross-plan isolation replaces
+# it as the thing worth testing.
 # ===========================================================================
 
 test_deliver_usage() {
@@ -1023,16 +1104,39 @@ test_deliver_usage() {
   run_in "$repo" deliver
   [ "$RUN_EXIT" -eq 2 ] || record_fail "no args: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver master
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "base-branch only, no unit ids: expected exit 2, got $RUN_EXIT"
+  run_in "$repo" deliver plan1
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "1 arg: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" deliver plan1 master
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "2 args (plan-slug + base-branch, no unit id/slug pair): expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" deliver plan1 master U01
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "3 args (dangling unit-id with no matching slug): expected exit 2, got $RUN_EXIT"
+}
+
+test_deliver_odd_paired_args() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" deliver plan1 master U01 greetstuff U02
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "odd count of unit-id/unit-slug args after plan-slug+base-branch (U02 has no matching slug): expected exit 2, got $RUN_EXIT"
 }
 
 test_deliver_invalid_chars() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" deliver master "U0/1"
+  run_in "$repo" deliver "plan slug" master U01 greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" deliver plan1 "master;rm" U01 greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in base-branch: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" deliver plan1 master "U0/1" greetstuff
   [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in unit-id: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" deliver plan1 master U01 'slug;rm'
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in unit-slug: expected exit 2, got $RUN_EXIT"
 }
 
 test_deliver_missing_gh() {
@@ -1045,7 +1149,7 @@ test_deliver_missing_gh() {
 
   local path_no_gh
   path_no_gh="$(path_without gh)"
-  run_cmd "$repo" "$path_no_gh" deliver master U01
+  run_cmd "$repo" "$path_no_gh" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "gh absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "gh absent"
 }
@@ -1059,19 +1163,19 @@ test_deliver_missing_dependencies() {
 
   local path_no_jq
   path_no_jq="$(path_without jq)"
-  run_cmd "$repo" "$path_no_jq" deliver master U01
+  run_cmd "$repo" "$path_no_jq" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "jq absent: expected exit 3, got $RUN_EXIT"
 
   local repo2
   repo2="$(new_git_repo)"
   write_blocks_md "$repo2"
-  run_in "$repo2" deliver master U01
+  run_in "$repo2" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "config.json missing: expected exit 3, got $RUN_EXIT"
 
   local repo3
   repo3="$(new_git_repo)"
   write_config_json "$repo3" "true"
-  run_in "$repo3" deliver master U01
+  run_in "$repo3" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "blocks.md missing: expected exit 3, got $RUN_EXIT"
 }
 
@@ -1079,20 +1183,41 @@ test_deliver_zero_branch_match() {
   local repo
   repo="$(build_deliver_base)"
 
-  run_in "$repo" deliver master U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "zero unit-branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "zero unit-branch matches"
+  run_in "$repo" deliver plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "constructed unit branch absent: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "constructed unit branch absent"
 }
 
-test_deliver_multiple_branch_match() {
+test_deliver_cross_plan_isolation() {
   local repo
   repo="$(build_deliver_base)"
-  git -C "$repo" branch "lego/planA/U01-slugone" master
-  git -C "$repo" branch "lego/planB/U01-slugtwo" master
+  # A same-unit-id branch under a different plan must never be picked up by
+  # exact construction, and must be untouched by plan1's delivery.
+  git -C "$repo" checkout -q -b "lego/planB/U01-otherslug" master
+  commit_file "$repo" "src/greet.sh" "should never be delivered" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
 
-  run_in "$repo" deliver master U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "multiple unit-branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "multiple unit-branch matches"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1 (plan1)" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  else
+    local greet_content
+    greet_content="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v1 (plan1)" "$greet_content" "delivered content comes from plan1's exact branch, not planB's same-unit-id branch"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/planB/U01-otherslug"; then
+    record_fail "expected planB's branch lego/planB/U01-otherslug to remain untouched by delivering plan1's unit"
+  fi
 }
 
 test_deliver_unit_with_no_code_paths_fails() {
@@ -1102,7 +1227,7 @@ test_deliver_unit_with_no_code_paths_fails() {
   git -C "$repo" commit -q --allow-empty -m "lego(U03): implementation"
   git -C "$repo" checkout -q master
 
-  run_in "$repo" deliver master U03
+  run_in "$repo" deliver plan1 master U03 nocodeslug
   [ "$RUN_EXIT" -eq 4 ] || record_fail "unit with no Code paths: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "unit with no Code paths (EC4)"
 }
@@ -1114,7 +1239,7 @@ test_deliver_missing_implementation_commit_fails() {
   commit_file "$repo" "src/needsimpl.sh" "needsimpl tests only" "lego(U04): tests"
   git -C "$repo" checkout -q master
 
-  run_in "$repo" deliver master U04
+  run_in "$repo" deliver plan1 master U04 needsimplslug
   [ "$RUN_EXIT" -eq 4 ] || record_fail "missing implementation commit: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "missing implementation commit"
 }
@@ -1125,9 +1250,9 @@ test_deliver_delivery_branch_already_exists() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
-  git -C "$repo" branch "lego/deliver/U01" master
+  git -C "$repo" branch "lego/deliver/plan1/U01" master
 
-  run_in "$repo" deliver master U01
+  run_in "$repo" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "delivery branch pre-exists: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "delivery branch pre-exists (EC3)"
 }
@@ -1140,7 +1265,7 @@ test_deliver_underlying_git_failure_on_push() {
   git -C "$repo" checkout -q master
   git -C "$repo" remote set-url origin "/nonexistent/path/that/does/not/exist.git"
 
-  run_in "$repo" deliver master U01
+  run_in "$repo" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "unreachable origin: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "unreachable origin (underlying git failure)"
 }
@@ -1155,14 +1280,14 @@ test_deliver_tests_commit_optional_success() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U02
+  run_cmd "$repo" "$newpath" deliver plan1 master U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
   assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
 
-  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U02"; then
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
     local subjects
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/U02 2>/dev/null)"
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U02 2>/dev/null)"
     if printf '%s\n' "$subjects" | grep -qF "lego(U02): contract + tests"; then
       record_fail "no tests commit existed for U02; delivery must not fabricate a 'contract + tests' commit"
     fi
@@ -1170,10 +1295,10 @@ test_deliver_tests_commit_optional_success() {
       record_fail "expected delivery branch to contain the implementation commit"
     fi
   else
-    record_fail "expected delivery branch lego/deliver/U02 to exist"
+    record_fail "expected delivery branch lego/deliver/plan1/U02 to exist"
   fi
 
-  if git -C "$repo" worktree list | grep -q "deliver/U02"; then
+  if git -C "$repo" worktree list | grep -q "deliver/plan1/U02"; then
     record_fail "expected the temporary delivery worktree to be removed after deliver (D4)"
   fi
 }
@@ -1202,16 +1327,16 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U01
+  run_cmd "$repo" "$newpath" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
   assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
 
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01"; then
-    record_fail "expected delivery branch lego/deliver/U01 to exist"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
   else
     local subjects
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/U01)"
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
     if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): contract + tests"; then
       record_fail "expected 'lego(U01): contract + tests' commit on delivery branch"
     fi
@@ -1220,12 +1345,12 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
     fi
 
     local delivery_merge_base
-    delivery_merge_base="$(git -C "$repo" merge-base master lego/deliver/U01)"
+    delivery_merge_base="$(git -C "$repo" merge-base master lego/deliver/plan1/U01)"
     assert_eq "$master_tip" "$delivery_merge_base" "delivery branch is built from base-branch's tip (D1)"
 
     local tests_sha impl_sha
-    tests_sha="$(git -C "$repo" log --format='%H %s' lego/deliver/U01 | grep -F ' lego(U01): contract + tests' | head -n1 | cut -d' ' -f1)"
-    impl_sha="$(git -C "$repo" log --format='%H %s' lego/deliver/U01 | grep -F ' lego(U01): implementation' | head -n1 | cut -d' ' -f1)"
+    tests_sha="$(git -C "$repo" log --format='%H %s' lego/deliver/plan1/U01 | grep -F ' lego(U01): contract + tests' | head -n1 | cut -d' ' -f1)"
+    impl_sha="$(git -C "$repo" log --format='%H %s' lego/deliver/plan1/U01 | grep -F ' lego(U01): implementation' | head -n1 | cut -d' ' -f1)"
 
     if [ -n "$tests_sha" ]; then
       local greet_at_tests other_at_tests
@@ -1252,7 +1377,7 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
     fi
   fi
 
-  if git -C "$repo" worktree list | grep -q "deliver/U01"; then
+  if git -C "$repo" worktree list | grep -q "deliver/plan1/U01"; then
     record_fail "expected the temporary delivery worktree to be removed after deliver (D4)"
   fi
 
@@ -1299,11 +1424,11 @@ test_deliver_multi_unit_branch_naming_and_pr_title_order() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U01 U02
+  run_cmd "$repo" "$newpath" deliver plan1 master U01 greetstuff U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01+U02"; then
-    record_fail "expected delivery branch 'lego/deliver/U01+U02' (argument order, '+' separated)"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01+U02"; then
+    record_fail "expected delivery branch 'lego/deliver/plan1/U01+U02' (plan-slug, then argument order, '+' separated)"
   fi
 
   if [ -s "$GH_SHIM_LOG" ]; then
@@ -1344,11 +1469,11 @@ test_deliver_multi_unit_argument_order_is_not_sorted() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U02 U01
+  run_cmd "$repo" "$newpath" deliver plan1 master U02 soloslug U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U02+U01"; then
-    record_fail "expected delivery branch 'lego/deliver/U02+U01' reflecting argument order, not sorted"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02+U01"; then
+    record_fail "expected delivery branch 'lego/deliver/plan1/U02+U01' reflecting argument order, not sorted"
   fi
 }
 
@@ -1365,12 +1490,12 @@ test_deliver_noop_restore_creates_no_second_commit() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U05
+  run_cmd "$repo" "$newpath" deliver plan1 master U05 noopslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
-  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U05"; then
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U05"; then
     local subjects impl_count
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/U05)"
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U05)"
     if ! printf '%s\n' "$subjects" | grep -qF "lego(U05): contract + tests"; then
       record_fail "expected 'lego(U05): contract + tests' commit"
     fi
@@ -1379,7 +1504,7 @@ test_deliver_noop_restore_creates_no_second_commit() {
       record_fail "restoring an unchanged path should create no 'implementation' commit, found $impl_count"
     fi
   else
-    record_fail "expected delivery branch lego/deliver/U05 to exist"
+    record_fail "expected delivery branch lego/deliver/plan1/U05 to exist"
   fi
 }
 
@@ -1394,36 +1519,73 @@ test_remove_usage() {
   run_in "$repo" remove
   [ "$RUN_EXIT" -eq 2 ] || record_fail "no args: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" remove U01 extra
+  run_in "$repo" remove plan1
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "1 arg: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" remove plan1 U01
   [ "$RUN_EXIT" -eq 2 ] || record_fail "2 args: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" remove plan1 U01 greetstuff extra
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "4 args: expected exit 2, got $RUN_EXIT"
 }
 
 test_remove_invalid_chars() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" remove "U0 1"
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in unit-id: expected exit 2, got $RUN_EXIT"
+  run_in "$repo" remove "plan slug" U01 greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" remove plan1 "U0/1" greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "slash in unit-id: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" remove plan1 U01 'slug;rm'
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "semicolon in unit-slug: expected exit 2, got $RUN_EXIT"
 }
 
 test_remove_zero_branch_match() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" remove U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "zero branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "zero branch matches"
+  run_in "$repo" remove plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "constructed branch absent: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "constructed branch absent"
 }
 
-test_remove_multiple_branch_match() {
-  local repo
+test_remove_cross_plan_isolation() {
+  local repo container wtA wtB branchA branchB shaB_before
   repo="$(new_git_repo)"
-  git -C "$repo" branch "lego/planA/U01-slugone"
-  git -C "$repo" branch "lego/planB/U01-slugtwo"
+  container="$(dirname "$repo")"
+  branchA="lego/planA/U01-foo"
+  branchB="lego/planB/U01-bar"
+  wtA="$container/manual-wt-planA-U01"
+  wtB="$container/manual-wt-planB-U01"
 
-  run_in "$repo" remove U01
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "multiple branch matches: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "multiple branch matches"
+  git -C "$repo" branch "$branchA"
+  git -C "$repo" worktree add -q "$wtA" "$branchA"
+  git -C "$repo" branch "$branchB"
+  git -C "$repo" worktree add -q "$wtB" "$branchB"
+  shaB_before="$(git -C "$repo" rev-parse "$branchB")"
+
+  run_in "$repo" remove planA U01 foo
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branchA"; then
+    record_fail "expected planA's branch $branchA to be deleted"
+  fi
+  if [ -d "$wtA" ]; then
+    record_fail "expected planA's worktree to be removed"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branchB"; then
+    record_fail "expected planB's same-unit-id branch $branchB to remain untouched by removing planA's unit"
+  fi
+  local shaB_after
+  shaB_after="$(git -C "$repo" rev-parse "$branchB" 2>/dev/null || echo "")"
+  assert_eq "$shaB_before" "$shaB_after" "planB's branch ref is unchanged by removing planA's same-unit-id branch"
+  if [ ! -d "$wtB" ]; then
+    record_fail "expected planB's worktree to remain untouched"
+  fi
 }
 
 test_remove_success() {
@@ -1436,7 +1598,7 @@ test_remove_success() {
   git -C "$repo" branch "$branch"
   git -C "$repo" worktree add -q "$wt" "$branch"
 
-  run_in "$repo" remove U01
+  run_in "$repo" remove plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if [ -d "$wt" ]; then
@@ -1461,7 +1623,7 @@ test_remove_dirty_worktree_fails() {
   git -C "$repo" worktree add -q "$wt" "$branch"
   printf 'dirty\n' >> "$wt/README.md"
 
-  run_in "$repo" remove U01
+  run_in "$repo" remove plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "dirty worktree: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "dirty worktree"
 }
@@ -1479,7 +1641,7 @@ test_remove_unmerged_branch_fails() {
   git -C "$wt" add extra.txt
   git -C "$wt" commit -q -m "unmerged work"
 
-  run_in "$repo" remove U01
+  run_in "$repo" remove plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "unmerged branch: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "unmerged branch"
 
@@ -1519,7 +1681,7 @@ test_merge_removes_unit_worktree_on_success() {
   git -C "$repo" worktree add -q "$wt" "$branch"
   commit_file "$wt" "feature.txt" "feature content" "unit work"
 
-  run_in "$repo" merge U01
+  run_in "$repo" merge plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if [ -d "$wt" ]; then
@@ -1551,7 +1713,7 @@ test_merge_worktree_removal_failure_does_not_change_exit_code() {
   # invoking-worktree dirty-tree check (that check is about $repo, not $wt).
   printf 'dirty\n' >> "$wt/README.md"
 
-  run_in "$repo" merge U01
+  run_in "$repo" merge plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "merge cleanup failure must never change merge's exit code: expected exit 0, got $RUN_EXIT"
 
   if [ -z "$RUN_ERR" ]; then
@@ -1596,7 +1758,7 @@ test_deliver_cleanup_removes_unit_branch_and_worktree() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U01
+  run_cmd "$repo" "$newpath" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line after cleanup"
 
@@ -1609,8 +1771,8 @@ test_deliver_cleanup_removes_unit_branch_and_worktree() {
   if git -C "$repo" worktree list | grep -qF "$wt"; then
     record_fail "expected git worktree list to no longer include the removed unit worktree"
   fi
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01"; then
-    record_fail "expected the local delivery branch lego/deliver/U01 to be left intact"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the local delivery branch lego/deliver/plan1/U01 to be left intact"
   fi
 }
 
@@ -1628,7 +1790,7 @@ test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver master U01
+  run_cmd "$repo" "$newpath" deliver plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "deliver cleanup failure must never change deliver's exit code: expected exit 0, got $RUN_EXIT"
   assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed despite cleanup failure"
 
@@ -1638,8 +1800,8 @@ test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     record_fail "expected unit branch $branch to still exist since deletion should have failed (unmerged)"
   fi
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01"; then
-    record_fail "expected the local delivery branch lego/deliver/U01 to be left intact"
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the local delivery branch lego/deliver/plan1/U01 to be left intact"
   fi
 }
 
@@ -1680,7 +1842,10 @@ test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
   repo="$(new_git_repo)"
   container="$(dirname "$repo")"
   branch1="lego/plan1/U01-greetstuff"
-  branch2="lego/deliver/U02"
+  # Delivery branches now carry an extra plan-slug path segment:
+  # lego/deliver/<plan-slug>/<unit-ids>. clean's glob was updated from
+  # "lego/deliver/*" to "lego/deliver/*/*" to match this new depth.
+  branch2="lego/deliver/plan1/U02"
   branch3="lego/plan1/U03-otherslug"
   other_branch="feature/other"
   wt1="$container/manual-wt-U01"
@@ -1692,7 +1857,7 @@ test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
   commit_file "$wt1" "feature1.txt" "feature1" "unit work 1"
   git -C "$repo" merge -q --no-ff -m "merge $branch1" "$branch1"
 
-  # branch2: a merged "lego/deliver/*" branch with its own worktree.
+  # branch2: a merged "lego/deliver/*/*" branch with its own worktree.
   git -C "$repo" branch "$branch2"
   git -C "$repo" worktree add -q "$wt2" "$branch2"
   commit_file "$wt2" "feature2.txt" "feature2" "unit work 2"
@@ -1719,7 +1884,7 @@ test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
   fi
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch2"; then
-    record_fail "expected merged lego/deliver/* branch $branch2 to be deleted"
+    record_fail "expected merged lego/deliver/*/* branch $branch2 to be deleted"
   fi
   if [ -d "$wt2" ] || git -C "$repo" worktree list | grep -qF "$wt2"; then
     record_fail "expected the worktree for $branch2 to be removed"
@@ -1794,34 +1959,36 @@ run_test "add: status.md multi-block unit lists one Blocks line per section in b
 run_test "add: creates .local/briefs/ and .local/reports/ as empty directories (NEW)" test_add_creates_empty_briefs_and_reports_dirs
 run_test "add: status.md is deterministic across identical repo state and args (NEW)" test_add_status_md_deterministic
 
-run_test "merge: usage error on wrong argument count" test_merge_usage
-run_test "merge: usage error on invalid characters in unit-id" test_merge_invalid_chars
-run_test "merge: zero matching unit branches" test_merge_no_branch_match
-run_test "merge: multiple matching unit branches" test_merge_multiple_branch_match
+run_test "merge: usage error on wrong argument count (plan-scoped)" test_merge_usage
+run_test "merge: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_merge_invalid_chars
+run_test "merge: constructed branch does not exist (no glob ambiguity possible)" test_merge_no_branch_match
+run_test "merge: construct_unit_branch is deterministic (same inputs, same constructed branch)" test_merge_branch_construction_deterministic
 run_test "merge: refuses on dirty tracked working tree" test_merge_dirty_tracked_tree_refuses
 run_test "merge: untracked-only changes do not block merge" test_merge_untracked_only_does_not_block
 run_test "merge: success (--no-ff, commit message, file introduced)" test_merge_success
+run_test "merge: cross-plan isolation (same unit-id under a different plan is untouched)" test_merge_cross_plan_isolation
 
-run_test "deliver: usage error on wrong argument count" test_deliver_usage
-run_test "deliver: usage error on invalid characters in unit-id" test_deliver_invalid_chars
+run_test "deliver: usage error on wrong argument count (plan-scoped)" test_deliver_usage
+run_test "deliver: usage error on odd unit-id/unit-slug pair count" test_deliver_odd_paired_args
+run_test "deliver: usage error on invalid characters in plan-slug/base-branch/unit-id/unit-slug" test_deliver_invalid_chars
 run_test "deliver: missing gh dependency" test_deliver_missing_gh
 run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)" test_deliver_missing_dependencies
-run_test "deliver: zero matching unit branches" test_deliver_zero_branch_match
-run_test "deliver: multiple matching unit branches" test_deliver_multiple_branch_match
+run_test "deliver: constructed unit branch does not exist" test_deliver_zero_branch_match
+run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_deliver_cross_plan_isolation
 run_test "deliver: unit with no Code paths cannot be delivered (EC4)" test_deliver_unit_with_no_code_paths_fails
 run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
-run_test "deliver: delivery branch already exists (EC3)" test_deliver_delivery_branch_already_exists
+run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists
 run_test "deliver: underlying git failure (unreachable origin) on push" test_deliver_underlying_git_failure_on_push
 run_test "deliver: tests commit is optional (untested prose unit)" test_deliver_tests_commit_optional_success
 run_test "deliver: single unit - union of Code paths, newest-exact-subject, space path (EC1,EC2,D1,D4)" test_deliver_single_unit_union_and_newest_and_spaces
-run_test "deliver: multi-unit branch naming and PR title/body order" test_deliver_multi_unit_branch_naming_and_pr_title_order
+run_test "deliver: multi-unit branch naming (lego/deliver/<plan-slug>/<ids>) and PR title/body order" test_deliver_multi_unit_branch_naming_and_pr_title_order
 run_test "deliver: multi-unit argument order is preserved, not sorted" test_deliver_multi_unit_argument_order_is_not_sorted
 run_test "deliver: restore producing no changes creates no second commit" test_deliver_noop_restore_creates_no_second_commit
 
-run_test "remove: usage error on wrong argument count" test_remove_usage
-run_test "remove: usage error on invalid characters in unit-id" test_remove_invalid_chars
-run_test "remove: zero matching unit branches" test_remove_zero_branch_match
-run_test "remove: multiple matching unit branches" test_remove_multiple_branch_match
+run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
+run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars
+run_test "remove: constructed branch does not exist" test_remove_zero_branch_match
+run_test "remove: cross-plan isolation (same unit-id under a different plan is untouched)" test_remove_cross_plan_isolation
 run_test "remove: success removes worktree and deletes branch" test_remove_success
 run_test "remove: dirty worktree fails" test_remove_dirty_worktree_fails
 run_test "remove: unmerged branch fails (worktree still removed)" test_remove_unmerged_branch_fails
@@ -1837,7 +2004,7 @@ run_test "deliver: branch-cleanup failure does not change exit code or suppress 
 run_test "clean: usage error on unexpected arguments (B01)" test_clean_usage_unexpected_args
 run_test "clean: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
 run_test "clean: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
-run_test "clean: removes merged lego/*/* and lego/deliver/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
+run_test "clean: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
 run_test "clean: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
 
 echo "---"

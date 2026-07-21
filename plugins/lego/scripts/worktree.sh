@@ -256,7 +256,12 @@ require_blocks_md() {
 #             Does not call die/exit — safe inside $(...) substitution.
 construct_unit_branch() {
   local plan_slug="$1" unit_id="$2" unit_slug="$3"
-  err "NotImplemented: B01 construct_unit_branch"; return 99
+  local branch="lego/$plan_slug/$unit_id-$unit_slug"
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch"; then
+    printf '%s\n' "$branch"
+    return 0
+  fi
+  return 1
 }
 
 # find_worktree_for_branch <branch> -- prints the worktree path with that

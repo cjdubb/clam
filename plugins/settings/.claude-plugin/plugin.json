@@ -1,0 +1,9 @@
+{
+  "name": "settings",
+  "description": "Opinionated Claude Code session defaults: agent teams and disabled adaptive thinking. Install changes nothing; /settings:setup writes the settings at the plugin's installation scope, /settings:setup remove undoes them.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

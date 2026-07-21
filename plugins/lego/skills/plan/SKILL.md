@@ -34,21 +34,34 @@ never assume. It applies at every level below this one too — an ambiguous
 contract, a surprising repo state, or evidence that contradicts the engineer's
 description are all questions to raise, not gaps to fill silently.
 
-## Step 1: Ensure `.local/` exists
+## Step 1: Ensure the repo interface exists
 
-If the repo has no `.local/` directory, ask the engineer for consent to create it
-(the workflow's only footprint in their repo), then:
+The repo interface is layered (full semantics in `docs/config-schema.md`):
 
-0. **Keep it out of the tracked tree.** Append `.local/` to `.git/info/exclude`
-   (create the file if absent; skip if the entry already exists or the repo
-   already tracks `.local/` files). This ignores the directory per-clone without
-   touching the repo's own `.gitignore` — essential in repos whose conventions
-   the engineer doesn't control. Local-only is the default; a team that wants
-   the block map shared and versioned can delete that exclude line and commit
-   `.local/` deliberately, and the workflow works identically either way. Note
-   the consequence of the default honestly if asked: an excluded block map is
-   per-clone and does not survive a fresh clone.
-1. Create `.local/config.json`. Autodetect candidates and CONFIRM with the
+- **`.claude/lego.json`** — the committed base config: commands, models,
+  testPatterns, delivery mode. Repo facts belong with the repo; because
+  this file is committed, every worktree and fresh clone inherits it via
+  git checkout, so repo config never needs copying between worktrees.
+- **`.local/config.json`** — optional gitignored local override,
+  deep-merged over the base: machine-specific values
+  (`delivery.worktreeDir`), personal tweaks. Also the escape hatch for a
+  repo whose conventions the engineer doesn't control: the whole config
+  can live here instead, accepting that it is then per-clone and does not
+  survive a fresh clone.
+- **`.local/`** otherwise holds session state (block map, plans, per-unit
+  seeds) and stays untracked.
+
+If the repo has no `.claude/lego.json` (and no deliberate
+`.local/config.json`-only setup), ask the engineer for consent to create
+the interface, then:
+
+0. **Keep session state out of the tracked tree.** Append `.local/` to
+   `.git/info/exclude` (create the file if absent; skip if the entry
+   already exists, the repo's `.gitignore` already covers it, or the repo
+   deliberately tracks `.local/` files). A team that wants the block map
+   shared can commit `.local/` deliberately; the workflow works identically
+   either way.
+1. Create `.claude/lego.json`. Autodetect candidates and CONFIRM with the
    engineer before writing; never guess silently:
 
    | Marker file | Likely commands |
@@ -61,15 +74,33 @@ If the repo has no `.local/` directory, ask the engineer for consent to create i
    | `pom.xml` / `build.gradle` | `test`: `mvn test` / `gradle test` |
    | `Makefile` | inspect for `test` target |
 
+   Where the repo has more than one meaningful test command — a monorepo
+   (per-package vs affected-wide runs) or multiple test types (unit,
+   integration, e2e, storybook) — record them as named variants instead of
+   a single string, and agree with the engineer which one is `default`
+   (what mechanical checks run; prefer the cheapest tier that needs no
+   external infrastructure, usually unit):
+
+   ```json
+   "test": { "unit": "...", "integration": "...", "default": "unit" }
+   ```
+
+   Scope permutations (`nx run mylib:unit-test`) are constructed at
+   dispatch time; config records the repo's test *types*, not every
+   permutation.
+
    Schema: see `docs/config-schema.md` in the plugin; starter in
-   `templates/config.json`. `commands.test` is required; `typecheck`, `build`,
+   `templates/lego.json`. `commands.test` is required; `typecheck`, `build`,
    `lint` optional; `models.testWriter`/`models.implementer` default to sonnet.
 
    Also ask the engineer for the **delivery mode** (`delivery.mode`):
    `main-prs` — each PR group is raised as a PR to master/main, or
    `local-only` — units are merged locally and the engineer delivers
-   manually. Optionally record `delivery.worktreeDir`, where per-unit
-   worktrees are created.
+   manually. `delivery.worktreeDir` (where per-unit worktrees are created)
+   is machine-specific: when needed, it goes in the `.local/config.json`
+   override, never the committed base.
+
+   Commit `.claude/lego.json` (with the engineer's consent) once confirmed.
 2. Create `.local/blocks.md` from `templates/blocks.md`.
 3. Create `.local/plans/`.
 

@@ -99,7 +99,8 @@ install-changes-nothing constraint holds.
 ## session-modes — planned
 
 - Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
-  `whats-cooking`, `planning`, `orchestrator-handover`
+  `whats-cooking`, `planning`, `orchestrator-handover` (moved to
+  **orchestrator-handover**)
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
@@ -108,6 +109,21 @@ install-changes-nothing constraint holds.
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
   `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
   **notifications**, their consumers)
+
+## orchestrator-handover — ported (from clam-code)
+
+Moved out of the session-modes bucket into its own standalone plugin, since
+its behavior (writing a handover document, scaffolding the recipient
+worktree, populating its `.local/`, and handing off to the user) is
+self-contained and doesn't depend on the rest of session-modes.
+
+Single skill: `/orchestrator-handover:create`, ported from clam-code's
+`general/skills/orchestrator-handover/`.
+
+Port changes: dropped the `newcliptree`/CLIP-* branching (always uses
+`newtree` now), generalized issue-tracker language away from any specific
+tracker, and softened cross-plugin references so the skill degrades
+gracefully when a referenced plugin isn't installed.
 
 ## decision-log — ported (from clam-code)
 

@@ -65,6 +65,12 @@
       "source": "./plugins/privacy",
       "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope.",
       "version": "0.1.0"
+    },
+    {
+      "name": "orchestrator-handover",
+      "source": "./plugins/orchestrator-handover",
+      "description": "Orchestrator-to-orchestrator handover: write a handover document, scaffold the recipient worktree, populate its .local/, and hand off to the user.",
+      "version": "0.1.0"
     }
   ]
 }

@@ -46,10 +46,15 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | [tracking](plugins/tracking/) | ✅ v0.1.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
 | [statusline](plugins/statusline/) | ✅ v0.1.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.md` (github-pr or local-merge); `/landing:init` detects and records it. |
+| [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.0 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
 | [worktrees](plugins/worktrees/) | ✅ v0.1.0 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
+| [attribution](plugins/attribution/) | ✅ v0.1.0 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
+| [settings](plugins/settings/) | ✅ v0.1.0 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
+| [privacy](plugins/privacy/) | ✅ v0.1.0 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
+| [debugging](plugins/debugging/) | ✅ v0.1.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back. |
 
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.

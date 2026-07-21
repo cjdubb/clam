@@ -1,14 +1,21 @@
 #!/bin/bash
-# SessionStart hook for the tracking plugin. Three jobs:
+# SessionStart hook for the tracking plugin. Four jobs:
 #
 # 1. Inject the Work Management rules (ported from clam-code's system-prompt
 #    Work Management section) as additionalContext, so tracking-doc discipline
 #    holds without the clam alias / --append-system-prompt-file mechanism.
-# 2. Resume support: when the cwd already has .local/TODO.md, surface its
+# 2. Auto-create TODO.md: when $cwd/.local/ exists as a directory but
+#    $cwd/.local/TODO.md does not, copy the template from
+#    $PLUGIN_ROOT/templates/TODO.md, substitute [branch-name] with the git
+#    branch and [YYYY-MM-DD] / [YYYY-MM-DD HH:MM] with the current date/time,
+#    and write the result. Fail-open: missing template or write failure must
+#    not break session start. Must run BEFORE the resume check (job 3) so a
+#    freshly auto-created TODO.md triggers resume injection.
+# 3. Resume support: when the cwd already has .local/TODO.md, surface its
 #    State and Current Task and instruct the session to read the tracking docs
 #    before doing anything else — this is what makes /clear + fresh
 #    orchestrator pickup work.
-# 3. Clear the once-per-session-epoch markers (.decision-nudge-fired) that
+# 4. Clear the once-per-session-epoch markers (.decision-nudge-fired) that
 #    scripts/keep-working.sh sets, on every SessionStart event (startup,
 #    resume, clear, compact) — the same epoch semantics clam-code implemented
 #    across session-track.sh and post-compact.sh.
@@ -29,6 +36,48 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
 [ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" 2>/dev/null
+
+# --- Auto-create TODO.md (B01: auto-create-todo) ---
+#
+# Behavior: when $cwd/.local/ exists as a directory but $cwd/.local/TODO.md
+#   does not, copy $PLUGIN_ROOT/templates/TODO.md into $cwd/.local/TODO.md
+#   with placeholder substitution.
+# Inputs: $cwd (from hook JSON), $PLUGIN_ROOT (resolved above).
+# Outputs: $cwd/.local/TODO.md on disk (or nothing on failure).
+# Substitutions:
+#   - [branch-name] → current git branch (empty string if not in a git repo)
+#   - [YYYY-MM-DD HH:MM] → current date+time (local timezone)
+#   - [YYYY-MM-DD] → current date (local timezone, only standalone occurrences
+#     not already covered by the HH:MM substitution)
+# Errors: fail-open — missing template, unwritable directory, or any error
+#   must exit 0 with no output, never breaking session start.
+# Invariants:
+#   - NEVER overwrites an existing TODO.md.
+#   - Runs BEFORE the resume-context check below so a freshly created TODO.md
+#     triggers resume injection on the same SessionStart event.
+#   - bash 3.2 safe (no associative arrays, no bash 4+ features).
+# Edge cases:
+#   - $cwd/.local/ does not exist → no-op.
+#   - Template file missing → no-op.
+#   - git not available or not in a repo → [branch-name] substituted with "".
+#   - Write fails (read-only fs, permissions) → no-op, no error output.
+_auto_create_todo() {
+    [ -d "$cwd/.local" ] || return 0
+    [ ! -f "$cwd/.local/TODO.md" ] || return 0
+    local tmpl="$PLUGIN_ROOT/templates/TODO.md"
+    [ -f "$tmpl" ] || return 0
+    local branch
+    branch=$(git -C "$cwd" branch --show-current 2>/dev/null || true)
+    local datetime
+    datetime=$(date '+%Y-%m-%d %H:%M')
+    local today
+    today=$(date '+%Y-%m-%d')
+    sed -e "s/\[branch-name\]/${branch:-}/g" \
+        -e "s/\[YYYY-MM-DD HH:MM\]/${datetime}/g" \
+        -e "s/\[YYYY-MM-DD\]/${today}/g" \
+        "$tmpl" > "$cwd/.local/TODO.md" 2>/dev/null || rm -f "$cwd/.local/TODO.md" 2>/dev/null
+}
+[ -n "$cwd" ] && _auto_create_todo
 
 rules=$(cat <<EOF
 # Tracking (clam tracking plugin)

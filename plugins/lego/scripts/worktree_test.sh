@@ -1505,6 +1505,272 @@ test_unknown_subcommand() {
 }
 
 # ===========================================================================
+# merge: auto-removal of the unit worktree (B01 worktree-auto-cleanup)
+# ===========================================================================
+
+test_merge_removes_unit_worktree_on_success() {
+  local repo container branch wt
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+
+  run_in "$repo" merge U01
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -d "$wt" ]; then
+    record_fail "expected unit worktree directory $wt to be removed after a successful merge"
+  fi
+  if git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to no longer include the removed unit worktree"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected unit branch $branch to still exist after merge (branch is not removed; deliver may need it)"
+  fi
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected the merge itself to have succeeded (feature.txt from unit branch present)"
+  fi
+}
+
+test_merge_worktree_removal_failure_does_not_change_exit_code() {
+  local repo container branch wt
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+  # Leave the unit worktree dirty (uncommitted tracked change) so `git
+  # worktree remove` refuses it -- this is the cleanup-failure path, not the
+  # invoking-worktree dirty-tree check (that check is about $repo, not $wt).
+  printf 'dirty\n' >> "$wt/README.md"
+
+  run_in "$repo" merge U01
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "merge cleanup failure must never change merge's exit code: expected exit 0, got $RUN_EXIT"
+
+  if [ -z "$RUN_ERR" ]; then
+    record_fail "expected a warning on stderr when unit-worktree cleanup fails"
+  fi
+  if [ ! -d "$wt" ]; then
+    record_fail "expected the dirty unit worktree to still exist since its removal should have failed"
+  fi
+  if ! git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to still include the unit worktree (removal failed)"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected unit branch $branch to still exist after merge"
+  fi
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected the merge itself to have succeeded despite the cleanup failure"
+  fi
+}
+
+# ===========================================================================
+# deliver: auto-removal of unit branches/worktrees (B01 worktree-auto-cleanup)
+# ===========================================================================
+
+test_deliver_cleanup_removes_unit_branch_and_worktree() {
+  local repo container branch wt
+  repo="$(build_deliver_base)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  git -C "$repo" checkout -q -b "$branch" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  # Simulate the unit having already been merged into the integration branch
+  # (e.g. via `worktree.sh merge`) before delivery, so `git branch -d` in
+  # deliver's cleanup step can succeed.
+  git -C "$repo" merge -q --no-ff -m "lego: merge $branch" "$branch"
+  # A worktree for the unit branch still lingers (e.g. merge's own best-effort
+  # cleanup did not run or did not succeed) -- deliver must remove it too.
+  git -C "$repo" worktree add -q "$wt" "$branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver master U01
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line after cleanup"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected unit branch $branch to be deleted after a successful deliver"
+  fi
+  if [ -d "$wt" ]; then
+    record_fail "expected unit worktree $wt to be removed after a successful deliver"
+  fi
+  if git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to no longer include the removed unit worktree"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01"; then
+    record_fail "expected the local delivery branch lego/deliver/U01 to be left intact"
+  fi
+}
+
+test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="lego/plan1/U01-greetstuff"
+
+  git -C "$repo" checkout -q -b "$branch" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  # Deliberately do NOT merge the unit branch into master: it stays
+  # unmerged, so `git branch -d` in deliver's cleanup step will fail.
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver master U01
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "deliver cleanup failure must never change deliver's exit code: expected exit 0, got $RUN_EXIT"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed despite cleanup failure"
+
+  if [ -z "$RUN_ERR" ]; then
+    record_fail "expected a warning on stderr when unit-branch cleanup fails"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected unit branch $branch to still exist since deletion should have failed (unmerged)"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/U01"; then
+    record_fail "expected the local delivery branch lego/deliver/U01 to be left intact"
+  fi
+}
+
+# ===========================================================================
+# clean (B01 worktree-auto-cleanup)
+# ===========================================================================
+
+test_clean_usage_unexpected_args() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean extra-arg
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "unexpected argument: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean with unexpected argument"
+}
+
+test_clean_requires_git_work_tree() {
+  local dir
+  dir="$(mktemp -d)"
+  track_tmp "$dir"
+
+  run_in "$dir" clean
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "clean outside git worktree: expected exit 3, got $RUN_EXIT"
+}
+
+test_clean_no_lego_branches() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "clean with no lego branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (count), got $RUN_OUT_LINES (stdout: $RUN_OUT)"
+  assert_eq "0" "$RUN_OUT_LAST" "clean with no lego branches prints count 0 as last stdout line"
+}
+
+test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
+  local repo container branch1 branch2 branch3 other_branch wt1 wt2
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch1="lego/plan1/U01-greetstuff"
+  branch2="lego/deliver/U02"
+  branch3="lego/plan1/U03-otherslug"
+  other_branch="feature/other"
+  wt1="$container/manual-wt-U01"
+  wt2="$container/manual-wt-U02"
+
+  # branch1: a merged "lego/*/*" branch with its own worktree.
+  git -C "$repo" branch "$branch1"
+  git -C "$repo" worktree add -q "$wt1" "$branch1"
+  commit_file "$wt1" "feature1.txt" "feature1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $branch1" "$branch1"
+
+  # branch2: a merged "lego/deliver/*" branch with its own worktree.
+  git -C "$repo" branch "$branch2"
+  git -C "$repo" worktree add -q "$wt2" "$branch2"
+  commit_file "$wt2" "feature2.txt" "feature2" "unit work 2"
+  git -C "$repo" merge -q --no-ff -m "merge $branch2" "$branch2"
+
+  # branch3: an UNMERGED lego branch -- must be skipped, not deleted.
+  git -C "$repo" checkout -q -b "$branch3"
+  commit_file "$repo" "unmerged.txt" "content" "unit work 3"
+  git -C "$repo" checkout -q master
+
+  # other_branch: a non-lego branch, trivially merged (points at current
+  # HEAD) -- must be left untouched since it does not match a lego pattern.
+  git -C "$repo" branch "$other_branch"
+
+  run_in "$repo" clean
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "2" "$RUN_OUT_LAST" "count of removed branches (branch1 + branch2) as last stdout line"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch1"; then
+    record_fail "expected merged lego/*/* branch $branch1 to be deleted"
+  fi
+  if [ -d "$wt1" ] || git -C "$repo" worktree list | grep -qF "$wt1"; then
+    record_fail "expected the worktree for $branch1 to be removed"
+  fi
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch2"; then
+    record_fail "expected merged lego/deliver/* branch $branch2 to be deleted"
+  fi
+  if [ -d "$wt2" ] || git -C "$repo" worktree list | grep -qF "$wt2"; then
+    record_fail "expected the worktree for $branch2 to be removed"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch3"; then
+    record_fail "expected unmerged lego branch $branch3 to be skipped, not deleted"
+  fi
+  if [ -z "$RUN_ERR" ]; then
+    record_fail "expected a warning on stderr for the skipped unmerged branch"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$other_branch"; then
+    record_fail "expected non-lego branch $other_branch to be left untouched by clean"
+  fi
+}
+
+test_clean_prunes_stale_worktree_entries() {
+  local repo container branch wt
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch="feature/stale"
+  wt="$container/manual-wt-stale"
+
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  # Simulate a stale worktree entry: the directory is gone from disk without
+  # ever going through `git worktree remove`, leaving administrative files
+  # behind. This branch is deliberately non-lego and unmerged-irrelevant so
+  # that only the unconditional `git worktree prune` step (not the
+  # merged-branch loop) can be responsible for cleaning it up.
+  rm -rf -- "$wt"
+
+  if ! git -C "$repo" worktree list --porcelain | grep -qF "worktree $wt"; then
+    record_fail "test setup invalid: expected a stale worktree entry for $wt to be present before clean"
+    return
+  fi
+
+  run_in "$repo" clean
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "0" "$RUN_OUT_LAST" "no lego branches removed; only a stale worktree entry pruned"
+
+  if git -C "$repo" worktree list --porcelain | grep -qF "worktree $wt"; then
+    record_fail "expected git worktree prune to remove the stale worktree entry for $wt"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the non-lego branch $branch itself to remain untouched by prune"
+  fi
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -1561,6 +1827,18 @@ run_test "remove: dirty worktree fails" test_remove_dirty_worktree_fails
 run_test "remove: unmerged branch fails (worktree still removed)" test_remove_unmerged_branch_fails
 
 run_test "unknown subcommand" test_unknown_subcommand
+
+run_test "merge: removes unit worktree on success, keeps branch (B01)" test_merge_removes_unit_worktree_on_success
+run_test "merge: unit-worktree cleanup failure does not change exit code (B01)" test_merge_worktree_removal_failure_does_not_change_exit_code
+
+run_test "deliver: cleanup removes unit branch and worktree, keeps delivery branch and PR URL (B01)" test_deliver_cleanup_removes_unit_branch_and_worktree
+run_test "deliver: branch-cleanup failure does not change exit code or suppress PR URL (B01)" test_deliver_cleanup_branch_deletion_failure_still_exits_0
+
+run_test "clean: usage error on unexpected arguments (B01)" test_clean_usage_unexpected_args
+run_test "clean: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
+run_test "clean: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
+run_test "clean: removes merged lego/*/* and lego/deliver/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
+run_test "clean: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

@@ -1,0 +1,9 @@
+{
+  "name": "make-progress",
+  "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

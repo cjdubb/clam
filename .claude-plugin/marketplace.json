@@ -47,6 +47,36 @@
       "source": "./plugins/landing",
       "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.md (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
       "version": "0.1.0"
+    },
+    {
+      "name": "attribution",
+      "source": "./plugins/attribution",
+      "description": "Suppress Claude Code co-author attribution on commits and PRs. Install changes nothing; /attribution:setup writes the setting at the plugin's installation scope.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "settings",
+      "source": "./plugins/settings",
+      "description": "Opinionated Claude Code session defaults: agent teams and disabled adaptive thinking. Install changes nothing; /settings:setup writes the settings at the plugin's installation scope.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "privacy",
+      "source": "./plugins/privacy",
+      "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "orchestrator-handover",
+      "source": "./plugins/orchestrator-handover",
+      "description": "Orchestrator-to-orchestrator handover: write a handover document, scaffold the recipient worktree, populate its .local/, and hand off to the user.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "debugging",
+      "source": "./plugins/debugging",
+      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back.",
+      "version": "0.1.0"
     }
   ]
 }

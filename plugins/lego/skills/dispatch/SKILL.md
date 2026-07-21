@@ -228,14 +228,11 @@ Any unit whose `Deps:` this one satisfies can now have its own worktree
 created (step 1) — development is never gated on PR review, only on this
 local merge.
 
-Worktree and branch teardown is not immediate in every mode. Under
-`local-only` (or when `main-prs` degrades to it because `origin`/`gh` is
-missing — see step 5), there is no later delivery step to wait for, so run
-`${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh remove <unit-id>` right away,
-after the merge above. Under `main-prs`, hold off: `deliver` (step 5)
-resolves the unit branch by name and reads specific commits off it, so the
-branch must still exist at delivery time. Only run `remove` once the unit's
-PR group has actually been delivered — see step 5.
+The merge command automatically removes the unit worktree as a best-effort
+side effect (warns on failure, never changes the merge exit code). The unit
+branch is kept — under `main-prs`, `deliver` still needs it to resolve
+commits; under `local-only`, it is cleaned up by `clean` at dispatch
+completion (see "Done").
 
 ### 5. Delivery
 
@@ -253,15 +250,14 @@ opens the PR. PRs target master/main only, never any other branch. Raise PR
 groups' PRs in dependency order: a group's PR waits until every group it
 depends on has its own PR merged.
 
-Once a PR group's PR is opened (delivery has consumed the unit branches it
-needs), remove every worktree still standing for units in that group:
-`${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh remove <unit-id>` for each.
+The deliver command automatically removes each delivered unit's branch and
+any remaining worktree as a best-effort side effect after the PR is opened
+(warns on failure, never changes the deliver exit code).
 
 Under `local-only`, or when `origin`/`gh` is unavailable under `main-prs`
 (warn and degrade), skip PR creation entirely and the engineer delivers
-manually — treat this the same as `local-only` for worktree teardown too:
-`remove` already ran immediately after each unit's local merge in step 4, so
-there is nothing left to remove here.
+manually. Unit worktrees were already removed by `merge` (step 4); unit
+branches are cleaned up by `clean` at dispatch completion (see "Done").
 
 ## Composition blocks
 
@@ -332,5 +328,18 @@ Dispatch is done when: every block is `Accepted`; the integration branch
 carries every unit's implementation (all local merges landed); every PR
 group is delivered under `main-prs`, or `local-only` is noted as the reason
 none were opened; the block map is current; and the plan Changelog records
-every deviation. Present the engineer a contract-level summary: which blocks
-exist, what changed since approval, where the map lives.
+every deviation.
+
+As a final sweep, run:
+
+```
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh clean
+```
+
+This removes any lego branches and worktrees that survived the normal flow —
+aborted sessions, failed cleanup, `local-only` branch leftovers — and prunes
+stale worktree entries. It is best-effort (exits 0 always) and safe to run
+at any time.
+
+Present the engineer a contract-level summary: which blocks exist, what
+changed since approval, where the map lives. No lego worktrees remain.

@@ -99,7 +99,8 @@ install-changes-nothing constraint holds.
 ## session-modes — planned
 
 - Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
-  `whats-cooking`, `planning`, `orchestrator-handover`
+  `whats-cooking`, `planning`, `orchestrator-handover` (moved to
+  **orchestrator-handover**)
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
@@ -108,6 +109,21 @@ install-changes-nothing constraint holds.
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
   `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
   **notifications**, their consumers)
+
+## orchestrator-handover — ported (from clam-code)
+
+Moved out of the session-modes bucket into its own standalone plugin, since
+its behavior (writing a handover document, scaffolding the recipient
+worktree, populating its `.local/`, and handing off to the user) is
+self-contained and doesn't depend on the rest of session-modes.
+
+Single skill: `/orchestrator-handover:create`, ported from clam-code's
+`general/skills/orchestrator-handover/`.
+
+Port changes: dropped the `newcliptree`/CLIP-* branching (always uses
+`newtree` now), generalized issue-tracker language away from any specific
+tracker, and softened cross-plugin references so the skill degrades
+gracefully when a referenced plugin isn't installed.
 
 ## decision-log — ported (from clam-code)
 
@@ -245,16 +261,46 @@ Integration with clam-agent-dashboard.
 - `debug-playwright-tests` (tech-specific; maybe stays a repo-local skill)
 - `orient`-adjacent statusline data? (see statusline note below)
 
+## attribution — ported (new plugin)
+
+Not a direct port of a clam-code file; implements the `attribution`
+settings key that was previously set via `clam-settings.json`. Ships as a
+scope-aware `/attribution:setup` skill following the statusline pattern:
+install changes nothing, the explicit skill writes `attribution:
+{"commit":"","pr":""}` to the settings file matching the plugin's
+installation scope (user, project, or local).
+
+## settings — ported (new plugin)
+
+Catch-all for opinionated session defaults that don't warrant their own
+plugin. Currently carries two env vars from `clam-settings.json`:
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and
+`CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`. Same scope-aware
+`/settings:setup` pattern.
+
+## privacy — ported (new plugin)
+
+Consolidates all telemetry and feedback opt-out settings from
+`global-settings-bundle.json`: five env vars
+(`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`,
+`DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`,
+`CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`) plus `feedbackSurveyRate: 0`. Same
+scope-aware `/privacy:setup` pattern.
+
 ## Out of scope — stays in clam-code / dotfiles
 
-Elements plugins cannot express. Per the SessionStart-injection decision these
-are not carried into this repo:
+Elements plugins cannot express, or that remain personal tuning:
 
 - `general/system-prompt.md` + `claude-alias.sh` / `claude-alias.fish` — the
   `clam` alias; its *content* migrates into session-modes' SessionStart hook,
   the alias mechanism itself dies
-- `general/clam-settings.json` sidecar, `global-settings-bundle.json`,
-  `managed-settings-setup.sh`, `managed-version-lock.json`
+- `general/clam-settings.json` sidecar (hooks, permissions, skill overrides,
+  bash timeouts, skill listing budget — elements already migrated to other
+  plugins or personal tuning), `managed-settings-setup.sh`,
+  `managed-version-lock.json`
+- `global-settings-bundle.json` (permission deny list migrates to the planned
+  permissions plugin; telemetry settings now in the privacy plugin;
+  `defaultExecutionMode` migrates to the planned session-modes plugin)
 - `setup.sh`, `update.sh`, `cleanup.sh`, `cleanup-legacy.sh`,
   `setup-git-repo-with-trees.sh`, `claude-rules*.sh`
 - `general/lib/` shell helpers (ported piecemeal only if a hook needs one)

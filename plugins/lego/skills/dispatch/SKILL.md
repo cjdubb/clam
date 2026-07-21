@@ -90,6 +90,51 @@ prompts.
 Group only independent blocks within the unit into one wave; dispatch a
 wave's agents in a single message so they run in parallel.
 
+## While workers are running
+
+<!--
+Contract: B01 dispatch-preflight-antipoll (anti-polling guidance)
+Behavior:
+  The orchestrator must not poll a unit worktree while a backgrounded worker
+  agent is running in it. No git diff --stat, wc -l, git status, or any
+  other command targeting the unit worktree to check on worker progress.
+  The Agent tool sends a completion notification when the worker finishes;
+  that notification is the only signal the orchestrator acts on. Polling
+  wastes context tokens, produces no actionable information (the worker may
+  not have written anything yet), and trains bad habits that compound across
+  multi-unit dispatches.
+Inputs:
+  A backgrounded Agent tool call (test-writer or implementer).
+Outputs:
+  The orchestrator waits for the Agent completion notification, then
+  proceeds with verification.
+Errors:
+  None — this is a behavioral constraint, not a command.
+Invariants:
+  Applies to every backgrounded worker dispatch, test wave and
+  implementation wave alike.
+Edge cases:
+  If the orchestrator has independent work to do while waiting (e.g.
+  preparing briefs for the next unit, updating status files), it may do
+  that work — but not by inspecting the running worker's worktree.
+-->
+
+While a backgrounded worker agent (test-writer or implementer) is running in
+a unit worktree, the orchestrator must not poll a unit worktree to check on
+its progress — no `git diff --stat`, `wc -l`, `git status`, or any other
+command targeting that worktree.
+
+The Agent tool sends a completion notification when the worker finishes;
+that notification is the only signal the orchestrator acts on. Polling
+wastes context tokens, produces no actionable information (the worker may
+not have written anything yet), and trains bad habits that compound across
+multi-unit dispatches.
+
+This applies to every backgrounded worker dispatch, test wave and
+implementation wave alike. If the orchestrator has independent work to do
+while waiting — preparing briefs for the next unit, updating status files —
+it may do that work, but not by inspecting the running worker's worktree.
+
 ## Unit status file
 
 Every unit worktree carries `.local/status.md`, seeded by `worktree.sh add`
@@ -122,6 +167,50 @@ it. Never run test-wave or implementation-wave commands, agent dispatches, or
 commits against the integration worktree on a unit's behalf — the whole point
 of the worktree is that this unit's diff is never entangled with another
 unit's, or with the orchestrator's own tree.
+
+### 0. Pre-flight: integration worktree must be clean
+
+<!--
+Contract: B01 dispatch-preflight-antipoll (pre-flight check)
+Behavior:
+  Before creating any unit worktree, the orchestrator checks the integration
+  worktree for uncommitted changes (staged, unstaged, and untracked excluding
+  .local/). If the tree is dirty, the orchestrator must commit or otherwise
+  resolve the dirty state before proceeding. This catches the case where
+  scaffold stubs were written but not committed — a worktree forked from a
+  pre-scaffold HEAD would lack stubs entirely, wasting a worker dispatch.
+Inputs:
+  The integration worktree's git status.
+Outputs:
+  Either a clean tree (proceed to step 1) or a hard stop with the specific
+  dirty paths named.
+Errors:
+  Dirty tree → do not create the worktree; commit first.
+Invariants:
+  This check runs before EVERY call to worktree.sh add, not just the first.
+  It is the orchestrator's responsibility, not worktree.sh's — the worktree
+  tooling stays generic and decoupled from lego workflow semantics.
+Edge cases:
+  .local/ files are excluded from the check (they are never committed).
+  Untracked files outside .local/ are treated as dirty (they may be
+  un-added scaffold files).
+-->
+
+Before creating any unit worktree, the orchestrator checks the integration
+worktree for uncommitted changes — staged, unstaged, and untracked,
+excluding `.local/`. If the tree is dirty, do not create the worktree:
+commit or otherwise resolve the dirty state first, naming the specific
+dirty paths, then proceed to step 1. This catches the case where scaffold
+stubs were written but not committed — a worktree forked from a
+pre-scaffold HEAD would lack stubs entirely, wasting a worker dispatch.
+
+This check runs before EVERY call to worktree.sh add, not just the first.
+It is the orchestrator's responsibility, not worktree.sh's — the worktree
+tooling stays generic and decoupled from lego workflow semantics.
+
+.local/ files are excluded from the check (they are never committed).
+Untracked files outside .local/ are treated as dirty — they may be un-added
+scaffold files.
 
 ### 1. Create the worktree
 

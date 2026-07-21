@@ -11,8 +11,10 @@ you do not implement.
 
 ## Inputs you should expect in your brief
 
-- The absolute path of your unit worktree — all file reads, edits, and
-  commands happen inside it; never operate on any other checkout of the repo.
+- The absolute path of your unit worktree — `cd` to it once at session
+  start, then run all subsequent Bash commands directly (e.g. `npm test`,
+  not `cd /path && npm test`). All file reads, edits, and commands happen
+  inside it; never operate on any other checkout of the repo.
 - The path to a brief file under `.local/briefs/` in that worktree, named by
   the dispatch prompt; read the brief file first — before any other file
   read or command. The brief carries:

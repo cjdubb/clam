@@ -80,6 +80,13 @@ Reports mirror briefs the other way: on receiving a worker's final report,
 archive it verbatim to `.local/reports/NN-<wave>-<blocks>.md` — the same
 `NN` as the brief it answers — before acting on the report in any way.
 
+Workers must `cd` to their unit worktree once at session start, then run all
+subsequent Bash commands directly — e.g. `npm test`, not
+`cd /path/to/worktree && npm test`. Include this instruction in every worker
+brief. Bash permission allowlists match bare commands; compound
+`cd <path> && <command>` forms do not match, causing unnecessary permission
+prompts.
+
 Group only independent blocks within the unit into one wave; dispatch a
 wave's agents in a single message so they run in parallel.
 

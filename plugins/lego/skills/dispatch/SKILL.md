@@ -227,7 +227,7 @@ Merging is always immediate, regardless of delivery mode: as soon as a unit
 is `Accepted`, from the integration worktree, run:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh merge <unit-id>
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh merge <plan-slug> <unit-id> <unit-slug>
 ```
 
 This folds the accepted unit branch into the integration branch (`--no-ff`).
@@ -247,7 +247,7 @@ completion (see "Done").
 locally merged, build and open its PR:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver <base-branch> <unit-id>...
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 ```
 
 This builds a delivery branch from master/main containing only complete

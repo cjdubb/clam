@@ -56,6 +56,28 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 | [debugging](plugins/debugging/) | ✅ v0.1.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back. |
 
+<!--
+Contract: B02 registration (NotImplemented: B02)
+Behavior: register the render-doc plugin in the marketplace and this README.
+Outputs:
+- .claude-plugin/marketplace.json gains exactly one entry in its "plugins"
+  array: name "render-doc", source "./plugins/render-doc", a one-sentence
+  description covering both HTML rendering and annotation write-back, and
+  version "0.1.0". The file stays jq-valid.
+- The Plugins table above gains exactly one row:
+  | [render-doc](plugins/render-doc/) | ✅ v0.1.0 | <what it does, naming
+  /render-doc:render> |
+Invariants: version agrees with plugins/render-doc/.claude-plugin/plugin.json;
+no duplicate render-doc entries or rows; per the repo convention below
+("the marketplace never lists empty shells") the entry reaches master only
+together with the working plugin — satisfied by single-PR delivery (G01);
+integration-branch intermediate states are internal.
+Errors: n/a — declarative edits; validity enforced by the jq lint and the
+registration test.
+Edge cases: row and entry placement mirror the existing ordering style; the
+exact position is not contractual, presence and uniqueness are.
+-->
+
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.
 

@@ -63,6 +63,35 @@ Rules:
 
 The session writes the file BEFORE setting `State: Waiting For Decision`. The clam session workflow mandates this; this skill hosts the how.
 
+<!--
+Contract: B04 decision-log re-point (NotImplemented: B04)
+Behavior: the rendered-doc gate below stops invoking a clam-code-era script
+path and instead consumes the render-doc plugin BY SKILL NAME, keeping
+decision-log fully functional when render-doc is absent.
+Outputs (what the gate paragraph and command block below say once
+implemented):
+- Gate check unchanged: `echo "${CLAM_RENDER_DOC:-disabled}"`; anything other
+  than `enabled` means skip the render silently and continue with the chat
+  flow (off by design, no notice needed).
+- When `enabled`: if the skill `render-doc:render` appears in the available
+  skills, invoke it on the decision file with the open-in-browser intent; if
+  it does not appear (plugin not installed), treat the gate as disabled and
+  skip silently.
+- If the render fails, note "HTML render failed — presenting as markdown"
+  once and continue with the chat flow; a render failure must NEVER block
+  the decision.
+- plugins/decision-log/README.md's soft-dependency entry for render-doc is
+  updated: names the plugin and skill (render-doc:render), notes the
+  graceful degradation, drops the clam-code location.
+Invariants: no filesystem path into another plugin anywhere in decision-log;
+double gate (env flag AND skill availability); degradation rows — flag not
+`enabled` -> silent skip; `enabled` + skill absent -> silent skip; `enabled`
++ skill present -> render; render failure -> one-line notice, continue.
+Edge cases: CLAM_RENDER_DOC values other than exactly `enabled` (e.g. `true`,
+`1`) count as not enabled; skill present but broken manifests as a render
+failure -> notice + continue.
+-->
+
 After writing the file, check the rendered-doc gate: run `echo "${CLAM_RENDER_DOC:-disabled}"`. If it prints anything other than `enabled`, skip the render silently and continue with the chat flow (unset means the feature is off by design; no notice needed). If it prints `enabled`, render and open the HTML view so the user reads the decision in the browser (the render script still ships with clam-code — `render-doc` is not yet ported to a plugin; if the script does not exist, treat the gate as disabled and skip silently):
 
 ```bash

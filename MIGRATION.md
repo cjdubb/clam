@@ -251,6 +251,33 @@ Integration with clam-agent-dashboard.
   (verify: several session-modes hooks also touch agent-dash state files —
   untangle the coupling or accept a soft dependency between the two plugins)
 
+<!--
+Contract: B03 MIGRATION.md bookkeeping (NotImplemented: B03)
+Behavior: record the render-doc port in this migration map.
+Outputs:
+- A new section "## render-doc — ported (from clam-code)" replacing this
+  docblock's placeholder status, documenting: source
+  general/skills/render-doc/; port changes (usage path becomes
+  ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh; decision-rundown reference renamed
+  to /decision-log:rundown; planning-skill checkpoint references softened
+  until session-modes ports; smoke.sh adapted into scripts/render.test.sh
+  with no duplicate smoke.sh kept; CLAM_RENDER_DOC no longer written by any
+  setup script — users export it, the plugin README documents it); and the
+  coupling note: consumers reference the skill by name (render-doc:render)
+  plus the CLAM_RENDER_DOC convention, nothing else — no cross-plugin
+  filesystem paths.
+- The "Unassigned" writing-cluster line below shrinks to `writing-markdown`,
+  `rtfm`.
+- In the decision-log section above, the port-time note "The rundown skill's
+  HTML-render gate still points at clam-code's ~/.claude/skills/render-doc/;
+  re-point it when render-doc gets a plugin home" is rewritten as resolved
+  (re-pointed by skill name; see the render-doc section).
+Invariants: render-doc appears in exactly one status section (ported); no
+other section changes meaning.
+Edge cases: the clam-code-era path may remain in this file as history — the
+composition test (B05) excludes MIGRATION.md from stale-path checks.
+-->
+
 ## Unassigned — decide at port time
 
 - `support-fix`, `support-triage` (support cluster — own plugin or fold into

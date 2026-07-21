@@ -38,8 +38,10 @@ The scaffold gate has passed on the integration branch, every block sits at
 
 `.local/blocks.md` on the integration branch is the live block map for the
 rest of dispatch. Its state transitions happen there, in real time, as they
-occur. A unit worktree's seeded `.local/unit.md` is a read-only reference
-copy of that unit's sections — never the thing you edit.
+occur. A unit worktree's seeded `.local/` — `unit.md`, `config.json`,
+contracts, and (once the worktree is created) `status.md`, `briefs/`, and
+`reports/` — is a read-only reference copy scoped to that unit: orchestrator-
+owned throughout, never the thing a worker edits.
 
 ## Tier resolution
 
@@ -49,19 +51,51 @@ parameter on every Agent call. Do not rely on agent-definition defaults alone.
 
 ## Worker briefs
 
-Every dispatch — test wave or implementation wave — names: the unit
-worktree's absolute path (workers do all work and run all commands there,
-never in the orchestrator's own tree), the block ID(s) this unit covers,
-their stub path(s) (the contract docblocks), the repo's commands from
-`.local/config.json`, where tests conventionally live (test wave) or the
-test paths (implementation wave), and the required report format (the
-agents' definitions specify it). State explicitly that `.local/` inside the
-worktree is a seeded copy scoped to this unit — a copy of `config.json`, a
-`unit.md` carrying only this unit's block-map sections, and this unit's
-contracts — not the live block map and not the full plan.
+Every dispatch — test wave or implementation wave — is preceded by writing
+the complete brief to a file, before the Agent call that names it. The brief
+goes to `.local/briefs/NN-<wave>-<blocks>.md` inside the unit worktree: `NN`
+is a two-digit sequence starting `01` in dispatch order, one shared counter
+per unit — every brief that unit ever gets, test wave and implementation
+wave alike, draws the next `NN`, and numbering never resets within a unit —
+`<wave>` is `test` or `impl`, and `<blocks>` is this dispatch's block id(s)
+joined with `+` (multi-block waves still write one brief per Agent dispatch,
+so parallel same-wave agents in one unit get distinct `NN`s and `<blocks>`
+values). The brief itself names: the unit worktree's absolute path (workers
+do all work and run all commands there, never in the orchestrator's own
+tree), the block ID(s) this unit covers, their stub path(s) (the contract
+docblocks), the repo's commands from `.local/config.json`, where tests
+conventionally live (test wave) or the test paths (implementation wave), and
+the required report format (the agents' definitions specify it). State
+explicitly that `.local/` inside the worktree is a seeded copy scoped to
+this unit — a copy of `config.json`, a `unit.md` carrying only this unit's
+block-map sections, and this unit's contracts — not the live block map and
+not the full plan, and that the whole of it is orchestrator-owned and
+read-only for workers: they read it, they never write to it.
+
+The dispatch prompt itself is only a pointer to that file: it names the unit
+worktree's absolute path and the brief file's path, and instructs the worker
+to read the brief file first — it never restates the brief's content inline.
+
+Reports mirror briefs the other way: on receiving a worker's final report,
+archive it verbatim to `.local/reports/NN-<wave>-<blocks>.md` — the same
+`NN` as the brief it answers — before acting on the report in any way.
 
 Group only independent blocks within the unit into one wave; dispatch a
 wave's agents in a single message so they run in parallel.
+
+## Unit status file
+
+Every unit worktree carries `.local/status.md`, seeded by `worktree.sh add`
+(step 1) at worktree creation. From that point on, mirror every lifecycle
+transition for this unit's blocks into `.local/status.md` — Phase, Blocks,
+Timeline — in real time, in the same breath as the corresponding update to
+the integration worktree's `blocks.md`: the two never drift apart —
+a stale status file is a defect.
+
+The Timeline records, as they happen: each brief written (its `NN`, wave,
+and blocks), each wave dispatched, each acceptance, each rejection (naming
+the specific deficiency and the brief/report `NN`s involved), each
+escalation and its resolution, and each phase commit.
 
 ## Dispatch order
 
@@ -126,8 +160,10 @@ checklist before accepting:
 Because the whole diff in this worktree belongs to one unit, triage is
 unambiguous — there's no sibling block's changes to sort out first.
 
-Rejected work goes back to a test-writer, in the same worktree, with the
-specific deficiency named. Accepted: set the unit's blocks to `Tests Written`
+Rejected work goes back to a test-writer, in the same worktree, via a
+fresh-`NN` brief naming the specific deficiency — the rejected wave's brief
+and report files are never edited or deleted, only superseded by the next
+`NN`. Accepted: set the unit's blocks to `Tests Written`
 in the integration worktree's block map, then `Tests Verified` once the full
 checklist passes, then commit the accepted tests on the unit branch, inside
 the unit worktree, with subject exactly:
@@ -162,6 +198,11 @@ orchestrator, inside the unit worktree:
 4. Spot-review the diff for quality: contract clauses the tests undercover
    are still binding (workers are told this; verify it on anything security-
    or correctness-critical).
+
+Rejected work goes back to a lego-implementer, in the same worktree, via a
+fresh-`NN` brief naming the specific deficiency — same rule as the test
+wave: the rejected wave's brief and report files are never edited or
+deleted, only superseded by the next `NN`.
 
 Accepted: set `Implemented` in the integration worktree's block map, then
 commit the accepted implementation on the unit branch, inside the unit
@@ -235,12 +276,16 @@ feature-activation point.
 
 An engineer-owned block still gets its worktree and test wave exactly as
 above — the engineer implements against verified tests, not a hand-wave.
-Once its blocks are `Tests Verified`, hand the engineer the unit worktree's
-absolute path instead of dispatching a `lego-implementer` agent; the same
-acceptance gate and the same delivery apply to what they commit. Sibling
-units — those with no dependency on this one — proceed through their own
-pipelines meanwhile; this unit's own dependents wait for it exactly as they
-would for an agent-implemented unit.
+Once its blocks are `Tests Verified`, hand the engineer the unit worktree
+itself instead of dispatching a `lego-implementer` agent — the worktree is
+the handover, nothing else needs restating: its absolute path,
+`.local/status.md` for phase and blocks, and the latest brief in
+`.local/briefs/` for what's required and what's already done, all read
+straight off the worktree the same way an agent would. The same acceptance
+gate and the same delivery apply to what they commit. Sibling units — those
+with no dependency on this one — proceed through their own pipelines
+meanwhile; this unit's own dependents wait for it exactly as they would for
+an agent-implemented unit.
 
 ## Conflicts
 
@@ -259,20 +304,27 @@ units branch from current master.
 Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
 
 - **Resolvable within the contract** (ambiguous brief, tooling issue):
-  clarify and re-dispatch the same wave, in the same unit worktree.
+  clarify and re-dispatch the same wave, in the same unit worktree, via a
+  fresh-`NN` brief naming the specific deficiency.
 - **Contract is wrong or the block is mis-sized**: a design change. Take it
   to the engineer with a recommendation; on their decision, append to the
   plan Changelog, re-scaffold the affected blocks, re-run their test wave,
-  then re-dispatch. Affected dependents get re-verified.
+  then re-dispatch (again, a fresh-`NN` brief). Affected dependents get
+  re-verified.
 - **A test is wrong** (implementer escalation): arbitrate against the
   contract. Test wrong → back to a test-writer, contract clause cited.
   Contract wrong → engineer, as above. Never let an implementer's claim
   weaken a correct test.
 
+Whichever path it takes, the rejected wave's brief and report files stay put
+— never edited, never deleted — and the resolution is a new brief at the
+next `NN`.
+
 Log every escalation and its resolution in the plan's Changelog as it
-happens. Track `Escalated` — and its resolution back to the normal lifecycle
-state — in the integration worktree's `.local/blocks.md` in real time, not
-after the fact.
+happens, and in the unit worktree's `.local/status.md` Timeline (see "Unit
+status file" above) as it happens. Track `Escalated` — and its resolution
+back to the normal lifecycle state — in the integration worktree's
+`.local/blocks.md` in real time, not after the fact.
 
 ## Done
 

@@ -150,9 +150,7 @@ Port-time notes for later plugins:
 - Skills: `team-code-review`, `team-council`, `team-exploration`,
   `independent-review`, `independence-protocol`, `subagent-orchestration`
 - Agents: `Explore`, `browser`
-- Hooks: `orchestrator-guard.sh` (PreToolUse on Edit|Write|NotebookEdit;
-  previously unmapped — the enforcement leg of `subagent-orchestration`'s
-  "the orchestrator never implements" rule)
+- Hooks: *(none — `orchestrator-guard.sh` dropped; see Guard inventory)*
 
 ## worktrees — ported (fresh-written)
 
@@ -240,7 +238,7 @@ dropped.
 | `cron-guard.sh` | cron-guard | planned |
 | `block-task-tools.sh` | tracking | ported |
 | `log-skill-trigger.sh` | pr-workflow | planned |
-| `orchestrator-guard.sh` | team-review | planned |
+| `orchestrator-guard.sh` | — (incompatible with lego scaffold phase) | dropped |
 | `keep-working.sh` | tracking | ported |
 | realm gate (`realm-gate.sh` + `realm-check.sh`) | lego | ported |
 | `lego-dispatch-guard.sh` | — (superseded by lego) | dropped |

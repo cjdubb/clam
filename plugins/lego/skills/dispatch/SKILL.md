@@ -333,10 +333,69 @@ completion (see "Done").
 ### 5. Delivery
 
 `main-prs` mode only. Once every unit in a PR group is `Accepted` and
-locally merged, build and open its PR:
+locally merged, compose the PR content and open the PR.
+
+#### 5a. Compose PR content
+
+Before calling `deliver`, the orchestrator composes meaningful PR content.
+Nothing in the PR title, body, commit subjects, or branch name may reference
+internal workflow terminology — no `lego`, `B01`, `U01`, `G01`, plan slugs,
+block-map field syntax, or any other label a reviewer cannot look up.
+
+**PR title.** Conventional commit format: `type(scope): description`. The
+type is `feat`, `fix`, `refactor`, `chore`, `docs`, or `test`. The scope is
+optional and describes the area of the codebase. The description summarizes
+the change in imperative mood. Derive the title from the plan's goal, not
+from block names.
+
+**PR body.** Fill in a PR template with content from the plan document and
+the delivered blocks' contracts. Template resolution order:
+
+1. Check the repo for a PR template at standard GitHub paths (check each,
+   case-sensitive): `.github/PULL_REQUEST_TEMPLATE.md`,
+   `.github/pull_request_template.md`, `docs/pull_request_template.md`,
+   `PULL_REQUEST_TEMPLATE.md`, `pull_request_template.md`.
+2. If no repo template exists, use the plugin's default template at
+   `${CLAUDE_PLUGIN_ROOT}/templates/pr-body-template.md`.
+
+Fill every section of the resolved template. Write for a reviewer who has
+only the diff and this PR description — no access to `.local/`, the planning
+session, or the block map. If the plan references GitHub issues, link them.
+
+**Branch name.** Conventional format: `type/short-slug` (e.g.
+`feat/native-symlink-engine`, `fix/auth-token-refresh`). Derive from the
+plan's goal.
+
+**Commit subjects.** Each delivery commit gets a conventional subject
+describing its actual content (e.g. `feat(links): add symlink manifest
+engine`). The orchestrator composes one subject per unit per phase
+(tests and impl). Do not include phase labels like "tests" or
+"implementation" in the subject — each commit should read as a
+self-contained description of what it introduces.
+
+#### 5b. Write manifest and deliver
+
+Write the composed content as a JSON manifest file at
+`.local/pr-manifest.json` with this schema:
+
+```json
+{
+  "title": "<PR title>",
+  "body": "<PR body markdown>",
+  "branch": "<delivery branch name>",
+  "commits": {
+    "<unit-id>": {
+      "tests": "<commit subject for this unit's tests commit>",
+      "impl": "<commit subject for this unit's implementation commit>"
+    }
+  }
+}
+```
+
+Then call deliver with the manifest:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver --manifest .local/pr-manifest.json <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 ```
 
 This builds a delivery branch from master/main containing only complete

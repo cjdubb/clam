@@ -1509,6 +1509,291 @@ test_deliver_noop_restore_creates_no_second_commit() {
 }
 
 # ===========================================================================
+# deliver --manifest (B01 deliver-manifest)
+# ===========================================================================
+
+test_deliver_manifest_invalid_file() {
+  local repo
+  repo="$(build_deliver_base)"
+  # Manifest validation happens before any unit-branch resolution, so no
+  # unit branch needs to exist to exercise this error path.
+
+  run_in "$repo" deliver --manifest "$repo/.local/does-not-exist.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "unreadable manifest path: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "unreadable manifest path"
+}
+
+test_deliver_manifest_invalid_json() {
+  local repo
+  repo="$(build_deliver_base)"
+  printf 'not { valid json' > "$repo/.local/manifest.json"
+
+  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest file is not valid JSON: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "manifest file is not valid JSON"
+}
+
+test_deliver_manifest_title_override() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  printf '{"title": "Custom PR Title"}' > "$repo/.local/manifest.json"
+  local manifest_before
+  manifest_before="$(cat "$repo/.local/manifest.json")"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  local manifest_after
+  manifest_after="$(cat "$repo/.local/manifest.json")"
+  assert_eq "$manifest_before" "$manifest_after" "manifest file is read-only and must never be modified by deliver"
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    local ghargs
+    ghargs="$(cat "$GH_SHIM_LOG")"
+    case "$ghargs" in
+      *"Custom PR Title"*) : ;;
+      *) record_fail "expected gh pr create to be called with the manifest title override" ;;
+    esac
+    case "$ghargs" in
+      *"lego: U01"*) record_fail "expected the default title 'lego: U01' NOT to be used when manifest overrides title" ;;
+      *) : ;;
+    esac
+  else
+    record_fail "expected gh to have been invoked (shim log is empty)"
+  fi
+}
+
+test_deliver_manifest_body_override() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  printf '{"body": "Custom PR body text"}' > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    local ghargs
+    ghargs="$(cat "$GH_SHIM_LOG")"
+    case "$ghargs" in
+      *"Custom PR body text"*) : ;;
+      *) record_fail "expected gh pr create to be called with the manifest body override" ;;
+    esac
+    case "$ghargs" in
+      *"## B01 — greet"*) record_fail "expected the default body heading NOT to appear when manifest overrides body" ;;
+      *) : ;;
+    esac
+  else
+    record_fail "expected gh to have been invoked (shim log is empty)"
+  fi
+}
+
+test_deliver_manifest_branch_override() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  printf '{"branch": "custom/delivery-branch"}' > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/custom/delivery-branch"; then
+    record_fail "expected delivery branch 'custom/delivery-branch' (manifest override) to exist"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the default delivery branch name NOT to be created when manifest overrides branch"
+  fi
+}
+
+test_deliver_manifest_commit_subjects_override() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_files "$repo" "lego(U01): tests" "src/greet_test.sh" "greet test v1"
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  printf '{"commits": {"U01": {"tests": "custom tests subject", "impl": "custom impl subject"}}}' \
+    > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  else
+    local subjects
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
+    if ! printf '%s\n' "$subjects" | grep -qF "custom tests subject"; then
+      record_fail "expected delivery branch to carry the manifest override tests-commit subject"
+    fi
+    if ! printf '%s\n' "$subjects" | grep -qF "custom impl subject"; then
+      record_fail "expected delivery branch to carry the manifest override implementation-commit subject"
+    fi
+    if printf '%s\n' "$subjects" | grep -qF "lego(U01): contract + tests"; then
+      record_fail "expected the default tests-commit subject NOT to be used when manifest overrides it"
+    fi
+    if printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "expected the default implementation-commit subject NOT to be used when manifest overrides it"
+    fi
+  fi
+}
+
+test_deliver_manifest_partial() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  # Only "title" is set; branch, body and commits must all use their defaults.
+  printf '{"title": "Only Title Overridden"}' > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the default delivery branch name to be used when manifest does not override branch"
+  else
+    local subjects
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
+    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "expected the default implementation-commit subject when manifest does not override commits"
+    fi
+  fi
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    local ghargs
+    ghargs="$(cat "$GH_SHIM_LOG")"
+    case "$ghargs" in
+      *"Only Title Overridden"*) : ;;
+      *) record_fail "expected gh pr create to be called with the manifest title override" ;;
+    esac
+    case "$ghargs" in
+      *"## B01 — greet"*) : ;;
+      *) record_fail "expected the default PR body to be used when manifest does not override body" ;;
+    esac
+  else
+    record_fail "expected gh to have been invoked (shim log is empty)"
+  fi
+}
+
+test_deliver_manifest_branch_already_exists() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  git -C "$repo" branch "custom/delivery-branch" master
+
+  printf '{"branch": "custom/delivery-branch"}' > "$repo/.local/manifest.json"
+
+  # Use the gh shim so this test is deterministic and isolates the branch-
+  # collision check: without it, a correct implementation still exits 4
+  # before ever invoking gh, but a stubbed implementation that ignores the
+  # manifest branch override would fall through to a real, unauthenticated
+  # `gh pr create` and could exit non-zero for an unrelated reason (network/
+  # auth failure) instead of failing on the intended assertion.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "manifest branch already exists: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "manifest branch already exists"
+}
+
+test_deliver_manifest_empty_object() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  printf '{}' > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the default delivery branch name when manifest is an empty object"
+  else
+    local subjects
+    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
+    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "expected the default implementation-commit subject when manifest is an empty object"
+    fi
+  fi
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    local ghargs
+    ghargs="$(cat "$GH_SHIM_LOG")"
+    case "$ghargs" in
+      *"lego: U01"*) : ;;
+      *) record_fail "expected the default PR title when manifest is an empty object" ;;
+    esac
+  else
+    record_fail "expected gh to have been invoked (shim log is empty)"
+  fi
+}
+
+test_deliver_manifest_empty_string_field_treated_as_absent() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  # An explicit empty-string "title" must be treated the same as an absent
+  # field: the default title applies (manifest_field contract edge case).
+  printf '{"title": ""}' > "$repo/.local/manifest.json"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    local ghargs
+    ghargs="$(cat "$GH_SHIM_LOG")"
+    case "$ghargs" in
+      *"lego: U01"*) : ;;
+      *) record_fail "expected the default PR title when manifest 'title' is an empty string" ;;
+    esac
+  else
+    record_fail "expected gh to have been invoked (shim log is empty)"
+  fi
+}
+
+# ===========================================================================
 # remove
 # ===========================================================================
 
@@ -1984,6 +2269,17 @@ run_test "deliver: single unit - union of Code paths, newest-exact-subject, spac
 run_test "deliver: multi-unit branch naming (lego/deliver/<plan-slug>/<ids>) and PR title/body order" test_deliver_multi_unit_branch_naming_and_pr_title_order
 run_test "deliver: multi-unit argument order is preserved, not sorted" test_deliver_multi_unit_argument_order_is_not_sorted
 run_test "deliver: restore producing no changes creates no second commit" test_deliver_noop_restore_creates_no_second_commit
+
+run_test "deliver --manifest: unreadable manifest path exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_file
+run_test "deliver --manifest: invalid JSON exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_json
+run_test "deliver --manifest: title override replaces default PR title (B01 deliver-manifest)" test_deliver_manifest_title_override
+run_test "deliver --manifest: body override replaces default PR body (B01 deliver-manifest)" test_deliver_manifest_body_override
+run_test "deliver --manifest: branch override replaces default delivery branch name (B01 deliver-manifest)" test_deliver_manifest_branch_override
+run_test "deliver --manifest: commit subject overrides replace default tests/impl subjects (B01 deliver-manifest)" test_deliver_manifest_commit_subjects_override
+run_test "deliver --manifest: partial manifest overrides only the given field, defaults elsewhere (B01 deliver-manifest)" test_deliver_manifest_partial
+run_test "deliver --manifest: manifest branch already exists exits 4 (B01 deliver-manifest)" test_deliver_manifest_branch_already_exists
+run_test "deliver --manifest: empty object manifest behaves identically to no manifest (B01 deliver-manifest)" test_deliver_manifest_empty_object
+run_test "deliver --manifest: empty-string field treated as absent (B01 deliver-manifest)" test_deliver_manifest_empty_string_field_treated_as_absent
 
 run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
 run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars

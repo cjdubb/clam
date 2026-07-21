@@ -49,9 +49,21 @@
       "version": "0.1.0"
     },
     {
-      "name": "make-progress",
-      "source": "./plugins/make-progress",
-      "description": "Stall recovery: /make-progress assesses why the session stopped, takes the next in-plan action, and records the stall as labeled training data for automatic-trigger design.",
+      "name": "attribution",
+      "source": "./plugins/attribution",
+      "description": "Suppress Claude Code co-author attribution on commits and PRs. Install changes nothing; /attribution:setup writes the setting at the plugin's installation scope.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "settings",
+      "source": "./plugins/settings",
+      "description": "Opinionated Claude Code session defaults: agent teams and disabled adaptive thinking. Install changes nothing; /settings:setup writes the settings at the plugin's installation scope.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "privacy",
+      "source": "./plugins/privacy",
+      "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope.",
       "version": "0.1.0"
     }
   ]

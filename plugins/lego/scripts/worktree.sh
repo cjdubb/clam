@@ -32,6 +32,11 @@
 #     glob "lego/*/<unit-id>-*" and merges it into the current branch with
 #     --no-ff and commit message "lego: merge <branch-name>". Refuses when
 #     the working tree has uncommitted tracked changes.
+#     After a successful merge, removes the unit's worktree as a best-effort
+#     cleanup (via find_worktree_for_branch + git worktree remove). The unit
+#     branch is NOT removed — deliver may still need it. If worktree removal
+#     fails (dirty tree, already absent, etc.), prints a warning to stderr
+#     and still exits 0: the merge succeeded and that is what matters.
 #
 #   deliver <base-branch> <unit-id> [<unit-id>...]
 #     Builds delivery branch "lego/deliver/<unit-id>[+<unit-id>...]" (ids in
@@ -56,10 +61,27 @@
 #     its "## B<NN> — ..." heading line and its "- Contract:" line from
 #     blocks.md. Removes the temporary worktree (the local delivery branch
 #     remains) and prints the PR URL as the LAST line of stdout.
+#     After a successful PR creation, removes each delivered unit's branch
+#     and any remaining worktree as a best-effort cleanup. For each unit-id:
+#     resolves the unit branch, finds its worktree (if any) and removes it
+#     via git worktree remove, then deletes the branch with git branch -d.
+#     Failures are warned on stderr but do not fail the deliver (the PR is
+#     already open). The local delivery branch (lego/deliver/...) is left
+#     intact.
 #
 #   remove <unit-id>
 #     Removes the unit's worktree via `git worktree remove` (fails on a dirty
 #     tree) and deletes its branch with `git branch -d` (fails when unmerged).
+#
+#   clean
+#     Removes all fully-merged lego branches and their worktrees. Lists
+#     every local branch matching "lego/*/*" or "lego/deliver/*" that is
+#     merged into HEAD. For each: removes its worktree (if any) via
+#     git worktree remove, then deletes the branch with git branch -d.
+#     Also runs git worktree prune to clean up stale worktree entries.
+#     Unmerged branches are skipped with a warning on stderr. Prints the
+#     count of removed branches as the last stdout line. Takes no arguments.
+#     Exits 0 always (best-effort). Exit 2 on unexpected arguments.
 #
 # Inputs:
 #   Positional arguments as above. .local/config.json (jq-parsed;
@@ -69,8 +91,8 @@
 #
 # Outputs:
 #   Human-readable progress on stderr only. Machine-consumable result — the
-#   worktree path (add) or PR URL (deliver) — as the last stdout line.
-#   Exit 0 on success.
+#   worktree path (add), PR URL (deliver), or count of removed branches
+#   (clean) — as the last stdout line. Exit 0 on success.
 #
 # Errors:
 #   exit 2 — usage error: unknown subcommand, wrong argument count, or an id/
@@ -96,6 +118,10 @@
 #     itself; all other branches and worktrees are untouched.
 #   - Deterministic: identical repo state and arguments produce identical
 #     names and results.
+#   - `merge` may also remove the unit worktree as a best-effort side
+#     effect; a removal failure never changes merge's exit code.
+#   - `deliver` may also remove unit branches and worktrees as a best-effort
+#     side effect; a removal failure never changes deliver's exit code.
 #
 # Edge cases:
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
@@ -106,13 +132,18 @@
 #     artifacts are never silently reused.
 #   - A unit whose blocks have no "- Code:" paths cannot be delivered
 #     (treated as unit-id matching no deliverable content, exit 4).
+#   - merge cleanup failure (dirty unit worktree, already removed, etc.)
+#     is warned on stderr and does not affect the merge exit code.
+#   - deliver cleanup failure (unmerged branch, dirty worktree, etc.)
+#     is warned on stderr and does not affect the deliver exit code.
+#   - clean with no lego branches: exits 0 and prints "0".
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <unit-id> | worktree.sh deliver <base-branch> <unit-id> [<unit-id>...] | worktree.sh remove <unit-id>"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <unit-id> | worktree.sh deliver <base-branch> <unit-id> [<unit-id>...] | worktree.sh remove <unit-id> | worktree.sh clean"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -633,6 +664,20 @@ cmd_remove() {
 }
 
 # ---------------------------------------------------------------------------
+# clean
+# ---------------------------------------------------------------------------
+
+cmd_clean() {
+  [ "$#" -eq 0 ] || usage_die
+
+  require_repo_root
+
+  # TODO(B01): NotImplemented — enumerate merged lego branches, remove their
+  # worktrees and branches, prune stale entries, print count.
+  printf '0\n'
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -645,6 +690,7 @@ main() {
     merge) cmd_merge "$@" ;;
     deliver) cmd_deliver "$@" ;;
     remove) cmd_remove "$@" ;;
+    clean) cmd_clean "$@" ;;
     *) usage_die ;;
   esac
 }

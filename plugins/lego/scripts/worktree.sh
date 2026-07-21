@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # worktree.sh — lego unit-worktree lifecycle helper.
 #
-# Contract: B01 worktree-lib
+# Contract: B01 worktree-add-status-seed (worktree.sh unit-worktree lifecycle)
+#
+# New clauses in plan 001 are marked (NEW, plan 001); every other clause is
+# pre-existing behavior already covered by worktree_test.sh.
 #
 # Behavior:
 #   Manages the git worktrees, branches, and delivery PRs for lego work
@@ -23,6 +26,27 @@
 #       - every .local/contracts/B<NN>-*.md whose B<NN> belongs to one of
 #         those sections, copied to the same relative path (silently skipped
 #         when no such file exists)
+#       - (NEW, plan 001) .local/status.md: the unit status file, exactly
+#         these lines in order —
+#           "# Unit <unit-id> — status"
+#           ""
+#           "- Branch: <branch-name>"        (the branch created above)
+#           "- Created from: <sha>"          (full 40-hex sha of the HEAD
+#                                             the branch was created from)
+#           "- Phase: Created"
+#           ""
+#           "## Blocks"
+#           ""
+#           one line per matched blocks.md section, in file order:
+#           "- <heading minus the leading '## '>: <the section's '- Status:'
+#           value, empty when that field is absent>"
+#           ""
+#           "## Timeline"
+#           ""
+#           "<!-- orchestrator appends one line per event -->"
+#         ending with a trailing newline.
+#       - (NEW, plan 001) .local/briefs/ and .local/reports/ created as
+#         empty directories
 #     Then runs the repo test command (commands.test) inside the new worktree
 #     as a baseline check. On success prints the new worktree's absolute path
 #     as the LAST line of stdout and exits 0.
@@ -118,6 +142,8 @@
 #     itself; all other branches and worktrees are untouched.
 #   - Deterministic: identical repo state and arguments produce identical
 #     names and results.
+#   - (NEW, plan 001) status.md content derives only from repository state
+#     and arguments — never wall-clock time or randomness.
 #   - `merge` may also remove the unit worktree as a best-effort side
 #     effect; a removal failure never changes merge's exit code.
 #   - `deliver` may also remove unit branches and worktrees as a best-effort
@@ -125,7 +151,8 @@
 #
 # Edge cases:
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
-#     deliver restores the union of their Code paths.
+#     deliver restores the union of their Code paths; (NEW, plan 001)
+#     status.md carries one "## Blocks" line per section, in file order.
 #   - Code paths containing spaces are preserved verbatim (comma is the only
 #     separator in a "- Code:" list).
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
@@ -258,12 +285,13 @@ newest_commit_with_subject() {
 #   MATCHED_HEADINGS  the heading line itself
 #   MATCHED_CODE      the raw "- Code:" value (may be empty)
 #   MATCHED_CONTRACT  the full "- Contract:" line (may be empty)
+#   MATCHED_STATUS    the raw "- Status:" value (may be empty)
 read_blocks_sections() {
   local file="$1" unit_filter="$2"
   MATCHED_SECTIONS=(); MATCHED_BLOCK_IDS=(); MATCHED_HEADINGS=()
-  MATCHED_CODE=(); MATCHED_CONTRACT=()
+  MATCHED_CODE=(); MATCHED_CONTRACT=(); MATCHED_STATUS=()
 
-  local cur_id="" cur_unit="" cur_text="" cur_heading="" cur_code="" cur_contract=""
+  local cur_id="" cur_unit="" cur_text="" cur_heading="" cur_code="" cur_contract="" cur_status=""
   local in_section=0
   local line
   local -a lines=()
@@ -278,6 +306,7 @@ read_blocks_sections() {
         MATCHED_HEADINGS+=("$cur_heading")
         MATCHED_CODE+=("$cur_code")
         MATCHED_CONTRACT+=("$cur_contract")
+        MATCHED_STATUS+=("$cur_status")
       fi
       cur_heading="$line"
       cur_id="${line#"## "}"
@@ -285,6 +314,7 @@ read_blocks_sections() {
       cur_unit=""
       cur_code=""
       cur_contract=""
+      cur_status=""
       cur_text="$line"$'\n'
       in_section=1
       continue
@@ -294,6 +324,7 @@ read_blocks_sections() {
       "- Unit: "*) cur_unit="${line#"- Unit: "}" ;;
       "- Code: "*) cur_code="${line#"- Code: "}" ;;
       "- Contract: "*) cur_contract="$line" ;;
+      "- Status: "*) cur_status="${line#"- Status: "}" ;;
     esac
   done
 }
@@ -398,6 +429,37 @@ cmd_add() {
   fi
   if [ "$seed_ok" -eq 1 ]; then
     seed_contracts "$new_wt" "${MATCHED_BLOCK_IDS[@]}" || seed_ok=0
+  fi
+  if [ "$seed_ok" -eq 1 ]; then
+    local created_from
+    created_from="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"
+    if [ -z "$created_from" ]; then
+      seed_ok=0
+    fi
+  fi
+  if [ "$seed_ok" -eq 1 ]; then
+    {
+      printf '# Unit %s — status\n' "$unit_id"
+      printf '\n'
+      printf -- '- Branch: %s\n' "$branch"
+      printf -- '- Created from: %s\n' "$created_from"
+      printf -- '- Phase: Created\n'
+      printf '\n'
+      printf '## Blocks\n'
+      printf '\n'
+      local i heading_rest
+      for i in "${!MATCHED_HEADINGS[@]}"; do
+        heading_rest="${MATCHED_HEADINGS[$i]#"## "}"
+        printf -- '- %s: %s\n' "$heading_rest" "${MATCHED_STATUS[$i]}"
+      done
+      printf '\n'
+      printf '## Timeline\n'
+      printf '\n'
+      printf '%s\n' "<!-- orchestrator appends one line per event -->"
+    } > "$new_wt/.local/status.md" 2>/dev/null || seed_ok=0
+  fi
+  if [ "$seed_ok" -eq 1 ]; then
+    mkdir -p -- "$new_wt/.local/briefs" "$new_wt/.local/reports" 2>/dev/null || seed_ok=0
   fi
 
   if [ "$seed_ok" -ne 1 ]; then

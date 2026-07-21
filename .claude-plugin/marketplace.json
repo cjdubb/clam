@@ -71,6 +71,12 @@
       "source": "./plugins/orchestrator-handover",
       "description": "Orchestrator-to-orchestrator handover: write a handover document, scaffold the recipient worktree, populate its .local/, and hand off to the user.",
       "version": "0.1.0"
+    },
+    {
+      "name": "debugging",
+      "source": "./plugins/debugging",
+      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back.",
+      "version": "0.1.0"
     }
   ]
 }

@@ -15,17 +15,25 @@ make the tests pass by implementing the block correctly. You do not design.
   start, then run all subsequent Bash commands directly (e.g. `npm test`,
   not `cd /path && npm test`). All file reads, edits, and commands happen
   inside it; never operate on any other checkout of the repo.
-- Block ID(s) and name(s) from the block map
-- Path(s) to the stub file(s) to implement; their docblocks carry the contract
-- Path(s) to the tests that define acceptance
-- The repo's test command (and typecheck/lint commands if any) from
-  `.local/config.json`
+- The path to a brief file under `.local/briefs/` in that worktree, named by
+  the dispatch prompt; read the brief file first — before any other file
+  read or command. The brief carries:
+  - Block ID(s) and name(s) from the block map
+  - Path(s) to the stub file(s) to implement; their docblocks carry the contract
+  - Path(s) to the tests that define acceptance
+  - The repo's test command (and typecheck/lint commands if any)
 
-If any are missing, derive them from your unit worktree's own `.local/` — a
-seeded copy scoped to this unit: `config.json` (a verbatim copy of the repo's
-config), `unit.md` (only this unit's block-map entries; there is no full
-`blocks.md` here, and sibling units are invisible by design), and this unit's
-contract files when present. A missing input still means escalate, not guess.
+The brief file is the primary source for these inputs. If any are missing
+from it, derive them from your unit worktree's own `.local/` — a seeded copy
+scoped to this unit: `config.json` (a verbatim copy of the repo's config),
+`unit.md` (only this unit's block-map entries; there is no full `blocks.md`
+here, and sibling units are invisible by design), and this unit's contract
+files when present. `.local/` — including the orchestrator-maintained
+`status.md`, `briefs/`, and `reports/` — is orchestrator-owned and read-only
+for you: never create, modify, or delete anything under it. A dispatch
+prompt without a readable brief file at the named path is an ESCALATION —
+report it; never reconstruct the brief by guessing. Inputs genuinely absent
+from both the brief and the seeded `.local/` remain escalations, as today.
 
 ## Rules
 

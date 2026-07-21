@@ -17,6 +17,13 @@ if [ ! -f "$SCRIPT" ]; then
   exit 1
 fi
 
+REALM_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/realm.sh"
+
+if [ ! -f "$REALM_SCRIPT" ]; then
+  echo "FATAL: script under test not found at $REALM_SCRIPT" >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Cleanup registry. Functions that build fixtures are usually invoked via
 # command substitution (repo="$(new_git_repo)"), which forks a subshell —
@@ -145,6 +152,27 @@ run_in() {
   run_cmd "$dir" "" "$@"
 }
 
+# run_realm <dir> <lego-config-or-empty> <path> -- invokes realm.sh <path>
+# with cwd <dir> (LEGO_CONFIG's default ".local/config.json" and the fixed
+# base path ".claude/lego.json" are both relative to cwd), optionally
+# overriding $LEGO_CONFIG. Sets RUN_REALM_OUT (stdout) and RUN_REALM_EXIT.
+RUN_REALM_OUT=""
+RUN_REALM_EXIT=0
+run_realm() {
+  local dir="$1" cfg="$2" path="$3"
+  local out ec
+  out="$(mktemp)"
+  if [ -n "$cfg" ]; then
+    ( cd "$dir" && LEGO_CONFIG="$cfg" bash "$REALM_SCRIPT" "$path" ) >"$out" 2>/dev/null
+  else
+    ( cd "$dir" && bash "$REALM_SCRIPT" "$path" ) >"$out" 2>/dev/null
+  fi
+  ec=$?
+  RUN_REALM_OUT="$(cat "$out")"
+  RUN_REALM_EXIT=$ec
+  rm -f "$out"
+}
+
 # path_without <exe-name> -- prints a dir containing symlinks to every
 # executable currently resolvable on $PATH except <exe-name>.
 path_without() {
@@ -231,6 +259,29 @@ write_config_json() {
       '{commands:{test:$t},models:{testWriter:"sonnet",implementer:"sonnet"},testPatterns:[],delivery:{mode:"main-prs"}}' \
       > "$repo/.local/config.json"
   fi
+}
+
+# write_base_config <repo> <json-content> -- writes and commits
+# .claude/lego.json (the committed base layer of the layered config).
+# <json-content> is written verbatim as the file body; build it by hand
+# (these fixtures are small enough not to need jq -n).
+write_base_config() {
+  local repo="$1" content="$2"
+  mkdir -p "$repo/.claude"
+  printf '%s' "$content" > "$repo/.claude/lego.json"
+  git -C "$repo" add .claude/lego.json
+  git -C "$repo" commit -q -m "add base lego.json"
+}
+
+# write_override_config <repo> <json-content> -- writes .local/config.json
+# (the gitignored override layer) verbatim, uncommitted. Unlike
+# write_config_json (which always builds one fixed shape from a test
+# command), this accepts arbitrary JSON content for tests that need custom
+# shapes: merge semantics, object-form commands.test, invalid JSON.
+write_override_config() {
+  local repo="$1" content="$2"
+  mkdir -p "$repo/.local"
+  printf '%s' "$content" > "$repo/.local/config.json"
 }
 
 write_blocks_md() {
@@ -907,6 +958,167 @@ test_add_status_md_deterministic() {
 }
 
 # ===========================================================================
+# add: layered config resolution (NEW/CHANGED, plan 001-lc)
+#
+# Effective config = jq recursive merge (.[0] * .[1]) of .claude/lego.json
+# (committed base, read first) and .local/config.json (gitignored override,
+# read second, wins per key). Fixtures below deliberately construct cases
+# the OLD single-file (.local/config.json only) implementation cannot
+# satisfy by coincidence, so a red run here reflects a real gap rather than
+# an accident of the old error paths (e.g. old code's hard requirement that
+# .local/config.json exist would itself produce exit 3/4 for the wrong
+# reason if a fixture only supplied .claude/lego.json or only relied on
+# object-form commands.test).
+# ===========================================================================
+
+test_config_base_only_resolves_and_seeds_without_local_override() {
+  local repo expected_wt base_content_before base_content_after
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"commands":{"test":"printf BASE_ONLY > MARKER; true"},"delivery":{"worktreeDir":"../basewt"}}'
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/basewt/$(basename "$repo")-U01"
+  base_content_before="$(cat "$repo/.claude/lego.json")"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "only .claude/lego.json exists (no .local/config.json anywhere): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "delivery.worktreeDir resolved from the base-only effective config"
+
+  if [ -f "$expected_wt/MARKER" ]; then
+    assert_eq "BASE_ONLY" "$(cat "$expected_wt/MARKER")" "baseline test command resolved from the base-only effective config actually ran"
+  else
+    record_fail "expected baseline MARKER file written by the base-resolved test command"
+  fi
+
+  if [ ! -f "$expected_wt/.claude/lego.json" ]; then
+    record_fail "expected the committed .claude/lego.json to reach the new worktree via git checkout (not explicit seeding)"
+  fi
+  if [ -e "$expected_wt/.local/config.json" ]; then
+    record_fail "no .local/config.json existed in the invoking worktree to copy; the new worktree should not have one either (absence is not an error)"
+  fi
+
+  base_content_after="$(cat "$repo/.claude/lego.json" 2>/dev/null)"
+  assert_eq "$base_content_before" "$base_content_after" "committed .claude/lego.json in the invoking worktree is never written by add (read-only input)"
+}
+
+test_config_invalid_json_exit3() {
+  local repo
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{not valid json'
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "invalid JSON in committed .claude/lego.json, even though .local/config.json alone would otherwise be sufficient: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "invalid JSON in base config"
+
+  local repo2
+  repo2="$(new_git_repo)"
+  write_base_config "$repo2" '{"commands":{"test":"true"}}'
+  write_override_config "$repo2" '{not valid json'
+  write_blocks_md "$repo2"
+  write_contracts "$repo2"
+
+  run_in "$repo2" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "invalid JSON in .local/config.json override, even though .claude/lego.json alone would otherwise be sufficient: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "invalid JSON in override config"
+}
+
+test_config_commands_test_object_errors() {
+  local repo
+  repo="$(new_git_repo)"
+  write_override_config "$repo" '{"commands":{"test":{"main":"true"}}}'
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "object-form commands.test without a 'default' key: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "object commands.test missing default"
+
+  local repo2
+  repo2="$(new_git_repo)"
+  write_override_config "$repo2" '{"commands":{"test":{"main":"true","default":"missing"}}}'
+  write_blocks_md "$repo2"
+  write_contracts "$repo2"
+  run_in "$repo2" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "'default' names a variant that does not exist: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "default names an absent variant"
+
+  local repo3
+  repo3="$(new_git_repo)"
+  write_override_config "$repo3" '{"commands":{"test":{"main":"","default":"main"}}}'
+  write_blocks_md "$repo3"
+  write_contracts "$repo3"
+  run_in "$repo3" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "'default' names a variant whose value is an empty string: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "default names an empty-string variant"
+}
+
+test_config_commands_test_object_resolves_default_variant() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_override_config "$repo" '{"commands":{"test":{"main":"printf MAIN > MARKER; true","other":"printf OTHER > MARKER; true","default":"main"}}}'
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "object-form commands.test with a valid default: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -f "$expected_wt/MARKER" ]; then
+    assert_eq "MAIN" "$(cat "$expected_wt/MARKER")" "resolved and ran the variant named by 'default' ('main'), proving 'default' is used as a key reference and never itself eval'd as a command"
+  else
+    record_fail "expected baseline MARKER file from the resolved 'main' variant"
+  fi
+}
+
+test_config_merge_nested_object_override_wins_default_key() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"commands":{"test":{"fast":"printf FAST > MARKER; true","slow":"printf SLOW > MARKER; true","default":"fast"}}}'
+  write_override_config "$repo" '{"commands":{"test":{"default":"slow"}}}'
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "recursive merge of a nested commands.test object: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -f "$expected_wt/MARKER" ]; then
+    assert_eq "SLOW" "$(cat "$expected_wt/MARKER")" "override's 'default' wins per-key while base's variant definitions ('fast'/'slow') survive the merge -- if commands.test were replaced wholesale by the override object instead of merged per key, 'slow' would be undefined and this would fail as an unresolvable default (exit 3), not succeed"
+  else
+    record_fail "expected baseline MARKER file from the resolved 'slow' variant (defined only in base, selected by override's 'default')"
+  fi
+}
+
+test_config_merge_combines_base_and_override_keys() {
+  local repo expected_wt base_before base_after override_before override_after
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"commands":{"test":"printf BASE_CMD > MARKER; true"},"delivery":{"worktreeDir":"../basewt"}}'
+  write_override_config "$repo" '{"commands":{"test":"printf OVERRIDE_CMD > MARKER; true"}}'
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/basewt/$(basename "$repo")-U01"
+  base_before="$(cat "$repo/.claude/lego.json")"
+  override_before="$(cat "$repo/.local/config.json")"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "merge of base+override across different top-level keys: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "delivery.worktreeDir inherited from base when the override does not set it"
+
+  if [ -f "$expected_wt/MARKER" ]; then
+    assert_eq "OVERRIDE_CMD" "$(cat "$expected_wt/MARKER")" "commands.test from the override wins over base's value for the same key"
+  else
+    record_fail "expected baseline MARKER file from the override-resolved test command"
+  fi
+
+  base_after="$(cat "$repo/.claude/lego.json" 2>/dev/null)"
+  override_after="$(cat "$repo/.local/config.json" 2>/dev/null)"
+  assert_eq "$base_before" "$base_after" "committed .claude/lego.json unchanged by add (read-only input)"
+  assert_eq "$override_before" "$override_after" "invoking worktree's .local/config.json unchanged by add (read-only input; only the seeded copy in the new worktree is written)"
+}
+
+# ===========================================================================
 # merge
 #
 # merge <plan-slug> <unit-id> <unit-slug> -- construct_unit_branch replaces
@@ -1509,291 +1721,6 @@ test_deliver_noop_restore_creates_no_second_commit() {
 }
 
 # ===========================================================================
-# deliver --manifest (B01 deliver-manifest)
-# ===========================================================================
-
-test_deliver_manifest_invalid_file() {
-  local repo
-  repo="$(build_deliver_base)"
-  # Manifest validation happens before any unit-branch resolution, so no
-  # unit branch needs to exist to exercise this error path.
-
-  run_in "$repo" deliver --manifest "$repo/.local/does-not-exist.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "unreadable manifest path: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "unreadable manifest path"
-}
-
-test_deliver_manifest_invalid_json() {
-  local repo
-  repo="$(build_deliver_base)"
-  printf 'not { valid json' > "$repo/.local/manifest.json"
-
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest file is not valid JSON: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "manifest file is not valid JSON"
-}
-
-test_deliver_manifest_title_override() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  printf '{"title": "Custom PR Title"}' > "$repo/.local/manifest.json"
-  local manifest_before
-  manifest_before="$(cat "$repo/.local/manifest.json")"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  local manifest_after
-  manifest_after="$(cat "$repo/.local/manifest.json")"
-  assert_eq "$manifest_before" "$manifest_after" "manifest file is read-only and must never be modified by deliver"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Custom PR Title"*) : ;;
-      *) record_fail "expected gh pr create to be called with the manifest title override" ;;
-    esac
-    case "$ghargs" in
-      *"lego: U01"*) record_fail "expected the default title 'lego: U01' NOT to be used when manifest overrides title" ;;
-      *) : ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-test_deliver_manifest_body_override() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  printf '{"body": "Custom PR body text"}' > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Custom PR body text"*) : ;;
-      *) record_fail "expected gh pr create to be called with the manifest body override" ;;
-    esac
-    case "$ghargs" in
-      *"## B01 — greet"*) record_fail "expected the default body heading NOT to appear when manifest overrides body" ;;
-      *) : ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-test_deliver_manifest_branch_override() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  printf '{"branch": "custom/delivery-branch"}' > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/custom/delivery-branch"; then
-    record_fail "expected delivery branch 'custom/delivery-branch' (manifest override) to exist"
-  fi
-  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
-    record_fail "expected the default delivery branch name NOT to be created when manifest overrides branch"
-  fi
-}
-
-test_deliver_manifest_commit_subjects_override() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_files "$repo" "lego(U01): tests" "src/greet_test.sh" "greet test v1"
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  printf '{"commits": {"U01": {"tests": "custom tests subject", "impl": "custom impl subject"}}}' \
-    > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
-    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
-  else
-    local subjects
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
-    if ! printf '%s\n' "$subjects" | grep -qF "custom tests subject"; then
-      record_fail "expected delivery branch to carry the manifest override tests-commit subject"
-    fi
-    if ! printf '%s\n' "$subjects" | grep -qF "custom impl subject"; then
-      record_fail "expected delivery branch to carry the manifest override implementation-commit subject"
-    fi
-    if printf '%s\n' "$subjects" | grep -qF "lego(U01): contract + tests"; then
-      record_fail "expected the default tests-commit subject NOT to be used when manifest overrides it"
-    fi
-    if printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
-      record_fail "expected the default implementation-commit subject NOT to be used when manifest overrides it"
-    fi
-  fi
-}
-
-test_deliver_manifest_partial() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  # Only "title" is set; branch, body and commits must all use their defaults.
-  printf '{"title": "Only Title Overridden"}' > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
-    record_fail "expected the default delivery branch name to be used when manifest does not override branch"
-  else
-    local subjects
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
-    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
-      record_fail "expected the default implementation-commit subject when manifest does not override commits"
-    fi
-  fi
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Only Title Overridden"*) : ;;
-      *) record_fail "expected gh pr create to be called with the manifest title override" ;;
-    esac
-    case "$ghargs" in
-      *"## B01 — greet"*) : ;;
-      *) record_fail "expected the default PR body to be used when manifest does not override body" ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-test_deliver_manifest_branch_already_exists() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-  git -C "$repo" branch "custom/delivery-branch" master
-
-  printf '{"branch": "custom/delivery-branch"}' > "$repo/.local/manifest.json"
-
-  # Use the gh shim so this test is deterministic and isolates the branch-
-  # collision check: without it, a correct implementation still exits 4
-  # before ever invoking gh, but a stubbed implementation that ignores the
-  # manifest branch override would fall through to a real, unauthenticated
-  # `gh pr create` and could exit non-zero for an unrelated reason (network/
-  # auth failure) instead of failing on the intended assertion.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "manifest branch already exists: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "manifest branch already exists"
-}
-
-test_deliver_manifest_empty_object() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  printf '{}' > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
-    record_fail "expected the default delivery branch name when manifest is an empty object"
-  else
-    local subjects
-    subjects="$(git -C "$repo" log --format=%s lego/deliver/plan1/U01)"
-    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
-      record_fail "expected the default implementation-commit subject when manifest is an empty object"
-    fi
-  fi
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"lego: U01"*) : ;;
-      *) record_fail "expected the default PR title when manifest is an empty object" ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-test_deliver_manifest_empty_string_field_treated_as_absent() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-
-  # An explicit empty-string "title" must be treated the same as an absent
-  # field: the default title applies (manifest_field contract edge case).
-  printf '{"title": ""}' > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"lego: U01"*) : ;;
-      *) record_fail "expected the default PR title when manifest 'title' is an empty string" ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-# ===========================================================================
 # remove
 # ===========================================================================
 
@@ -2221,6 +2148,55 @@ test_clean_prunes_stale_worktree_entries() {
 }
 
 # ===========================================================================
+# realm.sh: testPatterns union across the layered config (NEW, plan 001-lc)
+#
+# realm.sh's extension point currently reads only .local/config.json
+# (LEGO_CONFIG-overridable). The new contract unions its testPatterns with
+# .claude/lego.json's (fixed path, unaffected by $LEGO_CONFIG), each file
+# optional -- a deliberate exception to the recursive-merge-with-override-
+# wins semantics used elsewhere: the test-file family can only grow.
+# ===========================================================================
+
+test_realm_testpatterns_union_combines_base_and_override() {
+  local repo
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
+  write_override_config "$repo" '{"testPatterns":["*.overridepat"]}'
+
+  run_realm "$repo" "" "foo.basepat"
+  assert_eq "test" "$RUN_REALM_OUT" "base-contributed pattern matches (union includes .claude/lego.json's testPatterns, not just .local/config.json's)"
+
+  run_realm "$repo" "" "bar.overridepat"
+  assert_eq "test" "$RUN_REALM_OUT" "override-contributed pattern still matches"
+
+  run_realm "$repo" "" "baz.other"
+  assert_eq "impl" "$RUN_REALM_OUT" "a path matching neither file's patterns and no built-in test family is impl"
+}
+
+test_realm_testpatterns_base_only_when_no_override_present() {
+  local repo
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
+
+  run_realm "$repo" "" "x.basepat"
+  assert_eq "test" "$RUN_REALM_OUT" "base file alone (no .local/config.json present at all) still contributes its testPatterns -- each file is independently optional"
+}
+
+test_realm_lego_config_env_overrides_only_override_location_base_fixed() {
+  local repo
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
+  mkdir -p "$repo/custom"
+  printf '%s' '{"testPatterns":["*.custompat"]}' > "$repo/custom/override.json"
+
+  run_realm "$repo" "custom/override.json" "a.custompat"
+  assert_eq "test" "$RUN_REALM_OUT" "\$LEGO_CONFIG redirects the override file's location"
+
+  run_realm "$repo" "custom/override.json" "b.basepat"
+  assert_eq "test" "$RUN_REALM_OUT" "the base path (.claude/lego.json) is fixed and still read even when \$LEGO_CONFIG points the override elsewhere"
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -2243,6 +2219,13 @@ run_test "add: status.md Blocks line status is verbatim, empty when Status field
 run_test "add: status.md multi-block unit lists one Blocks line per section in blocks.md file order (NEW)" test_add_status_md_multiblock_file_order
 run_test "add: creates .local/briefs/ and .local/reports/ as empty directories (NEW)" test_add_creates_empty_briefs_and_reports_dirs
 run_test "add: status.md is deterministic across identical repo state and args (NEW)" test_add_status_md_deterministic
+
+run_test "config: base-only (.claude/lego.json, no .local/config.json) resolves commands.test/worktreeDir and seeds without an override copy (NEW)" test_config_base_only_resolves_and_seeds_without_local_override
+run_test "config: invalid JSON in either layer is exit 3 even when the other layer alone would suffice (CHANGED)" test_config_invalid_json_exit3
+run_test "config: object-form commands.test errors (missing default, default names absent/empty variant) (NEW)" test_config_commands_test_object_errors
+run_test "config: object-form commands.test resolves the variant named by 'default' (NEW)" test_config_commands_test_object_resolves_default_variant
+run_test "config: recursive merge on a nested commands.test object -- override wins per key, base-only keys survive (NEW)" test_config_merge_nested_object_override_wins_default_key
+run_test "config: merge combines distinct top-level keys from base and override; override wins on a shared key (NEW/CHANGED)" test_config_merge_combines_base_and_override_keys
 
 run_test "merge: usage error on wrong argument count (plan-scoped)" test_merge_usage
 run_test "merge: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_merge_invalid_chars
@@ -2270,17 +2253,6 @@ run_test "deliver: multi-unit branch naming (lego/deliver/<plan-slug>/<ids>) and
 run_test "deliver: multi-unit argument order is preserved, not sorted" test_deliver_multi_unit_argument_order_is_not_sorted
 run_test "deliver: restore producing no changes creates no second commit" test_deliver_noop_restore_creates_no_second_commit
 
-run_test "deliver --manifest: unreadable manifest path exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_file
-run_test "deliver --manifest: invalid JSON exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_json
-run_test "deliver --manifest: title override replaces default PR title (B01 deliver-manifest)" test_deliver_manifest_title_override
-run_test "deliver --manifest: body override replaces default PR body (B01 deliver-manifest)" test_deliver_manifest_body_override
-run_test "deliver --manifest: branch override replaces default delivery branch name (B01 deliver-manifest)" test_deliver_manifest_branch_override
-run_test "deliver --manifest: commit subject overrides replace default tests/impl subjects (B01 deliver-manifest)" test_deliver_manifest_commit_subjects_override
-run_test "deliver --manifest: partial manifest overrides only the given field, defaults elsewhere (B01 deliver-manifest)" test_deliver_manifest_partial
-run_test "deliver --manifest: manifest branch already exists exits 4 (B01 deliver-manifest)" test_deliver_manifest_branch_already_exists
-run_test "deliver --manifest: empty object manifest behaves identically to no manifest (B01 deliver-manifest)" test_deliver_manifest_empty_object
-run_test "deliver --manifest: empty-string field treated as absent (B01 deliver-manifest)" test_deliver_manifest_empty_string_field_treated_as_absent
-
 run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
 run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars
 run_test "remove: constructed branch does not exist" test_remove_zero_branch_match
@@ -2302,6 +2274,10 @@ run_test "clean: requires running inside a git work tree (B01)" test_clean_requi
 run_test "clean: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
 run_test "clean: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
 run_test "clean: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
+
+run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
+run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present
+run_test "realm.sh: \$LEGO_CONFIG overrides only the override file's location; base path is fixed (NEW)" test_realm_lego_config_env_overrides_only_override_location_base_fixed
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

@@ -71,4 +71,135 @@ Edge cases:
     contradiction to the engineer; do not silently trust either side.
 -->
 
-NotImplemented: B01
+# Root Cause
+
+Debugging is a loop, not a hunch. This skill sequences the phases that turn a
+reported symptom into a confirmed root cause: capture it precisely, reach a
+reliable repro, mine what changed, run a differential diagnosis, isolate by
+bisection, gather external evidence, and gate acceptance on explaining
+everything you've recorded. It is the methodology driver only — technique
+depth lives in `references/`, loaded one file at a time as each phase needs
+it; this file never inlines what a reference already covers. Every phase
+writes into the session journal before you move to the next one — the
+journal, not your own memory of the conversation, is the record a fresh
+reader (including a future you) can trust.
+
+## 1. Intake
+
+- Capture the symptom before touching anything: **expected** vs **actual**
+  behavior, **scope** (who/what/how widely affected), and **first seen**
+  (when it started, or "always"). Distill these into a one-line problem
+  statement — the sentence you'd put at the top of an incident doc.
+- Run this phase even when the issue surfaces mid-conversation, layered on
+  other work already underway. Do not assume the surrounding context already
+  covers intake — write it down explicitly. A debugging need doesn't imply a
+  fresh conversation, and gaps hidden in assumed context are exactly what the
+  phase 8 gate will later have to catch.
+- Journal: record expected/actual, scope, first-seen, and the problem
+  statement in the journal's Symptom section before starting phase 2.
+
+## 2. Session setup
+
+- Start the session: `${CLAUDE_PLUGIN_ROOT}/scripts/debug-session.sh start <slug>`,
+  with `<slug>` a short lowercase-kebab tag drawn from the problem statement.
+- This creates `.local/debug/NNN-<slug>/` with a fresh `journal.md` already
+  scaffolded with the sections named below. Every later phase in this loop
+  journals into that same `.local/debug/NNN-<slug>/journal.md` — never a new
+  file, and never skipped because "it's just a quick check."
+- Journal: transcribe phase 1's findings into the Symptom section now, and
+  note the session directory path so it's easy to find again mid-session.
+
+## 3. Reproduce
+
+- Before deep diagnosis, reach a reliable repro: same steps, same failure,
+  every time (or a quantified rate, e.g. 5/5). A reliable repro is the
+  discriminator every later phase leans on — spend real effort here.
+- Load `references/reproduce.md` when you need technique guidance: capturing
+  the exact failing conditions before touching anything, minimizing the
+  repro, automating it into a script or failing test, or judging when a
+  flaky repro is good enough to proceed and what extra evidence weight that
+  demands from later phases.
+- Delegation point (optional): repro attempts — especially ones spanning
+  several environments, inputs, or code paths — can be handed to a subagent
+  to try in parallel while you continue other work. This is never required;
+  a single-threaded repro attempt is equally valid.
+- Journal: record repro status (none | flaky | reliable), the steps, and the
+  observed rate in the Reproduction section.
+
+## 4. What changed
+
+- Build the candidate-change timeline: bound the window between
+  last-known-good and first-seen, then walk it.
+- Load `references/what-changed.md` when you need the checklist of change
+  surfaces to walk (code, config, data, dependencies, infrastructure, and
+  more) and how to correlate candidates against symptom onset without
+  mistaking correlation for causation.
+- Journal: record the window and the resulting candidate-change list in the
+  What Changed section.
+
+## 5. Differential diagnosis
+
+- Turn the candidates (plus standing categories the timeline alone might
+  miss) into a hypothesis table: hypothesis, evidence for, evidence against,
+  status. Weigh each hypothesis against all evidence gathered so far, then
+  design the cheapest probe that discriminates between the survivors.
+- Load `references/differential-diagnosis.md` when you need help generating
+  hypotheses broadly, weighing evidence that fits more than one hypothesis,
+  or designing a discriminating probe.
+- Delegation point (optional): independent hypotheses can be investigated in
+  parallel by separate subagents. This is never required and never the only
+  path — investigating one hypothesis at a time is equally valid.
+- Journal: keep the Hypotheses table current after every probe — refute a
+  row with the evidence that refuted it, never delete it; the trail matters.
+
+## 6. Isolate
+
+- Binary-search whatever space survives phase 5: history (`git bisect`),
+  code path, data, configuration, or environment.
+- Load `references/binary-search.md` when you need the discipline for
+  running a bisection — one variable per probe, hypothesis/probe/
+  expected/observed recorded before each, stopping once the culprit is
+  minimal (one commit, one input, one flag).
+- Journal: every probe becomes a Probe Log row, win or lose.
+
+## 7. Evidence: logs and database
+
+- Load `references/logs.md` when you need log evidence for the incident
+  window — error onset, frequency changes, correlation ids to pivot on.
+  Load `references/database.md` when you need to inspect current database
+  state — read-only, always.
+- Access rule: if you can query logs or the database directly from this
+  session, do it. If you cannot, do not guess at what they would show — ask
+  the engineer which tool they use and follow the paste-back protocol:
+  create the query directory with
+  `${CLAUDE_PLUGIN_ROOT}/scripts/debug-session.sh query <session-dir> <name> [ext]`,
+  write the exact query into the query file, fill in the results template's
+  header (purpose, tool, how to run), then ask the engineer to run it and
+  paste the raw output back into its Results section. Interpret only after
+  results arrive.
+- Edge case: when evidence you gather contradicts what the engineer
+  described, say so — surface the contradiction to the engineer rather than
+  silently trusting either account over the other.
+- Journal: index every query in the Queries section; interpretations feed
+  back into the Hypotheses table as evidence.
+
+## 8. Root cause gate
+
+- Accept a root cause only when it explains ALL evidence recorded in the
+  journal — every hypothesis row, every probe, every pasted-back result.
+- If any recorded evidence is left unexplained, that is not a detail to wave
+  away: reopen phase 5 (differential diagnosis) and keep working the
+  hypothesis table rather than settling for a plausible-but-incomplete
+  story.
+- Journal: nothing new is written here beyond keeping the Hypotheses table
+  honest — the Root Cause section itself is written once the gate passes,
+  in phase 9.
+
+## 9. Wrap-up
+
+- Write the journal's Root Cause section: the root cause statement, how it
+  explains all the evidence, the fix direction, and a note that the repro
+  from phase 3 should become a regression test.
+- Journal: set the journal's Status to "root cause found" (or "abandoned" if
+  the investigation stopped short — keep the journal either way; a
+  documented dead end has diagnostic value for the next attempt).

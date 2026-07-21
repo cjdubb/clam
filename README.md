@@ -54,6 +54,7 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | [privacy](plugins/privacy/) | ✅ v0.1.0 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
+| [debugging](plugins/debugging/) | ✅ v0.1.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back. |
 
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.

@@ -601,7 +601,10 @@ restore_and_commit() {
 #   Edge cases: A field whose value is the empty string "" is returned as
 #     empty, same as null — callers treat both as "not provided".
 manifest_field() {
-  : # STUB — deliberately unimplemented (plan 001, B01)
+  local manifest="$1" filter="$2"
+  local val
+  val="$(jq -r "$filter // empty" "$manifest" 2>/dev/null)"
+  printf '%s' "$val"
 }
 
 deliver_cleanup() {
@@ -671,9 +674,12 @@ cmd_deliver() {
 
   # ---- Resolve delivery branch name (manifest "branch" or default) ----
   local delivery_branch
-  delivery_branch="" # STUB — deliberately unimplemented (plan 001, B01)
+  delivery_branch=""
   # When manifest provides "branch", use it; otherwise construct the default
   # "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]".
+  if [ -n "$manifest_path" ]; then
+    delivery_branch="$(manifest_field "$manifest_path" '.branch')"
+  fi
 
   local delivery_suffix="" sep=""
   local u
@@ -754,11 +760,17 @@ cmd_deliver() {
     local impl_sha="${UNIT_IMPL_SHA[$idx]}"
 
     # Resolve commit subjects: manifest overrides or defaults.
-    # STUB — deliberately unimplemented (plan 001, B01):
     # When manifest provides commits.<unit-id>.tests / commits.<unit-id>.impl,
     # use those; otherwise fall back to the hardcoded defaults.
     local tests_subject="lego($u): contract + tests"
     local impl_subject="lego($u): implementation"
+    if [ -n "$manifest_path" ]; then
+      local mt mi
+      mt="$(manifest_field "$manifest_path" ".commits[\"$u\"].tests")"
+      mi="$(manifest_field "$manifest_path" ".commits[\"$u\"].impl")"
+      [ -n "$mt" ] && tests_subject="$mt"
+      [ -n "$mi" ] && impl_subject="$mi"
+    fi
 
     if [ -n "$tests_sha" ]; then
       restore_and_commit "$tmp_wt" "$tests_sha" "$tests_subject" "${unit_paths[@]}"
@@ -788,7 +800,6 @@ cmd_deliver() {
   fi
 
   # Resolve PR title and body: manifest overrides or defaults.
-  # STUB — deliberately unimplemented (plan 001, B01):
   # When manifest provides "title" / "body", use those; otherwise fall back
   # to the hardcoded defaults (title = "lego: <ids>", body = headings+contracts).
   local pr_title="lego: ${unit_ids[*]}"
@@ -801,6 +812,14 @@ cmd_deliver() {
     fi
     pr_body="${pr_body}"$'\n'
   done
+
+  if [ -n "$manifest_path" ]; then
+    local mtitle mbody
+    mtitle="$(manifest_field "$manifest_path" '.title')"
+    mbody="$(manifest_field "$manifest_path" '.body')"
+    [ -n "$mtitle" ] && pr_title="$mtitle"
+    [ -n "$mbody" ] && pr_body="$mbody"
+  fi
 
   local pr_url
   pr_url="$(cd "$REPO_ROOT" && gh pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"

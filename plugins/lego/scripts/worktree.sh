@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # worktree.sh — lego unit-worktree lifecycle helper.
 #
-# Contract: B01 worktree-lib
+# Contract: B01 worktree-add-status-seed (worktree.sh unit-worktree lifecycle)
+#
+# New clauses in plan 001 are marked (NEW, plan 001); every other clause is
+# pre-existing behavior already covered by worktree_test.sh.
 #
 # Behavior:
 #   Manages the git worktrees, branches, and delivery PRs for lego work
@@ -23,6 +26,27 @@
 #       - every .local/contracts/B<NN>-*.md whose B<NN> belongs to one of
 #         those sections, copied to the same relative path (silently skipped
 #         when no such file exists)
+#       - (NEW, plan 001) .local/status.md: the unit status file, exactly
+#         these lines in order —
+#           "# Unit <unit-id> — status"
+#           ""
+#           "- Branch: <branch-name>"        (the branch created above)
+#           "- Created from: <sha>"          (full 40-hex sha of the HEAD
+#                                             the branch was created from)
+#           "- Phase: Created"
+#           ""
+#           "## Blocks"
+#           ""
+#           one line per matched blocks.md section, in file order:
+#           "- <heading minus the leading '## '>: <the section's '- Status:'
+#           value, empty when that field is absent>"
+#           ""
+#           "## Timeline"
+#           ""
+#           "<!-- orchestrator appends one line per event -->"
+#         ending with a trailing newline.
+#       - (NEW, plan 001) .local/briefs/ and .local/reports/ created as
+#         empty directories
 #     Then runs the repo test command (commands.test) inside the new worktree
 #     as a baseline check. On success prints the new worktree's absolute path
 #     as the LAST line of stdout and exits 0.
@@ -96,10 +120,13 @@
 #     itself; all other branches and worktrees are untouched.
 #   - Deterministic: identical repo state and arguments produce identical
 #     names and results.
+#   - (NEW, plan 001) status.md content derives only from repository state
+#     and arguments — never wall-clock time or randomness.
 #
 # Edge cases:
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
-#     deliver restores the union of their Code paths.
+#     deliver restores the union of their Code paths; (NEW, plan 001)
+#     status.md carries one "## Blocks" line per section, in file order.
 #   - Code paths containing spaces are preserved verbatim (comma is the only
 #     separator in a "- Code:" list).
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing

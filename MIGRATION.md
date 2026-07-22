@@ -29,10 +29,8 @@ superseded by this plugin.
   `doc-sync` (pre-PR documentation-accuracy gate; reassigned from decision-log)
 - Docs: `skills/PR-WORKFLOW.md`
 - Agents: `reviewer`
-- Hooks: `pr-status.sh` (Stop), `log-skill-trigger.sh` (PreToolUse +
-  PostToolUse on Skill; reassigned from the dissolved guards cluster — its
-  only consumer is `pr-retrospective`. Generic telemetry: split into its own
-  plugin if a second consumer appears)
+- Hooks: `pr-status.sh` (Stop). (`log-skill-trigger.sh` reassigned to
+  **skill-tracker** — see below)
 - When ported, `create-pr` also becomes the delegated github-pr provider
   behind `/landing:land` (see **landing**), and `pre-pr-verify` should be
   reconciled with the profile's `landing-verify` command.
@@ -189,6 +187,24 @@ idle-event backstop (state-gated in `push-notify.sh`), and the README
 documents sourcing `lib/notify.sh` into the interactive shell for instant
 pushes.
 
+## skill-tracker — ported (from clam-code)
+
+Skill invocation telemetry, split out from the pr-workflow plan where it was
+originally assigned alongside `pr-retrospective`. Generic enough to stand
+alone: any consumer of `~/.claude/skill-triggers.jsonl` can depend on this
+plugin without pulling in the full PR workflow.
+
+- Hooks: `log-skill-trigger.sh` (PreToolUse + PostToolUse on Skill; appends
+  one JSONL row per event to `~/.claude/skill-triggers.jsonl`)
+- Scripts: `skill-stats.sh` (CLI reporter: top skills, daily triggers, errors)
+- Skills: `/skill-tracker:stats` (runs the reporter conversationally)
+
+Port changes: `skill-stats.sh` drops the "On-disk skills never triggered"
+section (hardcoded clipboard-specific paths; replaced with JSONL-only
+reporting). `log-skill-trigger.sh` adds `mkdir -p ~/.claude` before the
+append. Both scripts use `jq -R -c 'fromjson? | ...'` for malformed-line
+resilience instead of the reference's whole-file `jq -c 'select(...)'`.
+
 ## permissions — planned
 
 The audit-then-allowlist loop: a guard that observes plus skills that act on
@@ -237,7 +253,7 @@ dropped.
 | `git-guard.sh` | git-guard | planned |
 | `cron-guard.sh` | cron-guard | planned |
 | `block-task-tools.sh` | tracking | ported |
-| `log-skill-trigger.sh` | pr-workflow | planned |
+| `log-skill-trigger.sh` | skill-tracker | ported |
 | `orchestrator-guard.sh` | — (incompatible with lego scaffold phase) | dropped |
 | `keep-working.sh` | tracking | ported |
 | realm gate (`realm-gate.sh` + `realm-check.sh`) | lego | ported |

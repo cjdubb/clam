@@ -27,4 +27,16 @@ Edge cases:
   - Empty results → show the "no triggers" message from the reporter
 -->
 
-STUB: not yet implemented
+# Skill Trigger Stats
+
+Run the reporter and show its output. Do not reimplement the stats logic
+here.
+
+## `/skill-tracker:stats`
+
+1. Run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-stats.sh` via the Bash tool.
+2. Present the output verbatim — no summarization or filtering.
+3. If the script exits non-zero, relay the error message it printed (e.g.
+   `jq` missing) instead of the report.
+4. If there's no log file yet, or the log has no triggers, relay the
+   reporter's informational message as-is.

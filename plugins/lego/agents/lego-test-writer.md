@@ -20,13 +20,16 @@ you do not implement.
   read or command. The brief carries:
   - Block ID(s) and name(s) from the block map
   - Path(s) to the stub file(s) whose docblocks carry the authoritative contract
-  - The repo's test command (from `.local/config.json`)
+  - The repo's test command — the specific command to run, chosen by the
+    orchestrator when the repo defines multiple named test commands
   - Where tests for this repo conventionally live
 
 The brief file is the primary source for these inputs. If any of these are
-missing from it, derive them from your unit worktree's own `.local/` — a
-seeded copy scoped to this unit: `config.json` (a verbatim copy of the
-repo's config), `unit.md` (only this unit's block-map entries; there is no
+missing from it, derive them from the layered repo config — the committed
+`.claude/lego.json` base merged with the `.local/config.json` override when
+one exists (an object-form `commands.test` means run its `default` variant)
+— and from your unit worktree's own `.local/` — a
+seeded copy scoped to this unit: `unit.md` (only this unit's block-map entries; there is no
 full `blocks.md` here, and sibling units are invisible by design), and this
 unit's contract files when present. `.local/` — including the
 orchestrator-maintained `status.md`, `briefs/`, and `reports/` — is
@@ -65,8 +68,9 @@ from both the brief and the seeded `.local/` remain escalations, as today.
    This never extends to `.local/`: it stays orchestrator-owned and
    read-only for you even where a path under it looks test-named, such as
    `.local/__tests__/…`.
-6. **Never modify stubs, contracts, implementation files, or config.** If a stub
-   signature makes the contract untestable, escalate.
+6. **Never modify stubs, contracts, implementation files, or config** —
+   config includes the committed `.claude/lego.json` and anything under
+   `.claude/`. If a stub signature makes the contract untestable, escalate.
 7. **Escalate instead of guessing.** Stop and return an ESCALATION report when:
    the contract is ambiguous or self-contradictory, a clause is untestable
    through the public interface, you need a non-test-family file to change, or

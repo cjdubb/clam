@@ -6,9 +6,18 @@
 #
 # Test family (basename): *.spec.* | *.test.* | *_test.* | *_spec.* | test_*
 # Test family (path):     any /__tests__/ segment
-# Extension point:        .local/config.json "testPatterns" (basename or path
-#                         globs; requires jq, silently skipped without it).
-#                         Override config location with $LEGO_CONFIG.
+# Extension point:        "testPatterns" (basename or path globs) from the
+#                         layered config (NEW, plan 001-lc): the UNION of
+#                         .testPatterns in .claude/lego.json (committed
+#                         base, read first) and .local/config.json (local
+#                         override, read second), each file optional.
+#                         Deliberate exception to the recursive-merge
+#                         semantics used elsewhere: patterns are unioned,
+#                         never replaced — the test-file family can only
+#                         grow. Requires jq; silently skipped without it.
+#                         $LEGO_CONFIG overrides the override file's
+#                         location (default .local/config.json); the base
+#                         path is fixed.
 set -euo pipefail
 
 path="${1:?usage: realm.sh <path>}"
@@ -22,13 +31,17 @@ case "$base" in
   *.spec.*|*.test.*|*_test.*|*_spec.*|test_*) echo test; exit 0 ;;
 esac
 
-config="${LEGO_CONFIG:-.local/config.json}"
-if [ -f "$config" ] && command -v jq >/dev/null 2>&1; then
-  while IFS= read -r pat; do
-    [ -n "$pat" ] || continue
-    case "$base" in $pat) echo test; exit 0 ;; esac
-    case "$path" in $pat) echo test; exit 0 ;; esac
-  done < <(jq -r '.testPatterns[]? // empty' "$config" 2>/dev/null)
+base_config=".claude/lego.json"
+override_config="${LEGO_CONFIG:-.local/config.json}"
+if command -v jq >/dev/null 2>&1; then
+  for config in "$base_config" "$override_config"; do
+    [ -f "$config" ] || continue
+    while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
+      case "$base" in $pat) echo test; exit 0 ;; esac
+      case "$path" in $pat) echo test; exit 0 ;; esac
+    done < <(jq -r '.testPatterns[]? // empty' "$config" 2>/dev/null)
+  done
 fi
 
 echo impl

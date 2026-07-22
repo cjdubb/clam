@@ -45,7 +45,7 @@
     {
       "name": "landing",
       "source": "./plugins/landing",
-      "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.md (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
+      "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.jsonc (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
       "version": "0.1.0"
     },
     {
@@ -82,6 +82,12 @@
       "name": "make-progress",
       "source": "./plugins/make-progress",
       "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "deliver",
+      "source": "./plugins/deliver",
+      "description": "High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. Works best with companion plugins installed but degrades gracefully without them.",
       "version": "0.1.0"
     }
   ]

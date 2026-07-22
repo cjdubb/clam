@@ -5,10 +5,9 @@
 # contract names as B02's outputs:
 #
 #   (1) .claude-plugin/marketplace.json — exactly one plugins[] entry named
-#       "render-doc": source "./plugins/render-doc", version identical to
-#       plugins/render-doc/.claude-plugin/plugin.json (read dynamically,
-#       never hardcoded), and a non-empty description covering both
-#       rendering and annotation.
+#       "render-doc": source "./plugins/render-doc", no version field
+#       (plugin.json is the single source of truth for version), and a
+#       non-empty description covering both rendering and annotation.
 #   (2) README.md Plugins table — exactly one row linking
 #       plugins/render-doc/, carrying the ✅ status marker, the plugin.json
 #       version, and naming /render-doc:render.
@@ -70,8 +69,8 @@ check "render-doc entry source is './plugins/render-doc'" \
   "$(jq -r 'select(.name=="render-doc") | .source' <<<"$RD_ENTRY" 2>/dev/null)" \
   "./plugins/render-doc"
 
-check "render-doc entry version matches plugin.json's version" \
-  "$(jq -r '.version // empty' <<<"$RD_ENTRY" 2>/dev/null)" "$VERSION"
+check "render-doc entry has no version field (plugin.json is source of truth)" \
+  "$(jq -r 'has("version") | not' <<<"$RD_ENTRY" 2>/dev/null)" "true"
 
 RD_DESC="$(jq -r '.description // empty' <<<"$RD_ENTRY" 2>/dev/null)"
 check "render-doc entry description is non-empty" \

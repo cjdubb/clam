@@ -2,13 +2,14 @@
 # Tests for the merge-manifest / delete-make-progress contract (B05 + B06):
 #
 #   B05 — merge-manifest: removes the make-progress entry from the
-#   marketplace manifest; bumps tracking's version and description in both
-#   .claude-plugin/marketplace.json and plugins/tracking/.claude-plugin/
-#   plugin.json to reflect the absorbed make-progress functionality; updates
-#   README.md and MIGRATION.md references; updates the debugging plugin's
-#   b10-registration.test.sh fixture (it embeds a byte-for-byte snapshot of
-#   the marketplace tracking entry, which the version/description bump
-#   would otherwise break).
+#   marketplace manifest; bumps tracking's version and description in
+#   plugins/tracking/.claude-plugin/plugin.json (the single source of
+#   truth for version — marketplace.json carries no version field) to
+#   reflect the absorbed make-progress functionality; updates README.md
+#   and MIGRATION.md references; updates the debugging plugin's
+#   b10-registration.test.sh fixture (it embeds a byte-for-byte snapshot
+#   of the marketplace tracking entry, which the description bump would
+#   otherwise break).
 #
 #   B06 — delete-make-progress: removes the now-empty plugins/make-progress/
 #   directory entirely.
@@ -62,23 +63,21 @@ check "marketplace.json has no 'make-progress' plugins[] entry" "$MP_COUNT" "0"
 TRACKING_COUNT=$(jq '[.plugins[]? | select(.name=="tracking")] | length' "$MARKETPLACE" 2>/dev/null)
 check "marketplace.json has exactly one 'tracking' plugins[] entry" "$TRACKING_COUNT" "1"
 
-MKT_TRACKING_VERSION=$(jq -r '.plugins[]? | select(.name=="tracking") | .version // empty' "$MARKETPLACE" 2>/dev/null)
+# --- Test 3: marketplace tracking entry has no version field ---
+check "marketplace.json tracking entry has no version field (plugin.json is single source of truth)" \
+    "$(jq -e '.plugins[]? | select(.name=="tracking") | .version' "$MARKETPLACE" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
-# --- Test 3: tracking version bumped past 0.2.0 ---
-if [ "$MKT_TRACKING_VERSION" != "0.2.0" ] && [ -n "$MKT_TRACKING_VERSION" ]; then
-    pass "marketplace.json tracking version is bumped past '0.2.0' (got '$MKT_TRACKING_VERSION')"
-else
-    fail "marketplace.json tracking version is bumped past '0.2.0'" \
-        "got '$MKT_TRACKING_VERSION'"
-fi
-
-# --- Test 4: plugin.json version matches marketplace tracking version ---
+# --- Test 4: plugin.json version bumped past 0.2.0 ---
 if [ -f "$PLUGIN_JSON" ]; then
     PJ_VERSION=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-    check "plugins/tracking/.claude-plugin/plugin.json version matches marketplace tracking entry" \
-        "$PJ_VERSION" "$MKT_TRACKING_VERSION"
+    if [ "$PJ_VERSION" != "0.2.0" ] && [ -n "$PJ_VERSION" ]; then
+        pass "plugin.json tracking version is bumped past '0.2.0' (got '$PJ_VERSION')"
+    else
+        fail "plugin.json tracking version is bumped past '0.2.0'" \
+            "got '$PJ_VERSION'"
+    fi
 else
-    fail "plugins/tracking/.claude-plugin/plugin.json version matches marketplace tracking entry" \
+    fail "plugin.json tracking version is bumped past '0.2.0'" \
         "plugin.json not found at $PLUGIN_JSON"
 fi
 

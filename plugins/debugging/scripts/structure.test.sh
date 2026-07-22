@@ -14,7 +14,8 @@
 #       or a reference names resolves to a real file in this plugin;
 #       debug-session.sh's script-relative template paths exist; the
 #       template headings the docs rely on match the templates exactly;
-#       plugin.json / marketplace.json / the root README version agree; and
+#       plugin.json / the root README version agree; marketplace.json has
+#       no version field (plugin.json is the single source of truth); and
 #       an end-to-end start+query smoke test produces the contracted tree
 #       shape (fine-grained detail is B09's own suite's job, not this file's).
 #
@@ -248,12 +249,11 @@ check "plugin.json name is 'debugging'" \
   "$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)" "debugging"
 
 PLUGIN_VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)"
-MARKETPLACE_VERSION="$(jq -r '.plugins[]? | select(.name=="debugging") | .version' "$MARKETPLACE" 2>/dev/null)"
 
 check "plugin.json .version is non-empty" \
   "$([ -n "$PLUGIN_VERSION" ] && echo yes || echo no)" "yes"
-check "plugin.json version matches the marketplace.json debugging entry's version" \
-  "$PLUGIN_VERSION" "$MARKETPLACE_VERSION"
+check "marketplace.json debugging entry has no version field (plugin.json is single source of truth)" \
+  "$(jq -e '.plugins[]? | select(.name=="debugging") | .version' "$MARKETPLACE" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
 ROOT_README_ROW="$(grep -E '^\|.*\[debugging\]\(plugins/debugging/\).*\|' "$ROOT_README" | head -n1)"
 ROOT_README_VERSION="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$ROOT_README_ROW" | head -n1 | sed 's/^v//')"

@@ -56,17 +56,19 @@ fi
 
 # --- Clause 3: version agreement ---------------------------------------------
 pj_version="$(jq -r '.version' "$PLUGIN_JSON")"
-mp_version="$(jq -r '.plugins[] | select(.name == "render-doc") | .version' "$MARKETPLACE")"
+
+# marketplace.json must NOT carry a version field (plugin.json is the single
+# source of truth; duplicating it causes drift).
+mp_has_version="$(jq '.plugins[] | select(.name == "render-doc") | has("version")' "$MARKETPLACE")"
+if [ "$mp_has_version" = "false" ]; then
+  pass "marketplace entry has no version field (plugin.json is source of truth)"
+else
+  fail "marketplace entry still carries a version field — remove it; plugin.json is source of truth"
+fi
 
 # Root README: extract version from the render-doc row (e.g., "✅ v0.1.0")
 strip_docblocks() { sed '/<!--/,/-->/d' "$1"; }
 readme_version="$(strip_docblocks "$ROOT_README" | grep -oP 'render-doc.*?v\K[0-9]+\.[0-9]+\.[0-9]+')"
-
-if [ "$pj_version" = "$mp_version" ]; then
-  pass "plugin.json version ($pj_version) == marketplace.json version ($mp_version)"
-else
-  fail "plugin.json version ($pj_version) != marketplace.json version ($mp_version)"
-fi
 
 if [ "$pj_version" = "$readme_version" ]; then
   pass "plugin.json version ($pj_version) == root README version ($readme_version)"

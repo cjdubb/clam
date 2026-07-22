@@ -107,10 +107,8 @@ check "debugging entry source is './plugins/debugging'" \
   "$(jq -r 'select(.name=="debugging") | .source' <<<"$DBG_ENTRY" 2>/dev/null)" \
   "./plugins/debugging"
 
-check "debugging entry version equals plugin.json's version" \
-  "$(jq -r '.version // empty' <<<"$DBG_ENTRY" 2>/dev/null)" "$VERSION"
-check "debugging entry version is '0.1.0'" \
-  "$(jq -r '.version // empty' <<<"$DBG_ENTRY" 2>/dev/null)" "0.1.0"
+check "debugging entry has no version field (plugin.json is source of truth)" \
+  "$(jq -e '.version' <<<"$DBG_ENTRY" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
 MKT_DESC=$(jq -r '.description // empty' <<<"$DBG_ENTRY" 2>/dev/null)
 check "debugging entry description is non-empty" \
@@ -118,21 +116,12 @@ check "debugging entry description is non-empty" \
 check "debugging entry description contains no 'NotImplemented' placeholder" \
   "$(grep -qi 'notimplemented' <<<"$MKT_DESC" && echo placeholder || echo ok)" "ok"
 
-# Invariant: existing entries are byte-for-byte untouched. Pinned against
-# the known-stable baseline captured from the repo before B10 registration.
-declare -A BASELINE_ENTRIES=(
-  [lego]='{"name":"lego","source":"./plugins/lego","description":"Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves.","version":"0.4.0"}'
-  [decision-log]='{"name":"decision-log","source":"./plugins/decision-log","description":"Record technical decisions: one-shot DL drafting, section-by-section collaborative authoring, and pending-decision rundowns.","version":"0.1.0"}'
-  [tracking]='{"name":"tracking","source":"./plugins/tracking","description":"Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.","version":"0.3.0"}'
-  [statusline]='{"name":"statusline","source":"./plugins/statusline","description":"Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.","version":"0.1.0"}'
-  [worktrees]='{"name":"worktrees","source":"./plugins/worktrees","description":"Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents.","version":"0.1.0"}'
-  [notifications]='{"name":"notifications","source":"./plugins/notifications","description":"Summoning stack: terminal bell, desktop notification, tmux highlight, and ntfy phone push on the transition into summoning states; silent for parked sessions.","version":"0.1.0"}'
-  [landing]='{"name":"landing","source":"./plugins/landing","description":"The landing seam: /landing:land lands finished work per the repo'"'"'s committed policy in .claude/clam-profile.jsonc (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.","version":"0.1.0"}'
-)
+# Invariant: existing entries are untouched. Check source paths are stable
+# (version is not in marketplace — plugin.json is the single source of truth).
 for name in lego decision-log tracking statusline worktrees notifications landing; do
-  actual=$(jq -c --arg n "$name" '.plugins[]? | select(.name==$n)' "$MARKETPLACE" 2>/dev/null)
-  check "marketplace.json '$name' entry is byte-for-byte untouched" \
-    "$actual" "${BASELINE_ENTRIES[$name]}"
+  actual=$(jq -r --arg n "$name" '.plugins[]? | select(.name==$n) | .source' "$MARKETPLACE" 2>/dev/null)
+  check "marketplace.json '$name' entry source untouched" \
+    "$actual" "./plugins/$name"
 done
 
 # =====================================================================

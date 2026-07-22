@@ -6,8 +6,8 @@
 # three shared repo files the contract names as B04's outputs:
 #
 #   (1) .claude-plugin/marketplace.json — a worktrees entry: source
-#       "./plugins/worktrees", version identical to plugin.json (read
-#       dynamically, never hardcoded), non-placeholder description; other
+#       "./plugins/worktrees", no version field (plugin.json is the single
+#       source of truth for version), non-placeholder description; other
 #       plugin entries (lego, decision-log, tracking, statusline) untouched.
 #   (2) README.md — the worktrees Plugins-table row flipped from "planned"
 #       to "✅ v<version>" with a link to plugins/worktrees/; other rows
@@ -74,10 +74,10 @@ check "worktrees entry source is './plugins/worktrees'" \
   "$(jq -r 'select(.name=="worktrees") | .source' <<<"$WT_ENTRY" 2>/dev/null)" \
   "./plugins/worktrees"
 
-# Output: version identical to plugin.json's version (dynamic comparison,
-# not a hardcoded literal — this is the "version source of truth" clause).
-check "worktrees entry version matches plugin.json's version" \
-  "$(jq -r '.version' <<<"$WT_ENTRY" 2>/dev/null)" "$VERSION"
+# Invariant: marketplace entry has no version field — plugin.json is the
+# single source of truth for version (no redundant copy in marketplace).
+check "worktrees entry has no version field (plugin.json is source of truth)" \
+  "$(jq -r 'has("version")' <<<"$WT_ENTRY" 2>/dev/null)" "false"
 
 # Output: a non-placeholder, non-empty one-line description.
 WT_DESC=$(jq -r '.description // empty' <<<"$WT_ENTRY" 2>/dev/null)
@@ -90,18 +90,18 @@ check "worktrees entry description is not a NotImplemented placeholder" \
 
 # Invariant: no other plugin's marketplace entries were disturbed. Pinned
 # against the known-stable baseline for the four pre-existing entries.
-check "lego entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="lego") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/lego","version":"0.4.0"}'
-check "decision-log entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="decision-log") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/decision-log","version":"0.1.0"}'
-check "tracking entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="tracking") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/tracking","version":"0.3.0"}'
-check "statusline entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="statusline") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/statusline","version":"0.1.0"}'
+check "lego entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="lego") | .source' "$MARKETPLACE")" \
+  './plugins/lego'
+check "decision-log entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="decision-log") | .source' "$MARKETPLACE")" \
+  './plugins/decision-log'
+check "tracking entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="tracking") | .source' "$MARKETPLACE")" \
+  './plugins/tracking'
+check "statusline entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="statusline") | .source' "$MARKETPLACE")" \
+  './plugins/statusline'
 
 # =====================================================================
 # (2) README.md — Plugins table

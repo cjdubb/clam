@@ -42,5 +42,48 @@
 #   - jq not available → skip
 #   - SUBAGENT-LOG-*.md glob matches nothing → no-op (nullglob)
 
-# NotImplemented: B03
+set -e
+
+command -v jq &>/dev/null || exit 0
+
+input=$(cat)
+
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null) || cwd=""
+[[ -n "$cwd" ]] || exit 0
+
+[[ -f "$cwd/.local/TODO.md" ]] || exit 0
+
+ts=$(date '+%Y%m%d-%H%M%S')
+snapshot_dir="$cwd/.local/snapshots/$ts"
+mkdir -p "$snapshot_dir" 2>/dev/null || exit 0
+
+copied=0
+for f in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md; do
+    if [[ -f "$cwd/.local/$f" ]]; then
+        cp "$cwd/.local/$f" "$snapshot_dir/" 2>/dev/null && copied=$((copied + 1))
+    fi
+done
+
+# Subagent logs use a per-name suffix (SUBAGENT-LOG-foo.md); glob may not
+# match anything, in which case nullglob keeps the loop a no-op.
+shopt -s nullglob
+for f in "$cwd/.local"/SUBAGENT-LOG-*.md; do
+    cp "$f" "$snapshot_dir/" 2>/dev/null && copied=$((copied + 1))
+done
+shopt -u nullglob
+
+# If nothing was snapshotted there's no marker worth writing. Cleanup.
+if [[ "$copied" -eq 0 ]]; then
+    rmdir "$snapshot_dir" 2>/dev/null || true
+    exit 0
+fi
+
+# Marker into TODO.md so a future session can see when its state was last
+# potentially-stale and where the snapshot lives. HTML comment so it
+# doesn't render in markdown previews.
+{
+    printf '\n<!-- AUTO-COMPACTION %s — pre-compact snapshot at .local/snapshots/%s/ -->\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$ts"
+} >> "$cwd/.local/TODO.md" 2>/dev/null || true
+
 exit 0

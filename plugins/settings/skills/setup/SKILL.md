@@ -7,23 +7,29 @@ disable-model-invocation: true
 # Settings Setup
 
 <!--
-Contract: B02 settings
-Behavior:   Writes two env vars into the `env` object AND three session-default
-             keys into the Claude Code settings file matching the plugin's
-             installation scope:
+Contract: B02 settings (extended by B01 settings-compact-window)
+Behavior:   Writes two hardcoded env vars, optionally a user-prompted env var,
+             AND three user-prompted session-default keys into the Claude Code
+             settings file matching the plugin's installation scope:
                env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
                env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING = "1"
+               env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = <user-provided value | not set>
                model = <user-provided value>
                effortLevel = <user-provided value>
                permissions.defaultMode = <user-provided value>
              The user MUST provide the values for model, effortLevel, and
              permissions.defaultMode interactively; there are no defaults or
-             fallbacks.
-             `/settings:setup remove` reverses the change (deletes all five
-             keys/paths).
+             fallbacks. The user is prompted for
+             CLAUDE_CODE_AUTO_COMPACT_WINDOW and may provide a value (a string
+             of digits, e.g. "250000") or decline; if declined, the key is not
+             written.
+             `/settings:setup remove` reverses the change (deletes all
+             keys/paths that were written, up to six).
 Inputs:      Subcommand (none = install, "remove" = uninstall). No other args.
-             For install: the user is prompted for three values (model,
-             effortLevel, permissions.defaultMode) during execution.
+             For install: the user is prompted for
+             CLAUDE_CODE_AUTO_COMPACT_WINDOW (value or decline) and three
+             session-default values (model, effortLevel,
+             permissions.defaultMode) during execution.
 Outputs:     A confirmation message stating what was written, to which file, and
              at which scope. On remove: confirmation of what was deleted.
 Errors:
@@ -31,26 +37,32 @@ Errors:
   - Target settings file missing → treat as `{}` and create it.
   - Target settings file is not valid JSON → report and stop; do not corrupt.
   - `jq` not available → report and stop.
-  - Either env var already set to a different value → show current values,
+  - Any env var already set to a different value → show current values,
     ask before overwriting.
   - Any of model, effortLevel, or permissions.defaultMode already set to a
     different value → show the current value, ask before overwriting.
-  - On remove: all five keys/paths absent → report "nothing to remove", succeed.
+  - On remove: all managed keys/paths absent → report "nothing to remove", succeed.
 Invariants:
   - Never touches settings keys other than `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
-    `env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`, `model`, `effortLevel`, and
+    `env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`,
+    `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `model`, `effortLevel`, and
     `permissions.defaultMode`.
   - Always backs up the target file before writing (`<file>.bak-<date>`).
   - Merge semantics: read → patch keys → write. Never full-overwrite.
-  - All five keys/paths are written atomically (one jq pass), never partially.
-  - Env var values are always the string `"1"`, never a number or boolean.
+  - All accepted keys/paths are written atomically (one jq pass), never
+    partially. When AUTO_COMPACT_WINDOW is declined, the remaining keys are
+    still written atomically.
+  - AGENT_TEAMS and DISABLE_ADAPTIVE_THINKING values are always the string
+    `"1"`, never a number or boolean. AUTO_COMPACT_WINDOW value, when set, is
+    always a string of digits provided by the user.
   - The user provides model, effortLevel, and permissions.defaultMode values;
     the skill never assumes or falls back to a default.
+  - AUTO_COMPACT_WINDOW is optional: if the user declines, the key is not
+    written and is not included in the jq pass or the remove pass.
 Edge cases:
   - Plugin installed at multiple scopes → present the list, ask which to
     configure; do not default silently.
-  - Target file does not exist yet → create with the `env` object and the
-    three session-default keys.
+  - Target file does not exist yet → create with the accepted keys.
   - Target file is empty (0 bytes) → treat as `{}`.
   - `env` key exists but is not an object → report and stop; do not corrupt.
   - `permissions` key exists but is not an object → report and stop; do not
@@ -60,8 +72,18 @@ Edge cases:
     scope "user" targets `~/.claude/settings.json`.
   - Mid-session /model, /effort, or /plan commands change in-memory session
     state only; they do not alter the persisted defaults in settings.json.
+  - User declines AUTO_COMPACT_WINDOW → remaining five keys written normally;
+    no AUTO_COMPACT_WINDOW key in the jq pass.
+  - AUTO_COMPACT_WINDOW already set to a different value → show current value,
+    ask before overwriting (same pattern as the other env vars).
+  - AUTO_COMPACT_WINDOW provided but not a string of digits → report the
+    invalid value and re-prompt.
 -->
 
+<!-- NotImplemented: B01 settings-compact-window — update this description to
+     mention CLAUDE_CODE_AUTO_COMPACT_WINDOW as a user-prompted optional env var,
+     explain what it does (bounds auto-compaction so a session's context cannot
+     run away on 1M-native models), and note that the user can decline it. -->
 This skill writes (or removes) two env vars —
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and
 `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`, both set to the string `"1"` — plus
@@ -89,7 +111,13 @@ itself; only running this skill writes anything.
      fall back to the current git repo root.
    - `local` → `<projectPath>/.claude/settings.local.json`, same
      `projectPath` resolution as above.
-3. **Prompt for session defaults.** Ask the user for the three
+3. <!-- NotImplemented: B01 settings-compact-window — add a prompt step for
+   CLAUDE_CODE_AUTO_COMPACT_WINDOW BEFORE the session-default prompts. Explain
+   what it does (bounds auto-compaction on 1M-native models; the harness
+   compacts at window minus ~20% buffer, so 250000 triggers at ~200K). The user
+   provides a value (string of digits) or declines. If declined, the key is not
+   written. Validate the value is a string of digits; re-prompt on invalid. -->
+   **Prompt for session defaults.** Ask the user for the three
    session-default values. The user MUST provide each value; there are no
    defaults or fallbacks. Do not proceed until all three are provided:
    - `model` — the Claude model to use by default (e.g. `claude-sonnet-5`,
@@ -109,6 +137,9 @@ itself; only running this skill writes anything.
    - Report the current values of all five keys (the two env vars and the
      three session defaults), if any, and the values about to be written:
 
+     <!-- NotImplemented: B01 settings-compact-window — add
+          AUTO_COMPACT_WINDOW to this JSON preview (conditionally, only when
+          the user accepted it), and update the overwrite-check count. -->
      ```json
      {
        "env": {
@@ -130,6 +161,11 @@ itself; only running this skill writes anything.
    five keys with jq, preserving every other setting and every other `env`
    and `permissions` entry, in a single atomic jq pass:
 
+   <!-- NotImplemented: B01 settings-compact-window — add
+        .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "<user-provided>" to this jq
+        command (conditionally, only when the user accepted it). Update the
+        atomicity statement and env var invariant to reflect the optional key
+        and user-provided value. -->
    ```bash
    jq '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
      | .env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING = "1"
@@ -153,7 +189,10 @@ Reverse the change, at the same scope-detection flow as above (steps 1-2):
 1. Read the target settings file (missing or empty treated as `{}`; invalid
    JSON → report and stop; `env` present but not an object → report and
    stop; `permissions` present but not an object → report and stop).
-2. If all five keys/paths (`env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
+2. <!-- NotImplemented: B01 settings-compact-window — add
+   AUTO_COMPACT_WINDOW to the "nothing to remove" check and the del() jq
+   command below. -->
+   If all five keys/paths (`env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
    `env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`, `model`, `effortLevel`,
    `permissions.defaultMode`) are absent, report "nothing to remove" and
    stop — this is a success, not an error.
@@ -173,6 +212,8 @@ Reverse the change, at the same scope-detection flow as above (steps 1-2):
 
 ## Notes
 
+<!-- NotImplemented: B01 settings-compact-window — add AUTO_COMPACT_WINDOW
+     to this managed-keys list and update the count. -->
 - Never touch settings keys other than the five managed keys:
   `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
   `env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING`, `model`, `effortLevel`, and

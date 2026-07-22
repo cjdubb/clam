@@ -54,7 +54,17 @@
 #         permissions.defaultMode, and the "user MUST provide each value"
 #         no-defaults/no-fallbacks invariant
 #       * the `permissions` key exists-but-not-an-object edge case
-#       * the "all five keys written in one atomic jq pass" invariant
+#       * the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var by name; that the
+#         user is prompted for it; that the user may decline it (it's
+#         optional); and that its value must be a string of digits
+#       * the merge jq command actually assigns
+#         `.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and the remove jq command
+#         actually deletes it — not just an incidental mention
+#       * the Notes section managed-keys list includes
+#         CLAUDE_CODE_AUTO_COMPACT_WINDOW
+#       * the atomicity invariant, updated to "all accepted keys/paths are
+#         written atomically" — no longer a fixed five-key count, since
+#         CLAUDE_CODE_AUTO_COMPACT_WINDOW is optional
 #
 # Scoping content checks to "after the first H1, docblock stripped" (rather
 # than the whole file) matters for red discipline: the contract docblock
@@ -240,6 +250,12 @@ check "no NotImplemented markers outside the expected B01/B02 stub lines" \
 
 instructions="$(skill_instructions_body "$SKILL_MD")"
 
+# A whitespace-flattened copy (newlines collapsed to single spaces) used by
+# proximity checks below, so a match isn't missed purely because the
+# implementer's prose happens to word-wrap two related terms onto different
+# physical lines.
+instructions_flat="$(tr '\n' ' ' <<<"$instructions" | tr -s ' ')"
+
 check "instructions mention the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var" \
   "$(grep -qiF 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' <<<"$instructions" && echo yes || echo no)" "yes"
 check "instructions mention the CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING env var" \
@@ -335,8 +351,50 @@ check "instructions state the user must provide each value themselves (no defaul
 check "instructions cover the 'permissions' key exists-but-not-an-object edge case" \
   "$(grep -qiE 'permissions.{0,60}not.{0,20}object' <<<"$instructions" && echo yes || echo no)" "yes"
 
-check "instructions state all five keys are written in a single atomic jq pass" \
-  "$(grep -qiF 'all five keys are written in the one jq pass' <<<"$instructions" && echo yes || echo no)" "yes"
+check "instructions state all accepted keys/paths are written atomically (updated invariant — no longer a fixed five-key count now that CLAUDE_CODE_AUTO_COMPACT_WINDOW is optional)" \
+  "$(grep -qiE '\baccepted\b[^.]{0,80}\batomic|\batomic[^.]{0,80}\baccepted\b' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
+# ---------------------------------------------------------------------------
+# 9. Contract content — CLAUDE_CODE_AUTO_COMPACT_WINDOW extension (B01
+#    settings-compact-window): the instructions body must name the new
+#    optional env var, describe prompting the user for it, describe that the
+#    user may decline it, and state its value is a string of digits; the
+#    merge/remove jq commands must actually touch
+#    `.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` (not just mention it
+#    incidentally); and the Notes managed-keys list must include it.
+#
+#    Red discipline: every term checked here (AUTO_COMPACT_WINDOW, decline,
+#    digit, optional, compact) has zero occurrences in the stub's stripped
+#    instructions body today — each `<!-- NotImplemented: B01
+#    settings-compact-window ... -->` span is a single self-closing HTML
+#    comment, so `skill_instructions_body`'s `sed '/<!--/,/-->/d'` deletes it
+#    in full (start-of-range and end-of-range never match the same line, so
+#    the range closes on the block's own trailing `-->`, not before). These
+#    checks can only pass once an implementer resolves the markers and
+#    writes real instruction prose.
+# ---------------------------------------------------------------------------
+
+check "instructions mention the CLAUDE_CODE_AUTO_COMPACT_WINDOW env var" \
+  "$(grep -qiF 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' <<<"$instructions" && echo yes || echo no)" "yes"
+
+check "instructions mention prompting/asking the user for the CLAUDE_CODE_AUTO_COMPACT_WINDOW value" \
+  "$(grep -qiE '(ask|prompt)[^.]{0,150}CLAUDE_CODE_AUTO_COMPACT_WINDOW|CLAUDE_CODE_AUTO_COMPACT_WINDOW[^.]{0,150}(ask|prompt)' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
+check "instructions mention the user can decline CLAUDE_CODE_AUTO_COMPACT_WINDOW (it's optional)" \
+  "$(grep -qiE '(decline|optional)[^.]{0,150}CLAUDE_CODE_AUTO_COMPACT_WINDOW|CLAUDE_CODE_AUTO_COMPACT_WINDOW[^.]{0,150}(decline|optional)' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
+check "instructions state the CLAUDE_CODE_AUTO_COMPACT_WINDOW value must be a string of digits" \
+  "$(grep -qiF 'string of digits' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
+check "merge jq command sets .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+  "$(grep -qF '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = ' <<<"$instructions" && echo yes || echo no)" "yes"
+
+check "remove jq command deletes .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+  "$(grep -qE '\.env\.CLAUDE_CODE_AUTO_COMPACT_WINDOW[,)]' <<<"$instructions" && echo yes || echo no)" "yes"
+
+notes_section="$(awk '/^## Notes/{found=1} found' <<<"$instructions")"
+check "Notes section managed-keys list includes CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+  "$(grep -qiF 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' <<<"$notes_section" && echo yes || echo no)" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

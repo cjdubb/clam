@@ -114,7 +114,7 @@ check "Step 5a section has no TODO.md reference" \
 
 # --- 8. Original steps preserved (headings intact) --------------------------
 for h in "## Step 0: Establish the deliverable — a hard gate" \
-         "## Step 1: Ensure \`.local/\` exists" \
+         "## Step 1: Ensure the repo interface exists" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \

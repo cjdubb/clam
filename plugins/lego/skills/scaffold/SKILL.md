@@ -62,8 +62,9 @@ composed behavior.
 
 ## Step 2: Run the scaffold gate
 
-Prove the design composes using the **strongest available check**, from
-`.local/config.json` commands, in this order:
+Prove the design composes using the **strongest available check**, from the
+effective config's commands (`.claude/lego.json` merged with any
+`.local/config.json` override — see `docs/config-schema.md`), in this order:
 
 1. `typecheck` — best: interfaces are proven to compose.
 2. `build` / compile — good: everything at least resolves and compiles.

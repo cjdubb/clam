@@ -56,7 +56,9 @@ system never sees. Blocks are recursive; compositions are themselves blocks
   + tests + implementation).
 - Keep `.local/blocks.md` current in real time. It is the engineer's mental model
   of the system; a stale map is a defect.
-- Repo specifics (verify commands, model tiers) come ONLY from `.local/config.json`.
+- Repo specifics (verify commands, model tiers) come ONLY from the layered
+  config: committed `.claude/lego.json` merged with an optional gitignored
+  `.local/config.json` override (see the plugin's docs/config-schema.md).
 EOF
 
 if [ -f "$root/.local/blocks.md" ]; then

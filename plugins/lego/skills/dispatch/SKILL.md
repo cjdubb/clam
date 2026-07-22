@@ -18,6 +18,43 @@ that group is accepted and merged.
 Verification is not optional and not a skim: the checklists below are what
 make cheap-tier workers safe.
 
+<!-- Contract: B01 — dispatch-no-self-impl (general prohibition)
+Behavior:   State an unconditional rule that the orchestrator never writes
+            implementation code for any block during dispatch — leaf,
+            composition, or otherwise — regardless of perceived simplicity.
+            Every block's implementation is dispatched to a lego-implementer
+            agent (or handed to the engineer for engineer-owned blocks).
+Inputs:     N/A (instruction text, not a function)
+Outputs:    A prominent, unambiguous paragraph that a model cannot rationalize
+            around. Must be positioned before any pipeline steps so it is read
+            first.
+Errors:     N/A
+Invariants: The prohibition covers ALL block types and ALL perceived
+            complexity levels. It must not accidentally prohibit legitimate
+            orchestrator file writes (briefs, status files, block map, merge
+            commits). The distinction is: the orchestrator never edits files
+            at a block's Code: paths with implementation content.
+Edge cases: Composition blocks that feel like "just wiring" — the exact
+            scenario from issue #68. Trivial one-line blocks. Blocks where
+            the orchestrator "already knows the answer."
+-->
+## Orchestrator role during dispatch
+
+The orchestrator never writes implementation code for any block during
+dispatch — leaf, composition, or otherwise — regardless of perceived
+simplicity. This is unconditional: it does not matter how small, obvious, or
+"just wiring" a block looks, and it does not matter whether the orchestrator
+already knows what the code should say. Every block's implementation is
+dispatched to a `lego-implementer` agent, or handed to the engineer for
+engineer-owned blocks (see "Engineer-owned blocks" below) — the orchestrator
+itself never writes it.
+
+The prohibition is scoped to a block's `Code:` paths: what's forbidden is the
+orchestrator editing those paths with implementation content. It does not
+reach the orchestrator's other, legitimate writes during dispatch — briefs,
+status files, the block map, and merge commits stay the orchestrator's own
+job throughout.
+
 ## Vocabulary
 
 - **Work unit**: one or more blocks dispatched together (`.local/blocks.md`'s
@@ -276,12 +313,35 @@ branches are cleaned up by `clean` at dispatch completion (see "Done").
 
 ## Composition blocks
 
+<!-- Contract: B01 — dispatch-no-self-impl (composition reinforcement)
+Behavior:   Retain the existing dispatch semantics for composition blocks AND
+            reinforce the general prohibition specifically for this block type,
+            since "simple wiring" is the exact rationalization that caused
+            issue #68.
+Inputs:     N/A
+Outputs:    The existing paragraph plus an explicit callout that composition
+            blocks are not exempt — they get a dispatched lego-implementer
+            like any other block. The "typically thin wiring" description must
+            not read as a reason to skip dispatch.
+Errors:     N/A
+Invariants: Must not change the existing dispatch semantics (same pipeline,
+            own worktree, children merged first). Only adds the prohibition
+            reinforcement.
+Edge cases: Same as above — the orchestrator rationalizing that wiring is
+            "too simple" to warrant a worker.
+-->
 Dispatch a composition block's own unit once every child block is locally
 merged (step 4). It runs the exact same pipeline — its own worktree, its own
 test wave, its own implementation wave (typically thin wiring plus
 integration tests against the composition's contract) — in its own unit
 worktree. Its PR is naturally last within its subtree: composition is the
 feature-activation point.
+
+Composition blocks are not exempt from the general prohibition above: "thin
+wiring" describes what the implementation typically contains, not a reason to
+skip dispatch. A composition block gets a dispatched `lego-implementer` like
+any other block — the orchestrator does not write its wiring code itself, no
+matter how simple it looks.
 
 ## Engineer-owned blocks
 

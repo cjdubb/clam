@@ -45,9 +45,9 @@
 #     cwd
 #
 # Edge cases:
-#   - .sh file with mode other than 100644 or 100755 (e.g. 100664, 120000
-#     symlink): treat as a pass — the lint targets the specific 100644 bug
-#     class, not arbitrary mode auditing
+#   - .sh file with mode other than 100644 or 100755 (e.g. 120000 symlink):
+#     treat as a pass — the lint targets the specific 100644 bug class, not
+#     arbitrary mode auditing
 #   - Untracked .sh files: not visible to git ls-files, so not checked —
 #     correct, since untracked files have no index mode to validate
 #   - Staged but uncommitted .sh files: git ls-files -s reflects the index
@@ -55,5 +55,40 @@
 #     correct, that is the state that will be committed
 # -->
 
-echo "NotImplemented: B01" >&2
-exit 1
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || { echo "$ROOT" >&2; exit 1; }
+
+FAILED=0
+FOUND=0
+FAIL_PATHS=()
+
+while IFS=$'\t' read -r meta path; do
+  [ -n "$path" ] || continue
+  case "$path" in
+    plugins/*.sh) ;;
+    *) continue ;;
+  esac
+  FOUND=1
+  mode="${meta%% *}"
+  if [[ "$mode" == "100644" ]]; then
+    echo "FAIL  $path"
+    FAILED=1
+    FAIL_PATHS+=("$path")
+  else
+    echo "PASS  $path"
+  fi
+done < <(git -C "$ROOT" ls-files -s -- plugins)
+
+if [[ "$FOUND" == "0" ]]; then
+  echo "no files to check"
+  exit 0
+fi
+
+echo ""
+if [[ "$FAILED" == "0" ]]; then
+  echo "ALL PASS"
+else
+  echo "FAILURES — fix before merging"
+  echo "  git update-index --chmod=+x ${FAIL_PATHS[*]}"
+fi
+
+exit $FAILED

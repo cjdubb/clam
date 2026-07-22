@@ -251,20 +251,90 @@ completion (see "Done").
 
 ### 5. Delivery
 
-<!--
-Contract: B01 dispatch-delivery-instructions (dispatch SKILL.md Step 5)
-Behavior:
-  Step 5 orchestrates PR delivery in three sub-steps: sync the integration
-  branch from master (preventing silent reverts from concurrent PRs),
-  compose human-readable PR content via a manifest, and call deliver with
-  the manifest. Nothing in the PR may reference internal workflow
-  terminology. See .local/contracts/B01-dispatch-delivery-instructions.md.
--->
-
 `main-prs` mode only. Once every unit in a PR group is `Accepted` and
 locally merged, compose the PR content and open the PR.
 
-<!-- STUB: 5-pre (sync-before-deliver), 5a (compose PR content), and 5b (write manifest and deliver) go here. See contract B01. -->
+Before composing the manifest,
+merge master into the integration branch before delivery.
+This surfaces concurrent changes as merge conflicts rather than silent
+reverts. If conflicts arise in files the PR group delivers, apply the
+same escalation rule as the Conflicts section: resolve trivial,
+mechanical conflicts yourself; escalate anything else to the engineer
+with the conflicting paths and a recommendation.
+
+#### 5a. Compose PR content
+
+Before calling `deliver`, the orchestrator composes meaningful PR content.
+Nothing in the PR title, body, commit subjects, or branch name may reference
+internal workflow terminology — no `lego`, `B01`, `U01`, `G01`, plan slugs,
+block-map field syntax, or any other label a reviewer cannot look up.
+
+**PR title.** Conventional commit format: `type(scope): description`. The
+type is `feat`, `fix`, `refactor`, `chore`, `docs`, or `test`. The scope is
+optional and describes the area of the codebase. The description summarizes
+the change in imperative mood. Derive the title from the plan's goal, not
+from block names.
+
+**PR body.** Fill in a PR template with content from the plan document and
+the delivered blocks' contracts. Template resolution order:
+
+1. Check the repo for a PR template at standard GitHub paths (check each,
+   case-sensitive): `.github/PULL_REQUEST_TEMPLATE.md`,
+   `.github/pull_request_template.md`, `docs/pull_request_template.md`,
+   `PULL_REQUEST_TEMPLATE.md`, `pull_request_template.md`.
+2. If no repo template exists, use the plugin's default template at
+   `${CLAUDE_PLUGIN_ROOT}/templates/pr-body-template.md`.
+
+Fill every section of the resolved template. Write for a reviewer who has
+only the diff and this PR description — no access to `.local/`, the planning
+session, or the block map. If the plan references GitHub issues, link them.
+
+**Branch name.** Conventional format: `type/short-slug` (e.g.
+`feat/native-symlink-engine`, `fix/auth-token-refresh`). Derive from the
+plan's goal.
+
+**Commit subjects.** Each delivery commit gets a conventional subject
+describing its actual content (e.g. `feat(links): add symlink manifest
+engine`). The orchestrator composes one subject per unit per phase
+(tests and impl). Do not include phase labels like "tests" or
+"implementation" in the subject — each commit should read as a
+self-contained description of what it introduces.
+
+#### 5b. Write manifest and deliver
+
+Write the composed content as a JSON manifest file at
+`.local/pr-manifest.json` with this schema:
+
+```json
+{
+  "title": "<PR title>",
+  "body": "<PR body markdown>",
+  "branch": "<delivery branch name>",
+  "commits": {
+    "<unit-id>": {
+      "tests": "<commit subject for this unit's tests commit>",
+      "impl": "<commit subject for this unit's implementation commit>"
+    }
+  }
+}
+```
+
+Then call deliver with the manifest:
+
+```
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver --manifest .local/pr-manifest.json <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+```
+
+This builds a delivery branch from master/main containing only complete
+blocks — contract, tests, and implementation together, never a bare stub;
+that's also what keeps a brownfield "changing" block safe to deliver — and
+opens the PR. PRs target master/main only, never any other branch. Raise PR
+groups' PRs in dependency order: a group's PR waits until every group it
+depends on has its own PR merged.
+
+The deliver command automatically removes each delivered unit's branch and
+any remaining worktree as a best-effort side effect after the PR is opened
+(warns on failure, never changes the deliver exit code).
 
 Under `local-only`, or when `origin`/`gh` is unavailable under `main-prs`
 (warn and degrade), skip PR creation entirely and the engineer delivers

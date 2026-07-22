@@ -35,9 +35,9 @@ The composer emits exactly this annotation vocabulary: `@COMMENT:`, `@QUESTION:`
 
 ## Checkpoint integration
 
-Automatic rendering at checkpoints is opt-in via `CLAM_RENDER_DOC=enabled` (exported by the user in their shell profile; unset means disabled). Explicit `/render-doc:render <file>` invocations always work regardless of the flag. When the flag is enabled, callers may render at the moment the user is summoned for feedback — for example a `planning`-style skill rendering `.local/DESIGN-QUESTIONS.md` or `.local/PLAN.md` with `--open` before review, when such a skill is ported. One caller already wired up: `/decision-log:rundown` renders the decision file with `--open` after writing it at park time.
+Automatic rendering at checkpoints is opt-in via `CLAM_RENDER_DOC=enabled` (exported by the user in their shell profile; unset means disabled). Explicit `/render-doc:render <file>` invocations always work regardless of the flag. When the flag is enabled, `/decision-log:rundown` renders the decision file with `--open` after writing it at park time.
 
-Each caller skips the render silently when the flag is not `enabled` (the markdown flow is the default experience), and falls back to the plain-markdown flow with a one-line notice when an enabled render fails. Regenerating at each checkpoint is what keeps the view fresh; between checkpoints the markdown wins by definition.
+Callers skip the render silently when the flag is not `enabled` (the markdown flow is the default experience), and fall back to the plain-markdown flow with a one-line notice when an enabled render fails.
 
 ## How the splice works
 

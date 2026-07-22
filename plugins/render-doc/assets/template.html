@@ -1,3 +1,1686 @@
-<!-- NotImplemented: B01 render-doc plugin core — this file becomes a
-     byte-identical copy (cp, verified with cmp at acceptance) of
-     /home/cwilliamson/github/clam-code/general/skills/render-doc/assets/template.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>clam-code · doc view</title>
+<link rel="icon" href="data:," />
+<style>
+  /* Dark theme adapted from the clam-code release-notes design language.
+     System fonts only — this file must render with zero network access. */
+  :root {
+    --bg: #050810;
+    --bg-2: #0a1424;
+    --card: rgba(255, 255, 255, 0.035);
+    --card-hover: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-glow: rgba(45, 212, 191, 0.35);
+    --text: #eaf1fb;
+    --muted: #93a1ba;
+    --muted-2: #6b788e;
+    --teal: #2dd4bf;
+    --teal-soft: #6ee7d8;
+    --gold: #f6c177;
+    --coral: #ff8a6b;
+    --green: #4ade80;
+    --violet: #a78bfa;
+    --display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px clamp(16px, 4vw, 40px);
+    background: rgba(5, 8, 16, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 9px;
+    font-family: var(--display); font-weight: 700;
+    letter-spacing: -0.01em; font-size: 16px; white-space: nowrap;
+  }
+  .brand .shell { font-size: 20px; filter: drop-shadow(0 2px 8px rgba(45,212,191,0.4)); }
+  .brand .dim { color: var(--muted-2); font-weight: 500; }
+  .topbar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+  .pill {
+    font-size: 12px; font-weight: 600;
+    padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--teal-soft);
+    background: rgba(45, 212, 191, 0.08);
+    letter-spacing: 0.02em; white-space: nowrap;
+  }
+  .pill.generic { color: var(--muted); background: rgba(255,255,255,0.04); }
+
+  .btn {
+    font-family: var(--body); font-size: 12.5px; font-weight: 600;
+    color: var(--muted); background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 13px; cursor: pointer; white-space: nowrap;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .btn:hover:not(:disabled) {
+    color: var(--teal-soft);
+    border-color: var(--border-glow);
+    background: rgba(45, 212, 191, 0.1);
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.active { color: var(--teal-soft); border-color: var(--border-glow); background: rgba(45, 212, 191, 0.12); }
+  .btn.attention { color: var(--gold); border-color: rgba(246, 193, 119, 0.4); }
+
+  /* ---------- Layout ---------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: clamp(20px, 3vw, 44px);
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(18px, 3vw, 36px) clamp(16px, 4vw, 40px) 90px;
+  }
+
+  /* ---------- TOC ---------- */
+  .toc {
+    position: sticky;
+    top: 76px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    padding-right: 6px;
+    font-size: 13px;
+  }
+  .toc .toc-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--muted-2); margin: 6px 0 10px 12px;
+  }
+  .toc ul { list-style: none; }
+  .toc a {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-left: 2px solid transparent;
+    border-radius: 0 8px 8px 0;
+    line-height: 1.35;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .toc a:hover { color: var(--text); background: var(--card); }
+  .toc a.active { color: var(--teal-soft); border-left-color: var(--teal); background: rgba(45, 212, 191, 0.06); }
+  .toc li.lvl-3 a { padding-left: 26px; font-size: 12px; color: var(--muted-2); }
+  .toc li.lvl-3 a:hover { color: var(--muted); }
+  .toc li.lvl-3 a.active { color: var(--teal-soft); }
+  .toc-controls { display: flex; gap: 6px; margin: 14px 0 0 12px; }
+  .toc-controls .btn { font-size: 11px; padding: 3px 10px; }
+
+  /* ---------- Hero (H1 + doc meta) ---------- */
+  .hero { margin: 4px 0 30px; position: relative; }
+  .hero h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(26px, 4.4vw, 42px);
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    background: linear-gradient(180deg, #ffffff 30%, #b9cbe6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    padding-right: 44px;
+  }
+  .meta-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .meta-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted);
+  }
+  .meta-pill .k { color: var(--muted-2); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.08em; }
+  .meta-pill .v { color: var(--text); font-weight: 500; }
+  .meta-pill.status-open .v { color: var(--gold); }
+  .meta-pill.status-resolved .v { color: var(--green); }
+  .hero .preamble { margin-top: 16px; color: var(--muted); }
+  .hero .preamble p { margin-top: 8px; }
+  .rendered-at { margin-top: 14px; font-size: 11.5px; color: var(--muted-2); font-family: var(--mono); }
+
+  /* ---------- Sections ---------- */
+  .doc-sec {
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--card);
+    transition: border-color 0.25s ease;
+    scroll-margin-top: 84px;
+  }
+  .doc-sec:hover { border-color: rgba(255, 255, 255, 0.16); }
+  .sec-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sec-head h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(17px, 2.4vw, 21px);
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    flex: 1;
+  }
+  .caret {
+    flex: none; width: 22px; height: 22px;
+    display: grid; place-items: center;
+    color: var(--muted-2); font-size: 11px;
+    transition: transform 0.25s ease;
+  }
+  .doc-sec.collapsed .caret { transform: rotate(-90deg); }
+  .doc-sec.collapsed .sec-body { display: none; }
+  .sec-body { padding: 2px 22px 20px; }
+
+  .annotate-btn {
+    flex: none;
+    font-size: 11.5px; font-weight: 600;
+    color: var(--muted-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 3px 10px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .sec-head:hover .annotate-btn, .hero:hover .annotate-btn { opacity: 1; }
+  .annotate-btn:hover { color: var(--teal-soft); border-color: var(--border-glow); background: rgba(45, 212, 191, 0.08); }
+  .hero .annotate-btn { position: absolute; top: 6px; right: 0; }
+
+  /* ---------- Block-level annotate (gutter button) ---------- */
+  .block-annotate {
+    position: absolute;
+    z-index: 40;
+    width: 22px; height: 22px;
+    display: none;
+    place-items: center;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    color: var(--muted-2);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .block-annotate.show { display: grid; }
+  .block-annotate:hover { color: var(--teal-soft); border-color: var(--border-glow); }
+  .annotating { outline: 1px dashed var(--border-glow); outline-offset: 4px; border-radius: 4px; }
+  .composer.floating { position: absolute; z-index: 45; width: min(540px, calc(100vw - 40px)); margin: 0; }
+
+  /* ---------- Markdown content ---------- */
+  .sec-body h3, .sec-body h4 {
+    font-family: var(--display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 22px 0 10px;
+    scroll-margin-top: 84px;
+  }
+  .sec-body h3 { font-size: 16.5px; }
+  .sec-body h4 { font-size: 14.5px; color: var(--muted); }
+  .sec-body p { margin: 10px 0; color: var(--text); font-size: 14.5px; }
+  .sec-body p, .sec-body li { overflow-wrap: break-word; }
+  .sec-body ul, .sec-body ol { margin: 10px 0 10px 22px; font-size: 14.5px; }
+  .sec-body li { margin: 5px 0; }
+  .sec-body li::marker { color: var(--muted-2); }
+  .sec-body ul ul, .sec-body ol ol, .sec-body ul ol, .sec-body ol ul { margin-top: 5px; margin-bottom: 0; }
+  .sec-body a { color: var(--teal-soft); text-decoration: none; border-bottom: 1px solid rgba(110, 231, 216, 0.3); }
+  .sec-body a:hover { border-bottom-color: var(--teal-soft); }
+  .sec-body strong { color: var(--text); font-weight: 650; }
+  .sec-body em { color: var(--muted); }
+  .sec-body blockquote {
+    margin: 12px 0; padding: 8px 18px;
+    border-left: 3px solid var(--teal);
+    background: rgba(45, 212, 191, 0.05);
+    border-radius: 0 10px 10px 0;
+    color: var(--muted);
+  }
+  .sec-body hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  .sec-body input[type="checkbox"] { accent-color: var(--teal); margin-right: 6px; }
+
+  .sec-body code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(45, 212, 191, 0.1);
+    color: var(--teal-soft);
+    border: 1px solid rgba(45, 212, 191, 0.18);
+  }
+  .sec-body pre {
+    margin: 14px 0;
+    padding: 14px 16px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .sec-body pre code {
+    background: none; border: none; padding: 0;
+    color: #c9d7ee; font-size: 12.5px;
+  }
+
+  .sec-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 13.5px;
+    display: block;
+    overflow-x: auto;
+  }
+  .sec-body th, .sec-body td {
+    text-align: left;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .sec-body th {
+    font-family: var(--display);
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--teal-soft);
+    background: rgba(45, 212, 191, 0.06);
+    white-space: nowrap;
+  }
+  .sec-body tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+
+  /* ---------- @TAG highlighting ---------- */
+  .tag-mark {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .tag-comment  { color: var(--teal-soft); background: rgba(45, 212, 191, 0.12);  border: 1px solid rgba(45, 212, 191, 0.3); }
+  .tag-question { color: var(--gold);      background: rgba(246, 193, 119, 0.12); border: 1px solid rgba(246, 193, 119, 0.3); }
+  .tag-concern  { color: var(--coral);     background: rgba(255, 138, 107, 0.12); border: 1px solid rgba(255, 138, 107, 0.3); }
+  .tag-approve  { color: var(--green);     background: rgba(74, 222, 128, 0.12);  border: 1px solid rgba(74, 222, 128, 0.3); }
+  .tag-evidence { color: var(--violet);    background: rgba(167, 139, 250, 0.12); border: 1px solid rgba(167, 139, 250, 0.3); }
+
+  /* ---------- Schema: option / approach cards ---------- */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 14px;
+    margin: 14px 0;
+  }
+  .opt-card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.025);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+  }
+  .opt-card:hover { transform: translateY(-3px); border-color: var(--border-glow); background: var(--card-hover); }
+  .opt-card > h3 { margin: 0 0 10px; font-size: 15.5px; }
+  .opt-card .opt-num {
+    display: inline-grid; place-items: center;
+    width: 22px; height: 22px; margin-right: 8px;
+    border-radius: 7px; font-size: 12px; font-weight: 800;
+    color: var(--teal-soft);
+    background: rgba(45, 212, 191, 0.12);
+    border: 1px solid rgba(45, 212, 191, 0.25);
+  }
+  .opt-card.recommended { border-color: rgba(45, 212, 191, 0.45); box-shadow: 0 0 24px rgba(45, 212, 191, 0.08) inset; }
+  .opt-card .rec-flag {
+    align-self: flex-start;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--teal-soft); margin-bottom: 8px;
+    padding: 2px 9px; border-radius: 999px;
+    background: rgba(45, 212, 191, 0.12); border: 1px solid rgba(45, 212, 191, 0.3);
+  }
+  .pros-cons { margin-top: auto; padding-top: 6px; }
+  .pros-cons p { margin: 8px 0; font-size: 13.5px; }
+  .pros-cons .pros-lbl, .pros-cons .cons-lbl {
+    display: block;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .pros-cons .pros-lbl { color: var(--green); }
+  .pros-cons .cons-lbl { color: var(--coral); }
+  .why-not { position: relative; padding-left: 24px; color: var(--muted); }
+  .why-not::before { content: "\2715"; position: absolute; left: 0; top: 2px; color: var(--coral); font-weight: 700; font-size: 12px; }
+  .desc-line { position: relative; padding-left: 24px; }
+  .desc-line::before { content: "\203A"; position: absolute; left: 4px; top: 0; color: var(--muted-2); font-weight: 700; }
+
+  /* ---------- Schema: recommendation banner ---------- */
+  .doc-sec.rec-banner {
+    border-color: rgba(45, 212, 191, 0.4);
+    background: linear-gradient(160deg, rgba(45, 212, 191, 0.08), rgba(45, 212, 191, 0.02));
+    box-shadow: 0 0 40px rgba(45, 212, 191, 0.06);
+  }
+  .doc-sec.rec-banner .sec-head h2 { color: var(--teal-soft); }
+  .doc-sec.rec-banner .sec-head h2::before { content: "\2605\00a0"; font-size: 0.85em; }
+
+  /* ---------- Schema: per-question recommendation banner (design-questions) ---------- */
+  .sec-body p.dq-rec {
+    margin: 16px 0 6px;
+    padding: 12px 16px 12px 18px;
+    border: 1px solid rgba(45, 212, 191, 0.4);
+    border-left: 3px solid var(--teal);
+    border-radius: 12px;
+    background: linear-gradient(160deg, rgba(45, 212, 191, 0.08), rgba(45, 212, 191, 0.02));
+    color: var(--text);
+    font-size: 14px;
+  }
+  .dq-rec .dq-rec-lbl {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--teal-soft);
+    margin-right: 8px;
+    white-space: nowrap;
+  }
+  .dq-rec .dq-rec-lbl::before { content: "\2605"; font-size: 1.05em; }
+
+  /* ---------- Schema: edge-case list ---------- */
+  .edge-list { list-style: none; margin: 12px 0 !important; }
+  .edge-list > li {
+    margin: 8px 0;
+    padding: 10px 14px 10px 16px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted-2);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .edge-list > li.critical { border-left-color: var(--coral); background: rgba(255, 138, 107, 0.05); }
+  .edge-list .crit-badge {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--coral);
+    padding: 1px 8px; margin-right: 8px;
+    border-radius: 999px; border: 1px solid rgba(255, 138, 107, 0.4);
+    background: rgba(255, 138, 107, 0.1);
+  }
+  .edge-arrow { color: var(--teal); font-weight: 700; padding: 0 2px; }
+
+  /* ---------- Schema: changelog timeline ---------- */
+  .timeline { margin: 14px 0 4px; padding-left: 4px; }
+  .tl-entry {
+    position: relative;
+    padding: 0 0 16px 26px;
+    border-left: 2px solid var(--border);
+    margin-left: 8px;
+  }
+  .tl-entry:last-child { padding-bottom: 2px; }
+  .tl-entry::before {
+    content: "";
+    position: absolute; left: -6px; top: 5px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--teal);
+    box-shadow: 0 0 10px rgba(45, 212, 191, 0.6);
+  }
+  .tl-date { font-family: var(--mono); font-size: 11.5px; color: var(--muted-2); }
+  .tl-change { font-size: 14px; color: var(--text); margin-top: 1px; }
+  .tl-reason { font-size: 12.5px; color: var(--muted); font-style: italic; margin-top: 1px; }
+
+  /* ---------- Feedback composer popover ---------- */
+  .composer {
+    margin: 0 20px 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-glow);
+    border-radius: 14px;
+    background: var(--bg-2);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .composer .comp-target { font-size: 11.5px; color: var(--muted-2); margin-bottom: 10px; font-family: var(--mono); }
+  .tag-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .tag-choice {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    background: transparent; letter-spacing: 0.02em;
+    border: 1px solid var(--border); color: var(--muted);
+    transition: all 0.15s ease;
+  }
+  .tag-choice.sel.tag-comment, .tag-choice.tag-comment:hover   { color: var(--teal-soft); background: rgba(45,212,191,0.12); border-color: rgba(45,212,191,0.4); }
+  .tag-choice.sel.tag-question, .tag-choice.tag-question:hover { color: var(--gold); background: rgba(246,193,119,0.12); border-color: rgba(246,193,119,0.4); }
+  .tag-choice.sel.tag-concern, .tag-choice.tag-concern:hover   { color: var(--coral); background: rgba(255,138,107,0.12); border-color: rgba(255,138,107,0.4); }
+  .tag-choice.sel.tag-approve, .tag-choice.tag-approve:hover   { color: var(--green); background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.4); }
+  .tag-choice.sel.tag-evidence, .tag-choice.tag-evidence:hover { color: var(--violet); background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.4); }
+  .composer textarea {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    font-family: var(--body); font-size: 13.5px;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    outline: none;
+  }
+  .composer textarea:focus { border-color: var(--border-glow); }
+  .comp-actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+
+  /* ---------- Feedback drawer ---------- */
+  .drawer {
+    position: fixed;
+    right: 18px; bottom: 18px;
+    width: min(400px, calc(100vw - 36px));
+    max-height: 62vh;
+    display: none;
+    flex-direction: column;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+    z-index: 60;
+    overflow: hidden;
+  }
+  .drawer.show { display: flex; }
+  .drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--display); font-weight: 700; font-size: 14px;
+  }
+  .drawer-head .btn { font-size: 11px; padding: 3px 10px; }
+  .drawer-list { overflow-y: auto; padding: 10px 14px; flex: 1; }
+  .fb-item {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.025);
+    font-size: 13px;
+    position: relative;
+  }
+  .fb-item .fb-sec { font-family: var(--mono); font-size: 11px; color: var(--muted-2); margin-bottom: 4px; }
+  .fb-item .fb-excerpt { font-size: 11.5px; color: var(--muted); font-style: italic; margin-bottom: 4px; overflow-wrap: break-word; }
+  .fb-item .fb-note { color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; }
+  .fb-item .fb-del {
+    position: absolute; top: 8px; right: 10px;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted-2); font-size: 13px; line-height: 1;
+  }
+  .fb-item .fb-del:hover { color: var(--coral); }
+  .drawer-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+  .drawer-foot .btn { flex: 1; text-align: center; }
+  .drawer-empty { color: var(--muted-2); font-size: 12.5px; text-align: center; padding: 18px 10px; }
+
+  /* ---------- Manual-copy overlay (clipboard API fallback) ---------- */
+  .copy-overlay {
+    position: fixed; inset: 0; z-index: 80;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(5, 8, 16, 0.7);
+    backdrop-filter: blur(4px);
+  }
+  .copy-overlay .box {
+    width: min(560px, calc(100vw - 40px));
+    background: var(--bg-2);
+    border: 1px solid var(--border-glow);
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  }
+  .copy-overlay .hint { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .copy-overlay textarea {
+    width: 100%; min-height: 140px; resize: vertical;
+    font-family: var(--mono); font-size: 12.5px;
+    color: var(--text); background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+  }
+  .copy-overlay .comp-actions { margin-top: 12px; }
+
+  /* ---------- Fallback error ---------- */
+  .render-error {
+    margin: 40px auto; max-width: 640px;
+    padding: 20px 24px;
+    border: 1px solid rgba(255, 138, 107, 0.4);
+    border-radius: 14px;
+    background: rgba(255, 138, 107, 0.06);
+    color: var(--text); font-size: 14px;
+  }
+  .render-error code { font-family: var(--mono); color: var(--coral); }
+  .render-error pre {
+    margin-top: 12px; padding: 12px;
+    background: var(--bg-2); border-radius: 10px;
+    overflow: auto; max-height: 50vh;
+    white-space: pre-wrap; font-size: 12px; color: var(--muted);
+  }
+
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .toc { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .opt-card:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand"><span class="shell">🦪</span>clam-code <span class="dim">/ doc view</span></div>
+    <div class="topbar-actions">
+      <span class="pill" id="doctype-pill">document</span>
+      <button class="btn" id="schema-toggle" title="Switch between schema-aware and generic rendering">Schema view</button>
+      <button class="btn" id="feedback-btn" title="Open the feedback panel">Feedback · 0</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" id="toc" aria-label="Table of contents">
+      <div class="toc-title">Contents</div>
+      <ul id="toc-list"></ul>
+      <div class="toc-controls">
+        <button class="btn" id="expand-all">Expand all</button>
+        <button class="btn" id="collapse-all">Collapse all</button>
+      </div>
+    </nav>
+    <main id="main">
+      <div class="hero" id="hero"></div>
+      <div id="doc"></div>
+    </main>
+  </div>
+
+  <aside class="drawer" id="drawer" aria-label="Feedback panel">
+    <div class="drawer-head">
+      <span>Feedback</span>
+      <button class="btn" id="drawer-close">Close</button>
+    </div>
+    <div class="drawer-list" id="drawer-list"></div>
+    <div class="drawer-foot">
+      <button class="btn" id="copy-all">Copy all feedback</button>
+      <button class="btn" id="clear-all">Clear</button>
+    </div>
+  </aside>
+
+  <script>
+__MARKED_SPLICE__
+  </script>
+
+  <script type="text/plain" id="doc-b64">
+__DOC_B64_SPLICE__
+  </script>
+
+  <script type="text/plain" id="source-path">
+__SOURCE_PATH_SPLICE__
+  </script>
+
+  <script>
+  (function () {
+    "use strict";
+
+    /* ---------- Load the embedded document ----------
+       The markdown is spliced in as base64 (a data block that cannot contain
+       "<", so markdown containing script tags can never break this page). */
+    var sourceMd;
+    try {
+      var b64 = document.getElementById("doc-b64").textContent.replace(/\s+/g, "");
+      var bytes = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+      sourceMd = new TextDecoder("utf-8").decode(bytes);
+    } catch (err) {
+      fatal("Could not decode the embedded document.", err);
+      return;
+    }
+
+    function fatal(msg, err, raw) {
+      var box = document.createElement("div");
+      box.className = "render-error";
+      var p = document.createElement("p");
+      var strong = document.createElement("strong");
+      strong.textContent = "Render failed: ";
+      p.appendChild(strong);
+      p.appendChild(document.createTextNode(msg + (err ? " (" + err.message + ")" : "")));
+      box.appendChild(p);
+      if (raw) {
+        var pre = document.createElement("pre");
+        pre.textContent = raw;
+        box.appendChild(pre);
+      }
+      document.getElementById("main").replaceChildren(box);
+    }
+
+    var sourcePath = "";
+    try { sourcePath = document.getElementById("source-path").textContent.trim(); } catch (_) {}
+    var sourceFileName = sourcePath ? sourcePath.split("/").pop() : "";
+
+    /* ---------- Doc-type detection hook ---------- */
+    var TAGS = ["COMMENT", "QUESTION", "CONCERN", "APPROVE", "EVIDENCE"];
+    function detectDocType(md) {
+      var m = md.match(/^#\s+(.+)$/m);
+      var h1 = m ? m[1].trim() : "";
+      if (/^Plan:/i.test(h1)) return "plan";
+      if (/^Decision:/i.test(h1)) return "decision";
+      if (/^Design Questions:/i.test(h1)) return "design-questions";
+      return "generic";
+    }
+
+    var docType = detectDocType(sourceMd);
+    var state = {
+      schemaOn: docType !== "generic",
+      feedback: [],
+      nextId: 1
+    };
+
+    /* =================================================================
+       Render pipeline: markdown -> DOM -> sectionize -> decorate.
+       Every schema transform is per-section try/catch: a failure falls
+       back to the baseline rendering of that section, never a blank page.
+       ================================================================= */
+
+    function render() {
+      var doc = document.getElementById("doc");
+      var hero = document.getElementById("hero");
+      var html;
+      try {
+        html = marked.parse(sourceMd, { gfm: true, breaks: false, async: false });
+      } catch (err) {
+        fatal("The markdown parser threw an error. Raw document below.", err, sourceMd);
+        return;
+      }
+      var scratch = document.createElement("div");
+      scratch.innerHTML = html;
+
+      buildHero(hero, scratch);
+      sectionize(doc, scratch);
+      highlightTags(doc);
+      highlightTags(hero);
+      if (state.schemaOn && docType !== "generic") applySchema(doc);
+      buildToc(doc);
+      attachAnnotators(hero, doc);
+      updateChrome();
+    }
+
+    /* ---------- Hero: H1 + everything before the first H2 ---------- */
+    function buildHero(hero, scratch) {
+      hero.replaceChildren();
+      var h1 = scratch.querySelector("h1");
+      var title = h1 ? h1.textContent : "Untitled document";
+      document.title = title + " · clam-code";
+
+      var el = document.createElement("h1");
+      el.textContent = title;
+      hero.appendChild(el);
+
+      // Key: value lines before the first H2 become meta pills in schema
+      // view (Ticket:, Date:, Status:, Refs:, Issue:, ...); anything else in
+      // the preamble stays as prose.
+      var pre = document.createElement("div");
+      pre.className = "preamble";
+      var node = h1 ? h1.nextSibling : scratch.firstChild;
+      while (node) {
+        var next = node.nextSibling;
+        if (node.nodeType === 1 && node.tagName === "H2") break;
+        pre.appendChild(node);
+        node = next;
+      }
+
+      var pills = document.createElement("div");
+      pills.className = "meta-pills";
+      if (state.schemaOn && docType !== "generic") {
+        try {
+          var preText = sourceMd.split(/^##\s/m)[0];
+          var re = /^([A-Za-z][A-Za-z -]{0,24}):\s+(.+)$/gm;
+          var m2, seen = 0;
+          while ((m2 = re.exec(preText)) !== null && seen < 8) {
+            var key = m2[1].trim(), val = m2[2].trim();
+            var pill = document.createElement("span");
+            pill.className = "meta-pill";
+            if (/^status$/i.test(key)) {
+              pill.classList.add(/^(open|awaiting)/i.test(val) ? "status-open" : "status-resolved");
+            }
+            var k = document.createElement("span"); k.className = "k"; k.textContent = key;
+            var v = document.createElement("span"); v.className = "v"; v.textContent = val;
+            pill.appendChild(k); pill.appendChild(v);
+            pills.appendChild(pill);
+            seen++;
+            // Remove the matching "Key: value" line from the preamble prose.
+            stripLineFromPreamble(pre, key, val);
+          }
+        } catch (err) { /* fall back: preamble stays as prose */ }
+      }
+      if (pills.children.length) hero.appendChild(pills);
+      if (pre.textContent.trim()) hero.appendChild(pre);
+
+      var stamp = document.createElement("div");
+      stamp.className = "rendered-at";
+      stamp.textContent = "rendered " + document.lastModified + " · markdown remains the document of record";
+      hero.appendChild(stamp);
+    }
+
+    function stripLineFromPreamble(pre, key, val) {
+      var walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+      var target = key + ": " + val;
+      var t;
+      while ((t = walker.nextNode())) {
+        if (t.nodeValue.indexOf(target) !== -1) {
+          t.nodeValue = t.nodeValue.replace(target, "").replace(/^\s+|\s+$/g, "");
+        }
+      }
+      // Drop paragraphs and stray <br>s emptied by the stripping.
+      Array.prototype.forEach.call(pre.querySelectorAll("p"), function (p) {
+        if (!p.textContent.trim()) p.remove();
+        else {
+          while (p.firstChild && p.firstChild.nodeType === 1 && p.firstChild.tagName === "BR") p.removeChild(p.firstChild);
+          while (p.lastChild && p.lastChild.nodeType === 1 && p.lastChild.tagName === "BR") p.removeChild(p.lastChild);
+        }
+      });
+    }
+
+    /* ---------- Sectionize: group each H2 with its content ---------- */
+    var slugCounts;
+    function slugify(text) {
+      var s = text.toLowerCase().replace(/[^\w]+/g, "-").replace(/^-+|-+$/g, "") || "section";
+      if (slugCounts[s] !== undefined) { slugCounts[s]++; s = s + "-" + slugCounts[s]; }
+      else slugCounts[s] = 0;
+      return s;
+    }
+
+    function sectionize(doc, scratch) {
+      doc.replaceChildren();
+      slugCounts = {};
+      var sec = null, body = null;
+      var node = scratch.firstChild;
+      while (node) {
+        var next = node.nextSibling;
+        if (node.nodeType === 1 && node.tagName === "H2") {
+          sec = document.createElement("section");
+          sec.className = "doc-sec";
+          sec.id = slugify(node.textContent);
+          sec.dataset.heading = node.textContent.trim();
+
+          var head = document.createElement("div");
+          head.className = "sec-head";
+          var caret = document.createElement("span");
+          caret.className = "caret";
+          caret.textContent = "▼";
+          head.appendChild(caret);
+          head.appendChild(node);
+          sec.appendChild(head);
+
+          body = document.createElement("div");
+          body.className = "sec-body";
+          sec.appendChild(body);
+          doc.appendChild(sec);
+
+          head.addEventListener("click", function (e) {
+            if (e.target.closest(".annotate-btn") || e.target.closest(".composer")) return;
+            this.parentElement.classList.toggle("collapsed");
+          });
+        } else if (body) {
+          body.appendChild(node);
+        } else {
+          // Content before any H2 already went to the hero; skip strays.
+          node.remove();
+        }
+        node = next;
+      }
+      // Give h3s ids for the TOC.
+      Array.prototype.forEach.call(doc.querySelectorAll(".sec-body h3"), function (h3) {
+        h3.id = slugify(h3.textContent);
+      });
+    }
+
+    /* ---------- @TAG highlighting (never inside pre/code) ---------- */
+    function highlightTags(root) {
+      var re = new RegExp("@(" + TAGS.join("|") + "):", "g");
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          if (!n.nodeValue || n.nodeValue.indexOf("@") === -1) return NodeFilter.FILTER_REJECT;
+          if (n.parentElement && n.parentElement.closest("pre, code, script, style")) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var targets = [];
+      var t;
+      while ((t = walker.nextNode())) { re.lastIndex = 0; if (re.test(t.nodeValue)) targets.push(t); }
+      targets.forEach(function (textNode) {
+        var frag = document.createDocumentFragment();
+        var text = textNode.nodeValue, last = 0, m;
+        re.lastIndex = 0;
+        while ((m = re.exec(text)) !== null) {
+          frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          var span = document.createElement("span");
+          span.className = "tag-mark tag-" + m[1].toLowerCase();
+          span.textContent = m[0];
+          frag.appendChild(span);
+          last = m.index + m[0].length;
+        }
+        frag.appendChild(document.createTextNode(text.slice(last)));
+        textNode.parentNode.replaceChild(frag, textNode);
+      });
+    }
+
+    /* =================================================================
+       Schema-aware layer
+       ================================================================= */
+
+    function findSection(doc, pattern) {
+      var secs = doc.querySelectorAll(".doc-sec");
+      for (var i = 0; i < secs.length; i++) {
+        if (pattern.test(secs[i].dataset.heading)) return secs[i];
+      }
+      return null;
+    }
+
+    function applySchema(doc) {
+      var transforms;
+      if (docType === "decision") transforms = [transformOptionCards, transformRecommendation];
+      else if (docType === "design-questions") transforms = [transformDesignQuestions];
+      else transforms = [transformApproachCards, transformEdgeCases, transformChangelog];
+      transforms.forEach(function (fn) {
+        try { fn(doc); } catch (err) { /* per-section fallback to baseline */ }
+      });
+    }
+
+    /* Split a section body at each H3 into {title, nodes} groups. */
+    function splitByH3(body) {
+      var groups = [], current = null;
+      Array.prototype.slice.call(body.childNodes).forEach(function (node) {
+        if (node.nodeType === 1 && node.tagName === "H3") {
+          current = { title: node.textContent.trim(), heading: node, nodes: [] };
+          groups.push(current);
+        } else if (current) {
+          current.nodes.push(node);
+        }
+      });
+      return groups;
+    }
+
+    /* Which option title does the recommendation text name? "" if none.
+       Matches an "Option N" reference or the option's name substring, so both
+       decision docs ("Comparison-card fixture, because…") and design-questions
+       docs ("Option 2 (…), because…") resolve to the same highlighted card. */
+    function recommendedTitle(groups, recText) {
+      if (!recText) return "";
+      var text = recText.toLowerCase();
+      var found = "";
+      groups.forEach(function (g) {
+        var numMatch = g.title.match(/^(?:option\s+)?(\d+)[.):]/i);
+        if (numMatch && new RegExp("\\boption\\s+" + numMatch[1] + "\\b", "i").test(text)) {
+          found = g.title;
+          return;
+        }
+        var name = g.title.replace(/^(?:option\s+)?\d+[.):]\s*/i, "").trim();
+        if (name && text.indexOf(name.toLowerCase()) !== -1) found = g.title;
+      });
+      return found;
+    }
+
+    /* Build one comparison card from an {title, heading, nodes} option group.
+       Shared by the decision and design-questions transforms. Options titled
+       "1. Name", "1) Name", or "Option 1: Name" all get a number badge; the
+       "**Pros:** … **Cons:** …" paragraph is split into labelled lists. */
+    function buildOptionCard(g, recommended) {
+      var card = document.createElement("div");
+      card.className = "opt-card";
+      if (recommended && g.title === recommended) {
+        card.classList.add("recommended");
+        var flag = document.createElement("span");
+        flag.className = "rec-flag";
+        flag.textContent = "Recommended";
+        card.appendChild(flag);
+      }
+      var h3 = document.createElement("h3");
+      h3.id = g.heading.id;
+      h3.setAttribute("data-toc", g.title);
+      var numMatch = g.title.match(/^(?:option\s+)?(\d+)[.):]\s*(.*)$/i);
+      if (numMatch) {
+        var num = document.createElement("span");
+        num.className = "opt-num";
+        num.textContent = numMatch[1];
+        h3.appendChild(num);
+        h3.appendChild(document.createTextNode(numMatch[2]));
+      } else {
+        h3.textContent = g.title;
+      }
+      card.appendChild(h3);
+
+      // "**Pros:** ..." and "**Cons:** ..." usually share one paragraph
+      // (adjacent lines in the template); split at each label.
+      var prosCons = document.createElement("div");
+      prosCons.className = "pros-cons";
+      function isLabelStrong(node) {
+        return node.nodeType === 1 && node.tagName === "STRONG"
+          && /^(pros|cons):?$/i.test(node.textContent.trim());
+      }
+      g.nodes.forEach(function (node) {
+        if (!(node.nodeType === 1 && node.tagName === "P" && Array.prototype.some.call(node.childNodes, isLabelStrong))) {
+          card.appendChild(node);
+          return;
+        }
+        var current = null;
+        var lead = document.createElement("p");
+        Array.prototype.slice.call(node.childNodes).forEach(function (child) {
+          if (isLabelStrong(child)) {
+            current = document.createElement("p");
+            var isPros = /^pros/i.test(child.textContent.trim());
+            var lbl = document.createElement("span");
+            lbl.className = isPros ? "pros-lbl" : "cons-lbl";
+            lbl.textContent = child.textContent.trim().replace(/:$/, "");
+            current.appendChild(lbl);
+            prosCons.appendChild(current);
+            child.remove();
+          } else if (current) {
+            current.appendChild(child);
+          } else {
+            lead.appendChild(child);
+          }
+        });
+        if (lead.textContent.trim()) card.appendChild(lead);
+      });
+      if (prosCons.children.length) card.appendChild(prosCons);
+      return card;
+    }
+
+    /* Decision: Options as side-by-side comparison cards. */
+    function transformOptionCards(doc) {
+      var sec = findSection(doc, /^Options\b/i);
+      if (!sec) return;
+      var body = sec.querySelector(".sec-body");
+      var groups = splitByH3(body);
+      if (!groups.length) return;
+
+      var recSec = findSection(doc, /^Recommendation\b/i);
+      var recText = recSec ? recSec.querySelector(".sec-body").textContent.trim() : "";
+      var recommended = recommendedTitle(groups, recText);
+
+      var grid = document.createElement("div");
+      grid.className = "card-grid";
+      groups.forEach(function (g) { grid.appendChild(buildOptionCard(g, recommended)); });
+      body.replaceChildren(grid);
+    }
+
+    /* Decision: Recommendation as a banner. */
+    function transformRecommendation(doc) {
+      var sec = findSection(doc, /^Recommendation\b/i);
+      if (sec) sec.classList.add("rec-banner");
+    }
+
+    /* =================================================================
+       Design-questions schema
+       Each "## DQ<n>:" section carries its own options and recommendation
+       (unlike a decision doc, where Options and Recommendation are separate
+       top-level sections). Every DQ is transformed independently, so a
+       non-conforming question (prose options, no Recommendation) falls back
+       to baseline rendering for that section only — never a blank page.
+       ================================================================= */
+    function transformDesignQuestions(doc) {
+      Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
+        if (!/^DQ\s*\d/i.test(sec.dataset.heading || "")) return; // "DQ<n>:" sections only; skip Dimension Assessment etc.
+        try { transformOneDq(sec); } catch (err) { /* this DQ falls back to baseline */ }
+      });
+    }
+
+    function transformOneDq(sec) {
+      var body = sec.querySelector(".sec-body");
+      var parts = splitDqSection(body);
+      if (!parts.options.length) return; // no enumerated options -> leave generic
+
+      var recNode = null;
+      parts.trailing.forEach(function (node) {
+        if (!recNode && isLabelPara(node, /^recommendation\b/i)) recNode = node;
+      });
+      var recText = recNode ? recNode.textContent.replace(/^\s*recommendation:?\s*/i, "").trim() : "";
+      var recommended = recommendedTitle(parts.options, recText);
+
+      var grid = document.createElement("div");
+      grid.className = "card-grid";
+      parts.options.forEach(function (g) { grid.appendChild(buildOptionCard(g, recommended)); });
+
+      var frag = document.createDocumentFragment();
+      parts.intro.forEach(function (n) { frag.appendChild(n); });
+      frag.appendChild(grid);
+      parts.trailing.forEach(function (node) {
+        frag.appendChild(node === recNode ? buildRecBanner(node) : node);
+      });
+      body.replaceChildren(frag);
+    }
+
+    /* Split a DQ body into {intro, options[], trailing}. Options are H3 groups;
+       the first "**Tradeoff assessment:**" or "**Recommendation:**" paragraph
+       ends the options region so trailing prose is not swept into the last
+       card (splitByH3 would otherwise absorb everything after the last H3). */
+    function splitDqSection(body) {
+      var intro = [], options = [], trailing = [], current = null, phase = "intro";
+      Array.prototype.slice.call(body.childNodes).forEach(function (node) {
+        if (phase !== "trailing" && node.nodeType === 1 && node.tagName === "H3") {
+          current = { title: node.textContent.trim(), heading: node, nodes: [] };
+          options.push(current);
+          phase = "options";
+          return;
+        }
+        if (phase === "options" && isLabelPara(node, /^(tradeoff assessment|recommendation)\b/i)) {
+          phase = "trailing";
+        }
+        if (phase === "trailing") trailing.push(node);
+        else if (phase === "options") current.nodes.push(node);
+        else intro.push(node);
+      });
+      return { intro: intro, options: options, trailing: trailing };
+    }
+
+    /* A <p> whose leading strong label matches `re` (e.g. /^recommendation\b/). */
+    function isLabelPara(node, re) {
+      if (!(node && node.nodeType === 1 && node.tagName === "P")) return false;
+      var first = node.firstChild;
+      while (first && first.nodeType === 3 && !first.nodeValue.trim()) first = first.nextSibling;
+      return !!first && first.nodeType === 1 && first.tagName === "STRONG" && re.test(first.textContent.trim());
+    }
+
+    /* Turn a "**Recommendation:** ..." paragraph into a highlighted banner. */
+    function buildRecBanner(p) {
+      var banner = document.createElement("p");
+      banner.className = "dq-rec";
+      var lbl = document.createElement("span");
+      lbl.className = "dq-rec-lbl";
+      lbl.textContent = "Recommendation";
+      banner.appendChild(lbl);
+      var dropped = false;
+      Array.prototype.slice.call(p.childNodes).forEach(function (child) {
+        if (!dropped && child.nodeType === 1 && child.tagName === "STRONG"
+            && /^recommendation:?$/i.test(child.textContent.trim())) {
+          dropped = true;
+          return;
+        }
+        banner.appendChild(child);
+      });
+      // Trim a leading ": " orphaned by removing the label strong.
+      var afterLbl = banner.childNodes[1];
+      if (afterLbl && afterLbl.nodeType === 3) {
+        afterLbl.nodeValue = afterLbl.nodeValue.replace(/^\s*:?\s*/, " ");
+      }
+      return banner;
+    }
+
+    /* Plan: Approaches Also Considered as cards with ✕ why-not lines. */
+    function transformApproachCards(doc) {
+      var sec = findSection(doc, /^Approaches (Also )?Considered\b/i);
+      if (!sec) return;
+      var body = sec.querySelector(".sec-body");
+      var groups = splitByH3(body);
+      if (!groups.length) return;
+
+      var intro = document.createDocumentFragment();
+      var first = body.firstChild;
+      while (first && !(first.nodeType === 1 && first.tagName === "H3")) {
+        var nxt = first.nextSibling;
+        intro.appendChild(first);
+        first = nxt;
+      }
+
+      var grid = document.createElement("div");
+      grid.className = "card-grid";
+      groups.forEach(function (g) {
+        var card = document.createElement("div");
+        card.className = "opt-card";
+        var h3 = document.createElement("h3");
+        h3.id = g.heading.id;
+        h3.textContent = g.title;
+        card.appendChild(h3);
+        g.nodes.forEach(function (node) {
+          if (node.nodeType === 1 && node.tagName === "UL") {
+            Array.prototype.forEach.call(node.querySelectorAll(":scope > li"), function (li) {
+              var strong = li.querySelector(":scope > strong:first-child");
+              var label = strong ? strong.textContent.replace(/[:\s]+$/, "") : "";
+              var p = document.createElement("p");
+              if (/^why not$/i.test(label)) { p.className = "why-not"; strong.remove(); }
+              else if (/^description$/i.test(label)) { p.className = "desc-line"; strong.remove(); }
+              while (li.firstChild) p.appendChild(li.firstChild);
+              if (p.firstChild && p.firstChild.nodeType === 3) {
+                p.firstChild.nodeValue = p.firstChild.nodeValue.replace(/^:\s*/, "");
+              }
+              card.appendChild(p);
+            });
+          } else {
+            card.appendChild(node);
+          }
+        });
+        grid.appendChild(card);
+      });
+      body.replaceChildren(intro, grid);
+    }
+
+    /* Plan: Edge Cases list — scenario → behavior, CRITICAL flagged. */
+    function transformEdgeCases(doc) {
+      var sec = findSection(doc, /^Edge Cases\b/i);
+      if (!sec) return;
+      var body = sec.querySelector(".sec-body");
+      Array.prototype.forEach.call(body.querySelectorAll(":scope > ul"), function (ul) {
+        ul.classList.add("edge-list");
+        Array.prototype.forEach.call(ul.querySelectorAll(":scope > li"), function (li) {
+          if (/^\s*CRITICAL\b/.test(li.textContent)) {
+            li.classList.add("critical");
+            var w = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
+            var t;
+            while ((t = w.nextNode())) {
+              var idx = t.nodeValue.indexOf("CRITICAL");
+              if (idx !== -1) {
+                var after = t.splitText(idx);
+                after.nodeValue = after.nodeValue.replace(/^CRITICAL:?\s*/, "");
+                var badge = document.createElement("span");
+                badge.className = "crit-badge";
+                badge.textContent = "critical";
+                after.parentNode.insertBefore(badge, after);
+                break;
+              }
+            }
+          }
+          // Emphasize the scenario → behavior arrow.
+          var walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) {
+              return n.parentElement && n.parentElement.closest("pre, code")
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            }
+          });
+          var tn, found = [];
+          while ((tn = walker.nextNode())) if (/→|->/.test(tn.nodeValue)) found.push(tn);
+          found.forEach(function (node) {
+            var parts = node.nodeValue.split(/→|->/);
+            if (parts.length < 2) return;
+            var frag = document.createDocumentFragment();
+            parts.forEach(function (part, i) {
+              if (i > 0) {
+                var arrow = document.createElement("span");
+                arrow.className = "edge-arrow";
+                arrow.textContent = " → ";
+                frag.appendChild(arrow);
+              }
+              frag.appendChild(document.createTextNode(part));
+            });
+            node.parentNode.replaceChild(frag, node);
+          });
+        });
+      });
+    }
+
+    /* Plan: Changelog table as a timeline. */
+    function transformChangelog(doc) {
+      var sec = findSection(doc, /^Changelog\b/i);
+      if (!sec) return;
+      var body = sec.querySelector(".sec-body");
+      var table = body.querySelector("table");
+      if (!table) return;
+      var headers = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) {
+        return th.textContent.trim().toLowerCase();
+      });
+      var di = headers.indexOf("date"), ci = headers.indexOf("change"), ri = headers.indexOf("reason");
+      if (di === -1 || ci === -1) return;
+      var timeline = document.createElement("div");
+      timeline.className = "timeline";
+      Array.prototype.forEach.call(table.querySelectorAll("tbody tr"), function (tr) {
+        var cells = tr.querySelectorAll("td");
+        var entry = document.createElement("div");
+        entry.className = "tl-entry";
+        var date = document.createElement("div");
+        date.className = "tl-date";
+        date.textContent = cells[di] ? cells[di].textContent.trim() : "";
+        var change = document.createElement("div");
+        change.className = "tl-change";
+        change.textContent = cells[ci] ? cells[ci].textContent.trim() : "";
+        entry.appendChild(date);
+        entry.appendChild(change);
+        if (ri !== -1 && cells[ri] && cells[ri].textContent.trim() && cells[ri].textContent.trim() !== "-") {
+          var reason = document.createElement("div");
+          reason.className = "tl-reason";
+          reason.textContent = cells[ri].textContent.trim();
+          entry.appendChild(reason);
+        }
+        timeline.appendChild(entry);
+      });
+      table.replaceWith(timeline);
+    }
+
+    /* =================================================================
+       Table of contents
+       ================================================================= */
+
+    var observer = null;
+    function buildToc(doc) {
+      var list = document.getElementById("toc-list");
+      list.replaceChildren();
+      if (observer) observer.disconnect();
+
+      Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = "#" + sec.id;
+        a.textContent = sec.dataset.heading;
+        a.dataset.target = sec.id;
+        li.appendChild(a);
+        list.appendChild(li);
+        Array.prototype.forEach.call(sec.querySelectorAll(".sec-body h3"), function (h3) {
+          if (!h3.id) return;
+          var li3 = document.createElement("li");
+          li3.className = "lvl-3";
+          var a3 = document.createElement("a");
+          a3.href = "#" + h3.id;
+          a3.textContent = h3.getAttribute("data-toc") || h3.textContent;
+          li3.appendChild(a3);
+          list.appendChild(li3);
+        });
+      });
+
+      observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          var link = list.querySelector('a[data-target="' + entry.target.id + '"]');
+          if (link && entry.isIntersecting) {
+            list.querySelectorAll("a.active").forEach(function (x) { x.classList.remove("active"); });
+            link.classList.add("active");
+          }
+        });
+      }, { rootMargin: "-80px 0px -70% 0px" });
+      doc.querySelectorAll(".doc-sec").forEach(function (sec) { observer.observe(sec); });
+    }
+
+    // Expand a collapsed section when its TOC entry is clicked.
+    document.getElementById("toc-list").addEventListener("click", function (e) {
+      var a = e.target.closest("a");
+      if (!a) return;
+      var target = document.getElementById(a.getAttribute("href").slice(1));
+      if (!target) return;
+      var sec = target.classList.contains("doc-sec") ? target : target.closest(".doc-sec");
+      if (sec) sec.classList.remove("collapsed");
+    });
+
+    document.getElementById("expand-all").addEventListener("click", function () {
+      document.querySelectorAll(".doc-sec.collapsed").forEach(function (s) { s.classList.remove("collapsed"); });
+    });
+    document.getElementById("collapse-all").addEventListener("click", function () {
+      document.querySelectorAll(".doc-sec").forEach(function (s) { s.classList.add("collapsed"); });
+    });
+
+    /* =================================================================
+       Feedback composer — emits the exact clam annotation vocabulary:
+       @COMMENT: @QUESTION: @CONCERN: @APPROVE: @EVIDENCE:
+       ================================================================= */
+
+    function attachAnnotators(hero, doc) {
+      var h1 = hero.querySelector("h1");
+      var heroBtn = makeAnnotateBtn(h1 ? h1.textContent : "(document)");
+      hero.appendChild(heroBtn);
+      Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
+        var btn = makeAnnotateBtn(sec.dataset.heading);
+        sec.querySelector(".sec-head").appendChild(btn);
+      });
+    }
+
+    function makeAnnotateBtn(anchor) {
+      var btn = document.createElement("button");
+      btn.className = "annotate-btn";
+      btn.textContent = "+ annotate";
+      btn.title = "Add feedback on “" + anchor + "”";
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openComposer(btn, anchor);
+      });
+      return btn;
+    }
+
+    var openComposerEl = null;
+    var annotatingBlock = null;
+    function openComposer(btn, anchor, block) {
+      closeComposer();
+      var excerpt = block ? excerptFor(block) : "";
+      var comp = document.createElement("div");
+      comp.className = "composer";
+      var target = document.createElement("div");
+      target.className = "comp-target";
+      target.textContent = "§ " + anchor + (excerpt ? " ¶ “" + excerpt + "”" : "");
+      comp.appendChild(target);
+
+      var choices = document.createElement("div");
+      choices.className = "tag-choices";
+      var selected = "COMMENT";
+      TAGS.forEach(function (tag, i) {
+        var c = document.createElement("button");
+        c.className = "tag-choice tag-" + tag.toLowerCase() + (i === 0 ? " sel" : "");
+        c.textContent = "@" + tag;
+        c.addEventListener("click", function () {
+          selected = tag;
+          choices.querySelectorAll(".sel").forEach(function (x) { x.classList.remove("sel"); });
+          c.classList.add("sel");
+        });
+        choices.appendChild(c);
+      });
+      comp.appendChild(choices);
+
+      var ta = document.createElement("textarea");
+      ta.placeholder = "Your note… (@APPROVE can be empty)";
+      comp.appendChild(ta);
+
+      var actions = document.createElement("div");
+      actions.className = "comp-actions";
+      var cancel = document.createElement("button");
+      cancel.className = "btn";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", closeComposer);
+      var add = document.createElement("button");
+      add.className = "btn active";
+      add.textContent = "Add";
+      add.addEventListener("click", function () {
+        var note = ta.value.trim();
+        if (!note && selected !== "APPROVE") { ta.focus(); return; }
+        var item = { id: state.nextId++, section: anchor, excerpt: excerpt, tag: selected, note: note };
+        state.feedback.push(item);
+        renderFeedback();
+        document.getElementById("drawer").classList.add("show");
+        closeComposer();
+        saveAnnotationToFile(item).then(function (saved) {
+          if (saved) showSaveStatus("Saved to " + (sourceFileName || "file"), true);
+        });
+      });
+      actions.appendChild(cancel);
+      actions.appendChild(add);
+      comp.appendChild(actions);
+
+      if (block) {
+        comp.classList.add("floating");
+        document.body.appendChild(comp);
+        var r = block.getBoundingClientRect();
+        comp.style.top = (window.scrollY + r.bottom + 8) + "px";
+        var left = window.scrollX + r.left;
+        var maxLeft = window.scrollX + document.documentElement.clientWidth - comp.offsetWidth - 20;
+        comp.style.left = Math.max(12, Math.min(left, maxLeft)) + "px";
+        block.classList.add("annotating");
+        annotatingBlock = block;
+      } else {
+        var sec = btn.closest(".doc-sec");
+        if (sec) sec.querySelector(".sec-head").after(comp);
+        else document.getElementById("hero").appendChild(comp);
+      }
+      openComposerEl = comp;
+      ta.focus();
+    }
+
+    function closeComposer() {
+      if (openComposerEl) { openComposerEl.remove(); openComposerEl = null; }
+      if (annotatingBlock) { annotatingBlock.classList.remove("annotating"); annotatingBlock = null; }
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeComposer();
+    });
+
+    /* ---------- Block-level annotation (paragraphs, bullets, rows) ----------
+       A single gutter “+” follows the hovered block. Excerpts quote only text
+       that exists in the source markdown: elements synthesized by the schema
+       transforms (badges, option numbers, arrows, labels) are skipped, so the
+       copied anchor is always greppable in the source document. */
+    var BLOCK_SEL = "p, li, blockquote, tr, .tl-entry";
+    var SYNTH_SEL = ".rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer";
+
+    function annotatableBlock(el) {
+      if (!el || el.nodeType !== 1) return null;
+      if (el.closest(".composer, .copy-overlay")) return null;
+      var block = el.closest(BLOCK_SEL);
+      if (!block) return null;
+      if (!block.closest("#doc .sec-body") && !block.closest("#hero .preamble")) return null;
+      if (block.closest("pre, code")) return null;
+      if (block.tagName === "TR" && !block.closest("tbody")) return null;
+      return block;
+    }
+
+    function excerptFor(block) {
+      var out = "";
+      (function walk(node) {
+        for (var n = node.firstChild; n; n = n.nextSibling) {
+          if (n.nodeType === 3) { out += n.nodeValue; continue; }
+          if (n.nodeType !== 1) continue;
+          if (n.matches(SYNTH_SEL)) { out += " "; continue; } // never quote synthesized text
+          if (block.tagName === "LI" && (n.tagName === "UL" || n.tagName === "OL")) continue; // this bullet only, not its children
+          walk(n);
+          if (/^(TD|TH|DIV|P|LI|BR)$/.test(n.tagName)) out += " ";
+        }
+      })(block);
+      out = out.replace(/\s+/g, " ").trim();
+      if (out.length > 80) {
+        var cut = out.slice(0, 80);
+        var sp = cut.lastIndexOf(" ");
+        if (sp > 40) cut = cut.slice(0, sp);
+        out = cut + "…";
+      }
+      return out;
+    }
+
+    var blockBtn = document.createElement("button");
+    blockBtn.type = "button";
+    blockBtn.className = "block-annotate";
+    blockBtn.textContent = "+";
+    blockBtn.title = "Annotate this block";
+    document.body.appendChild(blockBtn);
+
+    var hoverBlock = null, hideTimer = null;
+    document.addEventListener("mouseover", function (e) {
+      if (e.target === blockBtn) { clearTimeout(hideTimer); return; }
+      var block = annotatableBlock(e.target);
+      clearTimeout(hideTimer);
+      if (block) {
+        hoverBlock = block;
+        var r = block.getBoundingClientRect();
+        blockBtn.style.top = (window.scrollY + r.top) + "px";
+        blockBtn.style.left = (window.scrollX + r.left - 28) + "px";
+        blockBtn.classList.add("show");
+      } else {
+        hideTimer = setTimeout(function () {
+          blockBtn.classList.remove("show");
+          hoverBlock = null;
+        }, 300);
+      }
+    });
+
+    blockBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (!hoverBlock || !hoverBlock.isConnected) return;
+      var sec = hoverBlock.closest(".doc-sec");
+      var h1 = document.querySelector("#hero h1");
+      var anchor = sec ? sec.dataset.heading : (h1 ? h1.textContent : "(document)");
+      openComposer(blockBtn, anchor, hoverBlock);
+    });
+
+    function renderFeedback() {
+      var list = document.getElementById("drawer-list");
+      list.replaceChildren();
+      if (!state.feedback.length) {
+        var empty = document.createElement("div");
+        empty.className = "drawer-empty";
+        empty.textContent = "No feedback yet. Hover a section heading (“+ annotate”) or any paragraph, bullet, or row (“+”).";
+        list.appendChild(empty);
+      }
+      state.feedback.forEach(function (item) {
+        var el = document.createElement("div");
+        el.className = "fb-item";
+        var sec = document.createElement("div");
+        sec.className = "fb-sec";
+        sec.textContent = "§ " + item.section;
+        var note = document.createElement("div");
+        note.className = "fb-note";
+        var tag = document.createElement("span");
+        tag.className = "tag-mark tag-" + item.tag.toLowerCase();
+        tag.textContent = "@" + item.tag + ":";
+        note.appendChild(tag);
+        note.appendChild(document.createTextNode(" " + item.note));
+        var del = document.createElement("button");
+        del.className = "fb-del";
+        del.textContent = "✕";
+        del.title = "Remove";
+        del.addEventListener("click", function () {
+          state.feedback = state.feedback.filter(function (x) { return x.id !== item.id; });
+          renderFeedback();
+        });
+        el.appendChild(sec);
+        if (item.excerpt) {
+          var ex = document.createElement("div");
+          ex.className = "fb-excerpt";
+          ex.textContent = "¶ “" + item.excerpt + "”";
+          el.appendChild(ex);
+        }
+        el.appendChild(note);
+        el.appendChild(del);
+        list.appendChild(el);
+      });
+      var btn = document.getElementById("feedback-btn");
+      btn.textContent = "Feedback · " + state.feedback.length;
+      btn.classList.toggle("attention", state.feedback.length > 0);
+    }
+
+    function feedbackBlock() {
+      return state.feedback.map(function (item) {
+        var where = "§ " + item.section + (item.excerpt ? ' ¶ "' + item.excerpt + '"' : "");
+        return where + " — @" + item.tag + ":" + (item.note ? " " + item.note : "");
+      }).join("\n");
+    }
+
+    document.getElementById("copy-all").addEventListener("click", function () {
+      var text = feedbackBlock();
+      if (!text) return;
+      var self = this;
+      function done() {
+        self.textContent = "Copied ✓";
+        setTimeout(function () { self.textContent = "Copy all feedback"; }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { manualCopy(text); });
+      } else {
+        manualCopy(text);
+      }
+    });
+
+    /* Clipboard API unavailable (or denied): show the block pre-selected
+       so one ⌘C finishes the job. */
+    function manualCopy(text) {
+      var overlay = document.createElement("div");
+      overlay.className = "copy-overlay";
+      var box = document.createElement("div");
+      box.className = "box";
+      var hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "Clipboard access was blocked — the text below is selected; press ⌘C, then Close.";
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      var actions = document.createElement("div");
+      actions.className = "comp-actions";
+      var close = document.createElement("button");
+      close.className = "btn";
+      close.textContent = "Close";
+      close.addEventListener("click", function () { overlay.remove(); });
+      actions.appendChild(close);
+      box.appendChild(hint);
+      box.appendChild(ta);
+      box.appendChild(actions);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      ta.focus();
+      ta.select();
+    }
+
+    /* =================================================================
+       Save annotation to markdown source via local annotation server.
+       When served from localhost (render.sh --open starts serve.py),
+       each Add POSTs the annotation; the server writes to the .md file.
+       On file:// (no server), Add still works in-memory and "Copy all
+       feedback" remains available.
+       ================================================================= */
+    var SAVE_ENABLED = window.location.protocol === "http:";
+
+    function saveAnnotationToFile(item) {
+      if (!SAVE_ENABLED) return Promise.resolve(false);
+      return fetch("/annotate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          md: sourcePath,
+          section: item.section,
+          excerpt: item.excerpt,
+          tag: item.tag,
+          note: item.note
+        })
+      }).then(function (res) {
+        return res.ok;
+      })["catch"](function () {
+        return false;
+      });
+    }
+
+    function showSaveStatus(msg, ok) {
+      var btn = document.getElementById("feedback-btn");
+      btn.textContent = msg;
+      btn.classList.toggle("active", ok);
+      btn.classList.remove("attention");
+      setTimeout(function () {
+        btn.textContent = "Feedback · " + state.feedback.length;
+        btn.classList.toggle("attention", state.feedback.length > 0);
+        btn.classList.remove("active");
+      }, 2000);
+    }
+
+    document.getElementById("clear-all").addEventListener("click", function () {
+      state.feedback = [];
+      renderFeedback();
+    });
+    document.getElementById("feedback-btn").addEventListener("click", function () {
+      document.getElementById("drawer").classList.toggle("show");
+    });
+    document.getElementById("drawer-close").addEventListener("click", function () {
+      document.getElementById("drawer").classList.remove("show");
+    });
+
+    /* ---------- Chrome: doc-type pill + schema toggle ---------- */
+    function updateChrome() {
+      var pill = document.getElementById("doctype-pill");
+      var toggle = document.getElementById("schema-toggle");
+      if (docType === "generic") {
+        pill.textContent = "document";
+        pill.classList.add("generic");
+        toggle.disabled = true;
+        toggle.textContent = "Schema view";
+        toggle.title = "No schema detected — the H1 does not start with Plan:, Decision:, or Design Questions:";
+      } else {
+        pill.textContent = docType;
+        pill.classList.remove("generic");
+        toggle.disabled = false;
+        toggle.textContent = state.schemaOn ? "Schema view ✓" : "Generic view ✓";
+        toggle.classList.toggle("active", state.schemaOn);
+      }
+    }
+
+    document.getElementById("schema-toggle").addEventListener("click", function () {
+      if (docType === "generic") return;
+      state.schemaOn = !state.schemaOn;
+      closeComposer();
+      render();
+    });
+
+    /* ---------- Boot ---------- */
+    if (typeof marked === "undefined" || !marked || typeof marked.parse !== "function") {
+      fatal("The vendored markdown parser is missing from this file. Re-run render.sh; raw document below.", null, sourceMd);
+      return;
+    }
+    render();
+    renderFeedback();
+  })();
+  </script>
+
+</body>
+</html>

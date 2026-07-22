@@ -24,9 +24,9 @@ Everything degrades gracefully when absent:
 
 - **issue-tracker skill** (pr-workflow plugin, not yet ported): ticket fetch and
   canonical ticket links; without it, ticket references are omitted.
-- **render-doc** (`~/.claude/skills/render-doc/`, still clam-code): HTML render
+- **render-doc** (`render-doc:render` skill, render-doc plugin): HTML render
   of decision files, gated behind `CLAM_RENDER_DOC=enabled`; skipped if the
-  knob or script is absent.
+  knob is off or the skill is unavailable.
 - **team-council** (team-review plugin, not yet ported): escalation target for
   genuinely contested calls.
 

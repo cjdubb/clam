@@ -10,6 +10,49 @@ The output is a shared mental model: which blocks exist, what each promises, and
 how they compose into the deliverable. The engineer approves before anything is
 scaffolded.
 
+## Step 0a: Record plan entry
+
+<!-- Contract: B07 — lego-plan-lifecycle (entry record)
+Behavior:
+  At skill invocation — BEFORE the Step 0 dialogue — create the plan-doc stub
+  in .local/plans/ so the workflow has a disk footprint from its earliest
+  moment. This is what prevents a later disk-based reader (make-progress,
+  handover, fresh session) from concluding no workflow ran.
+Inputs:
+  .local/plans/ directory (created by Step 1 on first invocation; if .local/
+  does not exist yet, defer this write to immediately after Step 1 creates it).
+Outputs:
+  .local/plans/NNN-<slug>.md with Status: Planning and deliverable TBD.
+  NNN is the next free number in .local/plans/.
+Errors:
+  If .local/ does not exist and Step 1 has not run, defer — do not fail.
+Invariants:
+  - The plan doc is created BEFORE the Step 0 deliverable dialogue begins
+  - The file exists even if planning concludes without blocks (Step 5a)
+Edge cases:
+  - First invocation in a repo (no .local/ yet): defer to after Step 1
+  - Re-invocation for the same deliverable: do not create a duplicate plan doc
+-->
+
+At skill invocation, BEFORE the Step 0 deliverable dialogue begins, create the
+plan-doc stub at `.local/plans/NNN-<slug>.md`, where NNN is the next free
+number in `.local/plans/`. Derive the slug from the branch name if one is
+available, or use a placeholder slug otherwise — the deliverable is not yet
+confirmed, so the slug is provisional and may be renamed once it is. The stub
+opens with `Status: Planning` and `Deliverable: TBD`.
+
+If `.local/` does not exist yet — the first invocation of this skill in the
+repo — defer this write until immediately after Step 1 creates
+`.local/plans/`; do not skip it outright.
+
+On re-invocation for a deliverable already being planned, check
+`.local/plans/` for an existing stub before creating a new one — never create
+a duplicate plan doc for the same deliverable.
+
+Once Step 0's gate closes and the engineer has confirmed the deliverable,
+update the plan doc's `Deliverable:` line with the confirmed restatement,
+replacing TBD.
+
 ## Step 0: Establish the deliverable — a hard gate
 
 The deliverable is what the engineer says it is, in this conversation, in their
@@ -185,3 +228,63 @@ explicit approval. If the engineer annotates or objects, revise and re-present.
 Record the approval (date + summary) in the plan's Changelog.
 
 Then proceed to `/lego:scaffold`.
+
+## Step 5a: Conclude without blocks (off-ramp)
+
+<!-- Contract: B07 — lego-plan-lifecycle (off-ramp)
+Behavior:
+  When planning determines no block decomposition is warranted — the
+  deliverable collapsed during research, the work is already done, or it's a
+  single direct change that doesn't need the lego machinery — record the
+  outcome explicitly in the plan doc and close it out. This is the defined
+  exit that prevents a silent workflow disappearance.
+Inputs:
+  The plan doc created in Step 0a. The engineer's confirmation that no
+  decomposition is needed (this is still a gate — the orchestrator proposes,
+  the engineer confirms).
+Outputs:
+  Plan doc updated: Status: Concluded (no blocks), outcome summary, rationale,
+  pointer to the direct change/PR if one was made. blocks.md updated to
+  record that the plan concluded without blocks.
+Errors:
+  If the plan doc from Step 0a is missing, create it now (recovery path).
+Invariants:
+  - The off-ramp is an explicit, recorded transition — not a silent exit
+  - The engineer must confirm the conclusion (same approval standard as Step 5)
+  - The plan doc's Status field reflects the conclusion
+Edge cases:
+  - Deliverable collapses during Step 0 clarification (before discovery)
+  - Deliverable collapses during Step 2 discovery (research reveals no work)
+  - Deliverable collapses during Step 3 decomposition (all blocks already exist)
+  - Direct change was already made and PR'd before the off-ramp fires
+-->
+
+When planning determines that no block decomposition is warranted — the
+deliverable collapsed during Step 0 clarification, Step 2 discovery revealed
+the work is already done, or Step 3 decomposition found the work is better
+served by a single direct change than by the lego machinery — take this
+off-ramp explicitly instead of letting the workflow trail off with no record.
+This step can be reached from any point in the planning flow: after Step 0
+clarification, after Step 2 discovery, or after Step 3 once it turns out all
+needed blocks already exist. A direct change may already have been made and
+PR'd before the off-ramp fires; that is fine, record it as the outcome.
+
+Update the plan doc from Step 0a in place:
+
+- `Status: Concluded (no blocks)`
+- `Outcome:` what was decided and why
+- `Rationale:` the rationale for skipping decomposition
+- `Direct change:` a pointer to the commit or PR, if one was made
+
+Present the conclusion to the engineer and stop. The engineer must confirm it
+before the plan doc is considered closed — the same approval standard Step 5
+applies to an approved block design. If the engineer objects, revise and
+re-present rather than closing unilaterally.
+
+Update `.local/blocks.md` with a note recording that the plan concluded
+without blocks (e.g., a line at the top pointing to the plan doc and its
+no-blocks status).
+
+If the plan doc from Step 0a is missing when this step is reached, create it
+now before recording the conclusion — this is a recovery path, not a reason
+to skip the record.

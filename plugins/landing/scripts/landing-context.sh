@@ -41,4 +41,35 @@
 
 set -u
 
-echo "NotImplemented: B01" >&2; exit 1
+command -v jq >/dev/null 2>&1 || exit 0
+
+payload=$(cat)
+cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
+
+# Missing, empty, or whitespace-only cwd: nothing to inspect, fail open.
+[[ -n "${cwd//[[:space:]]/}" ]] || exit 0
+
+profile="$cwd/.claude/clam-profile.jsonc"
+
+emit() { # additionalContext
+  jq -n --arg ctx "$1" \
+    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
+}
+
+if [[ ! -e "$profile" ]]; then
+  emit "No landing policy recorded for this repo yet. Run /landing:init to detect and record how work lands here, then /landing:land to land finished work."
+  exit 0
+fi
+
+# Unreadable profile: fail open silently (distinct from "no profile").
+[[ -r "$profile" ]] || exit 0
+
+stripped=$(sed 's#//.*##' "$profile" 2>/dev/null)
+
+printf '%s' "$stripped" | jq empty >/dev/null 2>&1 || exit 0
+
+strategy=$(printf '%s' "$stripped" | jq -r '.merge.strategy // "unset"' 2>/dev/null) || exit 0
+target=$(printf '%s' "$stripped" | jq -r '.merge.target // "unset"' 2>/dev/null) || exit 0
+merged_by=$(printf '%s' "$stripped" | jq -r '.merge["merged-by"] // "unset"' 2>/dev/null) || exit 0
+
+emit "strategy=$strategy, target=$target, merged-by=$merged_by. Land finished work with /landing:land."

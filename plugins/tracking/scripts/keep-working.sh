@@ -301,13 +301,44 @@ fi
 #   - git not available → no nudge (cannot confirm substantive work)
 #   - Marker write fails (read-only fs) → allow stop (fail-open)
 check_no_todo_nudge() {
-    # NotImplemented: B08 — no-todo-nudge
-    # Stub: always returns 0 (no nudge). Implementation will check:
-    # 1. .local/ exists as directory
-    # 2. .local/TODO.md is absent
-    # 3. git shows edits or commits (substantive work)
-    # 4. Once-per-epoch marker not already present
-    return 0
+    NO_TODO_BLOCK_REASON=""
+
+    [[ -d "$cwd/.local" ]] || return 0
+    [[ -f "$cwd/.local/TODO.md" ]] && return 0
+
+    local marker="$cwd/.local/.no-todo-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+
+    local dirty=""
+    dirty=$(git -C "$cwd" status --porcelain -- . ':(exclude).local' 2>/dev/null || true)
+
+    local ahead=""
+    if [[ -z "$dirty" ]]; then
+        local base
+        base=$(git -C "$cwd" merge-base HEAD master 2>/dev/null || echo HEAD)
+        ahead=$(git -C "$cwd" log --oneline "HEAD...$base" 2>/dev/null || true)
+    fi
+
+    [[ -z "$dirty" && -z "$ahead" ]] && return 0
+
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    local plugin_root
+    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)
+    local template_hint=""
+    if [[ -n "$plugin_root" && -f "$plugin_root/templates/TODO.md" ]]; then
+        template_hint=" A starter template is available at ${plugin_root}/templates/TODO.md."
+    fi
+
+    NO_TODO_BLOCK_REASON="Stop hook: substantive work detected in ${cwd} (uncommitted changes or commits ahead of master) but .local/TODO.md is absent.
+
+Create .local/TODO.md before ending the turn to track this session's work.${template_hint}
+
+This nudge fires once per session epoch (marker: ${marker}); it will not block again until the next SessionStart."
+
+    return 1
 }
 
 todo="$cwd/.local/TODO.md"

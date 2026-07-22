@@ -277,7 +277,50 @@ if [[ -z "$cwd" ]]; then
     exit 0
 fi
 
+# Contract: B08 — no-todo-nudge
+# Behavior:
+#   Generic "substantive work but no TODO.md" backstop. Fires once per epoch
+#   when .local/ exists as a directory and git shows edits or commits ahead
+#   of the base branch, but .local/TODO.md is absent. Nudges the session to
+#   create tracking state.
+# Inputs:
+#   $cwd — worktree path (from hook JSON, already validated non-empty above).
+# Outputs:
+#   On first fire per epoch: JSON {decision: "block", reason: ...} on stdout.
+#   On subsequent fires (marker exists): passes through (no block).
+# Errors:
+#   Fail-open: if the marker cannot be written, allow stop.
+# Invariants:
+#   - No .local/ directory → no nudge (Go Commando preserved)
+#   - No substantive git work → no nudge (pure conversation sessions pass)
+#   - Once-per-epoch marker prevents repeated blocking
+#   - .local/TODO.md present → skips entirely (normal tracked-session path)
+# Edge cases:
+#   - .local/ exists but is empty (workflow created it, no tracking yet) → nudges
+#   - .local/ exists and TODO.md exists → falls through to normal state check
+#   - git not available → no nudge (cannot confirm substantive work)
+#   - Marker write fails (read-only fs) → allow stop (fail-open)
+check_no_todo_nudge() {
+    # NotImplemented: B08 — no-todo-nudge
+    # Stub: always returns 0 (no nudge). Implementation will check:
+    # 1. .local/ exists as directory
+    # 2. .local/TODO.md is absent
+    # 3. git shows edits or commits (substantive work)
+    # 4. Once-per-epoch marker not already present
+    return 0
+}
+
 todo="$cwd/.local/TODO.md"
+
+# No-TODO nudge: fires BEFORE the no-todo early-exit so it can catch sessions
+# with substantive work but no tracking. After the nudge fires (or if no nudge
+# is needed), the no-todo early-exit proceeds normally.
+if ! check_no_todo_nudge; then
+    log_stop "block_no_todo_nudge" "" "$NO_TODO_BLOCK_REASON"
+    jq -n --arg r "$NO_TODO_BLOCK_REASON" '{decision: "block", reason: $r}'
+    exit 0
+fi
+
 if [[ ! -f "$todo" ]]; then
     log_stop "allow_no_todo"
     exit 0

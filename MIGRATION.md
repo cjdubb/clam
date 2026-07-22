@@ -83,6 +83,12 @@ cluster) — the enforcement leg of ".local/TODO.md is the state of record",
 same rationale as `keep-working.sh`. Port change: gated behind
 `CLAM_TRACKING_TASK_TOOLS_GATE` (default enabled).
 
+Tracking v0.3.0 absorbs the standalone make-progress plugin: stall recovery
+(the `/make-progress` skill, its `capture.sh` UserPromptSubmit hook, and
+`lib/platform.sh`) now ships as part of tracking rather than its own plugin.
+The `make-progress` plugin is **dropped** from the marketplace and its
+directory removed.
+
 ## statusline — ported (from clam-code)
 
 Reassigned from the out-of-scope list: plugins cannot set `statusLine` (no

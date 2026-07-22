@@ -1,0 +1,9 @@
+{
+  "name": "skill-tracker",
+  "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl (PreToolUse + PostToolUse) and reports usage stats via /skill-tracker:stats.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

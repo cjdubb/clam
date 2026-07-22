@@ -112,7 +112,9 @@ Tracking v0.3.0 absorbs the standalone make-progress plugin: stall recovery
 (the `/make-progress` skill, its `capture.sh` UserPromptSubmit hook, and
 `lib/platform.sh`) now ships as part of tracking rather than its own plugin.
 The `make-progress` plugin is **dropped** from the marketplace and its
-directory removed.
+directory removed. A `renames` entry in `marketplace.json` maps
+`make-progress` → `tracking` so existing installs auto-resolve on sync
+(requires Claude Code v2.1.193+).
 
 ## statusline — ported (from clam-code)
 

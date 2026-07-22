@@ -5,6 +5,9 @@
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"
   },
+  "renames": {
+    "make-progress": "tracking"
+  },
   "plugins": [
     {
       "name": "lego",

@@ -34,10 +34,24 @@ Edge cases:
   - Re-invocation for the same deliverable: do not create a duplicate plan doc
 -->
 
-NotImplemented: B07 — entry record stub. At invocation, before the Step 0
-dialogue, create `.local/plans/NNN-<slug>.md` with `Status: Planning` and
-deliverable TBD. If `.local/` does not exist yet (first invocation), defer
-this write to immediately after Step 1 creates `.local/plans/`.
+At skill invocation, BEFORE the Step 0 deliverable dialogue begins, create the
+plan-doc stub at `.local/plans/NNN-<slug>.md`, where NNN is the next free
+number in `.local/plans/`. Derive the slug from the branch name if one is
+available, or use a placeholder slug otherwise — the deliverable is not yet
+confirmed, so the slug is provisional and may be renamed once it is. The stub
+opens with `Status: Planning` and `Deliverable: TBD`.
+
+If `.local/` does not exist yet — the first invocation of this skill in the
+repo — defer this write until immediately after Step 1 creates
+`.local/plans/`; do not skip it outright.
+
+On re-invocation for a deliverable already being planned, check
+`.local/plans/` for an existing stub before creating a new one — never create
+a duplicate plan doc for the same deliverable.
+
+Once Step 0's gate closes and the engineer has confirmed the deliverable,
+update the plan doc's `Deliverable:` line with the confirmed restatement,
+replacing TBD.
 
 ## Step 0: Establish the deliverable — a hard gate
 
@@ -214,8 +228,32 @@ Edge cases:
   - Direct change was already made and PR'd before the off-ramp fires
 -->
 
-NotImplemented: B07 — conclude-without-blocks off-ramp stub. When planning
-determines no block decomposition is warranted, record the outcome in the plan
-doc (Status: Concluded, outcome, rationale, pointer to direct change/PR) and
-close it out. The engineer confirms the conclusion. This step replaces the
-silent exit that caused the issue-10 gap.
+When planning determines that no block decomposition is warranted — the
+deliverable collapsed during Step 0 clarification, Step 2 discovery revealed
+the work is already done, or Step 3 decomposition found the work is better
+served by a single direct change than by the lego machinery — take this
+off-ramp explicitly instead of letting the workflow trail off with no record.
+This step can be reached from any point in the planning flow: after Step 0
+clarification, after Step 2 discovery, or after Step 3 once it turns out all
+needed blocks already exist. A direct change may already have been made and
+PR'd before the off-ramp fires; that is fine, record it as the outcome.
+
+Update the plan doc from Step 0a in place:
+
+- `Status: Concluded (no blocks)`
+- `Outcome:` what was decided and why
+- `Rationale:` the rationale for skipping decomposition
+- `Direct change:` a pointer to the commit or PR, if one was made
+
+Present the conclusion to the engineer and stop. The engineer must confirm it
+before the plan doc is considered closed — the same approval standard Step 5
+applies to an approved block design. If the engineer objects, revise and
+re-present rather than closing unilaterally.
+
+Update `.local/blocks.md` with a note recording that the plan concluded
+without blocks (e.g., a line at the top pointing to the plan doc and its
+no-blocks status).
+
+If the plan doc from Step 0a is missing when this step is reached, create it
+now before recording the conclusion — this is a recovery path, not a reason
+to skip the record.

@@ -50,4 +50,70 @@
 
 set -u
 
-echo "NotImplemented: B03" >&2; exit 1
+command -v jq >/dev/null 2>&1 || exit 0
+
+input=$(cat)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+[ -n "$cwd" ] || exit 0
+
+landing_present=false
+lego_present=false
+tracking_present=false
+[ -d "$cwd/plugins/landing" ] && landing_present=true
+[ -d "$cwd/plugins/lego" ] && lego_present=true
+[ -d "$cwd/plugins/tracking" ] && tracking_present=true
+
+sections=""
+
+if $landing_present; then
+  sections="${sections}
+### Landing (merge policy)
+
+The landing plugin is installed. It governs merge policy — how and where
+finished work lands (local merge vs. PR creation) — and drives PR creation
+when the repo's policy calls for it. Use /landing:land to land finished
+work according to the recorded policy.
+"
+fi
+
+if $lego_present; then
+  sections="${sections}
+### Lego (dispatch)
+
+The lego plugin is installed. It provides the plan/scaffold/dispatch
+workflow for decomposing and delivering work in small, verified units.
+"
+fi
+
+if $tracking_present; then
+  sections="${sections}
+### Tracking (state lifecycle)
+
+The tracking plugin is installed. It manages the state lifecycle of
+in-progress work via .local/ tracking docs (TODO.md, PLAN.md and friends),
+so progress and decisions survive compaction and session restarts.
+"
+fi
+
+if ! $landing_present && ! $lego_present && ! $tracking_present; then
+  sections="
+No companion plugins (landing, lego, tracking) were detected. The deliver
+plugin still works standalone for PR description sync via /deliver:sync-pr,
+as long as the gh CLI is installed and authenticated. Installing the
+companion plugins under plugins/ unlocks richer session context: how
+merges and pull requests are handled, how work gets planned and carried
+out in units, and how in-progress work is tracked across sessions.
+"
+fi
+
+standing="
+Standing instruction: after every push to a branch with an open PR, sync
+the PR description to reflect the current state of the branch using
+/deliver:sync-pr.
+"
+
+context="# Delivery framework
+${sections}
+${standing}"
+
+printf '%s' "$context" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'

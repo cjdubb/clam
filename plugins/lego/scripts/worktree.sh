@@ -99,13 +99,13 @@
 #       - when the tests commit exists: restores the block paths from it and
 #         commits with the tests subject (from manifest or default); then
 #         restores the block paths from the implementation commit and commits
-#         with the impl subject (from manifest or default). A restore that
+#         with the impl subject (from the manifest, required). A restore that
 #         produces no changes creates no commit.
 #     Pushes the delivery branch to the "origin" remote and opens a PR
-#     against <base-branch> with `gh pr create` using the title and body
-#     (from manifest or defaults). Removes the temporary worktree (the local
-#     delivery branch remains) and prints the PR URL as the LAST line of
-#     stdout.
+#     against <base-branch> with `gh pr create` using the title (from the
+#     manifest, required) and body (from the manifest or default). Removes
+#     the temporary worktree (the local delivery branch remains) and prints
+#     the PR URL as the LAST line of stdout.
 #     After a successful PR creation, removes each delivered unit's branch
 #     and any remaining worktree as a best-effort cleanup. For each unit-id:
 #     resolves the unit branch, finds its worktree (if any) and removes it
@@ -183,10 +183,11 @@
 #     separator in a "- Code:" list).
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
 #     artifacts are never silently reused.
-#   - Manifest fields are individually optional: a manifest with only "title"
-#     overrides the title while branch, body, and commits use their defaults.
-#   - A manifest "branch" that already exists as a local branch triggers the
-#     same exit 4 as the default branch name would.
+#   - "body" and per-unit "commits.<id>.tests" remain individually optional,
+#     falling back to their defaults when absent; "title", "branch", and
+#     per-unit "commits.<id>.impl" are required (exit 3 when missing).
+#   - A manifest "branch" that already exists as a local branch triggers
+#     exit 4.
 #   - A unit whose blocks have no "- Code:" paths cannot be delivered
 #     (treated as unit-id matching no deliverable content, exit 4).
 #   - merge cleanup failure (dirty unit worktree, already removed, etc.)
@@ -619,7 +620,23 @@ manifest_field() {
 #     absent (same as manifest_field's null/empty contract). A field set to
 #     whitespace-only is treated as present (no trimming beyond what jq does).
 validate_manifest_required_fields() {
-  die 99 "NotImplemented: B01 manifest-required"
+  local manifest="$1"; shift
+
+  local title
+  title="$(manifest_field "$manifest" '.title')"
+  [ -n "$title" ] || die 3 "manifest missing required field: title"
+
+  local branch
+  branch="$(manifest_field "$manifest" '.branch')"
+  [ -n "$branch" ] || die 3 "manifest missing required field: branch"
+
+  local uid impl
+  for uid in "$@"; do
+    impl="$(manifest_field "$manifest" ".commits[\"$uid\"].impl")"
+    [ -n "$impl" ] || die 3 "manifest missing required field: commits.$uid.impl"
+  done
+
+  return 0
 }
 
 deliver_cleanup() {
@@ -681,22 +698,9 @@ cmd_deliver() {
   fi
   validate_manifest_required_fields "$manifest_path" "${unit_ids[@]}"
 
-  # ---- Resolve delivery branch name (manifest "branch" or default) ----
-  local delivery_branch
-  delivery_branch=""
-  # When manifest provides "branch", use it; otherwise construct the default
-  # "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]".
-  if [ -n "$manifest_path" ]; then
-    delivery_branch="$(manifest_field "$manifest_path" '.branch')"
-  fi
-
-  local delivery_suffix="" sep=""
-  local u
-  for u in "${unit_ids[@]}"; do
-    delivery_suffix="${delivery_suffix}${sep}${u}"
-    sep="+"
-  done
-  delivery_branch="${delivery_branch:-lego/deliver/$plan_slug/$delivery_suffix}"
+  # ---- Resolve delivery branch name (from the manifest) ----
+  local delivery_branch u
+  delivery_branch="$(manifest_field "$manifest_path" '.branch')"
 
   if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$delivery_branch"; then
     die 4 "delivery branch $delivery_branch already exists"
@@ -768,18 +772,16 @@ cmd_deliver() {
     local tests_sha="${UNIT_TESTS_SHA[$idx]}"
     local impl_sha="${UNIT_IMPL_SHA[$idx]}"
 
-    # Resolve commit subjects: manifest overrides or defaults.
-    # When manifest provides commits.<unit-id>.tests / commits.<unit-id>.impl,
-    # use those; otherwise fall back to the hardcoded defaults.
+    # Resolve commit subjects: the impl subject is required from the
+    # manifest (validated non-empty); the tests subject remains optional,
+    # falling back to the hardcoded default when the manifest omits it.
     local tests_subject="lego($u): contract + tests"
-    local impl_subject="lego($u): implementation"
-    if [ -n "$manifest_path" ]; then
-      local mt mi
-      mt="$(manifest_field "$manifest_path" ".commits[\"$u\"].tests")"
-      mi="$(manifest_field "$manifest_path" ".commits[\"$u\"].impl")"
-      [ -n "$mt" ] && tests_subject="$mt"
-      [ -n "$mi" ] && impl_subject="$mi"
-    fi
+    local impl_subject=""
+    local mt mi
+    mt="$(manifest_field "$manifest_path" ".commits[\"$u\"].tests")"
+    mi="$(manifest_field "$manifest_path" ".commits[\"$u\"].impl")"
+    [ -n "$mt" ] && tests_subject="$mt"
+    impl_subject="$mi"
 
     if [ -n "$tests_sha" ]; then
       restore_and_commit "$tmp_wt" "$tests_sha" "$tests_subject" "${unit_paths[@]}"
@@ -808,10 +810,9 @@ cmd_deliver() {
     die 4 "failed to push $delivery_branch to origin"
   fi
 
-  # Resolve PR title and body: manifest overrides or defaults.
-  # When manifest provides "title" / "body", use those; otherwise fall back
-  # to the hardcoded defaults (title = "lego: <ids>", body = headings+contracts).
-  local pr_title="lego: ${unit_ids[*]}"
+  # Resolve PR title (required, from the manifest) and body (optional,
+  # falling back to the auto-generated headings+contracts default).
+  local pr_title=""
   local pr_body=""
   local n
   for n in "${!ALL_HEADINGS[@]}"; do
@@ -822,13 +823,11 @@ cmd_deliver() {
     pr_body="${pr_body}"$'\n'
   done
 
-  if [ -n "$manifest_path" ]; then
-    local mtitle mbody
-    mtitle="$(manifest_field "$manifest_path" '.title')"
-    mbody="$(manifest_field "$manifest_path" '.body')"
-    [ -n "$mtitle" ] && pr_title="$mtitle"
-    [ -n "$mbody" ] && pr_body="$mbody"
-  fi
+  local mtitle mbody
+  mtitle="$(manifest_field "$manifest_path" '.title')"
+  mbody="$(manifest_field "$manifest_path" '.body')"
+  pr_title="$mtitle"
+  [ -n "$mbody" ] && pr_body="$mbody"
 
   local pr_url
   pr_url="$(cd "$REPO_ROOT" && gh pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"

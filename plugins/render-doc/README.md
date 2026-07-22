@@ -104,9 +104,56 @@ Edge cases: run before implementation it fails for the right reason
 
 # render-doc
 
-NotImplemented: B01 render-doc plugin core.
+Turn a markdown document into one self-contained HTML file you can read in a
+browser: sticky table of contents, collapsible sections, styled tables,
+schema-aware layouts for plans and decisions, and a feedback composer that
+emits standard annotation tags (`@COMMENT:`, `@QUESTION:`, `@CONCERN:`,
+`@APPROVE:`, `@EVIDENCE:`). The markdown stays the document of record; the
+HTML is a disposable derived view.
 
-This README body, the skill, scripts, assets, and fixtures are stubs; the
-authoritative behavioral contracts are the docblocks above. Implementation
-ports /home/cwilliamson/github/clam-code/general/skills/render-doc/ per plan
-`.local/plans/001-render-doc-port.md`.
+## Usage
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]
+```
+
+Or invoke the skill directly: `/render-doc:render <file>`.
+
+- Writes a sibling `.html` next to the input (`.local/PLAN.md` ->
+  `.local/PLAN.html`).
+- `--open` starts a shared local annotation server (when python3 is
+  available) and opens the rendered view in the browser; the server is
+  reused across calls and auto-shuts down after 30 minutes of inactivity.
+- Exits non-zero with a message on stderr for any failure (missing input,
+  missing template or parser, splice failure); no output is written on
+  failure. Callers should treat a non-zero exit as "fall back to the
+  markdown flow."
+
+## Requirements
+
+python3 is a soft requirement: it powers the `--open` annotation server, so
+edits made through the browser composer get written straight back into the
+source markdown. Without python3, `--open` degrades to a plain `file://`
+open — the page still renders and the composer still works, but annotations
+stay in-memory in the browser and "Copy all feedback" becomes the export
+path instead of an automatic write-back.
+
+## Enabling automatic checkpoint rendering
+
+Automatic rendering at feedback checkpoints (by callers that support it) is
+opt-in via the `CLAM_RENDER_DOC` environment variable. Nothing in this repo
+sets it for you; export it yourself, e.g. in your shell profile:
+
+```bash
+export CLAM_RENDER_DOC=enabled
+```
+
+Unset (the default) means disabled. Explicit `/render-doc:render <file>`
+invocations always work regardless of this flag.
+
+## Provenance
+
+Ported from clam-code, adapted to run as a standalone plugin: paths resolve
+relative to the plugin's own install location instead of a fixed skills
+directory, and cross-skill references degrade gracefully for skills not yet
+ported.

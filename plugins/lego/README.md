@@ -58,10 +58,12 @@ repo is untouched. That is a hard design constraint of this project.
 ## Use
 
 1. `/lego:plan` — decompose the deliverable into blocks with your
-   orchestrator; approve the plan. Creates `.local/` in your repo (config, block
-   map, plans) — the workflow's only footprint, kept out of your tracked tree
-   automatically via `.git/info/exclude`. Teams that want the block map shared
-   can remove that exclude entry and commit `.local/` deliberately.
+   orchestrator; approve the plan. Creates the committed repo interface
+   `.claude/lego.json` (commands, models, delivery mode — inherited by
+   every worktree via checkout) plus gitignored `.local/` session state
+   (block map, plans), kept out of your tracked tree automatically via
+   `.git/info/exclude`. Teams that want the block map shared can remove
+   that exclude entry and commit `.local/` deliberately.
 2. `/lego:scaffold` — the orchestrator writes stubs + contracts and proves
    the design composes (typecheck > build > lint, whatever your repo has).
 3. `/lego:dispatch` — per-unit pipeline: each work unit dispatched in its own
@@ -70,7 +72,8 @@ repo is untouched. That is a hard design constraint of this project.
    delivery (PR groups raised to master/main under `main-prs` delivery mode).
    You watch the block map; you build any block you claimed.
 
-Repo specifics live in one place: `.local/config.json` (see
+Repo specifics live in the layered config: committed `.claude/lego.json`
+merged with an optional gitignored `.local/config.json` local override (see
 `docs/config-schema.md`). The workflow is deliberately opinionated with no
 lightweight path; for work that doesn't warrant it, use plain `claude`.
 
@@ -84,7 +87,7 @@ hooks/            PreToolUse realm gate, SessionStart context injection
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
                   realm-gate.sh, session-context.sh, worktree.sh (unit
                   worktree lifecycle + delivery)
-templates/        starter .local/config.json and blocks.md
+templates/        starter .claude/lego.json (lego.json) and blocks.md
 docs/             config schema / repo-interface spec
 ```
 

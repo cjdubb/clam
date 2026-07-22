@@ -79,6 +79,12 @@
       "version": "0.1.0"
     },
     {
+      "name": "make-progress",
+      "source": "./plugins/make-progress",
+      "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
+      "version": "0.1.0"
+    },
+    {
       "name": "render-doc",
       "source": "./plugins/render-doc",
       "description": "Render a planning or decision markdown file into a self-contained dark-theme HTML view, with an annotation server whose in-page composer writes feedback back into the source markdown.",

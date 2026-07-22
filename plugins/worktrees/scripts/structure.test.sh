@@ -19,8 +19,9 @@
 #     `description` (no TODO/NotImplemented marker)
 #   - skill `name`s are unique across the plugin, and none of them
 #     repeats/contains the plugin name "worktrees" (repo convention)
-#   - plugin.json's .version equals the marketplace.json worktrees entry's
-#     .version (single source of truth), and that entry appears exactly once
+#   - the marketplace.json worktrees entry has no version field (plugin.json
+#     is the single source of truth for version), and that entry appears
+#     exactly once
 #   - no TODO(B0N) or NotImplemented marker survives anywhere under
 #     plugins/worktrees/, outside HTML comment docblocks (which legitimately
 #     document the convention) and outside *.test.sh files (which
@@ -179,20 +180,20 @@ if [[ ${#skill_names[@]} -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. plugin.json version and the marketplace.json worktrees entry version
-#    agree; the entry appears exactly once.
+# 3. marketplace.json worktrees entry has no version field (plugin.json is
+#    the single source of truth); the entry appears exactly once.
 # ---------------------------------------------------------------------------
 
 plugin_version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
 entry_count=$(jq -r '[.plugins[]? | select(.name=="worktrees")] | length' "$MARKETPLACE" 2>/dev/null)
-marketplace_version=$(jq -r '.plugins[]? | select(.name=="worktrees") | .version' "$MARKETPLACE" 2>/dev/null)
+has_version=$(jq -r '.plugins[]? | select(.name=="worktrees") | has("version")' "$MARKETPLACE" 2>/dev/null)
 
 check "plugin.json .version is non-empty" \
   "$([ -n "$plugin_version" ] && echo yes || echo no)" "yes"
 check "marketplace.json lists the worktrees plugin exactly once" \
   "$entry_count" "1"
-check "plugin.json version matches the marketplace.json worktrees entry version" \
-  "$plugin_version" "$marketplace_version"
+check "marketplace.json worktrees entry has no version field (plugin.json is source of truth)" \
+  "$has_version" "false"
 
 # ---------------------------------------------------------------------------
 # 4. No leftover TODO(B0N) / NotImplemented markers anywhere under

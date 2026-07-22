@@ -23,8 +23,8 @@
 #   - no machine-specific absolute paths (e.g. /home/<user>, /Users/<user>)
 #     anywhere in the README
 #   - no section is left with a TODO/NotImplemented placeholder body
-#   - if a marketplace.json worktrees entry exists (B04), its version agrees
-#     with plugin.json's (version single-source-of-truth invariant)
+#   - if a marketplace.json worktrees entry exists (B04), it has no version
+#     field (plugin.json is the single source of truth for version)
 #
 # Tests only the public artifacts (JSON fields, section headings, semantic
 # anchor terms) — never implementation-internal structure. Hermetic: reads
@@ -178,15 +178,16 @@ check "README contains no machine-specific absolute paths (/home/<user> or /User
   "$(printf '%s' "$readme_content" | grep -qE '/(home|Users)/[A-Za-z0-9_.-]+' && echo present || echo absent)" "absent"
 
 # Version single-source-of-truth invariant: if the marketplace already has a
-# worktrees entry (B04's job), its version must agree with plugin.json's. B01
-# alone doesn't create that entry, so this is a no-op pass until B04 runs —
-# it still pins the invariant for whenever the entry appears.
-mp_entry_version=$(jq -r '.plugins[]? | select(.name=="worktrees") | .version' "$MARKETPLACE" 2>/dev/null)
-if [[ -n "$mp_entry_version" ]]; then
-  check "marketplace.json worktrees entry version matches plugin.json (once registered)" \
-    "$mp_entry_version" "$version"
+# worktrees entry (B04's job), it must NOT carry a version field — plugin.json
+# is the single source of truth. B01 alone doesn't create that entry, so this
+# is a no-op pass until B04 runs — it still pins the invariant for whenever
+# the entry appears.
+mp_entry_exists=$(jq -r '[.plugins[]? | select(.name=="worktrees")] | length' "$MARKETPLACE" 2>/dev/null)
+if [[ "$mp_entry_exists" -gt 0 ]]; then
+  check "marketplace.json worktrees entry has no version field (plugin.json is source of truth)" \
+    "$(jq -r '.plugins[]? | select(.name=="worktrees") | has("version")' "$MARKETPLACE" 2>/dev/null)" "false"
 else
-  echo "SKIP  no marketplace.json worktrees entry yet (B04 not run) - version-match invariant not yet applicable"
+  echo "SKIP  no marketplace.json worktrees entry yet (B04 not run) - version-field invariant not yet applicable"
 fi
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

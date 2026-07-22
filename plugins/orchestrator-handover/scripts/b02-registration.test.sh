@@ -12,15 +12,15 @@
 # pattern this test mirrors.
 #
 #   (1) .claude-plugin/marketplace.json — an orchestrator-handover entry:
-#       source "./plugins/orchestrator-handover", version identical to
-#       plugin.json (read dynamically, never hardcoded), non-placeholder
+#       source "./plugins/orchestrator-handover", no version field
+#       (plugin.json is the single source of truth), non-placeholder
 #       description; other plugin entries (lego, decision-log, tracking,
 #       statusline, worktrees, notifications, landing) untouched.
 #   (2) README.md — a new orchestrator-handover Plugins-table row showing
-#       "✅ v<version>" with a link to plugins/orchestrator-handover/, a
-#       non-empty description, and no "planned" marker; other rows
-#       untouched; the session-modes row (which never named the skill
-#       explicitly) still doesn't name it.
+#       "✅ v<version>" (version from plugin.json) with a link to
+#       plugins/orchestrator-handover/, a non-empty description, and no
+#       "planned" marker; other rows untouched; the session-modes row
+#       (which never named the skill explicitly) still doesn't name it.
 #   (3) MIGRATION.md — a new "## orchestrator-handover" section marked
 #       ported/done (not planned), noting the move out of session-modes;
 #       the "## session-modes" section's skill list no longer carries
@@ -86,10 +86,10 @@ check "orchestrator-handover entry source is './plugins/orchestrator-handover'" 
   "$(jq -r 'select(.name=="orchestrator-handover") | .source' <<<"$OH_ENTRY" 2>/dev/null)" \
   "./plugins/orchestrator-handover"
 
-# Output: version identical to plugin.json's version (dynamic comparison,
-# not a hardcoded literal — the "version source of truth" clause).
-check "orchestrator-handover entry version matches plugin.json's version" \
-  "$(jq -r '.version' <<<"$OH_ENTRY" 2>/dev/null)" "$VERSION"
+# Output: no version field in the marketplace entry (plugin.json is the
+# single source of truth for version — marketplace.json must not duplicate it).
+check "orchestrator-handover entry has no version field (plugin.json is single source of truth)" \
+  "$(jq -e '.version' <<<"$OH_ENTRY" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
 # Output: a non-placeholder, non-empty description.
 OH_DESC=$(jq -r '.description // empty' <<<"$OH_ENTRY" 2>/dev/null)
@@ -100,29 +100,30 @@ check "orchestrator-handover entry description is not a TODO placeholder" \
 check "orchestrator-handover entry description is not a NotImplemented placeholder" \
   "$(grep -qi 'notimplemented' <<<"$OH_DESC" && echo placeholder || echo ok)" "ok"
 
-# Invariant: no other plugin's marketplace entries were disturbed. Pinned
-# against the known-stable baseline for the seven pre-existing entries.
-check "lego entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="lego") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/lego","version":"0.4.0"}'
-check "decision-log entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="decision-log") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/decision-log","version":"0.1.0"}'
-check "tracking entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="tracking") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/tracking","version":"0.3.0"}'
-check "statusline entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="statusline") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/statusline","version":"0.1.0"}'
-check "worktrees entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="worktrees") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/worktrees","version":"0.1.0"}'
-check "notifications entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="notifications") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/notifications","version":"0.1.0"}'
-check "landing entry untouched (source/version)" \
-  "$(jq -c '.plugins[]? | select(.name=="landing") | {source,version}' "$MARKETPLACE")" \
-  '{"source":"./plugins/landing","version":"0.1.0"}'
+# Invariant: no other plugin's marketplace entries were disturbed. Check
+# source paths are stable (version is not in marketplace — plugin.json is
+# the single source of truth).
+check "lego entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="lego") | .source' "$MARKETPLACE")" \
+  './plugins/lego'
+check "decision-log entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="decision-log") | .source' "$MARKETPLACE")" \
+  './plugins/decision-log'
+check "tracking entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="tracking") | .source' "$MARKETPLACE")" \
+  './plugins/tracking'
+check "statusline entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="statusline") | .source' "$MARKETPLACE")" \
+  './plugins/statusline'
+check "worktrees entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="worktrees") | .source' "$MARKETPLACE")" \
+  './plugins/worktrees'
+check "notifications entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="notifications") | .source' "$MARKETPLACE")" \
+  './plugins/notifications'
+check "landing entry untouched (source)" \
+  "$(jq -r '.plugins[]? | select(.name=="landing") | .source' "$MARKETPLACE")" \
+  './plugins/landing'
 
 # =====================================================================
 # (2) README.md — Plugins table

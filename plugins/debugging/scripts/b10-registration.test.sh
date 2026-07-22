@@ -127,7 +127,7 @@ declare -A BASELINE_ENTRIES=(
   [statusline]='{"name":"statusline","source":"./plugins/statusline","description":"Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.","version":"0.1.0"}'
   [worktrees]='{"name":"worktrees","source":"./plugins/worktrees","description":"Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents.","version":"0.1.0"}'
   [notifications]='{"name":"notifications","source":"./plugins/notifications","description":"Summoning stack: terminal bell, desktop notification, tmux highlight, and ntfy phone push on the transition into summoning states; silent for parked sessions.","version":"0.1.0"}'
-  [landing]='{"name":"landing","source":"./plugins/landing","description":"The landing seam: /landing:land lands finished work per the repo'"'"'s committed policy in .claude/clam-profile.md (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.","version":"0.1.0"}'
+  [landing]='{"name":"landing","source":"./plugins/landing","description":"The landing seam: /landing:land lands finished work per the repo'"'"'s committed policy in .claude/clam-profile.jsonc (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.","version":"0.1.0"}'
 )
 for name in lego decision-log tracking statusline worktrees notifications landing; do
   actual=$(jq -c --arg n "$name" '.plugins[]? | select(.name==$n)' "$MARKETPLACE" 2>/dev/null)
@@ -178,7 +178,7 @@ mapfile -t EXPECTED_ROWS <<'EOF'
 | [decision-log](plugins/decision-log/) | ✅ v0.1.0 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.1.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
 | [statusline](plugins/statusline/) | ✅ v0.1.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
-| [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.md` (github-pr or local-merge); `/landing:init` detects and records it. |
+| [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
 | [worktrees](plugins/worktrees/) | ✅ v0.1.0 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |

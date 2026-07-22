@@ -91,3 +91,8 @@ clam-code, including what is deliberately left behind.
   `/lego:plan`, not `/lego:lego-plan`.
 - A plugin is added to `.claude-plugin/marketplace.json` only once it is
   ported and working — the marketplace never lists empty shells.
+- When a plugin is absorbed into another or renamed, add a `renames` entry
+  to `marketplace.json` mapping the old name to the new one (or to `null` if
+  removed without replacement). This lets Claude Code (v2.1.193+)
+  auto-rewrite installed references on the next sync instead of erroring
+  with "plugin not found".

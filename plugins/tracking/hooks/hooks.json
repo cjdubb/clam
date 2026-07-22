@@ -9,6 +9,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-compact-recovery.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
@@ -39,6 +49,23 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/flush-nudge.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/precompact-snapshot.sh",
+            "timeout": 10
           }
         ]
       }

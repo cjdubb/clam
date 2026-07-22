@@ -13,7 +13,7 @@
       "name": "lego",
       "source": "./plugins/lego",
       "description": "Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves.",
-      "version": "0.4.0"
+      "version": "0.5.0"
     },
     {
       "name": "decision-log",
@@ -25,7 +25,7 @@
       "name": "tracking",
       "source": "./plugins/tracking",
       "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.",
-      "version": "0.3.0"
+      "version": "0.4.0"
     },
     {
       "name": "statusline",

@@ -67,5 +67,88 @@
 #   - jq not available → skip
 #   - Malformed JSONL lines in transcript → skip (jq fromjson? drops them)
 
-# NotImplemented: B02
+set -e
+trap 'exit 0' ERR
+
+[[ "${CLAM_TRACKING_FLUSH_GATE:-}" == "disabled" ]] && exit 0
+
+command -v jq &>/dev/null || exit 0
+
+input=$(cat)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+
+[[ -n "$cwd" ]] || exit 0
+
+# First prompt after a compaction: the transcript has no post-compaction
+# assistant usage block yet, so metering now would read the stale
+# pre-compaction fill and fire a false nudge. Consume the marker (one prompt
+# only) and skip. Placed before the TODO.md gate so it's always cleared,
+# never left to suppress a later epoch.
+skip_marker="$cwd/.local/.flush-nudge-skip-next"
+if [[ -f "$skip_marker" ]]; then
+    rm -f "$skip_marker" 2>/dev/null || true
+    exit 0
+fi
+
+[[ -f "$cwd/.local/TODO.md" ]] || exit 0
+
+# Resolve the compaction window: test override, then process env, then the
+# deployed settings.json, else skip (no window to meter against).
+window="${CLAM_FLUSH_CONTEXT_WINDOW:-}"
+[[ -n "$window" ]] || window="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
+if [[ -z "$window" ]]; then
+    window=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null)
+fi
+[[ "$window" =~ ^[0-9]+$ ]] || exit 0
+(( window > 0 )) || exit 0
+
+[[ -f "$transcript" ]] || exit 0
+
+# Sum tokens across the transcript stream and take the last assistant usage
+# block — the token count the model saw on its most recent invocation,
+# approximating current context occupancy. fromjson? drops malformed lines.
+fill=$(jq -rR '
+    fromjson?
+    | select(.type == "assistant" and (.message.usage // null) != null)
+    | .message.usage
+    | (.input_tokens // 0)
+      + (.cache_read_input_tokens // 0)
+      + (.cache_creation.ephemeral_5m_input_tokens // 0)
+      + (.cache_creation.ephemeral_1h_input_tokens // 0)
+' < "$transcript" 2>/dev/null | tail -1)
+
+[[ "$fill" =~ ^[0-9]+$ ]] || exit 0
+
+# Invalid or non-positive threshold falls back to the default; > 100 is used
+# as-is (effectively never fires).
+threshold="${CLAM_FLUSH_NUDGE_THRESHOLD:-}"
+if [[ ! "$threshold" =~ ^[0-9]+$ ]]; then
+    threshold=75
+elif (( threshold <= 0 )); then
+    threshold=75
+fi
+
+pct=$(( fill * 100 / window ))
+(( pct >= threshold )) || exit 0
+
+# One-shot per epoch. Marker is cleared by session-context.sh on every
+# SessionStart event, so the next epoch can fire again.
+marker="$cwd/.local/.flush-nudge-fired"
+[[ -f "$marker" ]] && exit 0
+: > "$marker" 2>/dev/null || exit 0
+
+cat <<EOF
+[CLAM FLUSH NUDGE] Context fill is ~${pct}% (${fill} / ${window} tokens). Auto-compaction is approaching and will lossily summarise in-conversation state. Before doing any other work this turn, verify each \`.local/\` tracking doc reflects current reality and update only what is stale:
+
+1. \`.local/TODO.md\` — \`State:\`, \`Last Updated:\`, and the Implementation Log section. If \`State:\` is \`Blocked\` or \`Waiting For Decision\`, populate \`Blocked Reason:\` / \`Decision Needed:\`.
+2. \`.local/PLAN.md\` — append to the Changelog section if the plan has changed mid-implementation.
+3. \`.local/IMPLEMENTATION-PLAN.md\` — chunk status if any chunk transitioned.
+4. \`.local/TROUBLESHOOTING.md\` — log any failed fix attempt before trying the next approach.
+5. \`.local/SUBAGENT-LOG-{descriptiveName}.md\` — persist any subagent return summaries received since last flush.
+6. \`.local/decisions/*.md\` — verify any open decision file (\`Status: Open\`) has its evidence, recommendation, and if-deferred path complete before compaction discards the supporting context.
+
+If every doc above is already current, proceed with the user's request. Do not rewrite files that are already accurate.
+EOF
+
 exit 0

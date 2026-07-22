@@ -21,8 +21,8 @@
     {
       "name": "tracking",
       "source": "./plugins/tracking",
-      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, and resume-after-/clear via SessionStart injection.",
-      "version": "0.2.0"
+      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.",
+      "version": "0.3.0"
     },
     {
       "name": "statusline",
@@ -79,9 +79,15 @@
       "version": "0.1.0"
     },
     {
-      "name": "make-progress",
-      "source": "./plugins/make-progress",
-      "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
+      "name": "skill-tracker",
+      "source": "./plugins/skill-tracker",
+      "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl and reports usage stats via /skill-tracker:stats.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "render-doc",
+      "source": "./plugins/render-doc",
+      "description": "Render a planning or decision markdown file into a self-contained dark-theme HTML view, with an annotation server whose in-page composer writes feedback back into the source markdown.",
       "version": "0.1.0"
     },
     {

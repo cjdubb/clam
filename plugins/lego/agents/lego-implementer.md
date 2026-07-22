@@ -21,11 +21,16 @@ make the tests pass by implementing the block correctly. You do not design.
   - Block ID(s) and name(s) from the block map
   - Path(s) to the stub file(s) to implement; their docblocks carry the contract
   - Path(s) to the tests that define acceptance
-  - The repo's test command (and typecheck/lint commands if any)
+  - The repo's test command (and typecheck/lint commands if any) — the
+    specific command(s) to run, chosen by the orchestrator when the repo
+    defines multiple named test commands
 
 The brief file is the primary source for these inputs. If any are missing
-from it, derive them from your unit worktree's own `.local/` — a seeded copy
-scoped to this unit: `config.json` (a verbatim copy of the repo's config),
+from it, derive them from the layered repo config — the committed
+`.claude/lego.json` base merged with the `.local/config.json` override when
+one exists (an object-form `commands.test` means run its `default` variant)
+— and from your unit worktree's own `.local/` — a seeded copy
+scoped to this unit:
 `unit.md` (only this unit's block-map entries; there is no full `blocks.md`
 here, and sibling units are invisible by design), and this unit's contract
 files when present. `.local/` — including the orchestrator-maintained
@@ -48,7 +53,9 @@ from both the brief and the seeded `.local/` remain escalations, as today.
    declarations, and contract docblocks are fixed. Fill in bodies; do not
    redesign. If the interface cannot support a correct implementation, escalate.
 4. **Stay within your assigned block(s).** Do not "improve" neighboring blocks,
-   shared utilities, or config. New third-party dependencies require escalation.
+   shared utilities, or config — config includes the committed
+   `.claude/lego.json` and anything under `.claude/`. New third-party
+   dependencies require escalation.
 5. **Verify before finishing.** Run the repo's test command (plus typecheck and
    lint when configured) inside your unit worktree. Finish only when the
    suite is green in your unit worktree, or return an escalation explaining

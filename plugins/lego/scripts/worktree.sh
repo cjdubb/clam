@@ -1,32 +1,50 @@
 #!/usr/bin/env bash
 # worktree.sh — lego unit-worktree lifecycle helper.
 #
-# Contract: B01 worktree-add-status-seed (worktree.sh unit-worktree lifecycle)
+# Contract: B01 layered-config-resolution (worktree.sh unit-worktree lifecycle)
 #
-# New clauses in plan 001 are marked (NEW, plan 001); every other clause is
-# pre-existing behavior already covered by worktree_test.sh.
+# New/changed clauses in plan 001-layered-config are marked (NEW, plan 001-lc)
+# or (CHANGED, plan 001-lc); every other clause is pre-existing behavior
+# already covered by worktree_test.sh.
 #
 # Behavior:
 #   Manages the git worktrees, branches, and delivery PRs for lego work
 #   units. Run from the repo root of the integration worktree (the branch
-#   lego was started on). Subcommands:
+#   lego was started on).
+#
+#   Config resolution (NEW, plan 001-lc):
+#     The effective config is the jq recursive merge (.[0] * .[1]) of two
+#     files at the repo root, both optional, override merged second:
+#       .claude/lego.json   — committed base
+#       .local/config.json  — gitignored local override (wins per key)
+#     At least one must exist. commands.test in the effective config is
+#     either a non-empty string (used verbatim as the test command) or an
+#     object of named variants whose "default" field names the variant key
+#     to use; that variant's value (a non-empty string) is the resolved
+#     test command. delivery.worktreeDir is likewise read from the
+#     effective config.
+#
+#   Subcommands:
 #
 #   add <plan-slug> <unit-id> <unit-slug>
 #     Creates branch "lego/<plan-slug>/<unit-id>-<unit-slug>" at the current
 #     HEAD plus a git worktree for it at
 #     "<worktreeDir>/<repo-basename>-<unit-id>", where <worktreeDir> is
-#     delivery.worktreeDir from .local/config.json (missing/empty → the
+#     delivery.worktreeDir from the effective config (missing/empty → the
 #     parent directory of the repo root; a relative value resolves against
 #     the repo root) and <repo-basename> is the basename of the repo root.
 #     Seeds the new worktree's .local/ directory:
-#       - .local/config.json copied verbatim
+#       - (CHANGED, plan 001-lc) .local/config.json copied verbatim only
+#         when it exists in the integration worktree; its absence is not an
+#         error (the committed base .claude/lego.json reaches the unit
+#         worktree via git checkout)
 #       - .local/unit.md: the single line "# Unit <unit-id>", then exactly
 #         the "## B<NN> — ..." sections of the integration worktree's
 #         .local/blocks.md whose "- Unit:" field equals <unit-id>, verbatim
 #       - every .local/contracts/B<NN>-*.md whose B<NN> belongs to one of
 #         those sections, copied to the same relative path (silently skipped
 #         when no such file exists)
-#       - (NEW, plan 001) .local/status.md: the unit status file, exactly
+#       - .local/status.md: the unit status file, exactly
 #         these lines in order —
 #           "# Unit <unit-id> — status"
 #           ""
@@ -45,9 +63,10 @@
 #           ""
 #           "<!-- orchestrator appends one line per event -->"
 #         ending with a trailing newline.
-#       - (NEW, plan 001) .local/briefs/ and .local/reports/ created as
+#       - .local/briefs/ and .local/reports/ created as
 #         empty directories
-#     Then runs the repo test command (commands.test) inside the new worktree
+#     (CHANGED, plan 001-lc) Then runs the resolved test command (per
+#     "Config resolution" above) inside the new worktree
 #     as a baseline check. On success prints the new worktree's absolute path
 #     as the LAST line of stdout and exits 0.
 #
@@ -63,34 +82,28 @@
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters.
 #
-#   deliver [--manifest <path>] <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 #     Builds a delivery branch from <base-branch> in a temporary worktree.
 #
-#     When --manifest <path> is provided, <path> must be a readable JSON file
-#     (validated with jq). The manifest overrides the default PR content and
-#     branch naming. All fields are optional; absent fields fall back to the
-#     default behavior described below.
+#     --manifest <path> is required. <path> must be a readable JSON file
+#     (validated with jq). The manifest provides PR content and branch naming.
+#     Required fields: "title" (non-empty), "branch" (non-empty), and for
+#     each delivered unit-id, "commits.<unit-id>.impl" (non-empty). Optional
+#     fields: "body" (falls back to blocks.md headings + contracts) and
+#     "commits.<unit-id>.tests" (falls back to the default subject).
 #
 #     Manifest JSON schema:
 #       {
-#         "title":   "<PR title string>",
-#         "body":    "<PR body markdown>",
-#         "branch":  "<delivery branch name>",
+#         "title":   "<PR title string>",           (required, non-empty)
+#         "body":    "<PR body markdown>",           (optional)
+#         "branch":  "<delivery branch name>",       (required, non-empty)
 #         "commits": {
 #           "<unit-id>": {
-#             "tests": "<commit subject for this unit's tests commit>",
-#             "impl":  "<commit subject for this unit's implementation commit>"
+#             "tests": "<commit subject for tests>", (optional)
+#             "impl":  "<commit subject for impl>"   (required, non-empty)
 #           }
 #         }
 #       }
-#
-#     Without a manifest (or for absent manifest fields), the defaults are:
-#       - branch: "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]"
-#       - title:  "lego: <unit-id list>"
-#       - body:   each delivered block's "## B<NN> — ..." heading and
-#                 "- Contract:" line from blocks.md
-#       - commits.<unit-id>.tests: "lego(<unit-id>): contract + tests"
-#       - commits.<unit-id>.impl:  "lego(<unit-id>): implementation"
 #
 #     For each unit, in argument order:
 #       - constructs the exact unit branch name
@@ -103,21 +116,22 @@
 #         "lego(<unit-id>): implementation"; the implementation commit is
 #         required, the tests commit is optional (untested prose units)
 #       - when the tests commit exists: restores the block paths from it and
-#         commits with the tests subject (from manifest or default); then
+#         commits with subject "lego(<unit-id>): contract + tests"; then
 #         restores the block paths from the implementation commit and commits
-#         with the impl subject (from manifest or default). A restore that
+#         with the impl subject (from the manifest, required). A restore that
 #         produces no changes creates no commit.
 #     Pushes the delivery branch to the "origin" remote and opens a PR
-#     against <base-branch> with `gh pr create` using the title and body
-#     (from manifest or defaults). Removes the temporary worktree (the local
-#     delivery branch remains) and prints the PR URL as the LAST line of
-#     stdout.
+#     against <base-branch> with `gh pr create` using the title (from the
+#     manifest, required) and body (from the manifest or default). Removes
+#     the temporary worktree (the local delivery branch remains) and prints
+#     the PR URL as the LAST line of stdout.
 #     After a successful PR creation, removes each delivered unit's branch
 #     and any remaining worktree as a best-effort cleanup. For each unit-id:
 #     resolves the unit branch, finds its worktree (if any) and removes it
 #     via git worktree remove, then deletes the branch with git branch -d.
 #     Failures are warned on stderr but do not fail the deliver (the PR is
-#     already open). The local delivery branch is left intact.
+#     already open). The local delivery branch (lego/deliver/...) is left
+#     intact.
 #
 #   remove <plan-slug> <unit-id> <unit-slug>
 #     Constructs the exact branch name
@@ -136,8 +150,10 @@
 #     Exits 0 always (best-effort). Exit 2 on unexpected arguments.
 #
 # Inputs:
-#   Positional arguments as above. .local/config.json (jq-parsed;
-#   commands.test required; delivery.worktreeDir optional). .local/blocks.md
+#   Positional arguments as above. (CHANGED, plan 001-lc) The effective
+#   config per "Config resolution": .claude/lego.json and/or
+#   .local/config.json (jq-parsed and merged; commands.test required and
+#   resolvable; delivery.worktreeDir optional). .local/blocks.md
 #   with "- Unit:" and "- Code:" fields per block section. Must run inside a
 #   git work tree, at the repo root.
 #
@@ -151,9 +167,15 @@
 #            slug containing characters outside [A-Za-z0-9._-]; prints usage
 #            to stderr.
 #   exit 3 — missing dependency or input: jq absent; gh absent (deliver
-#            only); .local/config.json missing or commands.test absent/empty;
-#            .local/blocks.md missing; not inside a git work tree; manifest
-#            file unreadable or not valid JSON (deliver with --manifest).
+#            only); (CHANGED, plan 001-lc) no config file exists (neither
+#            .claude/lego.json nor .local/config.json), a present config
+#            file is not valid JSON, or commands.test is unresolvable in
+#            the effective config (absent/empty; object without "default";
+#            "default" naming an absent or empty variant);
+#            .local/blocks.md missing; not inside a git work tree; --manifest
+#            not provided (deliver); manifest file unreadable or not valid
+#            JSON; manifest missing required field (title, branch, or
+#            per-unit impl commit subject).
 #   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
 #            branch or worktree path already exists (add); constructed
 #            unit branch does not exist (merge/deliver/remove); dirty working
@@ -172,25 +194,40 @@
 #     itself; all other branches and worktrees are untouched.
 #   - Deterministic: identical repo state and arguments produce identical
 #     names and results.
-#   - (NEW, plan 001) status.md content derives only from repository state
+#   - status.md content derives only from repository state
 #     and arguments — never wall-clock time or randomness.
+#   - (NEW, plan 001-lc) Config files are read-only inputs: no subcommand
+#     ever writes .claude/lego.json or the integration worktree's
+#     .local/config.json.
 #   - `merge` may also remove the unit worktree as a best-effort side
 #     effect; a removal failure never changes merge's exit code.
 #   - `deliver` may also remove unit branches and worktrees as a best-effort
 #     side effect; a removal failure never changes deliver's exit code.
 #
 # Edge cases:
+#   - (NEW, plan 001-lc) Only one of the two config files exists: it alone
+#     is the effective config; nothing is required of the absent file.
+#   - (NEW, plan 001-lc) Merge semantics are jq's recursive merge (*):
+#     nested objects merge per key with the override winning; arrays and
+#     scalars are replaced whole by the override, never concatenated.
+#   - (NEW, plan 001-lc) An object-form commands.test's variants are all
+#     keys except "default"; "default" is a key reference, never itself a
+#     command string.
+#   - (NEW, plan 001-lc) A unit worktree seeded without .local/config.json
+#     (no override present in the integration worktree) still resolves its
+#     config from the checked-out .claude/lego.json.
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
-#     deliver restores the union of their Code paths; (NEW, plan 001)
+#     deliver restores the union of their Code paths;
 #     status.md carries one "## Blocks" line per section, in file order.
 #   - Code paths containing spaces are preserved verbatim (comma is the only
 #     separator in a "- Code:" list).
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
 #     artifacts are never silently reused.
-#   - Manifest fields are individually optional: a manifest with only "title"
-#     overrides the title while branch, body, and commits use their defaults.
-#   - A manifest "branch" that already exists as a local branch triggers the
-#     same exit 4 as the default branch name would.
+#   - "body" and per-unit "commits.<id>.tests" remain individually optional,
+#     falling back to their defaults when absent; "title", "branch", and
+#     per-unit "commits.<id>.impl" are required (exit 3 when missing).
+#   - A manifest "branch" that already exists as a local branch triggers
+#     exit 4.
 #   - A unit whose blocks have no "- Code:" paths cannot be delivered
 #     (treated as unit-id matching no deliverable content, exit 4).
 #   - merge cleanup failure (dirty unit worktree, already removed, etc.)
@@ -245,16 +282,63 @@ require_gh() {
   command -v gh >/dev/null 2>&1 || die 3 "gh is required"
 }
 
-CONFIG_JSON=""
+# EFFECTIVE_CONFIG holds the resolved config as a JSON string (piped into
+# jq via stdin by callers below, never written to disk). require_config_json
+# computes the jq recursive merge (.[0] * .[1]) of the base
+# (.claude/lego.json) and override (.local/config.json) layers, both
+# optional, at least one required. A present-but-invalid-JSON file is exit 3.
+EFFECTIVE_CONFIG=""
+BASE_CONFIG_JSON=""
+OVERRIDE_CONFIG_JSON=""
 require_config_json() {
-  CONFIG_JSON="$REPO_ROOT/.local/config.json"
-  [ -f "$CONFIG_JSON" ] || die 3 "missing .local/config.json"
+  BASE_CONFIG_JSON="$REPO_ROOT/.claude/lego.json"
+  OVERRIDE_CONFIG_JSON="$REPO_ROOT/.local/config.json"
+
+  local have_base=0 have_override=0
+  [ -f "$BASE_CONFIG_JSON" ] && have_base=1
+  [ -f "$OVERRIDE_CONFIG_JSON" ] && have_override=1
+
+  if [ "$have_base" -eq 0 ] && [ "$have_override" -eq 0 ]; then
+    die 3 "missing config: neither .claude/lego.json nor .local/config.json exists"
+  fi
+
+  if [ "$have_base" -eq 1 ] && ! jq -e . "$BASE_CONFIG_JSON" >/dev/null 2>&1; then
+    die 3 "invalid JSON in .claude/lego.json"
+  fi
+  if [ "$have_override" -eq 1 ] && ! jq -e . "$OVERRIDE_CONFIG_JSON" >/dev/null 2>&1; then
+    die 3 "invalid JSON in .local/config.json"
+  fi
+
+  if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
+    EFFECTIVE_CONFIG="$(jq -s '.[0] * .[1]' "$BASE_CONFIG_JSON" "$OVERRIDE_CONFIG_JSON" 2>/dev/null)"
+  elif [ "$have_base" -eq 1 ]; then
+    EFFECTIVE_CONFIG="$(cat "$BASE_CONFIG_JSON")"
+  else
+    EFFECTIVE_CONFIG="$(cat "$OVERRIDE_CONFIG_JSON")"
+  fi
 }
 
 TEST_CMD=""
 require_test_cmd() {
-  TEST_CMD="$(jq -r '.commands.test // empty' "$CONFIG_JSON" 2>/dev/null)"
-  [ -n "$TEST_CMD" ] || die 3 "commands.test missing or empty in .local/config.json"
+  local raw_type
+  raw_type="$(jq -r '.commands.test | type' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+
+  case "$raw_type" in
+    string)
+      TEST_CMD="$(jq -r '.commands.test' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$TEST_CMD" ] || die 3 "commands.test is an empty string in the effective config"
+      ;;
+    object)
+      local default_key
+      default_key="$(jq -r '.commands.test.default // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$default_key" ] || die 3 "commands.test is an object without a 'default' key in the effective config"
+      TEST_CMD="$(jq -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      [ -n "$TEST_CMD" ] || die 3 "commands.test.default names an absent or empty variant in the effective config"
+      ;;
+    *)
+      die 3 "commands.test missing or empty in the effective config"
+      ;;
+  esac
 }
 
 BLOCKS_MD=""
@@ -422,7 +506,7 @@ cmd_add() {
   require_blocks_md
 
   local worktree_dir
-  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' "$CONFIG_JSON" 2>/dev/null)"
+  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
 
   local base_dir
   if [ -z "$worktree_dir" ]; then
@@ -460,8 +544,8 @@ cmd_add() {
 
   local seed_ok=1
   mkdir -p -- "$new_wt/.local" 2>/dev/null || seed_ok=0
-  if [ "$seed_ok" -eq 1 ]; then
-    cp -- "$CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
+  if [ "$seed_ok" -eq 1 ] && [ -f "$OVERRIDE_CONFIG_JSON" ]; then
+    cp -- "$OVERRIDE_CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
   fi
   if [ "$seed_ok" -eq 1 ]; then
     {
@@ -607,6 +691,41 @@ manifest_field() {
   printf '%s' "$val"
 }
 
+# Contract: B01 manifest-required (plan 001-require-deliver-manifest)
+#   Behavior: Validates that a deliver manifest contains all required fields.
+#     Dies exit 3 if any required field is missing or empty.
+#   Inputs: $1 = manifest file path (must be readable, valid JSON — caller
+#     validates this before calling). Remaining args = unit-ids to check
+#     commits.<unit-id>.impl against.
+#   Outputs: Returns 0 if all required fields are present and non-empty.
+#   Errors: exit 3 with descriptive message naming the missing field when
+#     any required field is absent or empty-string.
+#   Invariants: The manifest file is never modified (read-only).
+#     The "body" field remains optional (auto-generated fallback is acceptable).
+#     Per-unit "tests" commit subject remains optional (untested prose units).
+#   Edge cases: A field present but set to empty string ("") is treated as
+#     absent (same as manifest_field's null/empty contract). A field set to
+#     whitespace-only is treated as present (no trimming beyond what jq does).
+validate_manifest_required_fields() {
+  local manifest="$1"; shift
+
+  local title
+  title="$(manifest_field "$manifest" '.title')"
+  [ -n "$title" ] || die 3 "manifest missing required field: title"
+
+  local branch
+  branch="$(manifest_field "$manifest" '.branch')"
+  [ -n "$branch" ] || die 3 "manifest missing required field: branch"
+
+  local uid impl
+  for uid in "$@"; do
+    impl="$(manifest_field "$manifest" ".commits[\"$uid\"].impl")"
+    [ -n "$impl" ] || die 3 "manifest missing required field: commits.$uid.impl"
+  done
+
+  return 0
+}
+
 deliver_cleanup() {
   local tmp_wt="$1" tmp_parent="$2" branch="$3"
   if [ -n "$tmp_wt" ]; then
@@ -621,11 +740,15 @@ deliver_cleanup() {
 }
 
 cmd_deliver() {
-  # ---- Parse optional --manifest flag before positional args ----
+  # ---- Parse required --manifest flag before positional args ----
   local manifest_path=""
   if [ "$#" -ge 2 ] && [ "$1" = "--manifest" ]; then
     manifest_path="$2"
     shift 2
+  fi
+
+  if [ -z "$manifest_path" ]; then
+    die 3 "--manifest is required for deliver"
   fi
 
   [ "$#" -ge 4 ] || usage_die
@@ -653,41 +776,18 @@ cmd_deliver() {
   require_blocks_md
   require_gh
 
-  # ---- Validate manifest if provided ----
-  # Contract (B01 deliver-manifest, plan 001):
-  #   Behavior: When --manifest is given, validate that the file exists, is
-  #     readable, and contains valid JSON. Die exit 3 if not. Then read
-  #     optional fields (title, body, branch, commits) to override defaults.
-  #   Inputs: manifest_path (may be empty if --manifest was not passed).
-  #   Outputs: Sets local variables for overridden PR content fields.
-  #   Errors: exit 3 if manifest file is unreadable or invalid JSON.
-  #   Invariants: The manifest is read-only; never modified.
-  #   Edge cases: Empty manifest_path means no manifest — all defaults apply.
-  if [ -n "$manifest_path" ]; then
-    if [ ! -r "$manifest_path" ]; then
-      die 3 "manifest file not readable: $manifest_path"
-    fi
-    if ! jq empty "$manifest_path" >/dev/null 2>&1; then
-      die 3 "manifest file is not valid JSON: $manifest_path"
-    fi
+  # ---- Validate manifest ----
+  if [ ! -r "$manifest_path" ]; then
+    die 3 "manifest file not readable: $manifest_path"
   fi
-
-  # ---- Resolve delivery branch name (manifest "branch" or default) ----
-  local delivery_branch
-  delivery_branch=""
-  # When manifest provides "branch", use it; otherwise construct the default
-  # "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]".
-  if [ -n "$manifest_path" ]; then
-    delivery_branch="$(manifest_field "$manifest_path" '.branch')"
+  if ! jq empty "$manifest_path" >/dev/null 2>&1; then
+    die 3 "manifest file is not valid JSON: $manifest_path"
   fi
+  validate_manifest_required_fields "$manifest_path" "${unit_ids[@]}"
 
-  local delivery_suffix="" sep=""
-  local u
-  for u in "${unit_ids[@]}"; do
-    delivery_suffix="${delivery_suffix}${sep}${u}"
-    sep="+"
-  done
-  delivery_branch="${delivery_branch:-lego/deliver/$plan_slug/$delivery_suffix}"
+  # ---- Resolve delivery branch name (from the manifest) ----
+  local delivery_branch u
+  delivery_branch="$(manifest_field "$manifest_path" '.branch')"
 
   if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$delivery_branch"; then
     die 4 "delivery branch $delivery_branch already exists"
@@ -759,18 +859,16 @@ cmd_deliver() {
     local tests_sha="${UNIT_TESTS_SHA[$idx]}"
     local impl_sha="${UNIT_IMPL_SHA[$idx]}"
 
-    # Resolve commit subjects: manifest overrides or defaults.
-    # When manifest provides commits.<unit-id>.tests / commits.<unit-id>.impl,
-    # use those; otherwise fall back to the hardcoded defaults.
+    # Resolve commit subjects: the impl subject is required from the
+    # manifest (validated non-empty); the tests subject remains optional,
+    # falling back to the hardcoded default when the manifest omits it.
     local tests_subject="lego($u): contract + tests"
-    local impl_subject="lego($u): implementation"
-    if [ -n "$manifest_path" ]; then
-      local mt mi
-      mt="$(manifest_field "$manifest_path" ".commits[\"$u\"].tests")"
-      mi="$(manifest_field "$manifest_path" ".commits[\"$u\"].impl")"
-      [ -n "$mt" ] && tests_subject="$mt"
-      [ -n "$mi" ] && impl_subject="$mi"
-    fi
+    local impl_subject=""
+    local mt mi
+    mt="$(manifest_field "$manifest_path" ".commits[\"$u\"].tests")"
+    mi="$(manifest_field "$manifest_path" ".commits[\"$u\"].impl")"
+    [ -n "$mt" ] && tests_subject="$mt"
+    impl_subject="$mi"
 
     if [ -n "$tests_sha" ]; then
       restore_and_commit "$tmp_wt" "$tests_sha" "$tests_subject" "${unit_paths[@]}"
@@ -799,10 +897,9 @@ cmd_deliver() {
     die 4 "failed to push $delivery_branch to origin"
   fi
 
-  # Resolve PR title and body: manifest overrides or defaults.
-  # When manifest provides "title" / "body", use those; otherwise fall back
-  # to the hardcoded defaults (title = "lego: <ids>", body = headings+contracts).
-  local pr_title="lego: ${unit_ids[*]}"
+  # Resolve PR title (required, from the manifest) and body (optional,
+  # falling back to the auto-generated headings+contracts default).
+  local pr_title=""
   local pr_body=""
   local n
   for n in "${!ALL_HEADINGS[@]}"; do
@@ -813,13 +910,11 @@ cmd_deliver() {
     pr_body="${pr_body}"$'\n'
   done
 
-  if [ -n "$manifest_path" ]; then
-    local mtitle mbody
-    mtitle="$(manifest_field "$manifest_path" '.title')"
-    mbody="$(manifest_field "$manifest_path" '.body')"
-    [ -n "$mtitle" ] && pr_title="$mtitle"
-    [ -n "$mbody" ] && pr_body="$mbody"
-  fi
+  local mtitle mbody
+  mtitle="$(manifest_field "$manifest_path" '.title')"
+  mbody="$(manifest_field "$manifest_path" '.body')"
+  pr_title="$mtitle"
+  [ -n "$mbody" ] && pr_body="$mbody"
 
   local pr_url
   pr_url="$(cd "$REPO_ROOT" && gh pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"

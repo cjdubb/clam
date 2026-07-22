@@ -18,6 +18,43 @@ that group is accepted and merged.
 Verification is not optional and not a skim: the checklists below are what
 make cheap-tier workers safe.
 
+<!-- Contract: B01 — dispatch-no-self-impl (general prohibition)
+Behavior:   State an unconditional rule that the orchestrator never writes
+            implementation code for any block during dispatch — leaf,
+            composition, or otherwise — regardless of perceived simplicity.
+            Every block's implementation is dispatched to a lego-implementer
+            agent (or handed to the engineer for engineer-owned blocks).
+Inputs:     N/A (instruction text, not a function)
+Outputs:    A prominent, unambiguous paragraph that a model cannot rationalize
+            around. Must be positioned before any pipeline steps so it is read
+            first.
+Errors:     N/A
+Invariants: The prohibition covers ALL block types and ALL perceived
+            complexity levels. It must not accidentally prohibit legitimate
+            orchestrator file writes (briefs, status files, block map, merge
+            commits). The distinction is: the orchestrator never edits files
+            at a block's Code: paths with implementation content.
+Edge cases: Composition blocks that feel like "just wiring" — the exact
+            scenario from issue #68. Trivial one-line blocks. Blocks where
+            the orchestrator "already knows the answer."
+-->
+## Orchestrator role during dispatch
+
+The orchestrator never writes implementation code for any block during
+dispatch — leaf, composition, or otherwise — regardless of perceived
+simplicity. This is unconditional: it does not matter how small, obvious, or
+"just wiring" a block looks, and it does not matter whether the orchestrator
+already knows what the code should say. Every block's implementation is
+dispatched to a `lego-implementer` agent, or handed to the engineer for
+engineer-owned blocks (see "Engineer-owned blocks" below) — the orchestrator
+itself never writes it.
+
+The prohibition is scoped to a block's `Code:` paths: what's forbidden is the
+orchestrator editing those paths with implementation content. It does not
+reach the orchestrator's other, legitimate writes during dispatch — briefs,
+status files, the block map, and merge commits stay the orchestrator's own
+job throughout.
+
 ## Vocabulary
 
 - **Work unit**: one or more blocks dispatched together (`.local/blocks.md`'s
@@ -27,9 +64,11 @@ make cheap-tier workers safe.
   checkout on that branch is the integration worktree.
 - **PR group**: the blocks delivered together as one pull request, once every
   unit in the group is accepted and locally merged.
-- **Delivery mode**: `delivery.mode` in `.local/config.json`, either
-  `main-prs` (open PRs against master/main per PR group) or `local-only`
-  (stop at the local merge; the engineer delivers manually).
+- **Delivery mode**: `delivery.mode` in the effective config —
+  `.claude/lego.json` merged with any `.local/config.json` override, see
+  `docs/config-schema.md` — either `main-prs` (open PRs against
+  master/main per PR group) or `local-only` (stop at the local merge; the
+  engineer delivers manually).
 
 ## Preconditions
 
@@ -38,14 +77,15 @@ The scaffold gate has passed on the integration branch, every block sits at
 
 `.local/blocks.md` on the integration branch is the live block map for the
 rest of dispatch. Its state transitions happen there, in real time, as they
-occur. A unit worktree's seeded `.local/` — `unit.md`, `config.json`,
-contracts, and (once the worktree is created) `status.md`, `briefs/`, and
-`reports/` — is a read-only reference copy scoped to that unit: orchestrator-
-owned throughout, never the thing a worker edits.
+occur. A unit worktree's seeded `.local/` — `unit.md`, contracts, any
+`config.json` override copy (the committed `.claude/lego.json` base arrives
+via checkout), and (once the worktree is created) `status.md`, `briefs/`,
+and `reports/` — is a read-only reference copy scoped to that unit:
+orchestrator-owned throughout, never the thing a worker edits.
 
 ## Tier resolution
 
-Read `models.testWriter` and `models.implementer` from `.local/config.json`
+Read `models.testWriter` and `models.implementer` from the effective config
 (default both to `sonnet` when absent) and pass the value as the `model`
 parameter on every Agent call. Do not rely on agent-definition defaults alone.
 
@@ -63,14 +103,18 @@ so parallel same-wave agents in one unit get distinct `NN`s and `<blocks>`
 values). The brief itself names: the unit worktree's absolute path (workers
 do all work and run all commands there, never in the orchestrator's own
 tree), the block ID(s) this unit covers, their stub path(s) (the contract
-docblocks), the repo's commands from `.local/config.json`, where tests
+docblocks), the repo's commands from the effective config — when
+`commands.test` is an object of named variants, name the specific command
+this wave runs, chosen for the unit's test type and scope (construct
+scope-specific monorepo commands like `nx run mylib:unit-test` here, at
+brief-writing time), never just "the test command" — where tests
 conventionally live (test wave) or the test paths (implementation wave), and
 the required report format (the agents' definitions specify it). State
 explicitly that `.local/` inside the worktree is a seeded copy scoped to
-this unit — a copy of `config.json`, a `unit.md` carrying only this unit's
-block-map sections, and this unit's contracts — not the live block map and
-not the full plan, and that the whole of it is orchestrator-owned and
-read-only for workers: they read it, they never write to it.
+this unit — a `unit.md` carrying only this unit's block-map sections, this
+unit's contracts, and any `config.json` override copy — not the live block
+map and not the full plan, and that the whole of it is orchestrator-owned
+and read-only for workers: they read it, they never write to it.
 
 The dispatch prompt itself is only a pointer to that file: it names the unit
 worktree's absolute path and the brief file's path, and instructs the worker
@@ -89,51 +133,6 @@ prompts.
 
 Group only independent blocks within the unit into one wave; dispatch a
 wave's agents in a single message so they run in parallel.
-
-## While workers are running
-
-<!--
-Contract: B01 dispatch-preflight-antipoll (anti-polling guidance)
-Behavior:
-  The orchestrator must not poll a unit worktree while a backgrounded worker
-  agent is running in it. No git diff --stat, wc -l, git status, or any
-  other command targeting the unit worktree to check on worker progress.
-  The Agent tool sends a completion notification when the worker finishes;
-  that notification is the only signal the orchestrator acts on. Polling
-  wastes context tokens, produces no actionable information (the worker may
-  not have written anything yet), and trains bad habits that compound across
-  multi-unit dispatches.
-Inputs:
-  A backgrounded Agent tool call (test-writer or implementer).
-Outputs:
-  The orchestrator waits for the Agent completion notification, then
-  proceeds with verification.
-Errors:
-  None — this is a behavioral constraint, not a command.
-Invariants:
-  Applies to every backgrounded worker dispatch, test wave and
-  implementation wave alike.
-Edge cases:
-  If the orchestrator has independent work to do while waiting (e.g.
-  preparing briefs for the next unit, updating status files), it may do
-  that work — but not by inspecting the running worker's worktree.
--->
-
-While a backgrounded worker agent (test-writer or implementer) is running in
-a unit worktree, the orchestrator must not poll a unit worktree to check on
-its progress — no `git diff --stat`, `wc -l`, `git status`, or any other
-command targeting that worktree.
-
-The Agent tool sends a completion notification when the worker finishes;
-that notification is the only signal the orchestrator acts on. Polling
-wastes context tokens, produces no actionable information (the worker may
-not have written anything yet), and trains bad habits that compound across
-multi-unit dispatches.
-
-This applies to every backgrounded worker dispatch, test wave and
-implementation wave alike. If the orchestrator has independent work to do
-while waiting — preparing briefs for the next unit, updating status files —
-it may do that work, but not by inspecting the running worker's worktree.
 
 ## Unit status file
 
@@ -168,50 +167,6 @@ commits against the integration worktree on a unit's behalf — the whole point
 of the worktree is that this unit's diff is never entangled with another
 unit's, or with the orchestrator's own tree.
 
-### 0. Pre-flight: integration worktree must be clean
-
-<!--
-Contract: B01 dispatch-preflight-antipoll (pre-flight check)
-Behavior:
-  Before creating any unit worktree, the orchestrator checks the integration
-  worktree for uncommitted changes (staged, unstaged, and untracked excluding
-  .local/). If the tree is dirty, the orchestrator must commit or otherwise
-  resolve the dirty state before proceeding. This catches the case where
-  scaffold stubs were written but not committed — a worktree forked from a
-  pre-scaffold HEAD would lack stubs entirely, wasting a worker dispatch.
-Inputs:
-  The integration worktree's git status.
-Outputs:
-  Either a clean tree (proceed to step 1) or a hard stop with the specific
-  dirty paths named.
-Errors:
-  Dirty tree → do not create the worktree; commit first.
-Invariants:
-  This check runs before EVERY call to worktree.sh add, not just the first.
-  It is the orchestrator's responsibility, not worktree.sh's — the worktree
-  tooling stays generic and decoupled from lego workflow semantics.
-Edge cases:
-  .local/ files are excluded from the check (they are never committed).
-  Untracked files outside .local/ are treated as dirty (they may be
-  un-added scaffold files).
--->
-
-Before creating any unit worktree, the orchestrator checks the integration
-worktree for uncommitted changes — staged, unstaged, and untracked,
-excluding `.local/`. If the tree is dirty, do not create the worktree:
-commit or otherwise resolve the dirty state first, naming the specific
-dirty paths, then proceed to step 1. This catches the case where scaffold
-stubs were written but not committed — a worktree forked from a
-pre-scaffold HEAD would lack stubs entirely, wasting a worker dispatch.
-
-This check runs before EVERY call to worktree.sh add, not just the first.
-It is the orchestrator's responsibility, not worktree.sh's — the worktree
-tooling stays generic and decoupled from lego workflow semantics.
-
-.local/ files are excluded from the check (they are never committed).
-Untracked files outside .local/ are treated as dirty — they may be un-added
-scaffold files.
-
 ### 1. Create the worktree
 
 From the integration worktree, run:
@@ -222,11 +177,12 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh add <plan-slug> <unit-id> <unit-slug>
 
 This creates the unit branch from the integration branch's current tip (so
 previously-accepted dependencies are present as real implementations, not
-stubs) and a seeded worktree — `.local/config.json` copied verbatim, a
-`.local/unit.md` carrying only this unit's block-map sections, and this
-unit's `.local/contracts/` files where they exist — then runs the repo's
-test command inside the new worktree as a baseline; a failing baseline fails
-the whole operation. The worktree's absolute path is the last line of
+stubs) and a seeded worktree — any `.local/config.json` override copied
+verbatim when present (the committed `.claude/lego.json` base arrives via
+checkout), a `.local/unit.md` carrying only this unit's block-map sections,
+and this unit's `.local/contracts/` files where they exist — then runs the
+effective config's default test command inside the new worktree as a
+baseline; a failing baseline fails the whole operation. The worktree's absolute path is the last line of
 stdout — capture it; every worker brief for this unit names it.
 
 ### 2. Test wave
@@ -333,69 +289,10 @@ completion (see "Done").
 ### 5. Delivery
 
 `main-prs` mode only. Once every unit in a PR group is `Accepted` and
-locally merged, compose the PR content and open the PR.
-
-#### 5a. Compose PR content
-
-Before calling `deliver`, the orchestrator composes meaningful PR content.
-Nothing in the PR title, body, commit subjects, or branch name may reference
-internal workflow terminology — no `lego`, `B01`, `U01`, `G01`, plan slugs,
-block-map field syntax, or any other label a reviewer cannot look up.
-
-**PR title.** Conventional commit format: `type(scope): description`. The
-type is `feat`, `fix`, `refactor`, `chore`, `docs`, or `test`. The scope is
-optional and describes the area of the codebase. The description summarizes
-the change in imperative mood. Derive the title from the plan's goal, not
-from block names.
-
-**PR body.** Fill in a PR template with content from the plan document and
-the delivered blocks' contracts. Template resolution order:
-
-1. Check the repo for a PR template at standard GitHub paths (check each,
-   case-sensitive): `.github/PULL_REQUEST_TEMPLATE.md`,
-   `.github/pull_request_template.md`, `docs/pull_request_template.md`,
-   `PULL_REQUEST_TEMPLATE.md`, `pull_request_template.md`.
-2. If no repo template exists, use the plugin's default template at
-   `${CLAUDE_PLUGIN_ROOT}/templates/pr-body-template.md`.
-
-Fill every section of the resolved template. Write for a reviewer who has
-only the diff and this PR description — no access to `.local/`, the planning
-session, or the block map. If the plan references GitHub issues, link them.
-
-**Branch name.** Conventional format: `type/short-slug` (e.g.
-`feat/native-symlink-engine`, `fix/auth-token-refresh`). Derive from the
-plan's goal.
-
-**Commit subjects.** Each delivery commit gets a conventional subject
-describing its actual content (e.g. `feat(links): add symlink manifest
-engine`). The orchestrator composes one subject per unit per phase
-(tests and impl). Do not include phase labels like "tests" or
-"implementation" in the subject — each commit should read as a
-self-contained description of what it introduces.
-
-#### 5b. Write manifest and deliver
-
-Write the composed content as a JSON manifest file at
-`.local/pr-manifest.json` with this schema:
-
-```json
-{
-  "title": "<PR title>",
-  "body": "<PR body markdown>",
-  "branch": "<delivery branch name>",
-  "commits": {
-    "<unit-id>": {
-      "tests": "<commit subject for this unit's tests commit>",
-      "impl": "<commit subject for this unit's implementation commit>"
-    }
-  }
-}
-```
-
-Then call deliver with the manifest:
+locally merged, build and open its PR:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver --manifest .local/pr-manifest.json <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 ```
 
 This builds a delivery branch from master/main containing only complete
@@ -416,12 +313,35 @@ branches are cleaned up by `clean` at dispatch completion (see "Done").
 
 ## Composition blocks
 
+<!-- Contract: B01 — dispatch-no-self-impl (composition reinforcement)
+Behavior:   Retain the existing dispatch semantics for composition blocks AND
+            reinforce the general prohibition specifically for this block type,
+            since "simple wiring" is the exact rationalization that caused
+            issue #68.
+Inputs:     N/A
+Outputs:    The existing paragraph plus an explicit callout that composition
+            blocks are not exempt — they get a dispatched lego-implementer
+            like any other block. The "typically thin wiring" description must
+            not read as a reason to skip dispatch.
+Errors:     N/A
+Invariants: Must not change the existing dispatch semantics (same pipeline,
+            own worktree, children merged first). Only adds the prohibition
+            reinforcement.
+Edge cases: Same as above — the orchestrator rationalizing that wiring is
+            "too simple" to warrant a worker.
+-->
 Dispatch a composition block's own unit once every child block is locally
 merged (step 4). It runs the exact same pipeline — its own worktree, its own
 test wave, its own implementation wave (typically thin wiring plus
 integration tests against the composition's contract) — in its own unit
 worktree. Its PR is naturally last within its subtree: composition is the
 feature-activation point.
+
+Composition blocks are not exempt from the general prohibition above: "thin
+wiring" describes what the implementation typically contains, not a reason to
+skip dispatch. A composition block gets a dispatched `lego-implementer` like
+any other block — the orchestrator does not write its wiring code itself, no
+matter how simple it looks.
 
 ## Engineer-owned blocks
 

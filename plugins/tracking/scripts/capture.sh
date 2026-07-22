@@ -1,5 +1,5 @@
 #!/bin/bash
-# Contract: B01 — Capture hook
+# Contract: B02 — Capture hook (migrated from make-progress plugin)
 #
 # Behavior:
 #   UserPromptSubmit hook that snapshots the session's state when the user's

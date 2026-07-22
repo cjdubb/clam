@@ -15,10 +15,11 @@
 #    State and Current Task and instruct the session to read the tracking docs
 #    before doing anything else — this is what makes /clear + fresh
 #    orchestrator pickup work.
-# 4. Clear the once-per-session-epoch markers (.decision-nudge-fired) that
-#    scripts/keep-working.sh sets, on every SessionStart event (startup,
-#    resume, clear, compact) — the same epoch semantics clam-code implemented
-#    across session-track.sh and post-compact.sh.
+# 4. Clear the once-per-session-epoch markers (.decision-nudge-fired,
+#    .no-todo-nudge-fired) that scripts/keep-working.sh sets, on every
+#    SessionStart event (startup, resume, clear, compact) — the same epoch
+#    semantics clam-code implemented across session-track.sh and
+#    post-compact.sh.
 #
 # Fail-open: any error exits 0 with no output rather than breaking session start.
 
@@ -35,7 +36,7 @@ input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #

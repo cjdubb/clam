@@ -85,6 +85,12 @@
       "version": "0.1.0"
     },
     {
+      "name": "skill-tracker",
+      "source": "./plugins/skill-tracker",
+      "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl and reports usage stats via /skill-tracker:stats.",
+      "version": "0.1.0"
+    },
+    {
       "name": "render-doc",
       "source": "./plugins/render-doc",
       "description": "Render a planning or decision markdown file into a self-contained dark-theme HTML view, with an annotation server whose in-page composer writes feedback back into the source markdown.",

@@ -141,9 +141,28 @@ Port-time notes for later plugins:
 - clam-code's `general/system-prompt.md` references `/decision-rundown` and
   the `decision-rundown` template by name — the session-modes port must update
   those to `/decision-log:rundown`.
-- The rundown skill's HTML-render gate still points at clam-code's
-  `~/.claude/skills/render-doc/`; re-point it when render-doc gets a plugin
-  home.
+- The rundown skill's HTML-render gate is resolved: it now consumes
+  render-doc by skill name (`render-doc:render`) instead of a clam-code
+  filesystem path — see the **render-doc** section below.
+
+## render-doc — ported (from clam-code)
+
+Ported from `general/skills/render-doc/`: renders a planning or decision
+markdown document into a single self-contained dark-theme HTML view, with an
+annotation server whose in-page composer writes `@TAG:` feedback lines back
+into the source markdown.
+
+Port changes: the usage path becomes
+`${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]`; the
+decision-rundown reference is renamed to `/decision-log:rundown`;
+planning-skill checkpoint references are softened until session-modes ports;
+`smoke.sh` is adapted into `scripts/render.test.sh`, with no duplicate
+`smoke.sh` kept; `CLAM_RENDER_DOC` is no longer written by any setup script;
+users export it themselves, and the plugin README documents it.
+
+Coupling note: consumers reference the skill by name (`render-doc:render`)
+plus the `CLAM_RENDER_DOC` convention, nothing else — no cross-plugin
+filesystem paths.
 
 ## team-review — planned
 
@@ -252,7 +271,7 @@ Integration with clam-agent-dashboard.
   untangle the coupling or accept a soft dependency between the two plugins)
 
 <!--
-Contract: B03 MIGRATION.md bookkeeping (NotImplemented: B03)
+Contract: B03 MIGRATION.md bookkeeping
 Behavior: record the render-doc port in this migration map.
 Outputs:
 - A new section "## render-doc — ported (from clam-code)" replacing this
@@ -282,7 +301,7 @@ composition test (B05) excludes MIGRATION.md from stale-path checks.
 
 - `support-fix`, `support-triage` (support cluster — own plugin or fold into
   pr-workflow)
-- `writing-markdown`, `render-doc`, `rtfm` (writing cluster)
+- `writing-markdown`, `rtfm` (writing cluster)
 - `debug-playwright-tests` (tech-specific; maybe stays a repo-local skill)
 - `orient`-adjacent statusline data? (see statusline note below)
 

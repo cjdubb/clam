@@ -54,10 +54,11 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | [privacy](plugins/privacy/) | ✅ v0.1.0 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
+| [render-doc](plugins/render-doc/) | ✅ v0.1.0 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [debugging](plugins/debugging/) | ✅ v0.1.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back. |
 
 <!--
-Contract: B02 registration (NotImplemented: B02)
+Contract: B02 registration
 Behavior: register the render-doc plugin in the marketplace and this README.
 Outputs:
 - .claude-plugin/marketplace.json gains exactly one entry in its "plugins"

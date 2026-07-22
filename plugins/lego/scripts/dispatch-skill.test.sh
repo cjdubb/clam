@@ -77,5 +77,20 @@ for h in "## The per-unit pipeline" "### 1. Create the worktree" \
   check "invariant heading survives: $h" "$(has_f "$RAW" "$h")" "yes"
 done
 
+# --- Manifest delivery content (contract: B01 dispatch-delivery-instructions)
+# Anchors the Step 5 sub-sections (5a compose, 5b write manifest + deliver)
+# and their required content, so a future edit that clobbers this section
+# fails the test suite instead of silently regressing.
+check "token: #### 5a. Compose PR content" \
+  "$(has_f "$RAW" '#### 5a. Compose PR content')" "yes"
+check "token: #### 5b. Write manifest and deliver" \
+  "$(has_f "$RAW" '#### 5b. Write manifest and deliver')" "yes"
+check "token: --manifest .local/pr-manifest.json" \
+  "$(has_f "$RAW" '--manifest .local/pr-manifest.json')" "yes"
+check "token: pr-body-template.md" \
+  "$(has_f "$RAW" 'pr-body-template.md')" "yes"
+check "token: merge master into the integration branch before delivery" \
+  "$(has_f "$RAW" 'merge master into the integration branch before delivery')" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -155,14 +155,13 @@ into the source markdown.
 Port changes: the usage path becomes
 `${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]`; the
 decision-rundown reference is renamed to `/decision-log:rundown`;
-planning-skill checkpoint references are softened until session-modes ports;
 `smoke.sh` is adapted into `scripts/render.test.sh`, with no duplicate
-`smoke.sh` kept; `CLAM_RENDER_DOC` is no longer written by any setup script;
-users export it themselves, and the plugin README documents it.
+`smoke.sh` kept; `CLAM_RENDER_DOC` env var removed — plugin presence is
+the gate (installing the plugin opts in to automatic checkpoint rendering;
+callers check skill availability, not an env var).
 
-Coupling note: consumers reference the skill by name (`render-doc:render`)
-plus the `CLAM_RENDER_DOC` convention, nothing else — no cross-plugin
-filesystem paths.
+Coupling note: consumers reference the skill by name (`render-doc:render`),
+nothing else — no cross-plugin filesystem paths, no env var convention.
 
 ## team-review — planned
 
@@ -280,11 +279,10 @@ Outputs:
   ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh; decision-rundown reference renamed
   to /decision-log:rundown; planning-skill checkpoint references softened
   until session-modes ports; smoke.sh adapted into scripts/render.test.sh
-  with no duplicate smoke.sh kept; CLAM_RENDER_DOC no longer written by any
-  setup script — users export it, the plugin README documents it); and the
-  coupling note: consumers reference the skill by name (render-doc:render)
-  plus the CLAM_RENDER_DOC convention, nothing else — no cross-plugin
-  filesystem paths.
+  with no duplicate smoke.sh kept; CLAM_RENDER_DOC env var removed — plugin
+  presence is the gate); and the coupling note: consumers reference the skill
+  by name (render-doc:render), nothing else — no cross-plugin filesystem
+  paths, no env var convention.
 - The "Unassigned" writing-cluster line below shrinks to `writing-markdown`,
   `rtfm`.
 - In the decision-log section above, the port-time note "The rundown skill's

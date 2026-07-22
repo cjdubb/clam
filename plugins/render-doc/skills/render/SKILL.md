@@ -35,9 +35,9 @@ The composer emits exactly this annotation vocabulary: `@COMMENT:`, `@QUESTION:`
 
 ## Checkpoint integration
 
-Automatic rendering at checkpoints is opt-in via `CLAM_RENDER_DOC=enabled` (exported by the user in their shell profile; unset means disabled). Explicit `/render-doc:render <file>` invocations always work regardless of the flag. When the flag is enabled, `/decision-log:rundown` renders the decision file with `--open` after writing it at park time.
+Automatic rendering at checkpoints is gated by plugin presence: callers check whether the `render-doc:render` skill is available and skip silently when it is not. `/decision-log:rundown` renders the decision file with `--open` after writing it at park time when this plugin is installed.
 
-Callers skip the render silently when the flag is not `enabled` (the markdown flow is the default experience), and fall back to the plain-markdown flow with a one-line notice when an enabled render fails.
+Callers fall back to the plain-markdown flow with a one-line notice when a render fails.
 
 ## How the splice works
 

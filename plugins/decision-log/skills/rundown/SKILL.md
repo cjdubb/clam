@@ -65,34 +65,27 @@ The session writes the file BEFORE setting `State: Waiting For Decision`. The cl
 
 <!--
 Contract: B04 decision-log re-point
-Behavior: the rendered-doc gate below stops invoking a clam-code-era script
-path and instead consumes the render-doc plugin BY SKILL NAME, keeping
-decision-log fully functional when render-doc is absent.
-Outputs (what the gate paragraph and command block below say once
-implemented):
-- Gate check unchanged: `echo "${CLAM_RENDER_DOC:-disabled}"`; anything other
-  than `enabled` means skip the render silently and continue with the chat
-  flow (off by design, no notice needed).
-- When `enabled`: if the skill `render-doc:render` appears in the available
-  skills, invoke it on the decision file with the open-in-browser intent; if
-  it does not appear (plugin not installed), treat the gate as disabled and
-  skip silently.
+Behavior: the rendered-doc gate below consumes the render-doc plugin BY SKILL
+NAME, keeping decision-log fully functional when render-doc is absent.
+Outputs (what the gate paragraph below says):
+- Check whether the skill `render-doc:render` appears in the available
+  skills. If it does not (the render-doc plugin is not installed), skip the
+  render silently and continue with the chat flow.
+- If it does, invoke it on the decision file with the open-in-browser intent.
 - If the render fails, note "HTML render failed — presenting as markdown"
   once and continue with the chat flow; a render failure must NEVER block
   the decision.
-- plugins/decision-log/README.md's soft-dependency entry for render-doc is
-  updated: names the plugin and skill (render-doc:render), notes the
-  graceful degradation, drops the clam-code location.
+- plugins/decision-log/README.md's soft-dependency entry for render-doc
+  names the plugin and skill (render-doc:render) and notes the graceful
+  degradation.
 Invariants: no filesystem path into another plugin anywhere in decision-log;
-double gate (env flag AND skill availability); degradation rows — flag not
-`enabled` -> silent skip; `enabled` + skill absent -> silent skip; `enabled`
-+ skill present -> render; render failure -> one-line notice, continue.
-Edge cases: CLAM_RENDER_DOC values other than exactly `enabled` (e.g. `true`,
-`1`) count as not enabled; skill present but broken manifests as a render
-failure -> notice + continue.
+gate is skill availability; degradation: skill absent -> silent skip; skill
+present -> render; render failure -> one-line notice, continue.
+Edge cases: skill present but broken manifests as a render failure -> notice
++ continue.
 -->
 
-After writing the file, check the rendered-doc gate: run `echo "${CLAM_RENDER_DOC:-disabled}"`. If it prints anything other than `enabled`, skip the render silently and continue with the chat flow (unset means the feature is off by design; no notice needed). If it prints `enabled`, check whether the skill `render-doc:render` appears in the available skills. If it does not (the render-doc plugin is not installed), treat the gate as disabled and skip silently. If it does, invoke `render-doc:render` on the decision file (`.local/decisions/NNN-<slug>.md`) with the intent to open it in the browser so the user reads the rendered HTML view.
+After writing the file, check whether the skill `render-doc:render` appears in the available skills. If it does not (the render-doc plugin is not installed), skip the render silently and continue with the chat flow. If it does, invoke `render-doc:render` on the decision file (`.local/decisions/NNN-<slug>.md`) with the intent to open it in the browser so the user reads the rendered HTML view.
 
 If the render fails, note "HTML render failed — presenting as markdown" and continue with the chat flow; a render failure must NEVER block the decision.
 

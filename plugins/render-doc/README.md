@@ -41,10 +41,9 @@ Invariants:
   to scripts via `${CLAUDE_PLUGIN_ROOT}/scripts/render.sh`.
 - No dependency on decision-log in any direction from this plugin's side
   (decision-log consumes this plugin by skill name, one-directionally).
-- `CLAM_RENDER_DOC` gates only automatic checkpoint rendering by CALLERS;
-  explicit `/render-doc:render` invocation always works regardless of the
-  flag. Nothing in this repo writes the flag; this README documents
-  exporting it.
+- Automatic checkpoint rendering is gated by plugin presence: callers
+  check whether `render-doc:render` appears in the available skills and
+  skip silently when it does not.
 - `assets/template.html`, `assets/marked.min.js`, and `fixtures/*.md` are
   byte-identical copies of the clam-code source (orchestrator verifies with
   `cmp` at acceptance; provenance invariant, not a committed-test clause).
@@ -64,12 +63,10 @@ Docs contract (skills/render/SKILL.md): frontmatter `name: render`
   usage command `bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md>
   [--open]`; documents the annotation vocabulary verbatim (`@COMMENT:`,
   `@QUESTION:`, `@CONCERN:`, `@APPROVE:`, `@EVIDENCE:`); documents checkpoint
-  integration (callers check `CLAM_RENDER_DOC`, unset = disabled; known
-  caller `/decision-log:rundown`; references to not-yet-ported skills phrased
-  to degrade gracefully); contains no clam-code-era paths.
+  integration (callers check skill availability; known caller
+  `/decision-log:rundown`); contains no clam-code-era paths.
 Docs contract (this README's visible body): what the plugin does, usage,
-  exporting `CLAM_RENDER_DOC` (no setup script writes it anymore), python3
-  soft requirement and the `file://` degradation, ported-from-clam-code
+  python3 soft requirement and the `file://` degradation, ported-from-clam-code
   attribution.
 Reference material (read-only source of the port):
   /home/cwilliamson/github/clam-code/general/skills/render-doc/
@@ -137,19 +134,6 @@ source markdown. Without python3, `--open` degrades to a plain `file://`
 open — the page still renders and the composer still works, but annotations
 stay in-memory in the browser and "Copy all feedback" becomes the export
 path instead of an automatic write-back.
-
-## Enabling automatic checkpoint rendering
-
-Automatic rendering at feedback checkpoints (by callers that support it) is
-opt-in via the `CLAM_RENDER_DOC` environment variable. Nothing in this repo
-sets it for you; export it yourself, e.g. in your shell profile:
-
-```bash
-export CLAM_RENDER_DOC=enabled
-```
-
-Unset (the default) means disabled. Explicit `/render-doc:render <file>`
-invocations always work regardless of this flag.
 
 ## Provenance
 

@@ -215,12 +215,6 @@ for tag in '@COMMENT:' '@QUESTION:' '@CONCERN:' '@APPROVE:' '@EVIDENCE:'; do
   fi
 done
 
-if grep -qF 'CLAM_RENDER_DOC' "$skill_body"; then
-  pass "SKILL.md: documents CLAM_RENDER_DOC"
-else
-  fail "SKILL.md: no mention of CLAM_RENDER_DOC"
-fi
-
 if grep -qE '~/\.claude/skills/|clam-code/|/clam-code' "$skill_body"; then
   fail "SKILL.md: references a clam-code-era path"
 else
@@ -228,12 +222,6 @@ else
 fi
 
 # README.md visible body
-if grep -qF 'CLAM_RENDER_DOC' "$readme_body"; then
-  pass "README.md: documents CLAM_RENDER_DOC"
-else
-  fail "README.md: no mention of CLAM_RENDER_DOC"
-fi
-
 if grep -qF 'python3' "$readme_body"; then
   pass "README.md: documents the python3 soft requirement"
 else

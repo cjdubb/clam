@@ -9,10 +9,10 @@
 # clam-code-era script path (`~/.claude/skills/render-doc/scripts/render.sh`)
 # and instead consume the render-doc plugin BY SKILL NAME
 # (`render-doc:render`) — no filesystem path into another plugin anywhere in
-# decision-log. Gate semantics (the `${CLAM_RENDER_DOC:-disabled}` check,
-# skip-silently wording for the not-enabled case, skill-absent handling, the
-# "HTML render failed — presenting as markdown" failure line, and the
-# NEVER-block rule) are retained verbatim in spirit. The
+# decision-log. Gate semantics (skill-availability check, skip-silently
+# wording for the absent case, the "HTML render failed — presenting as
+# markdown" failure line, and the NEVER-block rule) are retained verbatim
+# in spirit. The
 # plugins/decision-log/README.md soft-dependency entry for render-doc is
 # updated to match: names the plugin/skill, keeps the graceful-degradation
 # wording, and drops the clam-code location.
@@ -74,14 +74,11 @@ check "SKILL.md contains NO filesystem path render-doc/scripts into the render-d
 
 # --- Gate semantics retained verbatim in spirit -----------------------------
 
-check "SKILL.md retains the gate check \${CLAM_RENDER_DOC:-disabled}" \
-  "$(grep -qF '${CLAM_RENDER_DOC:-disabled}' <<<"$SKILL_BODY" && echo yes || echo no)" "yes"
+check "SKILL.md gates on skill availability (render-doc plugin not installed)" \
+  "$(grep -qF 'render-doc plugin is not installed' <<<"$SKILL_BODY" && echo yes || echo no)" "yes"
 
-check "SKILL.md retains skip-silently wording for the not-enabled case" \
+check "SKILL.md retains skip-silently wording for the absent case" \
   "$(grep -qF 'skip the render silently' <<<"$SKILL_BODY" && echo yes || echo no)" "yes"
-
-check "SKILL.md retains skill-absent handling (treat the gate as disabled and skip silently)" \
-  "$(grep -qF 'treat the gate as disabled and skip silently' <<<"$SKILL_BODY" && echo yes || echo no)" "yes"
 
 check "SKILL.md retains the failure line 'HTML render failed — presenting as markdown'" \
   "$(grep -qF 'HTML render failed — presenting as markdown' <<<"$SKILL_BODY" && echo yes || echo no)" "yes"

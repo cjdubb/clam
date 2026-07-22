@@ -63,34 +63,28 @@
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters.
 #
-#   deliver [--manifest <path>] <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 #     Builds a delivery branch from <base-branch> in a temporary worktree.
 #
-#     When --manifest <path> is provided, <path> must be a readable JSON file
-#     (validated with jq). The manifest overrides the default PR content and
-#     branch naming. All fields are optional; absent fields fall back to the
-#     default behavior described below.
+#     --manifest <path> is required. <path> must be a readable JSON file
+#     (validated with jq). The manifest provides PR content and branch naming.
+#     Required fields: "title" (non-empty), "branch" (non-empty), and for
+#     each delivered unit-id, "commits.<unit-id>.impl" (non-empty). Optional
+#     fields: "body" (falls back to blocks.md headings + contracts) and
+#     "commits.<unit-id>.tests" (falls back to the default subject).
 #
 #     Manifest JSON schema:
 #       {
-#         "title":   "<PR title string>",
-#         "body":    "<PR body markdown>",
-#         "branch":  "<delivery branch name>",
+#         "title":   "<PR title string>",           (required, non-empty)
+#         "body":    "<PR body markdown>",           (optional)
+#         "branch":  "<delivery branch name>",       (required, non-empty)
 #         "commits": {
 #           "<unit-id>": {
-#             "tests": "<commit subject for this unit's tests commit>",
-#             "impl":  "<commit subject for this unit's implementation commit>"
+#             "tests": "<commit subject for tests>", (optional)
+#             "impl":  "<commit subject for impl>"   (required, non-empty)
 #           }
 #         }
 #       }
-#
-#     Without a manifest (or for absent manifest fields), the defaults are:
-#       - branch: "lego/deliver/<plan-slug>/<unit-id>[+<unit-id>...]"
-#       - title:  "lego: <unit-id list>"
-#       - body:   each delivered block's "## B<NN> — ..." heading and
-#                 "- Contract:" line from blocks.md
-#       - commits.<unit-id>.tests: "lego(<unit-id>): contract + tests"
-#       - commits.<unit-id>.impl:  "lego(<unit-id>): implementation"
 #
 #     For each unit, in argument order:
 #       - constructs the exact unit branch name
@@ -152,8 +146,10 @@
 #            to stderr.
 #   exit 3 — missing dependency or input: jq absent; gh absent (deliver
 #            only); .local/config.json missing or commands.test absent/empty;
-#            .local/blocks.md missing; not inside a git work tree; manifest
-#            file unreadable or not valid JSON (deliver with --manifest).
+#            .local/blocks.md missing; not inside a git work tree; --manifest
+#            not provided (deliver); manifest file unreadable or not valid
+#            JSON; manifest missing required field (title, branch, or
+#            per-unit impl commit subject).
 #   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
 #            branch or worktree path already exists (add); constructed
 #            unit branch does not exist (merge/deliver/remove); dirty working
@@ -607,6 +603,25 @@ manifest_field() {
   printf '%s' "$val"
 }
 
+# Contract: B01 manifest-required (plan 001-require-deliver-manifest)
+#   Behavior: Validates that a deliver manifest contains all required fields.
+#     Dies exit 3 if any required field is missing or empty.
+#   Inputs: $1 = manifest file path (must be readable, valid JSON — caller
+#     validates this before calling). Remaining args = unit-ids to check
+#     commits.<unit-id>.impl against.
+#   Outputs: Returns 0 if all required fields are present and non-empty.
+#   Errors: exit 3 with descriptive message naming the missing field when
+#     any required field is absent or empty-string.
+#   Invariants: The manifest file is never modified (read-only).
+#     The "body" field remains optional (auto-generated fallback is acceptable).
+#     Per-unit "tests" commit subject remains optional (untested prose units).
+#   Edge cases: A field present but set to empty string ("") is treated as
+#     absent (same as manifest_field's null/empty contract). A field set to
+#     whitespace-only is treated as present (no trimming beyond what jq does).
+validate_manifest_required_fields() {
+  die 99 "NotImplemented: B01 manifest-required"
+}
+
 deliver_cleanup() {
   local tmp_wt="$1" tmp_parent="$2" branch="$3"
   if [ -n "$tmp_wt" ]; then
@@ -621,11 +636,15 @@ deliver_cleanup() {
 }
 
 cmd_deliver() {
-  # ---- Parse optional --manifest flag before positional args ----
+  # ---- Parse required --manifest flag before positional args ----
   local manifest_path=""
   if [ "$#" -ge 2 ] && [ "$1" = "--manifest" ]; then
     manifest_path="$2"
     shift 2
+  fi
+
+  if [ -z "$manifest_path" ]; then
+    die 3 "--manifest is required for deliver"
   fi
 
   [ "$#" -ge 4 ] || usage_die
@@ -653,24 +672,14 @@ cmd_deliver() {
   require_blocks_md
   require_gh
 
-  # ---- Validate manifest if provided ----
-  # Contract (B01 deliver-manifest, plan 001):
-  #   Behavior: When --manifest is given, validate that the file exists, is
-  #     readable, and contains valid JSON. Die exit 3 if not. Then read
-  #     optional fields (title, body, branch, commits) to override defaults.
-  #   Inputs: manifest_path (may be empty if --manifest was not passed).
-  #   Outputs: Sets local variables for overridden PR content fields.
-  #   Errors: exit 3 if manifest file is unreadable or invalid JSON.
-  #   Invariants: The manifest is read-only; never modified.
-  #   Edge cases: Empty manifest_path means no manifest — all defaults apply.
-  if [ -n "$manifest_path" ]; then
-    if [ ! -r "$manifest_path" ]; then
-      die 3 "manifest file not readable: $manifest_path"
-    fi
-    if ! jq empty "$manifest_path" >/dev/null 2>&1; then
-      die 3 "manifest file is not valid JSON: $manifest_path"
-    fi
+  # ---- Validate manifest ----
+  if [ ! -r "$manifest_path" ]; then
+    die 3 "manifest file not readable: $manifest_path"
   fi
+  if ! jq empty "$manifest_path" >/dev/null 2>&1; then
+    die 3 "manifest file is not valid JSON: $manifest_path"
+  fi
+  validate_manifest_required_fields "$manifest_path" "${unit_ids[@]}"
 
   # ---- Resolve delivery branch name (manifest "branch" or default) ----
   local delivery_branch

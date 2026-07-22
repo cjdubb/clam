@@ -16,46 +16,98 @@ Installing enables the hooks immediately — every Skill tool invocation in
 sessions where the plugin is active appends a JSONL row to the log. No
 configuration required.
 
-To see your stats, invoke `/skill-tracker:stats` in any session, or run the
-reporter directly:
+## Common workflows
+
+### Checking which skills fire (and which don't)
+
+After a few days of use, invoke `/skill-tracker:stats` in any session. The
+"Top skills (all-time)" section shows which skills are earning their keep;
+skills absent from the list have never triggered — candidates for description
+rewrites or pruning. The "Daily triggers" section shows whether a recent
+change (new skill, description rewrite, budget adjustment) moved the needle.
+
+### Debugging a skill that isn't triggering
+
+If a skill should have fired but didn't, check the log directly:
+
+```bash
+grep '"skill":"my-skill-name"' ~/.claude/skill-triggers.jsonl
+```
+
+No hits means the model never selected it. Hits with `"event":"pre"` but a
+matching `"event":"post"` carrying an `"error"` means it fired but failed.
+
+### Auditing skill errors
+
+Invoke `/skill-tracker:stats` — the "Errors" section at the bottom lists
+failed invocations with timestamps, skill names, and error messages. For the
+raw data:
+
+```bash
+jq -c 'select(.event=="post" and .error != null)' ~/.claude/skill-triggers.jsonl
+```
+
+### Running the reporter outside a session
+
+The stats script works standalone — no active Claude Code session required:
 
 ```bash
 bash ~/.claude/plugins/marketplaces/clam/plugins/skill-tracker/scripts/skill-stats.sh
 ```
 
-## Commands
+## Hooks
 
-### Hook: `log-skill-trigger.sh`
+### `log-skill-trigger.sh` (PreToolUse + PostToolUse)
 
-Wired as both PreToolUse and PostToolUse on the `Skill` tool. On every
-invocation, appends one JSONL row to `~/.claude/skill-triggers.jsonl`:
+Matched on the `Skill` tool. On every skill invocation, appends one JSONL row
+to `~/.claude/skill-triggers.jsonl`:
 
 ```json
 {"ts":"2026-07-22T10:30:00Z","event":"pre","skill":"deep-research","args":"some query","cwd":"/project","session_id":"sess-abc","transcript_path":"/tmp/t.jsonl","error":null}
 ```
 
-- `event` is `"pre"` or `"post"` (derived from the hook event name).
-- `error` is populated only on post events when the skill failed; null
-  otherwise.
+| Field | Description |
+|-------|-------------|
+| `ts` | UTC ISO 8601 timestamp |
+| `event` | `"pre"` (before execution) or `"post"` (after execution) |
+| `skill` | Skill name, or `null` if not provided |
+| `args` | Arguments passed to the skill, or `null` |
+| `cwd` | Working directory at invocation time |
+| `session_id` | Claude Code session ID |
+| `transcript_path` | Path to the session transcript |
+| `error` | Error message on post events when the skill failed; `null` otherwise |
+
 - Always exits 0 — fire-and-forget; never blocks the session.
 - Gracefully degrades when `jq` is absent (silent exit 0).
+- Creates `~/.claude/` if it doesn't exist; write failures are swallowed.
 
-### Script: `skill-stats.sh`
+## Scripts
 
-CLI reporter that reads the JSONL log and prints:
+### `skill-stats.sh`
+
+CLI reporter that reads `~/.claude/skill-triggers.jsonl` and prints a
+single-page summary:
 
 - **Header** — log path and date range of recorded data.
-- **Top skills (all-time)** — top 15 skills by invocation count, descending.
+- **Total triggers** — count and unique skill count.
+- **Top skills (all-time)** — top 15 by invocation count, descending.
 - **Daily triggers (last 14 days)** — per-date trigger counts.
-- **Errors** — count of failed skill invocations, plus up to 10 error
-  details.
+- **Errors** — count of failed invocations, plus up to 10 error details.
+
+Only pre-events count as triggers; post-events are used only for error
+reporting. Malformed JSONL lines are skipped silently. The log file is never
+modified.
 
 Requires `jq`. Exits 1 if `jq` is missing; exits 0 in all other cases
 (missing log, empty log, successful report).
 
-### Skill: `/skill-tracker:stats`
+## Skills
+
+### `/skill-tracker:stats`
 
 Runs `skill-stats.sh` and presents the output verbatim in the conversation.
+Relays error or informational messages (missing jq, no log file, no
+triggers) as-is.
 
 ## Relationships to other plugins
 

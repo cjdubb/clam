@@ -83,6 +83,12 @@
       "source": "./plugins/make-progress",
       "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
       "version": "0.1.0"
+    },
+    {
+      "name": "skill-tracker",
+      "source": "./plugins/skill-tracker",
+      "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl and reports usage stats via /skill-tracker:stats.",
+      "version": "0.1.0"
     }
   ]
 }

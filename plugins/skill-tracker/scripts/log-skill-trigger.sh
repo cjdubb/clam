@@ -45,4 +45,26 @@
 #   - Log file doesn't exist → created on first append
 #   - Disk full or permission denied on append → swallowed, exit 0
 
-exit 1  # STUB: not yet implemented
+input=$(cat)
+
+command -v jq >/dev/null 2>&1 || exit 0
+
+tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null)
+[[ "$tool_name" != "Skill" ]] && exit 0
+
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+mkdir -p "$HOME/.claude" 2>/dev/null
+
+printf '%s' "$input" | jq -c --arg ts "$ts" '{
+  ts: $ts,
+  event: (.hook_event_name | sub("ToolUse$"; "") | ascii_downcase),
+  skill: (.tool_input.skill // null),
+  args: (.tool_input.args // null),
+  cwd: (.cwd // null),
+  session_id: (.session_id // null),
+  transcript_path: (.transcript_path // null),
+  error: (.tool_response.error // null)
+}' >> "$HOME/.claude/skill-triggers.jsonl" 2>/dev/null
+
+exit 0

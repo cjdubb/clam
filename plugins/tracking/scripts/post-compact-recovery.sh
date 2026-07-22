@@ -48,5 +48,55 @@
 #   - .flush-nudge-skip-next creation fails (read-only fs) → continue without
 #     it; worst case is a false nudge on the next prompt, which is harmless
 
-# NotImplemented: B04
+command -v jq >/dev/null 2>&1 || exit 0
+
+input=$(cat)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+[ -n "$cwd" ] || exit 0
+
+STATE_DIR="$cwd/.local"
+[ -d "$STATE_DIR" ] || exit 0
+
+: > "$STATE_DIR/.flush-nudge-skip-next" 2>/dev/null || true
+
+recovery_text=$(
+    echo "=== POST-COMPACTION RECOVERY ==="
+    echo ""
+    echo "Context was just compacted. Critical state may have been lost from the conversation."
+    echo ""
+    echo "Working directory: $cwd"
+    branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    if [ -n "$branch" ]; then
+        echo "Git branch: $branch"
+    fi
+    echo ""
+
+    has_files=false
+    for file in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md; do
+        if [ -f "$STATE_DIR/$file" ]; then
+            has_files=true
+            echo "--- .local/$file ---"
+            cat "$STATE_DIR/$file"
+            echo ""
+        fi
+    done
+
+    if [ "$has_files" = "true" ]; then
+        echo ""
+        echo "INSTRUCTIONS: Resume work now."
+        echo "1. Review the state files above to re-establish context."
+        echo "2. Find the task marked [IN PROGRESS] in TODO.md and continue from there."
+        echo "3. If no task is in progress, report current status to the user and ask what to pick up next."
+        echo "4. Do NOT re-ask questions that were already answered (check PLAN.md for prior decisions)."
+    else
+        echo "No .local/ state directory found."
+        echo ""
+        echo "INSTRUCTIONS: Context was compacted. Ask the user what to continue working on."
+    fi
+
+    echo ""
+    echo "=== END POST-COMPACTION RECOVERY ==="
+)
+
+printf '%s' "$recovery_text" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'
 exit 0

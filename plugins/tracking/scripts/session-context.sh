@@ -36,7 +36,7 @@ input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #

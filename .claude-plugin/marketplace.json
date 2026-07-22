@@ -21,8 +21,8 @@
     {
       "name": "tracking",
       "source": "./plugins/tracking",
-      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, and resume-after-/clear via SessionStart injection.",
-      "version": "0.2.0"
+      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.",
+      "version": "0.3.0"
     },
     {
       "name": "statusline",
@@ -76,12 +76,6 @@
       "name": "debugging",
       "source": "./plugins/debugging",
       "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back.",
-      "version": "0.1.0"
-    },
-    {
-      "name": "make-progress",
-      "source": "./plugins/make-progress",
-      "description": "Stall recovery: when the session stops but should have kept going, /make-progress assesses work state, takes the next in-plan action, and records the stall as training data.",
       "version": "0.1.0"
     }
   ]

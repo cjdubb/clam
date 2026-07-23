@@ -4,7 +4,7 @@
 # flush-nudge, B03 precompact-snapshot, B04 post-compact-recovery) with the
 # correct events/matchers, session-context.sh must clear the flush-nudge
 # epoch marker on every SessionStart, and plugin.json must be bumped to
-# v0.5.0.
+# v0.5.1.
 #
 # Structural/integration tests only — do not execute the hook scripts
 # themselves (those have their own dedicated test files).
@@ -173,9 +173,9 @@ for marker in ".decision-nudge-fired" ".no-todo-nudge-fired"; do
     fi
 done
 
-# --- Test 7: plugin.json version is 0.5.0 ---
+# --- Test 7: plugin.json version is 0.5.1 ---
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is 0.5.0" "$plugin_version" "0.5.0"
+check "plugin.json version is 0.5.1" "$plugin_version" "0.5.1"
 
 # --- Test 8: all three new scripts exist and are executable ---
 for script in flush-nudge.sh precompact-snapshot.sh post-compact-recovery.sh; do

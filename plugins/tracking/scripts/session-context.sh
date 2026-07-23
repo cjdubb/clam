@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -95,6 +95,8 @@ starting tracked work. Persist immediately: decisions and plan changes to
 \`.local/PLAN.md\` (append to its Changelog after creation), task changes to
 \`TODO.md\`, failed fix attempts to \`.local/TROUBLESHOOTING.md\` before trying
 the next approach.
+
+Park unresolved conversation threads (a question asked but never answered, a naming/design thread left hanging) in \`TODO.md\`'s Open Questions section in real time, and clear each entry once it is resolved, recording the answer where it belongs (Implementation Log, PLAN.md's Changelog, or a decisions/ file).
 
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):
@@ -197,8 +199,77 @@ EOF
 #     to be stale yet — the transcripts predate the tracking, not the
 #     reverse; acceptable known limit of the mtime reference).
 _resume_freshness() {
-    echo "NotImplemented: B04 resume-freshness" >&2
-    return 90
+    [ "${CLAM_TRACKING_RESUME_STALE_GATE:-}" = "disabled" ] && return 0
+    [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ] || return 0
+
+    local activity_lib platform_lib
+    activity_lib="$PLUGIN_ROOT/lib/activity.sh"
+    platform_lib="$PLUGIN_ROOT/lib/platform.sh"
+    [ -f "$activity_lib" ] && [ -f "$platform_lib" ] || return 0
+    # shellcheck source=/dev/null
+    . "$activity_lib"
+    # shellcheck source=/dev/null
+    . "$platform_lib"
+    command -v activity_prior_transcripts >/dev/null 2>&1 || return 0
+    command -v activity_prompts_since >/dev/null 2>&1 || return 0
+    command -v clam_mtime_epoch >/dev/null 2>&1 || return 0
+
+    local threshold="${CLAM_TRACKING_RESUME_STALE_THRESHOLD:-}"
+    case "$threshold" in
+        ''|*[!0-9]*|0) threshold=1 ;;
+    esac
+
+    local ref_epoch
+    ref_epoch=$(clam_mtime_epoch "$cwd/.local/TODO.md" 2>/dev/null)
+    case "$ref_epoch" in ''|*[!0-9]*|0) return 0 ;; esac
+
+    local prior
+    prior=$(activity_prior_transcripts "$cwd" "$transcript_path" 2>/dev/null)
+    [ -n "$prior" ] || return 0
+
+    # Sum activity_prompts_since over the newest 5 prior transcripts only
+    # (already mtime-descending from activity_prior_transcripts); track the
+    # first (newest) one for the report below.
+    local newest="" total=0 n=0 line count
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        n=$((n + 1))
+        [ "$n" -gt 5 ] && break
+        [ -z "$newest" ] && newest="$line"
+        count=$(activity_prompts_since "$ref_epoch" "$line" 2>/dev/null)
+        case "$count" in ''|*[!0-9]*) count=0 ;; esac
+        total=$((total + count))
+    done <<PRIOR_EOF
+$prior
+PRIOR_EOF
+
+    [ -n "$newest" ] || return 0
+    [ "$total" -ge "$threshold" ] || return 0
+
+    local newest_mtime
+    newest_mtime=$(clam_mtime_epoch "$newest" 2>/dev/null)
+    case "$newest_mtime" in ''|*[!0-9]*) newest_mtime=0 ;; esac
+
+    # Portable epoch->local-ISO-8601: BSD `date -r <epoch>` first (fails fast
+    # on GNU, no such file), then GNU `date -d "@<epoch>"`.
+    local ref_iso newest_iso
+    ref_iso=$(date -r "$ref_epoch" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date -d "@$ref_epoch" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null)
+    newest_iso=$(date -r "$newest_mtime" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date -d "@$newest_mtime" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null)
+    [ -n "$ref_iso" ] && [ -n "$newest_iso" ] || return 0
+
+    cat <<STALE_EOF
+# Tracking document may be STALE — verify before resuming
+
+\`.local/TODO.md\` was last updated at ${ref_iso}, but ~${total} human prompt(s) arrived in this worktree's conversation after that (most recent conversation activity: ${newest_iso}).
+
+Before trusting recorded state: read the TAIL (the last ~30 entries) of the most recent prior transcript to recover pivots, decisions, and open questions the docs may have missed:
+${newest}
+
+Then still read \`.local/TODO.md\`, \`.local/PLAN.md\`, and any \`.local/decisions/\` files, and reconcile — update the docs with anything the transcript tail shows they missed, before resuming work.
+
+Recorded State: ${state:-unknown}
+Recorded Current Task: ${task:-unset}
+STALE_EOF
 }
 
 resume=""

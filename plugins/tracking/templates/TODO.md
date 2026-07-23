@@ -64,8 +64,12 @@ Invariants:
 Edge cases:
   - Existing worktrees' TODO.md files are NOT migrated; the section applies
     to newly instantiated templates (auto-create and manual copies).
-NotImplemented: B06 todo-open-questions
 -->
+
+## Open Questions
+{Unresolved threads: the question, enough context to resume it cold, and who owes the answer. Remove the entry once answered — record the answer in the Implementation Log, PLAN.md's Changelog, or a decisions/ file.}
+
+-
 
 ## Discovered Tasks
 -

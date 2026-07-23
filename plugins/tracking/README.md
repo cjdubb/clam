@@ -14,14 +14,30 @@ statusline plugin's State segment.
   rules as context — the plugin replacement for clam-code's system-prompt
   injection — and, when `.local/TODO.md` already exists, surfaces its State
   and Current Task with an instruction to resume from the docs, not restart.
+  The resume injection cross-checks TODO.md's mtime against human prompts in
+  the cwd's prior transcripts; when ≥ threshold (default 1) prompts postdate
+  the docs, it injects a staleness warning with both timestamps and the
+  newest transcript path instead of telling the agent to trust the docs.
 - **Stop** (`scripts/keep-working.sh`) enforces the state lifecycle: a turn
   may end only in `Complete`, a needs-user state (`Blocked`,
   `Waiting For Decision` — with its decision-file nudge), or a parked
   `Awaiting *` state. `In Progress` gets nudged to continue; unrecognised
   states get the exact valid list so a near-miss self-corrects instead of
-  being rationalised into a false `Complete`.
+  being rationalised into a false `Complete`. A freshness gate also applies:
+  in any turn-end-permitting state, if ≥ threshold (default 2) human prompts
+  have arrived since `.local/TODO.md`'s mtime, the stop is blocked once per
+  session (marker `.local/.freshness-nudge-fired`, cleared at
+  SessionStart) until TODO.md is updated or touched.
 - **Stop/UserPromptSubmit** (`scripts/awaiting-user.sh`) maintains the
   `.local/.awaiting-user` marker consumers use for summons-epoch semantics.
+  On UserPromptSubmit, a prompt arriving while the State is parked injects
+  turn-start context — the unpark nudge — to set `In Progress` and record the
+  direction change if the turn resumes substantive work; fires at most once
+  per summons epoch.
+- **UserPromptSubmit** (`scripts/flush-nudge.sh`) nudges a flush of the
+  `.local/` tracking docs as the conversation nears the auto-compaction
+  threshold. The context window defaults to 200000 tokens when unconfigured
+  everywhere (previously it silently never fired on unconfigured machines).
 - **PreToolUse** (`scripts/block-task-tools.sh`) denies the built-in
   TaskCreate/TaskUpdate/TaskList/TaskGet tools: they write to
   `~/.claude/tasks/`, which the tracking docs, agent-dash, and the statusline
@@ -31,7 +47,9 @@ statusline plugin's State segment.
   emoji, colour, summons). `lib/states.sh` holds the shared readers
   (`todo_field`, `state_category`, …). The statusline plugin vendors a copy —
   keep them in lockstep.
-- **`templates/TODO.md`** is the tracking-doc skeleton.
+- **`templates/TODO.md`** is the tracking-doc skeleton, including a
+  `## Open Questions` section — unresolved conversation threads parked in
+  real time; entries are removed once answered.
 
 ## Knobs
 
@@ -42,6 +60,11 @@ statusline plugin's State segment.
 | `CLAM_PR_CRONS` | `disabled` | `enabled` blocks parking/completing with an open PR that has no monitoring cron (needs the pr-workflow plugin's create-pr watch crons; opt-in here, unlike clam-code where unset meant enabled). |
 | `CLAM_INDEPENDENT_REVIEW` | `disabled` | `enabled` blocks human-handoff states without an independent-review report (needs the independent-review skill). |
 | `CLAUDE_STOP_LOG` | `~/.claude/stop-log.jsonl` | Stop-hook audit log location. |
+| `CLAM_TRACKING_FRESHNESS_GATE` | `enabled` | `disabled` turns off the freshness Stop gate. |
+| `CLAM_TRACKING_FRESHNESS_THRESHOLD` | `2` | Human prompts since TODO.md's mtime before the freshness gate blocks. |
+| `CLAM_TRACKING_UNPARK_NUDGE` | `enabled` | `disabled` turns off the unpark nudge. |
+| `CLAM_TRACKING_RESUME_STALE_GATE` | `enabled` | `disabled` turns off the resume staleness warning. |
+| `CLAM_TRACKING_RESUME_STALE_THRESHOLD` | `1` | Prior-transcript human prompts newer than TODO.md before resume warns stale. |
 
 ## Soft integrations
 
@@ -67,44 +90,4 @@ enabled. Sessions without a `.local/TODO.md` skip the Stop-hook enforcement
 (ad-hoc sessions stay ad-hoc); the task-tools deny is the one hook that fires
 regardless, since tracking anywhere but `.local/TODO.md` is exactly what it
 exists to prevent.
-
-<!-- Contract: B07 — tracking-v0.5-composition
-Behavior:
-  Composition block for the freshness/drift feature set (B01–B06): the
-  version bump, the documentation, and the proof that the pieces compose.
-  Dispatched only after B01–B06 are accepted. Deliverables:
-  1. plugins/tracking/.claude-plugin/plugin.json: version 0.4.0 → 0.5.0;
-     description extended to mention doc-freshness enforcement. The ROOT
-     .claude-plugin/marketplace.json stays BYTE-IDENTICAL (debugging
-     b10-registration.test.sh and orchestrator-handover
-     b02-registration.test.sh snapshot its tracking entry).
-  2. scripts/compaction-wiring.test.sh: the pinned plugin.json version
-     assertion updated to 0.5.0 (test-family file — updated by the U06 test
-     wave, never by an implementer).
-  3. README.md (this file): "How it works" documents the freshness Stop gate
-     (B02), the unpark nudge (B03), the resume staleness warning (B04), and
-     the flush-nudge default window (B05); the Knobs table gains
-     CLAM_TRACKING_FRESHNESS_GATE, CLAM_TRACKING_FRESHNESS_THRESHOLD,
-     CLAM_TRACKING_UNPARK_NUDGE, CLAM_TRACKING_RESUME_STALE_GATE,
-     CLAM_TRACKING_RESUME_STALE_THRESHOLD (defaults per the B02/B03/B04
-     contract docblocks); the epoch-marker list mentions
-     .local/.freshness-nudge-fired. templates/TODO.md's Open Questions
-     section (B06) is mentioned under templates.
-  4. Full repo verification green: .claude/lego.json test command (all
-     plugins' *.test.sh) and lint (marketplace-lint.sh + executable-lint.sh).
-Inputs:  accepted B01–B06 on the integration branch.
-Outputs: the three file updates above; no behavior changes of its own.
-Errors:  n/a (documentation + metadata only).
-Invariants:
-  - No hook script changes in this block; hooks.json untouched (no new hook
-    scripts were introduced by B01–B06).
-  - lib/states.tsv, lib/states.sh and their statusline/notifications vendored
-    copies untouched (the state vocabulary did not change).
-  - This contract comment is removed as part of implementing the block.
-Edge cases:
-  - If marketplace.json turns out to embed the plugin description, the
-    description change is DROPPED in favor of byte-identity (the fixtures
-    win); escalate to the orchestrator rather than editing fixtures.
-NotImplemented: B07 tracking-v0.5-composition
--->
 

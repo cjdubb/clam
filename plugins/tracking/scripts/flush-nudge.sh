@@ -119,8 +119,8 @@ fi
 #     fill % (e.g. fire late on 1M-context models); acceptable — the
 #     configured sources exist precisely to override it.
 _default_window() {
-    echo "NotImplemented: B05 flush-nudge-default-window" >&2
-    return 90
+    echo "200000"
+    return 0
 }
 
 # Resolve the compaction window: test override, then process env, then the
@@ -129,7 +129,8 @@ _default_window() {
 window="${CLAM_FLUSH_CONTEXT_WINDOW:-}"
 [[ -n "$window" ]] || window="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
 if [[ -z "$window" ]]; then
-    window=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null)
+    # A missing settings.json must fall through to the next resolution step, not trip the ERR trap.
+    window=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null) || window=""
 fi
 if [[ -z "$window" ]]; then
     window=$(_default_window 2>/dev/null) || window=""

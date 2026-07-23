@@ -65,8 +65,28 @@ marker="$cwd/.local/.awaiting-user"
 #   - Two prompts in quick succession: first removes the marker, second finds
 #     none → single fire.
 unpark_nudge() {
-    echo "NotImplemented: B03 unpark-nudge" >&2
-    return 90
+    [[ "${CLAM_TRACKING_UNPARK_NUDGE:-}" == "disabled" ]] && return 0
+
+    local script_dir states_lib
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || return 0
+    states_lib="$script_dir/../lib/states.sh"
+    [[ -f "$states_lib" ]] || return 0
+    # shellcheck source=/dev/null
+    source "$states_lib" 2>/dev/null || return 0
+
+    local todo="$cwd/.local/TODO.md"
+    [[ -f "$todo" ]] || return 0
+
+    local state
+    state=$(todo_field "$todo" "State")
+    [[ -n "$state" ]] || return 0
+    [[ "$(state_category "$state")" == "parked" ]] || return 0
+
+    cat <<EOF
+[CLAM UNPARK NUDGE] This session was parked in State: ${state}. If this turn resumes substantive work, set State: In Progress and record the direction change (what the user asked, any pivot from the recorded plan) in TODO.md before proceeding. If this turn is a mere acknowledgement with no new work, the State may stand.
+EOF
+
+    return 0
 }
 
 case "$event" in

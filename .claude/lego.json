@@ -1,7 +1,7 @@
 {
   "commands": {
     "test": "for t in plugins/*/scripts/*.test.sh plugins/*/lib/*.test.sh; do [ -f \"$t\" ] || continue; bash \"$t\" || exit 1; done",
-    "lint": "bash scripts/marketplace-lint.sh && bash scripts/executable-lint.sh"
+    "lint": "bash scripts/marketplace-lint.sh && bash scripts/executable-lint.sh && bash scripts/readme-lint.sh"
   },
   "models": {
     "testWriter": "sonnet",

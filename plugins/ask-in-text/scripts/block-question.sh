@@ -49,5 +49,5 @@
 #   - Subagent tool calls: PreToolUse hooks fire for these too; the deny
 #     applies identically (subagents should never user-prompt).
 
-echo "NotImplemented: B01 question-gate" >&2
-exit 1
+echo "AskUserQuestion is blocked by the ask-in-text plugin: ask in the conversation as plain text with numbered questions (1., 2., ...) instead, one decision per number, each with a recommended default; a bare \"go\" or \"confirmed\" accepts all the defaults." >&2
+exit 2

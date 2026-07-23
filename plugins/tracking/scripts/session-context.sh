@@ -34,6 +34,7 @@ STATES_LIB="$PLUGIN_ROOT/lib/states.sh"
 
 input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
 [ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" 2>/dev/null
@@ -129,6 +130,77 @@ meaning, one-line trade-off, recommendation and why, the default on a bare
 EOF
 )
 
+# Contract: B04 — resume-freshness
+#
+# Behavior:
+#   Reader-side staleness net for the resume injection below. Before telling
+#   a fresh session to trust the tracking docs, cross-check the docs' age
+#   against actual conversation activity recorded on disk:
+#     ref      = mtime(.local/TODO.md)
+#     prior    = activity_prior_transcripts($cwd, $transcript_path)   [B01]
+#     count    = sum over the NEWEST 5 prior transcripts of
+#                activity_prompts_since(ref, transcript)              [B01]
+#   When count >= CLAM_TRACKING_RESUME_STALE_THRESHOLD (default 1), the docs
+#   demonstrably lag the last conversation: print (stdout) a STALE-variant
+#   resume block that REPLACES the trust-the-docs text. It must contain, in
+#   plain terms:
+#     - a warning that .local/TODO.md may be STALE: it was last updated at
+#       <ISO-8601 local time of ref> but ~<count> human prompt(s) arrived
+#       after that (most recent conversation activity: <ISO-8601 local mtime
+#       of the newest prior transcript>);
+#     - the newest prior transcript's absolute path, with the instruction to
+#       read its TAIL (the last ~30 entries) to recover pivots, decisions,
+#       and open questions the docs missed, BEFORE trusting recorded state;
+#     - the instruction to still read .local/TODO.md, .local/PLAN.md, and
+#       .local/decisions/, then reconcile: update the docs with anything the
+#       transcript tail shows the docs missed, before resuming work;
+#     - the current recorded State and Current Task (same fields the fresh
+#       variant surfaces).
+#   When count < threshold, or on ANY failure/uncertainty: print nothing —
+#   the caller falls back to the existing trust-the-docs resume block.
+#
+# Inputs:
+#   $cwd, $transcript_path — outer scope (transcript_path is the CURRENT
+#     session's transcript, passed as the exclusion to
+#     activity_prior_transcripts so a resumed session never reads itself as
+#     "prior" activity; empty is fine — nothing to exclude).
+#   $cwd/.local/TODO.md — must exist (caller only invokes when it does).
+#   lib/activity.sh, lib/platform.sh (clam_mtime_epoch) — sourced lazily;
+#     absent → fail-open (no output).
+#   CLAM_TRACKING_RESUME_STALE_GATE — "disabled" turns the check off
+#     (default enabled).
+#   CLAM_TRACKING_RESUME_STALE_THRESHOLD — integer >= 1, default 1 (one
+#     unreflected human prompt at recap time is worth a warning); invalid → 1.
+#
+# Outputs:
+#   stdout: the complete stale-variant resume block, or nothing. Never
+#   partial output. Return 0 on both paths (90 NotImplemented sentinel until
+#   implemented; caller treats any output-less path identically).
+#
+# Errors:
+#   Fail-open everywhere: no jq, no libs, unreadable TODO mtime, no project
+#   dir, count non-numeric → no output (fresh-variant behavior).
+#
+# Invariants:
+#   - Pure read; no markers, no writes.
+#   - Bounded work: at most 5 transcripts scanned, single pass each, within
+#     the hook's 10s timeout.
+#   - The stale variant must NOT say "trust the tracking docs" — the two
+#     variants are mutually exclusive by construction.
+#
+# Edge cases:
+#   - Post-compaction SessionStart: the continuing session's own transcript
+#     is excluded via $transcript_path; other prior transcripts still count.
+#   - Brand-new worktree, no project dir yet → fresh variant.
+#   - TODO.md auto-created moments ago by _auto_create_todo (mtime ~now) →
+#     count vs a just-now ref is 0 → fresh variant (correct: nothing recorded
+#     to be stale yet — the transcripts predate the tracking, not the
+#     reverse; acceptable known limit of the mtime reference).
+_resume_freshness() {
+    echo "NotImplemented: B04 resume-freshness" >&2
+    return 90
+}
+
 resume=""
 if [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ]; then
     state=""
@@ -137,6 +209,13 @@ if [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ]; then
         state=$(todo_field "$cwd/.local/TODO.md" State)
         task=$(todo_field "$cwd/.local/TODO.md" "Current Task")
     fi
+    # B04: the stale-variant block replaces the trust-the-docs text when the
+    # docs demonstrably lag recorded conversation activity. Empty output (or
+    # the NotImplemented sentinel) falls through to the fresh variant.
+    stale_block=$(_resume_freshness 2>/dev/null) || stale_block=""
+    if [ -n "$stale_block" ]; then
+        resume=$(printf '\n\n%s' "$stale_block")
+    else
     resume=$(cat <<EOF
 
 
@@ -149,6 +228,7 @@ files if present — and continue from the recorded state. Do not restart
 completed work; trust the tracking docs over assumptions about a fresh start.
 EOF
 )
+    fi
 fi
 
 printf '%s%s' "$rules" "$resume" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'

@@ -35,6 +35,18 @@ Cam's statusline for Claude Code: context-window usage, session/day/week cost,
 reasoning effort, and — in repos using the tracking plugin — the session's
 State (emoji + colour straight from the states manifest).
 
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install statusline@clam
+/statusline:setup          # writes statusLine into ~/.claude/settings.json
+```
+
+Installing the plugin changes nothing on its own — `/statusline:setup` is a
+required second step. See "Why setup is a command" below for why that write
+isn't automatic.
+
 ## Why setup is a command
 
 Plugins cannot provide a statusline: `statusLine` exists only in
@@ -69,3 +81,27 @@ lib/states.sh|tsv    session-State metadata — vendored copy; canonical source
   hidden when there is none — the statusline works fine without the tracking
   plugin.
 - Requires `jq`. Bash 3.2-safe (macOS `/bin/bash`).
+
+## Relationships to other plugins
+
+- **tracking plugin** — soft integration, optional. The State segment reads
+  `.local/TODO.md` and lights up only in repos using the tracking plugin's
+  convention; elsewhere it stays hidden and the rest of the statusline works
+  unaffected.
+- **`lib/states.sh`/`lib/states.tsv`** are a vendored copy of the tracking
+  plugin's State manifest and reader functions — the canonical source lives
+  in the tracking plugin. Keep the two copies in lockstep when either
+  changes.
+
+## Uninstalling
+
+```
+/statusline:setup remove   # reverts the statusLine setting in ~/.claude/settings.json
+/plugin uninstall statusline@clam
+```
+
+Run `/statusline:setup remove` **before** uninstalling: the plugin write to
+`~/.claude/settings.json` is a global setting outside the plugin's own
+files, and uninstalling the plugin does not revert it on its own. Without
+that step, `statusLine` keeps pointing at `scripts/context.sh` after the
+plugin — and the script — are gone.

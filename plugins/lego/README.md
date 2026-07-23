@@ -138,3 +138,32 @@ docs/             config schema / repo-interface spec
 
 History: ported from the clam-v2 repo at v0.3.0; skills renamed from
 `/clam:lego-*` to `/lego:*` in the move.
+
+## Relationships to other plugins
+
+- **worktrees** — no dependency. `worktree.sh` drives each unit's git
+  worktree directly (`git worktree add`/`remove`), following the same
+  worktree-per-worker pattern the worktrees plugin teaches for manual use;
+  neither plugin calls into the other.
+- **tracking** — no dependency, deliberately isolated. Units record phase
+  and block status in their own `.local/status.md`, never `.local/TODO.md`
+  — kept separate so an orchestrator session's own tracking doc (if the
+  tracking plugin is also installed) never collides with the block map.
+- **landing** — no dependency. Under `main-prs` delivery, `worktree.sh
+  deliver` opens PRs itself via `gh pr create` rather than calling
+  `/landing:land`; both are independent ways to raise a PR.
+
+## Uninstalling
+
+```
+/plugin uninstall lego@clam
+```
+
+`.claude/lego.json` is a committed repo file and stays in place. Session
+state under `.local/` (block map, plans, contracts, unit status) is already
+git-excluded via `.git/info/exclude`; remove it manually if you no longer
+want it:
+
+```bash
+rm -rf .local/
+```

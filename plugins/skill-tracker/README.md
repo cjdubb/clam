@@ -12,9 +12,19 @@ Skill invocation telemetry: logs every `/skill` trigger to
 /plugin install skill-tracker@clam
 ```
 
-Installing enables the hooks immediately — every Skill tool invocation in
-sessions where the plugin is active appends a JSONL row to the log. No
-configuration required.
+No configuration required.
+
+## What to expect
+
+Installing enables the hooks immediately: every Skill tool invocation
+(PreToolUse and PostToolUse) in any session where the plugin is active
+appends a JSONL row to `~/.claude/skill-triggers.jsonl`. The log file (and
+`~/.claude/` itself) is created automatically on the first invocation if it
+doesn't already exist.
+
+The hooks are fire-and-forget — they always exit 0, never block the
+session, and degrade silently (no-op) if `jq` is not installed. No context
+is injected into sessions and no settings are written.
 
 ## Common workflows
 
@@ -55,9 +65,22 @@ The stats script works standalone — no active Claude Code session required:
 bash ~/.claude/plugins/marketplaces/clam/plugins/skill-tracker/scripts/skill-stats.sh
 ```
 
-## Hooks
+## Commands
 
-### `log-skill-trigger.sh` (PreToolUse + PostToolUse)
+### Skills
+
+#### `/skill-tracker:stats`
+
+Runs `skill-stats.sh` and presents the output verbatim in the conversation.
+Relays error or informational messages (missing jq, no log file, no
+triggers) as-is. Model-invocable: its description ("Show skill trigger
+statistics — how often each skill fires, daily trends, and errors") lets the
+model select it whenever the user asks about skill usage, trigger frequency,
+or wants to audit invocations, in addition to being run directly.
+
+### Hooks
+
+#### `log-skill-trigger.sh` (PreToolUse + PostToolUse)
 
 Matched on the `Skill` tool. On every skill invocation, appends one JSONL row
 to `~/.claude/skill-triggers.jsonl`:
@@ -81,9 +104,9 @@ to `~/.claude/skill-triggers.jsonl`:
 - Gracefully degrades when `jq` is absent (silent exit 0).
 - Creates `~/.claude/` if it doesn't exist; write failures are swallowed.
 
-## Scripts
+### Scripts
 
-### `skill-stats.sh`
+#### `skill-stats.sh`
 
 CLI reporter that reads `~/.claude/skill-triggers.jsonl` and prints a
 single-page summary:
@@ -101,13 +124,17 @@ modified.
 Requires `jq`. Exits 1 if `jq` is missing; exits 0 in all other cases
 (missing log, empty log, successful report).
 
-## Skills
+## Tests
 
-### `/skill-tracker:stats`
+```bash
+bash plugins/skill-tracker/scripts/structure.test.sh
+```
 
-Runs `skill-stats.sh` and presents the output verbatim in the conversation.
-Relays error or informational messages (missing jq, no log file, no
-triggers) as-is.
+Structural only — checks `plugin.json`'s manifest fields, `hooks.json`'s
+PreToolUse/PostToolUse wiring, the scripts' presence and shebangs, the stats
+skill's frontmatter, and the plugin's registration in the repo-root
+`marketplace.json`. Hermetic: reads only the repo's own committed files, no
+network, no mutation, cwd-independent.
 
 ## Relationships to other plugins
 
@@ -131,13 +158,3 @@ no longer need the data:
 ```bash
 rm ~/.claude/skill-triggers.jsonl
 ```
-
-## Tests
-
-```bash
-bash plugins/skill-tracker/scripts/log-skill-trigger.test.sh
-bash plugins/skill-tracker/scripts/skill-stats.test.sh
-bash plugins/skill-tracker/scripts/structure.test.sh
-```
-
-All hermetic: each test uses a temp `$HOME` so the real log is never touched.

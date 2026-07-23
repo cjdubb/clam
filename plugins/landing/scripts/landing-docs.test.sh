@@ -62,24 +62,45 @@ check "README.md does not mention YAML frontmatter" \
 check "README.md does not reference legacy clam-profile.md" \
   "$(has_literal "$README" '.claude/clam-profile.md')" "no"
 
-# 5. README.md carries the required document structure: H1 title plus the
-#    H2 sections named in the B02 contract.
+# 5. README.md carries the required document structure: H1 title, the six
+#    required H2 sections from the B09 template (in order), and the
+#    preserved plugin-specific sections positioned in the optional slot
+#    between '## Commands' and '## Relationships to other plugins'.
+line_of_exact() { # file exact-line-text
+  grep -nxF -- "$2" "$1" 2>/dev/null | head -1 | cut -d: -f1
+}
+
 check "README.md has H1 '# landing'" \
   "$(head -1 "$README" 2>/dev/null)" "# landing"
-check "README.md has a Profile section referencing clam-profile.jsonc" \
-  "$(grep -qE '^## .*[Pp]rofile' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Supported policy matrix (v0.1)'" \
-  "$(grep -qF '## Supported policy matrix (v0.1)' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Skills'" \
-  "$(grep -qE '^## Skills$' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Hook'" \
-  "$(grep -qE '^## Hook$' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Failure modes'" \
-  "$(grep -qE '^## Failure modes$' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Roadmap'" \
-  "$(grep -qE '^## Roadmap$' "$README" 2>/dev/null && echo yes || echo no)" "yes"
-check "README.md has '## Tests'" \
-  "$(grep -qE '^## Tests$' "$README" 2>/dev/null && echo yes || echo no)" "yes"
+check "README.md documents the clam-profile.jsonc format" \
+  "$(has_literal "$README" '.claude/clam-profile.jsonc')" "yes"
+
+REQUIRED_H2_ORDER=$'Getting started\nWhat to expect\nCommon workflows\nCommands\nRelationships to other plugins\nUninstalling'
+ACTUAL_H2_ORDER="$(grep -E '^## (Getting started|What to expect|Common workflows|Commands|Relationships to other plugins|Uninstalling)$' "$README" 2>/dev/null | sed 's/^## //')"
+check "README.md has the required H2 sections, in order" \
+  "$ACTUAL_H2_ORDER" "$REQUIRED_H2_ORDER"
+
+COMMANDS_LINE="$(line_of_exact "$README" '## Commands')"
+RELATIONSHIPS_LINE="$(line_of_exact "$README" '## Relationships to other plugins')"
+
+between_commands_and_relationships() { # heading-exact-line-text
+  local h="$(line_of_exact "$README" "$1")"
+  if [[ -n "$h" && -n "$COMMANDS_LINE" && -n "$RELATIONSHIPS_LINE" \
+        && "$h" -gt "$COMMANDS_LINE" && "$h" -lt "$RELATIONSHIPS_LINE" ]]; then
+    echo yes
+  else
+    echo no
+  fi
+}
+
+check "README.md has '## Supported policy matrix (v0.1)' between Commands and Relationships" \
+  "$(between_commands_and_relationships '## Supported policy matrix (v0.1)')" "yes"
+check "README.md has '## Failure modes' between Commands and Relationships" \
+  "$(between_commands_and_relationships '## Failure modes')" "yes"
+check "README.md has '## Roadmap' between Commands and Relationships" \
+  "$(between_commands_and_relationships '## Roadmap')" "yes"
+check "README.md has '## Tests' between Commands and Relationships" \
+  "$(between_commands_and_relationships '## Tests')" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

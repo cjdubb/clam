@@ -1,3 +1,33 @@
+<!--
+Contract: B14 tracking-readme
+Behavior:
+  Update the existing tracking README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan
+  (specifically: skills/make-progress/SKILL.md exists and is undocumented).
+Outputs:
+  Two updates to the existing README:
+    1. Add documentation for the /tracking:make-progress skill to the
+       existing "How it works" section (or as a new subsection). This skill
+       exists in skills/make-progress/SKILL.md but is completely absent
+       from the README.
+    2. Add ## Uninstalling — uninstall command
+       (/plugin uninstall tracking@clam), note that .local/TODO.md and
+       other .local/ tracking state files are not removed, and the
+       stop-log at CLAUDE_STOP_LOG path is not removed.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: How it works, Knobs, Soft integrations,
+    Install, sections verbatim.
+  - The existing "Soft integrations" section already serves as the
+    "Relationships" section; do not duplicate.
+  - The existing "Install" section already serves as the "Getting started"
+    section; do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new sections.
+Edge cases:
+  - The make-progress skill documentation must be accurate to the actual
+    SKILL.md content; read it before writing.
+-->
 # tracking
 
 The tracking-document approach from clam-code, as a standalone plugin:

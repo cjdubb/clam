@@ -1,3 +1,30 @@
+<!--
+Contract: B10 orchestrator-handover-readme
+Behavior:
+  Update the existing orchestrator-handover README to meet all 4 issue #61
+  sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  One new section added to the existing README:
+    1. Add ## Uninstalling — uninstall command
+       (/plugin uninstall orchestrator-handover@clam), note that existing
+       handover documents in .local/ are not removed.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: Skill, What it does, Dependencies,
+    Install sections verbatim.
+  - The existing "Skill" + "What it does" sections already serve as the
+    "Commands" section; do not duplicate.
+  - The existing "Dependencies" section already serves as the
+    "Relationships" section; do not duplicate.
+  - The existing "Install" section already serves as the "Getting started"
+    section; do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for the new section.
+Edge cases:
+  - References to not-yet-ported plugins (team-review, session-modes)
+    should be preserved as-is.
+-->
 # orchestrator-handover
 
 Hands off a discrete sub-effort from an active orchestrator session to a

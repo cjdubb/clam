@@ -1,3 +1,31 @@
+<!--
+Contract: B06 decision-log-readme
+Behavior:
+  Update the existing decision-log README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Two updates to the existing README:
+    1. Expand the existing "Install" section into a proper "## Getting started"
+       section — keep the install command, add any configuration guidance
+       (mention the DL conventions, the .local/decisions/ directory that
+       sessions use).
+    2. Add ## Uninstalling — uninstall command
+       (/plugin uninstall decision-log@clam), note that existing decision
+       logs in dev-docs/decision-logs/ and .local/decisions/ are not removed.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: Skills table, Conventions, Soft
+    dependencies sections.
+  - The existing "Soft dependencies" section already serves as the
+    "Relationships" section; do not duplicate, just verify adequacy.
+  - The existing "Skills" section already serves as the "Commands" section;
+    do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new/modified sections.
+Edge cases:
+  - References to not-yet-ported plugins (issue-tracker, team-council)
+    should be preserved as-is — they're accurate about the current state.
+-->
 # decision-log
 
 Skills for recording technical decisions as lightweight Decision Logs (DLs):

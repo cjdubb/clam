@@ -1,3 +1,33 @@
+<!--
+Contract: B07 landing-readme
+Behavior:
+  Update the existing landing README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Three updates to the existing README:
+    1. Add ## Getting started — install command
+       (/plugin marketplace add cjdubb/clam, /plugin install landing@clam),
+       note that the first step after installing is /landing:init to set up
+       the repo's clam-profile.
+    2. Add or formalize ## Relationships to other plugins — document that
+       the landing plugin works with tracking (updates TODO.md state),
+       lego (dispatch uses /landing:land for main-prs delivery), and the
+       worktree layout.
+    3. Add ## Uninstalling — uninstall command
+       (/plugin uninstall landing@clam), note that the .claude/clam-profile.jsonc
+       is a committed repo file and stays in place.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: profile schema table, policy matrix,
+    skills docs, hook docs, failure modes, roadmap, tests sections.
+  - The existing "Skills" section already serves as the "Commands" section;
+    do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new sections.
+Edge cases:
+  - The existing README is very detailed; new sections should be concise
+    to avoid bloating it further.
+-->
 # landing
 
 One generic landing verb across repos that land work differently.

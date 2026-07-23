@@ -1,3 +1,26 @@
+<!--
+Contract: B12 skill-tracker-readme
+Behavior:
+  Verify the existing skill-tracker README against the PLUGIN_README_TEMPLATE.
+  This README already has all 4 required sections and complete command coverage.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE.
+Outputs:
+  Minimal or no changes. Verify that:
+    1. Getting started — present and adequate (already has install command)
+    2. Commands — present as Hooks/Scripts/Skills sections (complete)
+    3. Relationships to other plugins — present (already says standalone)
+    4. Uninstalling — present (already has uninstall + cleanup steps)
+  If section headings don't match the template exactly but the content
+  is equivalent, do NOT rename them — this README is the gold standard
+  and existing section names are fine.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content verbatim.
+  - This is a verify-only pass; changes should be minimal to none.
+Edge cases:
+  - If the README is already fully compliant (expected), output unchanged.
+-->
 # skill-tracker
 
 Skill invocation telemetry: logs every `/skill` trigger to

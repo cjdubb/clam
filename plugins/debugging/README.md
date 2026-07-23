@@ -1,4 +1,31 @@
 <!--
+Contract: B05 debugging-readme
+Behavior:
+  Update the existing debugging README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Three new sections added to the existing README:
+    1. ## Getting started — install command
+       (/plugin marketplace add cjdubb/clam, /plugin install debugging@clam).
+       Note that the skill is also model-invocable.
+    2. ## Relationships to other plugins — document the tracking plugin
+       relationship (debug sessions journal to .local/) and any other
+       cross-plugin interactions observed in the code.
+    3. ## Uninstalling — uninstall command
+       (/plugin uninstall debugging@clam), note that existing debug session
+       artifacts in .local/debug/ are not removed.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content including the B11 composition contract
+    HTML comment and all existing sections verbatim.
+  - New sections follow PLUGIN_README_TEMPLATE section order.
+  - Do not reorganize or rename existing sections.
+Edge cases:
+  - The existing "Usage" section already serves as the "Commands" section;
+    do not duplicate it, just ensure it's adequate.
+-->
+<!--
 Contract: B11 plugin-composition
 
 Behavior:

@@ -1,3 +1,34 @@
+<!--
+Contract: B13 statusline-readme
+Behavior:
+  Update the existing statusline README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Three new sections added/expanded in the existing README:
+    1. Add ## Getting started — install command
+       (/plugin marketplace add cjdubb/clam, /plugin install statusline@clam),
+       note that /statusline:setup must be run after install to write the
+       statusLine setting. Existing "Why setup is a command" content can be
+       folded into or referenced from this section.
+    2. Add ## Relationships to other plugins — document the tracking plugin
+       soft integration (State segment reads .local/TODO.md), the vendored
+       copy of states.sh/tsv from tracking (keep in lockstep).
+    3. Add ## Uninstalling — uninstall command
+       (/plugin uninstall statusline@clam), note to run /statusline:setup remove
+       first to revert the statusLine setting in ~/.claude/settings.json.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: Why setup is a command, Layout,
+    Behaviour notes sections.
+  - The existing content documents the skill and scripts adequately for
+    the "Commands" section; do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new sections.
+Edge cases:
+  - The statusline write to ~/.claude/settings.json is unusual (most
+    plugins don't touch global settings) — the uninstalling section
+    should make the revert step prominent.
+-->
 # statusline
 
 Cam's statusline for Claude Code: context-window usage, session/day/week cost,

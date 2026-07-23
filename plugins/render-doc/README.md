@@ -1,4 +1,32 @@
 <!--
+Contract: B11 render-doc-readme
+Behavior:
+  Update the existing render-doc README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Three new sections added to the existing README:
+    1. Add ## Getting started — install command
+       (/plugin marketplace add cjdubb/clam, /plugin install render-doc@clam),
+       note the python3 soft requirement.
+    2. Add ## Relationships to other plugins — document that decision-log
+       is the primary consumer (invokes /render-doc:render at checkpoints);
+       this plugin has no dependencies on others.
+    3. Add ## Uninstalling — uninstall command
+       (/plugin uninstall render-doc@clam), note that rendered .html files
+       are not removed.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content including both HTML-comment contract
+    blocks (B01 and B05) and all existing sections verbatim.
+  - The existing "Usage" section already serves as the "Commands" section;
+    do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new sections.
+Edge cases:
+  - The existing README has extensive contract blocks; inserting new
+    sections must not break the HTML comment structure.
+-->
+<!--
 Contract: B01 render-doc plugin core
 Behavior:
 - `scripts/render.sh <doc.md> [--open]` converts a markdown document into ONE

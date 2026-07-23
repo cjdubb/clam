@@ -1,3 +1,32 @@
+<!--
+Contract: B09 notifications-readme
+Behavior:
+  Update the existing notifications README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  One new section added to the existing README:
+    1. Add ## Uninstalling — uninstall command
+       (/plugin uninstall notifications@clam), note that the hooks stop
+       firing immediately, env vars in the user's shell config (the
+       lib/notify.sh source line) should be removed manually, and
+       .local/.last-stop-state and .local/.permission-mode marker files
+       can be cleaned up.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: How it works, Agent-side notify, Knobs,
+    Soft integrations, Install, Tests sections verbatim.
+  - The existing "How it works" section already serves as the "Commands"
+    section; do not duplicate.
+  - The existing "Soft integrations" section already serves as the
+    "Relationships" section; do not duplicate.
+  - The existing "Install" section already serves as the "Getting started"
+    section; do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for the new section.
+Edge cases:
+  - Rename "Install" to "Getting started" if it improves template alignment,
+    but only if the content is preserved.
+-->
 # notifications
 
 The summoning stack from clam-code, as a standalone plugin: turn the tracking

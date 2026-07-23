@@ -1,4 +1,32 @@
 <!--
+Contract: B15 worktrees-readme
+Behavior:
+  Update the existing worktrees README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Two updates to the existing README:
+    1. Add the install command to the existing "Prerequisite: git-helpers"
+       section or create a proper "## Getting started" section that includes
+       both the install command (/plugin marketplace add cjdubb/clam,
+       /plugin install worktrees@clam) and the git-helpers prerequisite.
+    2. Add ## Uninstalling — uninstall command
+       (/plugin uninstall worktrees@clam), note that git-helpers itself
+       is not affected (it's managed separately via setup.sh).
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content including both HTML-comment contract
+    blocks (B01 and B05) and all existing sections verbatim.
+  - The existing "Skills" section already serves as the "Commands" section;
+    do not duplicate.
+  - The existing "Dependencies" section already serves as the
+    "Relationships" section; do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new/modified sections.
+Edge cases:
+  - The prerequisite section is important context that must not be lost
+    when adding a Getting started section.
+-->
+<!--
 Contract: B01 plugin-manifest
 Behavior:   plugins/worktrees/ presents a valid, installable Claude Code plugin:
             .claude-plugin/plugin.json manifest plus this README documenting it.

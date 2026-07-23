@@ -1,3 +1,32 @@
+<!--
+Contract: B08 lego-readme
+Behavior:
+  Update the existing lego README to meet all 4 issue #61 sections.
+Inputs:
+  The existing README content, PLUGIN_README_TEMPLATE, plugin directory scan.
+Outputs:
+  Two new sections added to the existing README:
+    1. Add ## Relationships to other plugins — document the worktrees plugin
+       dependency (dispatch creates per-unit worktrees via worktree.sh which
+       uses newtree), the tracking plugin integration (dispatch updates
+       .local/TODO.md), and the landing plugin integration (main-prs delivery
+       uses /landing:land).
+    2. Add ## Uninstalling — uninstall command
+       (/plugin uninstall lego@clam), note that .claude/lego.json is a
+       committed repo file and stays in place, .local/ session state can
+       be removed manually.
+Errors: n/a (documentation).
+Invariants:
+  - Preserve ALL existing content: Why it works, Install, Getting started,
+    Use, Layout sections verbatim.
+  - The existing "Use" section already serves as the "Commands" section;
+    do not duplicate.
+  - The existing "Getting started" section already meets that requirement;
+    do not duplicate.
+  - Follow PLUGIN_README_TEMPLATE section order for new sections.
+Edge cases:
+  - The existing README is already detailed; new sections should be concise.
+-->
 # lego — the lego workflow for Claude Code
 
 A technology-agnostic Claude Code plugin for engineers who want to stay in the

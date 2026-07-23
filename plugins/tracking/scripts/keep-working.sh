@@ -63,6 +63,13 @@ STATES_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/sta
 # shellcheck source=/dev/null
 source "$STATES_LIB"
 
+# Conversation-activity readers (B01) for the freshness gate. Guarded source:
+# a missing lib disables the freshness gate only (fail-open), never the whole
+# Stop hook — unlike states.sh, nothing else here depends on it.
+ACTIVITY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/activity.sh"
+# shellcheck source=/dev/null
+[[ -f "$ACTIVITY_LIB" ]] && source "$ACTIVITY_LIB"
+
 LOG_FILE="${CLAUDE_STOP_LOG:-$HOME/.claude/stop-log.jsonl}"
 
 input=$(cat)
@@ -70,6 +77,7 @@ input=$(cat)
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 stop_hook_active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 log_stop() {
     local decision="$1"
@@ -359,6 +367,82 @@ fi
 
 state=$(todo_field "$todo" State)
 
+# Contract: B02 — freshness-stop-gate
+#
+# Behavior:
+#   Mechanical doc-vs-conversation drift enforcement at turn end. For every
+#   State that would otherwise PERMIT ending the turn (all parked Awaiting *
+#   states, Blocked, Waiting For Decision, Complete — NOT Not Started /
+#   In Progress, which block anyway), the gate compares conversation activity
+#   against .local/TODO.md's freshness: when
+#     activity_prompts_since(mtime(TODO.md), transcript_path) >= threshold
+#   the turn-end is blocked ONCE per session epoch with a reason instructing
+#   the agent to bring the tracking docs up to date — update State / Current
+#   Task / Implementation Log / open questions to reflect the conversation
+#   since the docs were last touched, or, when the docs are genuinely current,
+#   refresh Last Updated (any TODO.md write moves its mtime and satisfies the
+#   gate on the re-stop). This closes the parked-state hole: a session that
+#   resumes substantive work while parked (e.g. State: Awaiting User Review)
+#   can no longer end turns silently with stale docs.
+#
+# Inputs:
+#   $state           — outer scope, already read from TODO.md.
+#   $todo, $cwd      — outer scope. mtime of $todo is the reference epoch
+#                      (clam_mtime_epoch semantics: integer seconds; 0/absent
+#                      → fail-open pass).
+#   $transcript_path — outer scope, parsed from hook stdin JSON. Empty or
+#                      non-file → fail-open pass.
+#   activity_prompts_since — from lib/activity.sh (B01). Not sourced /
+#                      NotImplemented → fail-open pass.
+#   CLAM_TRACKING_FRESHNESS_GATE      — "disabled" turns the gate off
+#                      entirely (default enabled).
+#   CLAM_TRACKING_FRESHNESS_THRESHOLD — integer >= 1; prompts-since-mtime at
+#                      or above this block. Default 2 (tolerates a single
+#                      pleasantry turn); invalid / <1 → 2.
+#
+# Outputs:
+#   Return 0  — fresh (or any fail-open path): caller proceeds to the normal
+#               state handling.
+#   Return 1  — stale: caller emits {decision:"block", reason:
+#               $FRESHNESS_BLOCK_REASON} and logs disposition
+#               "block_freshness". $FRESHNESS_BLOCK_REASON is set to a
+#               multi-line reason that names the State, the prompt count, the
+#               threshold, and the update-or-touch instruction, and states
+#               that the nudge fires at most once per session epoch.
+#   Return >1 — treated by the caller as fail-open pass (NotImplemented
+#               sentinel 90 included).
+#
+# Errors:
+#   Fail-open on EVERY uncertainty: gate disabled, activity lib absent,
+#   transcript_path empty/missing, TODO mtime unreadable, marker unwritable,
+#   count non-numeric. The gate must never block when it cannot safely
+#   evaluate staleness.
+#
+# Invariants:
+#   - Once per session epoch: marker .local/.freshness-nudge-fired is created
+#     on the first block; while it exists the gate always passes. The marker
+#     is cleared by session-context.sh on every SessionStart event (B04), the
+#     same epoch scheme as the other nudge markers.
+#   - Runs AFTER the plan gate and BEFORE the state case; never fires for
+#     Not Started / In Progress.
+#   - A TODO.md write during the blocked turn satisfies the gate (mtime
+#     moves), so the agent always has a same-turn escape.
+#   - Read-only apart from the marker file.
+#
+# Edge cases:
+#   - TODO.md updated this turn AFTER the last user prompt → count 0 → pass.
+#   - Threshold 1 + a bare "thanks" turn → blocks once, marker then allows;
+#     default 2 avoids this.
+#   - stop_hook_active loop guard exits earlier; the gate never re-fires
+#     within the same stop cycle.
+#   - Epoch marker present but docs still stale at next session → marker was
+#     cleared at SessionStart → gate can fire again (by design).
+check_tracking_freshness() {
+    FRESHNESS_BLOCK_REASON=""
+    echo "NotImplemented: B02 freshness-stop-gate" >&2
+    return 90
+}
+
 # Plan gate (Lego Block methodology): every .local/PLAN.md must carry a
 # '## Block Design' section (a real design or an explicit N/A — <reason>). This
 # composes in FRONT of the State case, so it applies in all states — its escape
@@ -370,6 +454,23 @@ if ! check_plan_block_design "$cwd"; then
     jq -n --arg r "$PLAN_GATE_BLOCK_REASON" '{decision: "block", reason: $r}'
     exit 0
 fi
+
+# Freshness gate (B02) composes after the plan gate and in front of the state
+# case, for every state that permits ending the turn. Non-0/1 returns (incl.
+# the NotImplemented sentinel) fall through fail-open. `|| rc=$?` disarms
+# set -e.
+case "$state" in
+    "Not Started"|"In Progress") : ;;
+    *)
+        freshness_rc=0
+        check_tracking_freshness || freshness_rc=$?
+        if [[ "$freshness_rc" -eq 1 ]]; then
+            log_stop "block_freshness" "$state" "$FRESHNESS_BLOCK_REASON"
+            jq -n --arg r "$FRESHNESS_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        ;;
+esac
 
 # Parked states (the manifest's parked category) allow stop — work resumes on
 # its own, no user action. state_is_parked / state_parked_list come from

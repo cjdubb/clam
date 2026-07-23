@@ -63,6 +63,28 @@ statusline plugin's State segment.
   keep them in lockstep.
 - **`templates/TODO.md`** is the tracking-doc skeleton.
 
+### `/tracking:make-progress`
+
+User-invoked only — never auto-triggered by a hook or another skill. Run it
+when a session stalls after finishing a unit of work (a PR merged, a
+subagent returned, a review posted) instead of finding the next in-plan
+action:
+
+1. Reads the stall snapshot a `UserPromptSubmit` hook (`scripts/capture.sh`)
+   already captured — session state and transcript tail — from
+   `~/.claude/make-progress-captures/`, falling back to
+   `scripts/capture.sh --fallback` if nothing matches.
+2. Assesses `.local/TODO.md`, plan files, other `.local/` state, PR status,
+   and active watch crons.
+3. Applies a decision table scoped strictly to the approved plan — dispatch
+   ready lego blocks, run post-merge cleanup, route unaddressed PR
+   feedback, re-request review from an existing reviewer, resurface a
+   genuine blocker — never inventing new work, merging PRs, or assigning
+   new reviewers.
+4. Records the decision, and later the outcome, to `DECISION.md` in the
+   capture dir before acting, so a labeled (stall → correct next move)
+   example survives even if the act phase fails.
+
 ## Knobs
 
 | Env var | Default | Effect |
@@ -97,3 +119,13 @@ enabled. Sessions without a `.local/TODO.md` skip the Stop-hook enforcement
 (ad-hoc sessions stay ad-hoc); the task-tools deny is the one hook that fires
 regardless, since tracking anywhere but `.local/TODO.md` is exactly what it
 exists to prevent.
+
+## Uninstalling
+
+```
+/plugin uninstall tracking@clam
+```
+
+`.local/TODO.md` and other `.local/` tracking state files are not removed,
+nor is the Stop-hook audit log at the `CLAUDE_STOP_LOG` path (default
+`~/.claude/stop-log.jsonl`).

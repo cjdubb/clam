@@ -1,86 +1,121 @@
 # landing
 
-<!--
-SCAFFOLD Contract: B09 landing-readme (plan 002-readme-conformance)
-This comment IS the unit's contract. It is removed as part of implementation;
-the finished README must not contain it.
-Behavior:
-  Restructure the existing README (below this comment) so it conforms exactly to
-  plugins/PLUGIN_README_TEMPLATE.md (the locked template; authoritative for
-  every section's semantics and placeholder guidance).
-Inputs:
-  The template; this plugin's actual sources (.claude-plugin/plugin.json,
-  skills/*/SKILL.md, hooks/, scripts/, lib/ as present); the existing README
-  content below this comment, if any. Facts come ONLY from these sources —
-  never invented. If sources contradict this contract or the template seems
-  wrong for this plugin, STOP and escalate to the orchestrator.
-Outputs:
-  A README whose H2 sections are exactly, in order:
-    ## Getting started
-    ## What to expect
-    ## Common workflows
-    ## Commands
-    ## Relationships to other plugins
-    ## Uninstalling
-  Extra H2 sections (## Tests, plugin-specific ones) are allowed ONLY
-  between "## Commands" and "## Relationships to other plugins".
-  H1 is the plugin name followed by a one-paragraph operational purpose
-  statement. Getting started opens with the standard install commands
-  (/plugin marketplace add cjdubb/clam; /plugin install landing@clam).
-  Uninstalling opens with /plugin uninstall landing@clam plus any cleanup.
-Errors:
-  n/a (static document). Ambiguity or contradiction -> escalate, never guess.
-Invariants:
-  - Every substantive fact in the existing README is preserved by
-    RELOCATING it under the correct template heading; nothing is merely
-    left in place, nothing substantive is dropped.
-  - Pre-existing HTML contract comments in the original content are
-    preserved verbatim.
-  - Config doctrine (no standalone config section): config written by a
-    setup command is documented under that command in ## Commands; env vars
-    read by a hook are documented inline with that hook; plugins with many
-    env vars get a summary table at the end of ## Commands; any var a user
-    must set by hand gets an exact instruction to set it in the env block
-    of the settings file at the plugin's installation scope.
-  - What to expect and Common workflows are written fresh from plugin
-    sources per the template's placeholder guidance.
-  - This SCAFFOLD comment is deleted; no other file is touched.
-Edge cases / plugin-specific mapping:
-  NOTE: the H1 line stays ABOVE this comment — landing-docs.test.sh
-  requires '# landing' as the file's first line.
-  Current H2s: the profile (.claude/clam-profile.jsonc), policy matrix,
-  Skills, Hook, Failure modes, Roadmap, Tests. Skills (/landing:init,
-  /landing:land) and Hook -> Commands; profile + policy matrix content ->
-  Commands or an extra section in the optional slot; Failure modes,
-  Roadmap, Tests -> optional slot; Common workflows: e.g. configure the
-  landing policy, land finished work.
--->
+One generic landing verb across repos that land work differently: some land
+via GitHub PRs the user reviews and merges, some merge worktree branches
+straight into the target branch with no forge involved. This plugin owns
+that seam so the orchestrator's behavior doesn't have to vary with it —
+mechanism (`/landing:land`, `/landing:init`, and a SessionStart hook) ships
+in the plugin; policy (one committed file, `.claude/clam-profile.jsonc`)
+lives in each repo. Detection assists first-time setup but never silently
+decides — "who merges" is a human policy choice, not derivable from git
+remotes — the same provider-seam pattern as clam-code's `issue-tracker`
+(jira/github/none).
 
-One generic landing verb across repos that land work differently.
+## Getting started
 
-The post-implementation flow — "get finished work onto master/main" — varies
-per repo: some land via GitHub PRs the user reviews and merges, some merge
-worktree branches straight into the target branch with no forge involved.
-The orchestrator's behavior should not vary with it. This plugin owns that
-seam:
+```
+/plugin marketplace add cjdubb/clam
+/plugin install landing@clam
+```
 
-- **Mechanism (this plugin):** `/landing:land`, `/landing:init`, and a
-  SessionStart hook that injects the repo's declared policy into every
-  session.
-- **Policy (each repo):** one committed file, `.claude/clam-profile.jsonc`.
+No configuration is required to install. The plugin is otherwise inert
+until the repo has a committed `.claude/clam-profile.jsonc` — run
+`/landing:init` to detect and record one (see Common workflows below).
 
-Detection assists first-time setup but never silently decides — "who
-merges" is a human policy choice, not derivable from git remotes. Same
-provider-seam pattern as clam-code's `issue-tracker` (jira/github/none).
+## What to expect
 
-## The profile: `.claude/clam-profile.jsonc`
+- **Every session start:** the `landing-context.sh` hook reads
+  `.claude/clam-profile.jsonc` from the repo root (JSONC — `//` line
+  comments are stripped before parsing) and injects an additional-context
+  line: `strategy=…, target=…, merged-by=…. Land finished work with
+  /landing:land.` when a profile exists, or a nudge to run `/landing:init`
+  when it does not. The legacy `clam-profile.md` (previously committed
+  under `.claude/`) is never consulted — a repo with only that file is
+  treated as having no profile.
+- **Fail-open:** no `jq` on `PATH`, no `cwd` in the hook's stdin payload, an
+  unreadable profile, or invalid JSON left after stripping comments — any
+  of these produce no output rather than breaking session start.
+- **Nothing is written automatically.** The profile is written only when
+  `/landing:init` runs and the user confirms the proposed values; work is
+  only pushed, PR'd, or merged when `/landing:land` runs.
+- **Two skills become available:** `/landing:init` and `/landing:land` (see
+  Commands).
+- In a repo with no profile recorded, the plugin's only effect is the
+  SessionStart nudge — everything else waits on `/landing:init`.
+
+## Common workflows
+
+### Record how work lands in this repo
+
+Run `/landing:init`. It inspects the repo — remotes, `gh auth status` and
+merged-PR history, branch protection on the default branch, worktree
+layout, merge-commit history — and proposes a policy: `github-pr` +
+`merged-by: user` when GitHub PRs are in evidence, `local-merge` +
+`merged-by: orchestrator` when work merges straight to the default branch
+with no forge remote, or both options with no default when the evidence is
+mixed. Confirm each key (plus `merge-style`/`cleanup` for local-merge) —
+"who merges" is always a human decision, never inferred. The skill writes
+`.claude/clam-profile.jsonc`, preserving any existing `deploy` section,
+comments, or unrelated keys other seams added. Commit the file — it's repo
+policy, not local state. A repo with only the legacy `clam-profile.md`
+(previously committed under `.claude/`) is offered a migration to the new
+format. See Commands for the full key reference.
+
+### Land finished work
+
+Once implementation is complete and verified, run `/landing:land`. It reads
+the profile, stops if the working tree is dirty or `.local/TODO.md`'s
+pre-land checklist has unchecked boxes, runs `merge.verify` if set, then
+dispatches on `merge.strategy`: pushes the branch and opens a PR
+(`github-pr`) or merges into the target branch's worktree (`local-merge`),
+honoring `merge.merge-style` and `merge.cleanup`. `.local/TODO.md` is
+updated with the resulting state either way. See Commands for the full
+per-strategy walkthrough.
+
+## Commands
+
+### Skills
+
+**`/landing:init`** — detect, confirm, and record a repo's landing policy
+into a committed `.claude/clam-profile.jsonc`. Model-invocable: fires in a
+repo with no profile, when asked to "set up the landing workflow" or
+"configure how work lands here", or right after installing this plugin.
+
+1. **Inspect** — gather evidence, tolerating individual failures:
+   `git remote -v`; `gh auth status` and `gh pr list --state merged --limit
+   5`; branch protection on the default branch (`gh api
+   repos/{owner}/{repo}/branches/<default>/protection`; 404 means none);
+   `git worktree list`; `git log --merges --oneline -5 <default-branch>`;
+   the default branch name. Skips the `gh`-based checks when `gh` is
+   unavailable.
+2. **Propose** — GitHub remote with merged PRs or branch protection →
+   `github-pr` + `merged-by: user`; no forge remote with direct merge
+   commits → `local-merge` + `merged-by: orchestrator`; mixed or thin
+   evidence → both options presented, no default.
+3. **Confirm** — walks through `merge.strategy`, `merge.target`,
+   `merge.merged-by` (plus `merge.merge-style` and `merge.cleanup` for
+   local-merge), offering a `merge.verify` command when a test entrypoint
+   is evident (package.json scripts, Makefile, test suites).
+4. **Write** — writes `.claude/clam-profile.jsonc` from the template
+   below with the confirmed values. If a `.jsonc` profile already exists,
+   changes only the confirmed keys and leaves everything else — the
+   `deploy` section, comments, unrelated keys — intact, since other seams
+   share this file. If only the legacy `clam-profile.md` exists (previously
+   committed under `.claude/`, flat `landing-*` keys), offers to migrate it
+   — mapping `landing-strategy`→`merge.strategy`,
+   `landing-target`→`merge.target`, `landing-merged-by`→`merge.merged-by`,
+   `landing-verify`→`merge.verify`, `landing-merge-style`→
+   `merge.merge-style`, `landing-cleanup`→`merge.cleanup` — and carrying
+   the markdown body over as comments. If both files exist, warns and
+   prefers `.jsonc`. Reminds the user to commit the file.
+
+#### The profile: `.claude/clam-profile.jsonc`
 
 Committed to each consumer repo. JSONC (JSON with `//` line comments): a
 `merge` section for landing mechanics, a `deploy` section for what happens
-after landing, and comments for the orchestrator's workflow notes — the
-same role the v1 markdown body played. Other seams add their own
-top-level sections and unknown keys to the same file; this plugin ignores
-anything outside `merge`/`deploy`.
+after landing, and comments for the orchestrator's workflow notes. Other
+seams add their own top-level sections and unknown keys to the same file;
+this plugin ignores anything outside `merge`/`deploy`.
 
 | Key | Values | Default |
 |-----|--------|---------|
@@ -96,6 +131,10 @@ anything outside `merge`/`deploy`.
 | `merge.human-review` | `required` \| `optional` \| `none` | `none` |
 | `deploy.trigger` | `merge-to-target` \| `tag` \| `manual` \| `none` | `none` |
 | `deploy.verify` | post-deploy verification command | unset |
+
+The `merge.open-as`, `merge.bot-reviewers`, `merge.human-review`, and
+`deploy.*` keys are v2 additions: `/landing:init` writes them and
+`/landing:land` reads them, but v0.1 does not yet act on them.
 
 A PR-flow repo:
 
@@ -145,11 +184,69 @@ A local-merge repo:
 }
 ```
 
-Migrating from the legacy `clam-profile.md` (previously committed under
-`.claude/`, flat `landing-*` keys)? Run `/landing:init` — it detects the
-old file, maps each key onto the `merge`/`deploy` schema above, carries
-the markdown body over as comments, and confirms the mapped values before
-writing the new `.jsonc` file.
+**`/landing:land`** — land finished work onto the repo's main branch by
+following the policy in `.claude/clam-profile.jsonc`. Model-invocable:
+fires when implementation is complete and verified and it's time to "land
+this", "ship it", "open the PR", or "merge to master", or when the tracking
+plan reaches its landing step.
+
+0. **Read the policy** — `.claude/clam-profile.jsonc` at the repo root,
+   JSONC comments stripped before parsing as JSON. See the profile table
+   above for the `merge.*` keys; the v2-only keys are read but not yet
+   acted on. No profile → stop, offer `/landing:init`, never guess a
+   strategy. A repo with only the legacy `clam-profile.md` (previously
+   committed under `.claude/`) and no `.jsonc` counts as no profile — offer
+   migration via `/landing:init` rather than reading the legacy file.
+   Unsupported strategy/combination → stop with an explicit error naming
+   the offending value; see Supported policy matrix below for the two
+   combinations v0.1 supports.
+1. **Preconditions** — stop (and say why) unless all hold: the working
+   tree is clean (`git status --porcelain` empty — otherwise list the
+   uncommitted paths and stop); the current branch is not `merge.target`;
+   and, if `.local/TODO.md` exists, its `## Pre-PR` checklist is fully
+   checked.
+2. **Verify** — if `merge.verify` is set, run it from the repo root. Any
+   non-zero exit stops, keeps tracking state `In Progress`, and must be
+   fixed before retrying — landing never lands red.
+3. **Dispatch on strategy:**
+   - **`github-pr`** — if a `deliver` plugin providing a create-pr skill is
+     installed, delegates this step (and the record step) to it instead of
+     the built-in path; otherwise checks that `git remote get-url origin`
+     resolves to a GitHub remote and `gh auth status` succeeds (`Blocked`
+     with exact remediation if either fails), runs
+     `git push -u origin <branch>`, then `gh pr create --base
+     <merge.target>` with a title and body sourced from `.local/PLAN.md`
+     and `.local/TODO.md`. Sets tracking state `Awaiting User Review` with
+     the PR URL. The orchestrator never merges the PR — under this policy,
+     merging is the user's act.
+   - **`local-merge`** — locates the worktree where `merge.target` is
+     checked out (stops and asks if none is found; v0.1 does not merge
+     into a branch with no checkout), merges the work branch there
+     honoring `merge.merge-style` (`no-ff`, `ff-only`, or `squash`) with
+     the message `Merge branch '<branch>': <summary>`. A conflict aborts
+     the merge cleanly and sets state `Blocked` with the conflicting
+     paths. If `merge.verify` is set, re-runs it in the target worktree —
+     on failure, sets `Blocked` and presents the
+     `reset --hard ORIG_HEAD` revert option. Cleanup runs only when
+     `merge.cleanup: remove-worktree`, and is skipped — with the commands
+     printed for the user instead — when the session's own cwd is the
+     worktree being removed. Sets state `Complete`.
+4. **Record** — updates `.local/TODO.md` before ending the turn: State per
+   the matrix above, `Current Task:` describing what is in flight, and an
+   Implementation Log entry with the PR URL or merge commit hash.
+
+### Hooks
+
+**`landing-context.sh`** (SessionStart) — reads `.claude/clam-profile.jsonc`,
+strips `//` comments, and injects the parsed policy line
+(`strategy=…, target=…, merged-by=…`) plus the instruction to land via
+`/landing:land` — or, when the repo has no profile, a nudge that
+`/landing:init` records one. The legacy `clam-profile.md` path (previously
+committed under `.claude/`) is never consulted: a repo with only that file
+is treated as having no profile. Fail-open: no `jq` on `PATH`, no `cwd` in
+the payload, an unreadable profile, or invalid JSON left after
+comment-stripping all produce no output rather than breaking session
+start.
 
 ## Supported policy matrix (v0.1)
 
@@ -162,33 +259,10 @@ Any other value or combination stops with an explicit error naming it —
 no fallback guessing. Terminal state is derived from the matrix, not a
 profile knob, so a contradictory combination cannot be declared.
 
-## Skills
-
-- `/landing:land` — the generic verb: read policy → preconditions (clean
-  tree, off-target branch, pre-land checklist green) → `merge.verify` →
-  dispatch on strategy → update `.local/TODO.md`. Never lands red; never
-  guesses a missing policy.
-- `/landing:init` — detect (remotes, `gh` auth, branch protection, merge
-  history, worktree layout) → propose with evidence → user confirms →
-  write the profile, preserving other seams' keys, the `deploy` section,
-  and comments when the file already exists.
-
-## Hook
-
-`landing-context.sh` (SessionStart): reads `.claude/clam-profile.jsonc`,
-strips `//` comments, and injects the parsed policy line
-(`strategy=… , target=… , merged-by=…`) plus the instruction to land via
-`/landing:land` — or, when the repo has no profile, a nudge that
-`/landing:init` records one. The legacy `.md` path is never consulted:
-a repo with only that file is treated as having no profile. Fail-open: no
-`jq` on PATH, no cwd in the payload, an unreadable profile, or invalid
-JSON left after comment-stripping all produce no output rather than
-breaking session start.
-
 ## Failure modes
 
 - No profile → offer `/landing:init`; never guess.
-- Legacy `.md`-only repo → treated as no profile; offer migration via
+- Legacy-`.md`-only repo → treated as no profile; offer migration via
   `/landing:init`.
 - Unknown strategy / unsupported combination → explicit error.
 - Dirty working tree → stop and list the uncommitted paths.
@@ -212,7 +286,9 @@ breaking session start.
 - **deliver plugin delegation:** the `deliver` plugin's create-pr skill is
   the delegation target for `/landing:land`'s github-pr path (the seam is
   already in the skill) — this replaces the earlier standalone
-  `pr-workflow` plugin plan.
+  `pr-workflow` plugin plan. `deliver` does not ship a create-pr skill yet
+  (only `sync-pr`, which updates an existing PR's description), so the
+  delegation seam is currently dormant.
 
 ## Tests
 
@@ -220,3 +296,37 @@ breaking session start.
 bash plugins/landing/scripts/landing-context.test.sh
 bash plugins/landing/scripts/landing-docs.test.sh
 ```
+
+## Relationships to other plugins
+
+- **Requires:** nothing — this plugin is fully standalone among clam
+  plugins. Its only dependency is repo-level, not plugin-level: a
+  committed `.claude/clam-profile.jsonc` before `/landing:land` has
+  anything to act on.
+- **Soft integrations:**
+  - `deliver` — detects landing's presence and adds merge-policy context
+    to its own delivery-framework summary; `/landing:land` in turn
+    documents a delegation seam to a `deliver` create-pr skill for the
+    github-pr path (see Roadmap — not yet implemented on the `deliver`
+    side).
+  - `tracking` — landing reads and writes `.local/TODO.md`: the pre-land
+    checklist gates Step 1 of `/landing:land`, and Step 4 records the
+    terminal state (`Awaiting User Review`, `Complete`, `Blocked`, `In
+    Progress`) and an Implementation Log entry there. Landing works
+    without `tracking` installed; it just updates the file directly using
+    the same conventions.
+- **Provides:** the `/landing:land` and `/landing:init` skills, the
+  SessionStart policy injection, and the state-transition vocabulary
+  (`Awaiting User Review`, `Blocked`, `Complete`) that other plugins reading
+  `.local/TODO.md` key off of.
+
+## Uninstalling
+
+```
+/plugin uninstall landing@clam
+```
+
+The committed `.claude/clam-profile.jsonc` is repo policy, not plugin
+state — uninstalling does not remove it. Delete it by hand if the repo no
+longer wants a recorded landing policy. No other files or settings are
+written by this plugin.

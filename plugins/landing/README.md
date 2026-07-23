@@ -1,3 +1,5 @@
+# landing
+
 <!--
 Contract: B07 landing-readme
 Behavior:
@@ -28,7 +30,6 @@ Edge cases:
   - The existing README is very detailed; new sections should be concise
     to avoid bloating it further.
 -->
-# landing
 
 One generic landing verb across repos that land work differently.
 

@@ -104,16 +104,70 @@
 #   newest 5 prior transcripts (threshold CLAM_TRACKING_RESUME_STALE_THRESHOLD,
 #   default 1). Thresholds live with the consumers, not here.
 
-# Stub bodies: deliberately unimplemented. They violate the contract on every
-# path (no stdout, nonzero return) so that EVERY contract-clause test — happy
-# path and fail-open alike — runs red against the scaffold. Implementations
-# replace the bodies; the docblock above is the authoritative contract.
 activity_prompts_since() {
-    echo "NotImplemented: B01 activity-lib (activity_prompts_since)" >&2
-    return 90
+    local ref_epoch="$1"
+    local transcript_path="$2"
+
+    [[ "$ref_epoch" =~ ^[0-9]+$ ]] || { printf '%s\n' "0"; return 0; }
+    [[ -f "$transcript_path" && -r "$transcript_path" && -s "$transcript_path" ]] || { printf '%s\n' "0"; return 0; }
+    command -v jq >/dev/null 2>&1 || { printf '%s\n' "0"; return 0; }
+
+    # Single jq pass over the file (transcripts run to several MB): parse each
+    # line best-effort (fromjson? drops malformed lines), apply every
+    # contract filter, normalize/parse the timestamp, and collect only the
+    # epochs that qualify — the array's length is the count. try/catch around
+    # the date parse means an unparseable timestamp drops that line rather
+    # than aborting the whole pass.
+    local count
+    count=$(jq -nR --argjson ref "$ref_epoch" '
+        def is_machine_generated:
+            test("^\\s*(<|Stop hook feedback:|Another Claude session sent|\\[Request interrupted|Shell cwd was reset|Caveat: the messages below)");
+        [
+            inputs
+            | fromjson?
+            | select(.type == "user")
+            | select((.message.content | type) == "string")
+            | select((.isMeta // false) == false)
+            | select((.message.content | is_machine_generated) | not)
+            | (.timestamp // empty)
+            | select(. != "")
+            | sub("\\.[0-9]+Z$"; "Z")
+            | (try fromdateiso8601 catch empty)
+            | select(. > $ref)
+        ] | length
+    ' "$transcript_path" 2>/dev/null) || true
+
+    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    printf '%s\n' "$count"
+    return 0
 }
 
 activity_prior_transcripts() {
-    echo "NotImplemented: B01 activity-lib (activity_prior_transcripts)" >&2
-    return 90
+    local cwd="$1"
+    local exclude_path="${2:-}"
+
+    [[ -n "$cwd" ]] || return 0
+
+    local sanitized="${cwd//\//-}"
+    local project_dir="$HOME/.claude/projects/$sanitized"
+
+    [[ -d "$project_dir" && -r "$project_dir" ]] || return 0
+
+    # Direct-children-only glob (no recursion); -f rejects both non-matches
+    # (the unexpanded literal pattern, when nothing matches) and directories
+    # that merely happen to end in .jsonl.
+    local f
+    local -a files=()
+    for f in "$project_dir"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        [[ "$f" == "$exclude_path" ]] && continue
+        files+=("$f")
+    done
+
+    [[ "${#files[@]}" -gt 0 ]] || return 0
+
+    local out
+    out=$(ls -1t -- "${files[@]}" 2>/dev/null) || return 0
+    [[ -n "$out" ]] && printf '%s\n' "$out"
+    return 0
 }

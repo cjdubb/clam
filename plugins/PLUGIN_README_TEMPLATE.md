@@ -56,18 +56,25 @@
      Match depth to complexity: a plugin with one skill needs one paragraph;
      a plugin with five hooks and three scripts needs the full breakdown.
      A simple plugin with only skills can skip the ### subsection headers
-     and just document each skill directly. -->
+     and just document each skill directly.
 
-<!-- Optional sections — include between Commands and Relationships when
+     Configuration lives here, not in its own section. The sanctioned config
+     interface is a setup command; env vars are the wire protocol between a
+     command and a hook, not a user interface. So:
+     - Config written by a setup command: document it under that command.
+     - Env vars read by a hook: document them inline with that hook.
+     - Env-var-heavy plugins: add a summary table at the end of this section:
+
+       | Env var | Default | Effect |
+       |---------|---------|--------|
+       | `VAR_NAME` | `value` | What it controls |
+
+     - Any var a user must set by hand (no setup command writes it yet) gets
+       an exact instruction beside it: set it in the `env` block of the
+       settings file for the scope where the plugin is installed. -->
+
+<!-- Optional section — include between Commands and Relationships when
      relevant to the plugin:
-
-     ## Knobs
-
-     For plugins gated by env vars. Use a table:
-
-     | Env var | Default | Effect |
-     |---------|---------|--------|
-     | `VAR_NAME` | `value` | What it controls |
 
      ## Tests
 

@@ -48,6 +48,17 @@ Detection assists first-time setup but never silently decides — "who
 merges" is a human policy choice, not derivable from git remotes. Same
 provider-seam pattern as clam-code's `issue-tracker` (jira/github/none).
 
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install landing@clam
+```
+
+The first step after installing is `/landing:init` — it detects the
+repo's merge/deploy setup and writes `.claude/clam-profile.jsonc`. Without
+a profile, `/landing:land` has no policy to act on.
+
 ## The profile: `.claude/clam-profile.jsonc`
 
 Committed to each consumer repo. JSONC (JSON with `//` line comments): a
@@ -160,6 +171,17 @@ a repo with only that file is treated as having no profile. Fail-open: no
 JSON left after comment-stripping all produce no output rather than
 breaking session start.
 
+## Relationships to other plugins
+
+- **tracking** — `/landing:land` updates `.local/TODO.md`'s State field
+  (`Awaiting User Review`, `Complete`, `Blocked`) as the terminal step of
+  a landing action.
+- **lego** — dispatch's `main-prs` delivery mode calls `/landing:land` to
+  push and open the PR for each delivered unit.
+- **worktree layout** — local-merge relies on `git worktree list` to find
+  the checkout where `merge.target` lives; a target branch with no
+  worktree checked out is a stop-and-ask failure mode (see below).
+
 ## Failure modes
 
 - No profile → offer `/landing:init`; never guess.
@@ -188,6 +210,16 @@ breaking session start.
   the delegation target for `/landing:land`'s github-pr path (the seam is
   already in the skill) — this replaces the earlier standalone
   `pr-workflow` plugin plan.
+
+## Uninstalling
+
+```
+/plugin uninstall landing@clam
+```
+
+`.claude/clam-profile.jsonc` is a committed repo file, not plugin state —
+uninstalling leaves it in place. Remove it manually if the repo no longer
+needs a landing policy.
 
 ## Tests
 

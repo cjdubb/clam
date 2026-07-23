@@ -99,8 +99,8 @@ check "README has a non-empty purpose paragraph between the H1 and the first H2"
 # --- H2 set is exactly {Usage, Artifacts, Components} ----------------------
 
 H2_SET="$(grep '^## ' <<<"$BODY" | sed 's/^## //' | sort | tr '\n' ',' | sed 's/,$//')"
-check "README H2 sections are exactly Artifacts, Components, Usage (sorted)" \
-  "$H2_SET" "Artifacts,Components,Usage"
+check "README H2 sections are exactly Artifacts, Components, Getting started, Relationships to other plugins, Uninstalling, Usage (sorted)" \
+  "$H2_SET" "Artifacts,Components,Getting started,Relationships to other plugins,Uninstalling,Usage"
 
 # Helper: the text of the section starting at a given "## <Name>" heading, up
 # to (excluding) the next "## " heading or EOF.

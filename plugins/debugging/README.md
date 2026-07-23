@@ -83,6 +83,17 @@ differential diagnosis, isolating by binary search, and gathering log and
 database evidence, handing the engineer exact queries to paste results back
 whenever the orchestrator lacks direct access itself.
 
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install debugging@clam
+```
+
+No configuration required. Beyond the explicit `/debugging:root-cause`
+command, the skill is also model-invocable, so a session can pick up the
+loop on its own the moment it hits a bug worth root-causing.
+
 ## Usage
 
 Invoke the loop directly with `/debugging:root-cause`, or let it pick itself
@@ -133,3 +144,30 @@ finding back into the journal's Hypotheses table.
 | `templates/journal.md` | Per-investigation journal template, copied verbatim into each new session directory. |
 | `templates/query-results.md` | Paste-back results template, copied verbatim into each query directory. |
 | `scripts/debug-session.sh` | CLI that creates the numbered session and query directories from the templates above. |
+
+## Relationships to other plugins
+
+`debug-session.sh start` refuses to run unless `.local/` already exists in
+the current working directory, treating it as the marker for the
+repo/worktree root — the same `.local/` the **tracking** plugin owns for
+`.local/TODO.md`. Debug sessions journal into `.local/debug/NNN-<slug>/`
+alongside tracking's own state, so any worktree with tracking set up (or
+with a plain `.local/` directory present) already satisfies this plugin's
+one precondition. No hard dependency: `debugging` works with tracking absent
+as long as `.local/` exists, and does not read or write `.local/TODO.md`
+itself.
+
+No other plugin integrations.
+
+## Uninstalling
+
+```
+/plugin uninstall debugging@clam
+```
+
+Existing debug session artifacts under `.local/debug/` are not removed —
+delete them manually if you no longer need past investigations:
+
+```bash
+rm -rf .local/debug
+```

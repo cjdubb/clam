@@ -19,7 +19,7 @@ Outputs (required document structure — tests assert these):
       ## Artifacts       — the .local/debug/NNN-<slug>/ layout: journal.md,
                            queries/NN-<name>/ (query file + results.md),
                            paste-back flow in two sentences.
-      ## Components      — table listing the skill, the six references, the
+      ## Components      — table listing the skill, the seven references, the
                            two templates, and debug-session.sh with a
                            one-line role each.
 
@@ -30,10 +30,12 @@ Cross-file integrity (the composed behavior structure.test.sh verifies):
   - debug-session.sh's script-relative template paths exist
     (templates/journal.md, templates/query-results.md).
   - Section names the skill/references cite in the templates (Hypotheses,
-    Probe Log, Queries, Results, Interpretation) match the template
-    headings exactly.
-  - plugin.json parses; its name is "debugging"; its version matches the
-    marketplace entry's version and the root README row's version.
+    Probe Log, Queries, Prevention, Results, Interpretation) match the
+    template headings exactly.
+  - plugin.json parses; its name is "debugging"; its version (0.2.0 as of
+    the prevention release) matches the root README row's version; the
+    marketplace entry carries no version (plugin.json is the single source
+    of truth).
   - End-to-end artifact smoke: `start` then `query` in a temp .local
     produces the contracted tree (defers to B09's own tests for detail;
     here only the composed shape is asserted).
@@ -54,7 +56,10 @@ sequences a bug from reported symptom to a confirmed root cause —
 establishing a reliable reproduction, mining what changed, running a
 differential diagnosis, isolating by binary search, and gathering log and
 database evidence, handing the engineer exact queries to paste results back
-whenever the orchestrator lacks direct access itself.
+whenever the orchestrator lacks direct access itself. Once a cause is
+confirmed, the loop doesn't stop there: it generalizes the instance to its
+defect class, sweeps for other latent members, and proposes a guardrail —
+class-level recurrence prevention, not just the one fix — before wrap-up.
 
 ## Usage
 
@@ -72,9 +77,12 @@ change surface); differential diagnosis (a hypothesis table, weighed and
 pruned probe by probe); isolate (binary-search whatever search space
 survives); evidence gathering (logs and database, queried directly or handed
 to the engineer via paste-back); a root-cause gate that accepts a cause only
-once it explains every piece of recorded evidence; and wrap-up, where the
-journal gets its root-cause statement, fix direction, and a note that the
-reproduction becomes the regression test.
+once it explains every piece of recorded evidence; prevention (once the gate
+passes, generalizing the confirmed cause to its defect class, sweeping for
+other latent instances, and proposing a guardrail — declining one requires a
+journaled cost/benefit rationale and engineer sign-off); and wrap-up, where
+the journal gets its root-cause statement, fix direction, and a note that
+the reproduction becomes the regression test.
 
 ## Artifacts
 
@@ -103,6 +111,7 @@ finding back into the journal's Hypotheses table.
 | `references/binary-search.md` | Technique reference for halving history, code path, data, configuration, or environment to isolate a cause. |
 | `references/logs.md` | Technique reference for gathering log evidence, direct or via paste-back, across common log tools. |
 | `references/database.md` | Technique reference for read-only database evidence gathering, direct or via paste-back. |
+| `references/prevention.md` | Technique reference for generalizing a confirmed cause to its defect class, sweeping for latent instances, and choosing a guardrail. |
 | `templates/journal.md` | Per-investigation journal template, copied verbatim into each new session directory. |
 | `templates/query-results.md` | Paste-back results template, copied verbatim into each query directory. |
 | `scripts/debug-session.sh` | CLI that creates the numbered session and query directories from the templates above. |

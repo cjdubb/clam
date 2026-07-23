@@ -9,14 +9,14 @@
 #
 #   Outputs 1: plugins/debugging/.claude-plugin/plugin.json — exactly four
 #     keys: name "debugging"; a one-line, non-placeholder description;
-#     version "0.1.0"; author { name "Cam Williamson",
+#     version "0.2.0"; author { name "Cam Williamson",
 #     email "camwilliamson@pm.me" }.
 #   Outputs 2: .claude-plugin/marketplace.json — one entry appended to the
 #     plugins array: name "debugging", source "./plugins/debugging",
-#     a non-empty description, version "0.1.0"; file remains valid JSON;
+#     a non-empty description, version "0.2.0"; file remains valid JSON;
 #     existing entries byte-for-byte untouched.
 #   Outputs 3: root README.md Plugins table — one row appended as the LAST
-#     table row: | [debugging](plugins/debugging/) | ✅ v0.1.0 | <desc> |,
+#     table row: | [debugging](plugins/debugging/) | ✅ v0.2.0 | <desc> |,
 #     and the "Contract: B10 registration" stub comment deleted in the same
 #     change.
 #   Invariant: the version string agrees across all three surfaces.
@@ -72,8 +72,8 @@ check "plugin.json top-level keys are name/description/version/author" \
 check "plugin.json name is 'debugging'" \
   "$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)" "debugging"
 
-check "plugin.json version is '0.1.0'" \
-  "$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)" "0.1.0"
+check "plugin.json version is '0.2.0'" \
+  "$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)" "0.2.0"
 
 PJ_DESC=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json description is non-empty" \
@@ -146,8 +146,8 @@ check "debugging row shows the ✅ status marker" \
   "$(grep -qF '✅' <<<"$LAST_ROW" && echo yes || echo no)" "yes"
 check "debugging row shows version v$VERSION" \
   "$(grep -qF "v$VERSION" <<<"$LAST_ROW" && echo yes || echo no)" "yes"
-check "debugging row shows version v0.1.0" \
-  "$(grep -qF 'v0.1.0' <<<"$LAST_ROW" && echo yes || echo no)" "yes"
+check "debugging row shows version v0.2.0" \
+  "$(grep -qF 'v0.2.0' <<<"$LAST_ROW" && echo yes || echo no)" "yes"
 
 ROW_DESC="$(awk -F'|' '{print $4}' <<<"$LAST_ROW" | sed -E 's/^ +| +$//g')"
 check "debugging row has a non-empty description cell" \

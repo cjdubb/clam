@@ -8,23 +8,32 @@
 #
 #   - frontmatter: fenced by '---', exactly the two keys `name` and
 #     `description`, name is literally "root-cause", description non-empty
-#   - body: the nine H2 phase headings, present IN ORDER, with the exact
+#   - body: the ten H2 phase headings, present IN ORDER, with the exact
 #     contracted numbers/names
 #   - phase 2 (Session setup) names the exact start command and the journal
 #     artifact location
 #   - each phase that loads a reference names that reference's relative path
-#     together with a one-line load-when trigger (all six references:
+#     together with a one-line load-when trigger (all seven references:
 #     reproduce, what-changed, differential-diagnosis, binary-search, logs,
-#     database)
+#     database, prevention)
 #   - phase 7 (Evidence) carries the paste-back protocol and the
 #     ask-the-engineer-rather-than-guess access rule
 #   - phase 8 (Root cause gate) states the explains-ALL-evidence gate and the
 #     reopen-phase-5 consequence for unexplained evidence
+#   - phase 9 (Prevention) mandates class-level analysis once the gate
+#     passes: a defect-class statement, a latent-instance sweep (method,
+#     scope, results — an explicit "0 found" is a valid recorded outcome), a
+#     concrete guardrail proposal whenever recurrence potential shows, and —
+#     when a guardrail is declined — a journaled cost/benefit rationale plus
+#     explicit engineer sign-off
 #   - every phase says to journal before moving on
 #   - delegation is marked optional at its two contracted minimum points
 #     (repro attempts in phase 3; parallel hypothesis investigation in phase
 #     5) and is never worded as mandatory anywhere in the body
 #   - the evidence-contradicts-the-engineer edge case is surfaced somewhere
+#   - the one-off/"no guardrail warranted" edge case and the
+#     engineer-declines-a-guardrail edge case are both surfaced somewhere in
+#     the body, outside the docblock
 #   - altitude cap: body (contract docblock excluded) stays under 300 lines
 #
 # Anchor checks run against the body with the contract's own HTML-comment
@@ -121,7 +130,7 @@ DESC=$(printf '%s\n' "$FRONTMATTER" | grep -E '^description:' | head -1 | sed -E
 check "description is non-empty" "$([[ -n "$DESC" ]] && echo yes || echo no)" "yes"
 
 # ===========================================================================
-# Outputs: the nine H2 phases, present IN ORDER with contracted names/numbers.
+# Outputs: the ten H2 phases, present IN ORDER with contracted names/numbers.
 # ===========================================================================
 
 EXPECTED_HEADINGS='## 1. Intake
@@ -132,17 +141,19 @@ EXPECTED_HEADINGS='## 1. Intake
 ## 6. Isolate
 ## 7. Evidence: logs and database
 ## 8. Root cause gate
-## 9. Wrap-up'
+## 9. Prevention
+## 10. Wrap-up'
 
 for h in "1. Intake" "2. Session setup" "3. Reproduce" "4. What changed" \
          "5. Differential diagnosis" "6. Isolate" \
-         "7. Evidence: logs and database" "8. Root cause gate" "9. Wrap-up"; do
+         "7. Evidence: logs and database" "8. Root cause gate" \
+         "9. Prevention" "10. Wrap-up"; do
   check "phase heading present: ## $h" \
     "$(printf '%s\n' "$ANCHOR_BODY" | awk -v h="## $h" '{l=$0; sub(/[ \t]+$/,"",l); if (l==h) f=1} END{print (f?"yes":"no")}')" "yes"
 done
 
 ACTUAL_HEADINGS=$(printf '%s\n' "$ANCHOR_BODY" | awk '{l=$0; sub(/[ \t]+$/,"",l); if (l ~ /^## /) print l}')
-check "the nine phase headings appear in the contracted order" "$ACTUAL_HEADINGS" "$EXPECTED_HEADINGS"
+check "the ten phase headings appear in the contracted order" "$ACTUAL_HEADINGS" "$EXPECTED_HEADINGS"
 
 # --- per-phase sections ------------------------------------------------------
 
@@ -154,7 +165,8 @@ PHASE5=$(section "5. Differential diagnosis");              FP5=$(flat "$PHASE5"
 PHASE6=$(section "6. Isolate");                             FP6=$(flat "$PHASE6")
 PHASE7=$(section "7. Evidence: logs and database");         FP7=$(flat "$PHASE7")
 PHASE8=$(section "8. Root cause gate");                     FP8=$(flat "$PHASE8")
-PHASE9=$(section "9. Wrap-up");                              FP9=$(flat "$PHASE9")
+PHASE9=$(section "9. Prevention");                          FP9=$(flat "$PHASE9")
+PHASE10=$(section "10. Wrap-up");                           FP10=$(flat "$PHASE10")
 
 # ===========================================================================
 # Phase 1 (Intake): expected vs actual, scope, first-seen, problem statement.
@@ -179,8 +191,8 @@ check "phase 2 names journal.md as the journaling target" \
   "$(has_f "$FP2" 'journal.md')" "yes"
 
 # ===========================================================================
-# Phases 3-7: reach the surviving reference/*.md, each named with a one-line
-# "load ... when ..." trigger on the same line as the path.
+# Phases 3-7, 9: reach the surviving reference/*.md, each named with a
+# one-line "load ... when ..." trigger on the same line as the path.
 # ===========================================================================
 
 # Checks that `ref` appears in the (already newline-flattened) flattened
@@ -213,6 +225,8 @@ check "phase 7 loads references/logs.md with a load-when trigger" \
   "$(ref_trigger "$FP7" 'references/logs.md')" "present-with-trigger"
 check "phase 7 loads references/database.md with a load-when trigger" \
   "$(ref_trigger "$FP7" 'references/database.md')" "present-with-trigger"
+check "phase 9 loads references/prevention.md with a load-when trigger" \
+  "$(ref_trigger "$FP9" 'references/prevention.md')" "present-with-trigger"
 
 # ===========================================================================
 # Phase 3 (Reproduce): reach a reliable repro.
@@ -264,13 +278,39 @@ check "phase 8 reopens phase 5 / differential diagnosis on unexplained evidence"
   "$(has "$FP8" 'reopen')$(has "$FP8" 'phase 5|differential diagnos')" "yesyes"
 
 # ===========================================================================
-# Phase 9 (Wrap-up): root cause statement, fix direction, regression-test note.
+# Phase 9 (Prevention): mandatory class-level analysis once the gate passes —
+# defect-class statement, latent-instance sweep (method/scope/results, with
+# an explicit "0 found" a valid recorded outcome), a concrete guardrail
+# proposal whenever recurrence potential shows, and — when a guardrail is
+# declined — a journaled cost/benefit rationale plus explicit engineer
+# sign-off.
 # ===========================================================================
 
-check "phase 9 records a root cause statement" "$(has "$FP9" 'root cause statement')" "yes"
-check "phase 9 records a fix direction" "$(has "$FP9" 'fix direction')" "yes"
-check "phase 9 records a repro-as-regression-test note" \
-  "$(has "$FP9" 'regression test')" "yes"
+check "phase 9 mandates class-level analysis" \
+  "$(has "$FP9" 'mandat')$(has "$FP9" 'class[- ]level')" "yesyes"
+check "phase 9 analysis triggers once the root cause gate passes" \
+  "$(has "$FP9" 'gate')$(has "$FP9" 'pass')" "yesyes"
+check "phase 9 records a defect-class statement" \
+  "$(has "$FP9" 'defect[- ]class')$(has "$FP9" 'statement')" "yesyes"
+check "phase 9 runs a latent-instance sweep covering method, scope, and results" \
+  "$(has "$FP9" 'latent[- ]instance')$(has "$FP9" 'sweep')$(has "$FP9" 'method')$(has "$FP9" 'scope')$(has "$FP9" 'results?')" "yesyesyesyesyes"
+check "phase 9 treats an explicit '0 found' as a valid recorded sweep outcome" \
+  "$(has "$FP9" '0 found')" "yes"
+check "phase 9 proposes a concrete guardrail whenever recurrence potential shows" \
+  "$(has "$FP9" 'guardrail')$(has "$FP9" 'recurrence')" "yesyes"
+check "phase 9 requires a journaled cost/benefit rationale when declining a guardrail" \
+  "$(has "$FP9" 'declin')$(has "$FP9" 'cost.benefit')$(has "$FP9" 'rationale')" "yesyesyes"
+check "phase 9 requires explicit engineer sign-off when declining a guardrail" \
+  "$(has "$FP9" 'sign.?off')$(has "$FP9" 'engineer')" "yesyes"
+
+# ===========================================================================
+# Phase 10 (Wrap-up): root cause statement, fix direction, regression-test note.
+# ===========================================================================
+
+check "phase 10 records a root cause statement" "$(has "$FP10" 'root cause statement')" "yes"
+check "phase 10 records a fix direction" "$(has "$FP10" 'fix direction')" "yes"
+check "phase 10 records a repro-as-regression-test note" \
+  "$(has "$FP10" 'regression test')" "yes"
 
 # ===========================================================================
 # Invariant: every phase says what to record in the journal.
@@ -278,8 +318,9 @@ check "phase 9 records a repro-as-regression-test note" \
 
 PHASE_LABELS=("1. Intake" "2. Session setup" "3. Reproduce" "4. What changed" \
               "5. Differential diagnosis" "6. Isolate" \
-              "7. Evidence: logs and database" "8. Root cause gate" "9. Wrap-up")
-PHASE_CONTENTS=("$FP1" "$FP2" "$FP3" "$FP4" "$FP5" "$FP6" "$FP7" "$FP8" "$FP9")
+              "7. Evidence: logs and database" "8. Root cause gate" \
+              "9. Prevention" "10. Wrap-up")
+PHASE_CONTENTS=("$FP1" "$FP2" "$FP3" "$FP4" "$FP5" "$FP6" "$FP7" "$FP8" "$FP9" "$FP10")
 
 for i in "${!PHASE_LABELS[@]}"; do
   check "phase mentions journaling: ${PHASE_LABELS[$i]}" \
@@ -307,6 +348,23 @@ check "delegation is never worded as mandatory" \
 
 check "contradictory evidence is surfaced to the engineer" \
   "$(has "$FANCHOR_BODY" 'contradict')$(has "$FANCHOR_BODY" 'engineer')" "yesyes"
+
+# ===========================================================================
+# Edge case: genuinely one-off root cause (transient outage, code slated for
+# deletion) — phase 9's analysis still runs; the journaled outcome is a
+# justified "no guardrail warranted", never a skipped phase.
+# ===========================================================================
+
+check "the one-off / no-guardrail-warranted edge case is surfaced" \
+  "$(has "$FANCHOR_BODY" 'one.off')$(has "$FANCHOR_BODY" 'no guardrail warranted')" "yesyes"
+
+# ===========================================================================
+# Edge case: engineer declines a proposed guardrail — the decline, its
+# rationale, and the sign-off are journaled in the Prevention section.
+# ===========================================================================
+
+check "the engineer-declines-a-guardrail edge case is surfaced" \
+  "$(has "$FANCHOR_BODY" 'declin')$(has "$FANCHOR_BODY" 'guardrail')" "yesyes"
 
 # ===========================================================================
 # Altitude cap: body (docblock excluded) stays under 300 lines.

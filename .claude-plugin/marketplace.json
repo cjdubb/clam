@@ -67,7 +67,7 @@
     {
       "name": "debugging",
       "source": "./plugins/debugging",
-      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back."
+      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention."
     },
     {
       "name": "skill-tracker",

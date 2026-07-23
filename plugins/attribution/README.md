@@ -31,4 +31,62 @@ Edge cases:
 
 # attribution
 
-<!-- STUB: NotImplemented B02 — fill in all sections per the contract above -->
+Suppresses Claude Code's co-author attribution: the `Co-Authored-By` line it
+adds to commits and the attribution block it adds to PR descriptions.
+Installing the plugin changes nothing by itself — attribution keeps working
+as normal until you explicitly run `/attribution:setup`.
+
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install attribution@clam
+```
+
+Installing only makes the `/attribution:setup` skill available; it does not
+write any settings. Run `/attribution:setup` to actually suppress
+attribution. Requires `jq`.
+
+## Commands
+
+### `/attribution:setup`
+
+Writes `{"commit":"","pr":""}` to the `attribution` key of the Claude Code
+settings file matching however the plugin was installed, which is what
+suppresses the co-author line on commits and the attribution block on PRs.
+
+It first works out where to write:
+
+- **Scope detection** — reads `installed_plugins.json` for the plugin's
+  installation entries. One entry: uses its scope automatically. Multiple
+  entries: asks which scope to configure. No entry: reports and stops rather
+  than guessing.
+- **Scope → file** — `user` → `~/.claude/settings.json`; `project` →
+  `.claude/settings.json` in the installing project; `local` →
+  `.claude/settings.local.json` in the installing project.
+
+Before writing, it shows the current `attribution` value (if any) and the
+value about to be written, and asks for confirmation if a different value is
+already set. The write itself is a merge, not a file replacement: only the
+`attribution` key is touched, everything else in the settings file is
+preserved, and the file is backed up to `<file>.bak-<date>` beforehand.
+
+### `/attribution:setup remove`
+
+Reverses the change, using the same scope-detection flow. Deletes the
+`attribution` key from the same settings file (backing it up first). If the
+key is already absent, it reports "nothing to remove" as a success rather
+than an error.
+
+## Relationships to other plugins
+
+None required. This plugin is fully standalone.
+
+## Uninstalling
+
+```
+/plugin uninstall attribution@clam
+```
+
+Uninstalling does not revert the settings change. If you want commit and PR
+attribution restored, run `/attribution:setup remove` first, then uninstall.

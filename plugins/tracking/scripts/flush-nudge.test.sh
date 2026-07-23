@@ -11,7 +11,9 @@
 #   - Escape hatch is CLAM_TRACKING_FLUSH_GATE=disabled.
 #   - Window resolution: CLAM_FLUSH_CONTEXT_WINDOW (test override) ->
 #     CLAUDE_CODE_AUTO_COMPACT_WINDOW (process env) -> ~/.claude/settings.json
-#     -> skip.
+#     -> B05 default (200000, only when all three prior sources are fully
+#     unset/empty) -> skip (only remains for a set-but-invalid or
+#     non-positive window value, which must not be masked by the default).
 #
 # Self-contained: a temp worktree, a synthetic JSONL transcript, no network.
 # The hook reads .cwd + .transcript_path from stdin JSON and prints the nudge
@@ -40,6 +42,21 @@ mkdir -p "$HOME_WITH_SETTINGS/.claude"
 printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"250000"}}\n' > "$HOME_WITH_SETTINGS/.claude/settings.json"
 HOME_NO_SETTINGS="$TMPROOT/home-no-settings"
 mkdir -p "$HOME_NO_SETTINGS"
+
+# B05 fixture HOMEs: a settings.json whose window value is a *small* number
+# (so its fire threshold is observably different from the 200000 default),
+# one whose window value is present-but-invalid, and one whose window value
+# is present-but-empty (the "empty settings.json" case named in the B05
+# contract's default-fallback clause).
+HOME_WITH_SMALL_SETTINGS="$TMPROOT/home-with-small-settings"
+mkdir -p "$HOME_WITH_SMALL_SETTINGS/.claude"
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"1000"}}\n' > "$HOME_WITH_SMALL_SETTINGS/.claude/settings.json"
+HOME_WITH_INVALID_SETTINGS="$TMPROOT/home-with-invalid-settings"
+mkdir -p "$HOME_WITH_INVALID_SETTINGS/.claude"
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"notanumber"}}\n' > "$HOME_WITH_INVALID_SETTINGS/.claude/settings.json"
+HOME_WITH_EMPTY_SETTINGS="$TMPROOT/home-with-empty-settings"
+mkdir -p "$HOME_WITH_EMPTY_SETTINGS/.claude"
+printf '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":""}}\n' > "$HOME_WITH_EMPTY_SETTINGS/.claude/settings.json"
 
 # A PATH with common coreutils (including bash itself) but deliberately
 # excluding jq, so the "jq not available" gate can be exercised without
@@ -226,11 +243,14 @@ assert_silent "empty transcript file: no nudge"
 
 echo "--- Window resolution ---"
 
-# No window anywhere (no env var, no settings.json) -> skip even at a fill
-# that would otherwise nudge.
+# No window anywhere (no env var, no settings.json) -> B05 changed this from
+# a permanent skip to the 200000 default; fill 200000 is 100% of that
+# default, well past the 75% threshold, so this now fires. Updated in place
+# (was assert_silent pre-B05); see the "B05: default window fallback"
+# section below for the full threshold/precedence/invalid-value coverage.
 reset_markers; set_fill 200000
 run
-assert_silent "no window configured anywhere: no nudge"
+assert_nudge "no window configured anywhere: B05 default window (200000) applies, fires"
 
 # Window present but not a positive integer.
 reset_markers; set_fill 200000
@@ -260,10 +280,12 @@ reset_markers; set_fill 200000
 run HOME="$HOME_WITH_SETTINGS"
 assert_nudge "settings.json fallback: 200000/250000=80%: nudge"
 
-# Neither the env var nor a settings.json -> skip silently, no hardcoded window.
+# Neither the env var nor a settings.json -> B05 supplies the hardcoded
+# 200000 default (this is no longer "no hardcoded fallback"; that guarantee
+# was the pre-B05 contract). Updated in place; see the B05 section below.
 reset_markers; set_fill 200000
 run HOME="$HOME_NO_SETTINGS"
-assert_silent "no env var and no settings.json: silent, no hardcoded fallback"
+assert_nudge "no env var and no settings.json: B05 default (200000) fallback fires"
 
 echo "--- Fill computation ---"
 
@@ -381,6 +403,82 @@ reset_markers; set_fill 200000
 run CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000
 assert_exit0 "exit 0 on fire path"
 assert_exit0 "exit 0 confirmed after fire"
+
+echo "--- B05: default window fallback ---"
+
+# Contract: when CLAM_FLUSH_CONTEXT_WINDOW, CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+# and the settings.json fallback are ALL unset/empty, _default_window
+# supplies 200000 instead of the hook skipping forever. Resolution order
+# among the three configured sources is otherwise unchanged, and a
+# set-but-invalid value in any of them still skips rather than falling
+# through to the default.
+
+# Fully unset (no env vars, HOME with no .claude/ at all): fill >=75% of the
+# 200000 default fires; below threshold stays silent. Uses the brief's own
+# example values.
+reset_markers; set_fill 160000
+run
+assert_nudge "all three sources unset: 160000/200000=80% fires against the default window"
+assert_present "$FIRED" "all three sources unset: fire creates the one-shot marker"
+
+reset_markers; set_fill 100000
+run
+assert_silent "all three sources unset: 100000/200000=50% stays silent against the default window"
+
+# Boundary at exactly 75% of the 200000 default (150000), mirroring the
+# existing threshold-boundary style above.
+reset_markers; set_fill 149999
+run
+assert_silent "149999/200000: just below 75% of the default window, no nudge"
+reset_markers; set_fill 150000
+run
+assert_nudge "150000/200000=75%: exactly at threshold against the default window, nudge fires"
+
+# "Unset" and "empty string" are equivalent for all three sources — the hook
+# reads them with ${VAR:-}, which treats a set-but-empty var the same as
+# unset. Confirms "empty" in the contract's "unset/empty" wording.
+reset_markers; set_fill 160000
+run CLAM_FLUSH_CONTEXT_WINDOW="" CLAUDE_CODE_AUTO_COMPACT_WINDOW=""
+assert_nudge "explicit empty-string env vars (not just unset) also fall through to the default: fires"
+
+# settings.json present but its window value is the empty string: also
+# counts as "empty" and falls through to the default, per the "no/empty
+# settings.json" wording in the contract.
+reset_markers; set_fill 160000
+run HOME="$HOME_WITH_EMPTY_SETTINGS"
+assert_nudge "settings.json present with an empty window value: falls through to the default, fires"
+
+# Resolution order unchanged: each configured source, even a small window
+# whose fire threshold is nowhere near the 200000 default's, still takes
+# precedence over the default. Fill 800 is 80% of 1000 but only 0.4% of
+# 200000 — firing here can only be explained by the override winning.
+reset_markers; set_fill 800
+run CLAM_FLUSH_CONTEXT_WINDOW=1000
+assert_nudge "CLAM_FLUSH_CONTEXT_WINDOW=1000 (small) still takes precedence over the 200000 default: fires"
+
+reset_markers; set_fill 800
+run CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000
+assert_nudge "CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000 (small, no override) still takes precedence over the 200000 default: fires"
+
+reset_markers; set_fill 800
+run HOME="$HOME_WITH_SMALL_SETTINGS"
+assert_nudge "settings.json window=1000 (small) still takes precedence over the 200000 default: fires"
+
+# Set-but-invalid values in any of the three sources must still skip, never
+# fall through to the default — the default only covers the fully-unset
+# case, and must never mask a misconfiguration. Fill 200000 would be 100%
+# of the default (a sure fire) if the default were wrongly applied here.
+reset_markers; set_fill 200000
+run CLAM_FLUSH_CONTEXT_WINDOW=abc
+assert_silent "CLAM_FLUSH_CONTEXT_WINDOW=abc (set-but-invalid): default must not mask the misconfiguration, stays silent"
+
+reset_markers; set_fill 200000
+run CLAUDE_CODE_AUTO_COMPACT_WINDOW=abc
+assert_silent "CLAUDE_CODE_AUTO_COMPACT_WINDOW=abc (set-but-invalid): default must not mask the misconfiguration, stays silent"
+
+reset_markers; set_fill 200000
+run HOME="$HOME_WITH_INVALID_SETTINGS"
+assert_silent "settings.json window is non-numeric (set-but-invalid): default must not mask the misconfiguration, stays silent"
 
 echo
 if [[ "$FAILED" -eq 0 ]]; then

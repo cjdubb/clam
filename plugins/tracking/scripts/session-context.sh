@@ -34,9 +34,10 @@ STATES_LIB="$PLUGIN_ROOT/lib/states.sh"
 
 input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -95,6 +96,8 @@ starting tracked work. Persist immediately: decisions and plan changes to
 \`TODO.md\`, failed fix attempts to \`.local/TROUBLESHOOTING.md\` before trying
 the next approach.
 
+Park unresolved conversation threads (a question asked but never answered, a naming/design thread left hanging) in \`TODO.md\`'s Open Questions section in real time, and clear each entry once it is resolved, recording the answer where it belongs (Implementation Log, PLAN.md's Changelog, or a decisions/ file).
+
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):
 
@@ -129,6 +132,146 @@ meaning, one-line trade-off, recommendation and why, the default on a bare
 EOF
 )
 
+# Contract: B04 — resume-freshness
+#
+# Behavior:
+#   Reader-side staleness net for the resume injection below. Before telling
+#   a fresh session to trust the tracking docs, cross-check the docs' age
+#   against actual conversation activity recorded on disk:
+#     ref      = mtime(.local/TODO.md)
+#     prior    = activity_prior_transcripts($cwd, $transcript_path)   [B01]
+#     count    = sum over the NEWEST 5 prior transcripts of
+#                activity_prompts_since(ref, transcript)              [B01]
+#   When count >= CLAM_TRACKING_RESUME_STALE_THRESHOLD (default 1), the docs
+#   demonstrably lag the last conversation: print (stdout) a STALE-variant
+#   resume block that REPLACES the trust-the-docs text. It must contain, in
+#   plain terms:
+#     - a warning that .local/TODO.md may be STALE: it was last updated at
+#       <ISO-8601 local time of ref> but ~<count> human prompt(s) arrived
+#       after that (most recent conversation activity: <ISO-8601 local mtime
+#       of the newest prior transcript>);
+#     - the newest prior transcript's absolute path, with the instruction to
+#       read its TAIL (the last ~30 entries) to recover pivots, decisions,
+#       and open questions the docs missed, BEFORE trusting recorded state;
+#     - the instruction to still read .local/TODO.md, .local/PLAN.md, and
+#       .local/decisions/, then reconcile: update the docs with anything the
+#       transcript tail shows the docs missed, before resuming work;
+#     - the current recorded State and Current Task (same fields the fresh
+#       variant surfaces).
+#   When count < threshold, or on ANY failure/uncertainty: print nothing —
+#   the caller falls back to the existing trust-the-docs resume block.
+#
+# Inputs:
+#   $cwd, $transcript_path — outer scope (transcript_path is the CURRENT
+#     session's transcript, passed as the exclusion to
+#     activity_prior_transcripts so a resumed session never reads itself as
+#     "prior" activity; empty is fine — nothing to exclude).
+#   $cwd/.local/TODO.md — must exist (caller only invokes when it does).
+#   lib/activity.sh, lib/platform.sh (clam_mtime_epoch) — sourced lazily;
+#     absent → fail-open (no output).
+#   CLAM_TRACKING_RESUME_STALE_GATE — "disabled" turns the check off
+#     (default enabled).
+#   CLAM_TRACKING_RESUME_STALE_THRESHOLD — integer >= 1, default 1 (one
+#     unreflected human prompt at recap time is worth a warning); invalid → 1.
+#
+# Outputs:
+#   stdout: the complete stale-variant resume block, or nothing. Never
+#   partial output. Return 0 on both paths (90 NotImplemented sentinel until
+#   implemented; caller treats any output-less path identically).
+#
+# Errors:
+#   Fail-open everywhere: no jq, no libs, unreadable TODO mtime, no project
+#   dir, count non-numeric → no output (fresh-variant behavior).
+#
+# Invariants:
+#   - Pure read; no markers, no writes.
+#   - Bounded work: at most 5 transcripts scanned, single pass each, within
+#     the hook's 10s timeout.
+#   - The stale variant must NOT say "trust the tracking docs" — the two
+#     variants are mutually exclusive by construction.
+#
+# Edge cases:
+#   - Post-compaction SessionStart: the continuing session's own transcript
+#     is excluded via $transcript_path; other prior transcripts still count.
+#   - Brand-new worktree, no project dir yet → fresh variant.
+#   - TODO.md auto-created moments ago by _auto_create_todo (mtime ~now) →
+#     count vs a just-now ref is 0 → fresh variant (correct: nothing recorded
+#     to be stale yet — the transcripts predate the tracking, not the
+#     reverse; acceptable known limit of the mtime reference).
+_resume_freshness() {
+    [ "${CLAM_TRACKING_RESUME_STALE_GATE:-}" = "disabled" ] && return 0
+    [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ] || return 0
+
+    local activity_lib platform_lib
+    activity_lib="$PLUGIN_ROOT/lib/activity.sh"
+    platform_lib="$PLUGIN_ROOT/lib/platform.sh"
+    [ -f "$activity_lib" ] && [ -f "$platform_lib" ] || return 0
+    # shellcheck source=/dev/null
+    . "$activity_lib"
+    # shellcheck source=/dev/null
+    . "$platform_lib"
+    command -v activity_prior_transcripts >/dev/null 2>&1 || return 0
+    command -v activity_prompts_since >/dev/null 2>&1 || return 0
+    command -v clam_mtime_epoch >/dev/null 2>&1 || return 0
+
+    local threshold="${CLAM_TRACKING_RESUME_STALE_THRESHOLD:-}"
+    case "$threshold" in
+        ''|*[!0-9]*|0) threshold=1 ;;
+    esac
+
+    local ref_epoch
+    ref_epoch=$(clam_mtime_epoch "$cwd/.local/TODO.md" 2>/dev/null)
+    case "$ref_epoch" in ''|*[!0-9]*|0) return 0 ;; esac
+
+    local prior
+    prior=$(activity_prior_transcripts "$cwd" "$transcript_path" 2>/dev/null)
+    [ -n "$prior" ] || return 0
+
+    # Sum activity_prompts_since over the newest 5 prior transcripts only
+    # (already mtime-descending from activity_prior_transcripts); track the
+    # first (newest) one for the report below.
+    local newest="" total=0 n=0 line count
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        n=$((n + 1))
+        [ "$n" -gt 5 ] && break
+        [ -z "$newest" ] && newest="$line"
+        count=$(activity_prompts_since "$ref_epoch" "$line" 2>/dev/null)
+        case "$count" in ''|*[!0-9]*) count=0 ;; esac
+        total=$((total + count))
+    done <<PRIOR_EOF
+$prior
+PRIOR_EOF
+
+    [ -n "$newest" ] || return 0
+    [ "$total" -ge "$threshold" ] || return 0
+
+    local newest_mtime
+    newest_mtime=$(clam_mtime_epoch "$newest" 2>/dev/null)
+    case "$newest_mtime" in ''|*[!0-9]*) newest_mtime=0 ;; esac
+
+    # Portable epoch->local-ISO-8601: BSD `date -r <epoch>` first (fails fast
+    # on GNU, no such file), then GNU `date -d "@<epoch>"`.
+    local ref_iso newest_iso
+    ref_iso=$(date -r "$ref_epoch" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date -d "@$ref_epoch" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null)
+    newest_iso=$(date -r "$newest_mtime" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date -d "@$newest_mtime" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null)
+    [ -n "$ref_iso" ] && [ -n "$newest_iso" ] || return 0
+
+    cat <<STALE_EOF
+# Tracking document may be STALE — verify before resuming
+
+\`.local/TODO.md\` was last updated at ${ref_iso}, but ~${total} human prompt(s) arrived in this worktree's conversation after that (most recent conversation activity: ${newest_iso}).
+
+Before trusting recorded state: read the TAIL (the last ~30 entries) of the most recent prior transcript to recover pivots, decisions, and open questions the docs may have missed:
+${newest}
+
+Then still read \`.local/TODO.md\`, \`.local/PLAN.md\`, and any \`.local/decisions/\` files, and reconcile — update the docs with anything the transcript tail shows they missed, before resuming work.
+
+Recorded State: ${state:-unknown}
+Recorded Current Task: ${task:-unset}
+STALE_EOF
+}
+
 resume=""
 if [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ]; then
     state=""
@@ -137,6 +280,13 @@ if [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ]; then
         state=$(todo_field "$cwd/.local/TODO.md" State)
         task=$(todo_field "$cwd/.local/TODO.md" "Current Task")
     fi
+    # B04: the stale-variant block replaces the trust-the-docs text when the
+    # docs demonstrably lag recorded conversation activity. Empty output (or
+    # the NotImplemented sentinel) falls through to the fresh variant.
+    stale_block=$(_resume_freshness 2>/dev/null) || stale_block=""
+    if [ -n "$stale_block" ]; then
+        resume=$(printf '\n\n%s' "$stale_block")
+    else
     resume=$(cat <<EOF
 
 
@@ -149,6 +299,7 @@ files if present — and continue from the recorded state. Do not restart
 completed work; trust the tracking docs over assumptions about a fresh start.
 EOF
 )
+    fi
 fi
 
 printf '%s%s' "$rules" "$resume" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'

@@ -93,12 +93,47 @@ fi
 
 [[ -f "$cwd/.local/TODO.md" ]] || exit 0
 
+# Contract: B05 — flush-nudge-default-window
+#
+# Behavior:
+#   Closes the silent-no-op hole in the window resolution below: on machines
+#   where CLAM_FLUSH_CONTEXT_WINDOW, CLAUDE_CODE_AUTO_COMPACT_WINDOW, and the
+#   settings.json fallback are ALL unset/empty, the nudge previously never
+#   fired (permanently, silently). This function supplies the last-resort
+#   default so context-fill metering still happens.
+# Inputs:  none (no arguments, no environment reads — the three configured
+#   sources above always take precedence at the call site; this function is
+#   consulted only when every one of them came up empty).
+# Outputs: prints "200000" (tokens — the standard 200k context window) to
+#   stdout and returns 0. NotImplemented sentinel: no stdout, return 90
+#   (caller degrades to the historical skip behavior).
+# Errors:  none possible once implemented; must not read files or the net.
+# Invariants:
+#   - Resolution ORDER is unchanged: explicit test override → process env →
+#     settings.json → THIS DEFAULT. A set-but-invalid value in any earlier
+#     source still falls through the numeric guard and skips — the default
+#     applies ONLY to the fully-unset case, never masking a misconfiguration.
+#   - The constant is defined here, in one place.
+# Edge cases:
+#   - Deployments with larger/smaller real windows: the default may misjudge
+#     fill % (e.g. fire late on 1M-context models); acceptable — the
+#     configured sources exist precisely to override it.
+_default_window() {
+    echo "200000"
+    return 0
+}
+
 # Resolve the compaction window: test override, then process env, then the
-# deployed settings.json, else skip (no window to meter against).
+# deployed settings.json, then the built-in default (B05); a still-empty or
+# non-numeric result skips.
 window="${CLAM_FLUSH_CONTEXT_WINDOW:-}"
 [[ -n "$window" ]] || window="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
 if [[ -z "$window" ]]; then
-    window=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null)
+    # A missing settings.json must fall through to the next resolution step, not trip the ERR trap.
+    window=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null) || window=""
+fi
+if [[ -z "$window" ]]; then
+    window=$(_default_window 2>/dev/null) || window=""
 fi
 [[ "$window" =~ ^[0-9]+$ ]] || exit 0
 (( window > 0 )) || exit 0

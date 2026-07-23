@@ -101,7 +101,7 @@ All optional; everything degrades gracefully when absent:
   this plugin falls back to unconditional permission-prompt/idle behaviour.
 - **agent-dash** — reads `.local/.permission-mode`.
 
-## Install
+## Getting started
 
 ```
 /plugin marketplace add cjdubb/clam
@@ -122,3 +122,21 @@ bash lib/desktop-notify.test.sh
 ```
 
 All hermetic: curl/osascript/notify-send/paplay are PATH-shimmed, no network.
+
+## Uninstalling
+
+```
+/plugin uninstall notifications@clam
+```
+
+The hooks stop firing immediately. If you added the optional `notify()`
+source line to your shell config for instant pushes, remove it manually:
+
+```bash
+# .bashrc / .zshrc
+source ~/.claude/plugins/marketplaces/clam/plugins/notifications/lib/notify.sh
+```
+
+Per-worktree marker files (`.local/.last-stop-state`,
+`.local/.permission-mode`) are not removed and can be cleaned up manually if
+desired.

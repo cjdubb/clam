@@ -1,57 +1,4 @@
 <!--
-SCAFFOLD Contract: B06 debugging-readme (plan 002-readme-conformance)
-This comment IS the unit's contract. It is removed as part of implementation;
-the finished README must not contain it.
-Behavior:
-  Restructure the existing README (below this comment) so it conforms exactly to
-  plugins/PLUGIN_README_TEMPLATE.md (the locked template; authoritative for
-  every section's semantics and placeholder guidance).
-Inputs:
-  The template; this plugin's actual sources (.claude-plugin/plugin.json,
-  skills/*/SKILL.md, hooks/, scripts/, lib/ as present); the existing README
-  content below this comment, if any. Facts come ONLY from these sources —
-  never invented. If sources contradict this contract or the template seems
-  wrong for this plugin, STOP and escalate to the orchestrator.
-Outputs:
-  A README whose H2 sections are exactly, in order:
-    ## Getting started
-    ## What to expect
-    ## Common workflows
-    ## Commands
-    ## Relationships to other plugins
-    ## Uninstalling
-  Extra H2 sections (## Tests, plugin-specific ones) are allowed ONLY
-  between "## Commands" and "## Relationships to other plugins".
-  H1 is the plugin name followed by a one-paragraph operational purpose
-  statement. Getting started opens with the standard install commands
-  (/plugin marketplace add cjdubb/clam; /plugin install debugging@clam).
-  Uninstalling opens with /plugin uninstall debugging@clam plus any cleanup.
-Errors:
-  n/a (static document). Ambiguity or contradiction -> escalate, never guess.
-Invariants:
-  - Every substantive fact in the existing README is preserved by
-    RELOCATING it under the correct template heading; nothing is merely
-    left in place, nothing substantive is dropped.
-  - Pre-existing HTML contract comments in the original content are
-    preserved verbatim.
-  - Config doctrine (no standalone config section): config written by a
-    setup command is documented under that command in ## Commands; env vars
-    read by a hook are documented inline with that hook; plugins with many
-    env vars get a summary table at the end of ## Commands; any var a user
-    must set by hand gets an exact instruction to set it in the env block
-    of the settings file at the plugin's installation scope.
-  - What to expect and Common workflows are written fresh from plugin
-    sources per the template's placeholder guidance.
-  - This SCAFFOLD comment is deleted; no other file is touched.
-Edge cases / plugin-specific mapping:
-  Current H2s: Usage, Artifacts, Components. Usage content feeds Common
-  workflows and Commands; Artifacts (journal etc.) belongs under Commands
-  or an extra section in the optional slot; Components becomes Commands
-  subsections. Verify in hooks/ whether anything fires on install (What to
-  expect must say which hooks, or that the plugin is skill-driven).
--->
-
-<!--
 Contract: B11 plugin-composition
 
 Behavior:
@@ -114,12 +61,36 @@ confirmed, the loop doesn't stop there: it generalizes the instance to its
 defect class, sweeps for other latent members, and proposes a guardrail —
 class-level recurrence prevention, not just the one fix — before wrap-up.
 
-## Usage
+## Getting started
 
-Invoke the loop directly with `/debugging:root-cause`, or let it pick itself
-up: the skill is also model-invocable, so a session that runs into a bug, a
+```
+/plugin marketplace add cjdubb/clam
+/plugin install debugging@clam
+```
+
+No configuration required. The plugin is skill-driven — installing it adds
+the `/debugging:root-cause` skill and its supporting scripts; there is no
+setup command, no config file, and no prerequisite.
+
+## What to expect
+
+Installing changes nothing on its own: there are no hooks, so nothing fires
+and no context is injected into sessions just because the plugin is
+present. The plugin is inert until the root-cause skill runs — invoked
+directly with `/debugging:root-cause`, or picked up automatically, since the
+skill is also model-invocable: a session that runs into a bug, a
 regression, or any "why is this happening?" question mid-conversation can
 start the loop without an explicit command.
+
+Once a loop starts, `debug-session.sh start <slug>` creates
+`.local/debug/NNN-<slug>/` (sequentially numbered) under the current working
+directory's `.local/`, and each `debug-session.sh query` call adds a
+`queries/NN-<name>/` directory beneath it — the only files this plugin
+creates or reads. No settings are written.
+
+## Common workflows
+
+### Running a root-cause investigation
 
 Phase by phase, the orchestrator experiences: intake (expected vs actual,
 scope, first-seen, distilled into a one-line problem statement); session
@@ -137,23 +108,43 @@ journaled cost/benefit rationale and engineer sign-off); and wrap-up, where
 the journal gets its root-cause statement, fix direction, and a note that
 the reproduction becomes the regression test.
 
-## Artifacts
+### Handing evidence to the engineer via paste-back
 
-Each investigation gets its own directory, `.local/debug/NNN-<slug>/`,
-sequentially numbered and created by `debug-session.sh start`. Inside it,
-`journal.md` is the running record the orchestrator keeps current through
-every phase, and `queries/` holds one `NN-<name>/` directory per piece of
-external evidence gathered, each pairing the query file itself with a
-`results.md`.
+Each investigation directory pairs `journal.md` (the running record the
+orchestrator keeps current through every phase) with `queries/`, which holds
+one `NN-<name>/` directory per piece of external evidence gathered, each
+pairing the query file itself with a `results.md`.
 
-The paste-back flow: when the orchestrator can't reach logs or the database
-directly from the session, it writes the exact query into the query file and
-fills in `results.md`'s header, then hands the engineer that file's path and
-asks them to paste the raw output into its Results section. The orchestrator
+When the orchestrator can't reach logs or the database directly from the
+session, it writes the exact query into the query file and fills in
+`results.md`'s header, then hands the engineer that file's path and asks
+them to paste the raw output into its Results section. The orchestrator
 writes the Interpretation only after those results arrive, feeding the
 finding back into the journal's Hypotheses table.
 
-## Components
+## Commands
+
+### Skills
+
+- `/debugging:root-cause` — sequences the root-cause debugging loop
+  described above, phase by phase, from symptom intake to a confirmed root
+  cause and mandatory class-level prevention. Also model-invocable: a
+  session that runs into a bug, a regression, or any "why is this
+  happening?" question can start the loop without the explicit command.
+
+### Scripts
+
+- `scripts/debug-session.sh start <slug>` — creates the next-numbered
+  session directory `.local/debug/NNN-<slug>/`, containing a fresh
+  `journal.md` (copied verbatim from `templates/journal.md`) and an empty
+  `queries/` subdirectory. Run from the repo/worktree root (`.local/` must
+  already exist there).
+- `scripts/debug-session.sh query <session-dir> <name> [ext]` — creates the
+  next-numbered query directory `<session-dir>/queries/NN-<name>/`,
+  containing an empty `query.<ext>` file (`ext` defaults to `txt`) and a
+  `results.md` (copied verbatim from `templates/query-results.md`).
+
+### Components
 
 | Component | Role |
 | --- | --- |
@@ -168,3 +159,18 @@ finding back into the journal's Hypotheses table.
 | `templates/journal.md` | Per-investigation journal template, copied verbatim into each new session directory. |
 | `templates/query-results.md` | Paste-back results template, copied verbatim into each query directory. |
 | `scripts/debug-session.sh` | CLI that creates the numbered session and query directories from the templates above. |
+
+## Relationships to other plugins
+
+None required. This plugin is fully standalone.
+
+## Uninstalling
+
+```
+/plugin uninstall debugging@clam
+```
+
+Uninstalling removes the skill and scripts; it does not remove past
+investigations. `.local/debug/NNN-<slug>/` directories created by
+`debug-session.sh` are left in place (`.local/` is already gitignored, so
+they were never committed) — delete them by hand if you want them gone.

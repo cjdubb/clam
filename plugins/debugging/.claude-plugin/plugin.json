@@ -1,7 +1,7 @@
 {
   "name": "debugging",
-  "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back.",
-  "version": "0.1.0",
+  "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention.",
+  "version": "0.2.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

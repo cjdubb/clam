@@ -56,7 +56,10 @@ sequences a bug from reported symptom to a confirmed root cause —
 establishing a reliable reproduction, mining what changed, running a
 differential diagnosis, isolating by binary search, and gathering log and
 database evidence, handing the engineer exact queries to paste results back
-whenever the orchestrator lacks direct access itself.
+whenever the orchestrator lacks direct access itself. Once a cause is
+confirmed, the loop doesn't stop there: it generalizes the instance to its
+defect class, sweeps for other latent members, and proposes a guardrail —
+class-level recurrence prevention, not just the one fix — before wrap-up.
 
 ## Usage
 
@@ -74,9 +77,12 @@ change surface); differential diagnosis (a hypothesis table, weighed and
 pruned probe by probe); isolate (binary-search whatever search space
 survives); evidence gathering (logs and database, queried directly or handed
 to the engineer via paste-back); a root-cause gate that accepts a cause only
-once it explains every piece of recorded evidence; and wrap-up, where the
-journal gets its root-cause statement, fix direction, and a note that the
-reproduction becomes the regression test.
+once it explains every piece of recorded evidence; prevention (once the gate
+passes, generalizing the confirmed cause to its defect class, sweeping for
+other latent instances, and proposing a guardrail — declining one requires a
+journaled cost/benefit rationale and engineer sign-off); and wrap-up, where
+the journal gets its root-cause statement, fix direction, and a note that
+the reproduction becomes the regression test.
 
 ## Artifacts
 
@@ -105,6 +111,7 @@ finding back into the journal's Hypotheses table.
 | `references/binary-search.md` | Technique reference for halving history, code path, data, configuration, or environment to isolate a cause. |
 | `references/logs.md` | Technique reference for gathering log evidence, direct or via paste-back, across common log tools. |
 | `references/database.md` | Technique reference for read-only database evidence gathering, direct or via paste-back. |
+| `references/prevention.md` | Technique reference for generalizing a confirmed cause to its defect class, sweeping for latent instances, and choosing a guardrail. |
 | `templates/journal.md` | Per-investigation journal template, copied verbatim into each new session directory. |
 | `templates/query-results.md` | Paste-back results template, copied verbatim into each query directory. |
 | `scripts/debug-session.sh` | CLI that creates the numbered session and query directories from the templates above. |

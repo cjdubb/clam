@@ -122,7 +122,12 @@ check_true "output contains absolute main-transcript path" \
 # --- Behavior: discovers subagent transcripts, with accurate .jsonl count ---
 check_true "output contains absolute subagents dir path" \
   "$(grep -qF -- "$SUBAGENTS_A" <<<"$OUT_A" && echo yes || echo no)"
+# Strip the fixture's absolute directory path before digit-matching: the
+# section's "directory:" line embeds the mktemp -d root, whose random suffix
+# can contain a lone digit (e.g. /tmp/tmp.4ygSYbf0Xr) that would trip or
+# satisfy the count patterns below.
 SUBAGENT_LINES=$(grep -i 'subagent' <<<"$OUT_A")
+SUBAGENT_LINES=${SUBAGENT_LINES//"$SUBAGENTS_A"/}
 check_true "subagent .jsonl count reported as 3 (meta.json excluded)" \
   "$(grep -qE '(^|[^0-9])3([^0-9]|$)' <<<"$SUBAGENT_LINES" && echo yes || echo no)"
 check_true "subagent count does not count the .meta.json file (not 4)" \
@@ -132,6 +137,7 @@ check_true "subagent count does not count the .meta.json file (not 4)" \
 check_true "output contains absolute file-history dir path" \
   "$(grep -qF -- "$FILEHIST_A" <<<"$OUT_A" && echo yes || echo no)"
 FILEHIST_LINES=$(grep -i 'file.history' <<<"$OUT_A")
+FILEHIST_LINES=${FILEHIST_LINES//"$FILEHIST_A"/}
 check_true "file-history count reported as 2" \
   "$(grep -qE '(^|[^0-9])2([^0-9]|$)' <<<"$FILEHIST_LINES" && echo yes || echo no)"
 

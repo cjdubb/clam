@@ -56,6 +56,7 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 | [deliver](plugins/deliver/) | ✅ v0.1.0 | High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. |
 | [render-doc](plugins/render-doc/) | ✅ v0.1.0 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
+| [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.0 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [debugging](plugins/debugging/) | ✅ v0.2.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!--
@@ -78,6 +79,50 @@ Errors: n/a — declarative edits; validity enforced by the jq lint and the
 registration test.
 Edge cases: row and entry placement mirror the existing ordering style; the
 exact position is not contractual, presence and uniqueness are.
+-->
+
+<!--
+Contract: B03 assembly & registration (ask-in-text)
+Behavior: assemble the ask-in-text plugin (manifest + hook wiring) and
+register it in the marketplace and this README. Composition block: its
+children are B01 (scripts/block-question.sh, the PreToolUse deny) and B02
+(scripts/questions-context.sh, the SessionStart convention); this block's
+promise is that both are wired so the plugin blocks AskUserQuestion and
+injects the numbered-text question convention in every session.
+Outputs:
+- plugins/ask-in-text/.claude-plugin/plugin.json: name "ask-in-text",
+  version "0.1.0", a one-sentence description naming AskUserQuestion and
+  the plain-text redirect, and an author object byte-identical (jq -Sc) to
+  .claude-plugin/marketplace.json's owner. Stays jq-valid.
+- plugins/ask-in-text/hooks/hooks.json: object form {"hooks": {...}}
+  registering exactly two hooks and nothing else: a PreToolUse group with
+  matcher "AskUserQuestion" running
+  ${CLAUDE_PLUGIN_ROOT}/scripts/block-question.sh (type "command",
+  timeout 10), and a SessionStart group (no matcher) running
+  ${CLAUDE_PLUGIN_ROOT}/scripts/questions-context.sh (type "command",
+  timeout 10). Stays jq-valid.
+- .claude-plugin/marketplace.json: exactly one plugins[] entry — name
+  "ask-in-text", source "./plugins/ask-in-text", a non-empty description
+  naming AskUserQuestion, and no version field.
+- The Plugins table above gains exactly one row:
+  | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.0 | <what it does, naming
+  AskUserQuestion and the numbered plain-text convention> |
+Invariants: version agrees between plugin.json and the README row; no
+duplicate ask-in-text entries or rows; hooks.json registers no events or
+commands beyond the two above; every .sh under plugins/ask-in-text/ is
+executable in the git index (scripts/executable-lint.sh); hooks-only
+plugin — no skills/ directory; per the repo convention below ("the
+marketplace never lists empty shells") the registration reaches master
+only together with the working plugin — satisfied by single-PR delivery
+(G01); integration-branch intermediate states are internal (the
+marketplace entry lands at scaffold because marketplace-lint requires
+directory/entry parity from the moment the plugin directory exists).
+Errors: n/a — declarative edits; validity enforced by the jq lint,
+scripts/marketplace-lint.sh, and this block's tests.
+Edge cases: reloading plugins mid-build is safe — the scaffolded
+hooks.json registers nothing until this block's implementation wires it;
+row and entry placement mirror the existing ordering style, presence and
+uniqueness are contractual, position is not.
 -->
 
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from

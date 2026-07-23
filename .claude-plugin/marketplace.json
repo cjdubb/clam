@@ -88,6 +88,11 @@
       "name": "session-data",
       "source": "./plugins/session-data",
       "description": "Locate the current Claude Code session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations."
+    },
+    {
+      "name": "ask-in-text",
+      "source": "./plugins/ask-in-text",
+      "description": "Kills the AskUserQuestion picker UI: a PreToolUse deny blocks the tool outright, and SessionStart context redirects Claude to ask the engineer in plain text — numbered questions, one decision per number, a recommended default each, bare-go semantics."
     }
   ]
 }

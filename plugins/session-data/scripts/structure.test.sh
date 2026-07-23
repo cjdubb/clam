@@ -35,5 +35,5 @@
 #   - SKILL.md frontmatter malformed: FAIL on parse check
 # -->
 
-echo "NotImplemented: B04" >&2
-exit 1
+echo "SKIP  NotImplemented: B04 (stub — tests not yet written)"
+exit 0

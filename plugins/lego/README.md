@@ -55,6 +55,24 @@ nothing globally**: no writes to `~/.claude/CLAUDE.md` or any global settings
 beyond Claude Code's own plugin-enablement entry. Plain `claude` in any other
 repo is untouched. That is a hard design constraint of this project.
 
+## Getting started
+
+Everything repo-specific — test/build commands, worker models, delivery
+mode — comes from one committed config file, **`.claude/lego.json`**. It
+does not ship with the plugin and the workflow will not scaffold or
+dispatch without it, so setting it up is the first step in any new repo.
+
+You don't have to write it by hand. The first `/lego:plan` in a repo
+detects that the config is missing, autodetects candidate commands from
+the repo's marker files (`package.json`, `pyproject.toml`, `go.mod`, …),
+and asks your consent before writing and committing it. Prefer to do it
+yourself? Copy the plugin's `templates/lego.json` to `.claude/lego.json`
+and fill in the commands — `commands.test` is the only required field.
+
+Machine-specific values and personal tweaks go in a gitignored
+`.local/config.json`, deep-merged over the committed base. Full schema and
+merge semantics: `docs/config-schema.md`.
+
 ## Use
 
 1. `/lego:plan` — decompose the deliverable into blocks with your
@@ -72,10 +90,8 @@ repo is untouched. That is a hard design constraint of this project.
    delivery (PR groups raised to master/main under `main-prs` delivery mode).
    You watch the block map; you build any block you claimed.
 
-Repo specifics live in the layered config: committed `.claude/lego.json`
-merged with an optional gitignored `.local/config.json` local override (see
-`docs/config-schema.md`). The workflow is deliberately opinionated with no
-lightweight path; for work that doesn't warrant it, use plain `claude`.
+The workflow is deliberately opinionated with no lightweight path; for work
+that doesn't warrant it, use plain `claude`.
 
 ## Layout
 

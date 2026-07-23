@@ -120,7 +120,7 @@ check "journal.md: 'Session dir:' value uses a [bracket] placeholder" \
 # --- H2 sections: exact set and order ---------------------------------------
 assert_h2_sequence "$JOURNAL" "journal.md" \
   "## Symptom" "## Reproduction" "## What Changed" "## Hypotheses" \
-  "## Probe Log" "## Queries" "## Root Cause"
+  "## Probe Log" "## Queries" "## Root Cause" "## Prevention"
 J_H2_LINENOS=("${H2_LINENOS[@]}")
 
 # --- order: H1, then metadata lines, then the first H2 section -------------
@@ -148,6 +148,55 @@ check "journal.md: Probe Log table header row is exactly '$J_PROBE_HEADER'" \
   "$([[ -n "$j_probe_header_line" ]] && echo yes || echo no)" "yes"
 check "journal.md: Probe Log table header appears within the '## Probe Log' section" \
   "$(between "$j_probe_header_line" "${J_H2_LINENOS[4]:-}" "${J_H2_LINENOS[5]:-}")" "yes"
+
+# --- Prevention section: labeled lines, [bracket] placeholders, order ------
+# '## Prevention' is the last H2 section, so there is no next-section line
+# number to bound it; use a sentinel far past any real line number as the
+# "end of file" upper bound for the between() scoping check.
+J_PREVENTION_LINE="${J_H2_LINENOS[7]:-}"
+J_FILE_END_SENTINEL=100000
+
+j_defectclass_line=$(label_line_no "$JOURNAL" '^Defect class:')
+j_sweepmethod_line=$(label_line_no "$JOURNAL" '^Sweep method:')
+j_sweepresults_line=$(label_line_no "$JOURNAL" '^Sweep results:')
+j_guardrail_line=$(label_line_no "$JOURNAL" '^Guardrail:')
+
+check "journal.md: 'Defect class:' label line present" "$([[ -n "$j_defectclass_line" ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Sweep method:' label line present" "$([[ -n "$j_sweepmethod_line" ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Sweep results:' label line present" "$([[ -n "$j_sweepresults_line" ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Guardrail:' label line present" "$([[ -n "$j_guardrail_line" ]] && echo yes || echo no)" "yes"
+
+check "journal.md: 'Defect class:' appears within the '## Prevention' section" \
+  "$(between "$j_defectclass_line" "$J_PREVENTION_LINE" "$J_FILE_END_SENTINEL")" "yes"
+check "journal.md: 'Sweep method:' appears within the '## Prevention' section" \
+  "$(between "$j_sweepmethod_line" "$J_PREVENTION_LINE" "$J_FILE_END_SENTINEL")" "yes"
+check "journal.md: 'Sweep results:' appears within the '## Prevention' section" \
+  "$(between "$j_sweepresults_line" "$J_PREVENTION_LINE" "$J_FILE_END_SENTINEL")" "yes"
+check "journal.md: 'Guardrail:' appears within the '## Prevention' section" \
+  "$(between "$j_guardrail_line" "$J_PREVENTION_LINE" "$J_FILE_END_SENTINEL")" "yes"
+
+j_defectclass_val=$(value_after_label "$JOURNAL" "$j_defectclass_line" '^Defect class:')
+j_sweepmethod_val=$(value_after_label "$JOURNAL" "$j_sweepmethod_line" '^Sweep method:')
+j_sweepresults_val=$(value_after_label "$JOURNAL" "$j_sweepresults_line" '^Sweep results:')
+j_guardrail_val=$(value_after_label "$JOURNAL" "$j_guardrail_line" '^Guardrail:')
+
+check "journal.md: 'Defect class:' value uses a [bracket] placeholder" \
+  "$([[ "$j_defectclass_val" == *"["*"]"* ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Sweep method:' value uses a [bracket] placeholder" \
+  "$([[ "$j_sweepmethod_val" == *"["*"]"* ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Sweep results:' value uses a [bracket] placeholder" \
+  "$([[ "$j_sweepresults_val" == *"["*"]"* ]] && echo yes || echo no)" "yes"
+check "journal.md: 'Guardrail:' value uses a [bracket] placeholder" \
+  "$([[ "$j_guardrail_val" == *"["*"]"* ]] && echo yes || echo no)" "yes"
+
+if [[ -n "$j_defectclass_line" && -n "$j_sweepmethod_line" && -n "$j_sweepresults_line" && -n "$j_guardrail_line" ]] \
+   && (( j_defectclass_line < j_sweepmethod_line && j_sweepmethod_line < j_sweepresults_line && j_sweepresults_line < j_guardrail_line )); then
+  j_prevention_order_ok=yes
+else
+  j_prevention_order_ok=no
+fi
+check "journal.md: Prevention labels appear in order Defect class, Sweep method, Sweep results, Guardrail" \
+  "$j_prevention_order_ok" "yes"
 
 # ===========================================================================
 # query-results.md

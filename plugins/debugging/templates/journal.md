@@ -29,6 +29,14 @@ Outputs (required document structure — tests assert these):
                           results-received? (yes/no).
       ## Root Cause     — statement; how it explains ALL the evidence; fix
                           direction; repro-as-regression-test note.
+      ## Prevention     — labeled lines, each value a [bracket] placeholder:
+                          `Defect class:` (the class statement),
+                          `Sweep method:` (commands/queries + scope),
+                          `Sweep results:` (instances found; "0 found" is a
+                          valid recorded outcome),
+                          `Guardrail:` (proposed | built | declined with
+                          rationale + engineer sign-off | none warranted
+                          with rationale).
 Errors: n/a.
 
 Invariants:

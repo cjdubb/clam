@@ -43,7 +43,16 @@ Outputs (required document structure — tests assert these):
       8. Root cause gate   — a root cause is accepted ONLY when it explains
                              ALL recorded evidence; unexplained evidence
                              reopens phase 5.
-      9. Wrap-up           — journal completed: root cause statement, fix
+      9. Prevention        — mandatory class-level analysis once the gate
+                             passes: defect-class statement, latent-instance
+                             sweep (method, scope, results — "0 found" is a
+                             valid recorded outcome), and a concrete
+                             guardrail proposal whenever recurrence potential
+                             shows; declining a proposed guardrail requires a
+                             journaled cost/benefit rationale plus explicit
+                             engineer sign-off; loads
+                             references/prevention.md.
+     10. Wrap-up           — journal completed: root cause statement, fix
                              direction, repro-as-regression-test note.
 Errors:
   n/a (guidance document). Missing sections or unresolved references are
@@ -69,6 +78,11 @@ Edge cases:
     (per references/reproduce.md) and what extra evidence weight that demands.
   - Evidence contradicts the engineer's description: surface the
     contradiction to the engineer; do not silently trust either side.
+  - Genuinely one-off root cause (transient outage, code slated for
+    deletion): phase 9's analysis still runs; the journaled outcome is a
+    justified "no guardrail warranted", never a skipped phase.
+  - Engineer declines a proposed guardrail: the decline, its rationale, and
+    the sign-off are journaled in the Prevention section; wrap-up proceeds.
 -->
 
 # Root Cause

@@ -96,66 +96,97 @@ fi
 check "README has a non-empty purpose paragraph between the H1 and the first H2" \
   "$PURPOSE_HAS_TEXT" "yes"
 
-# --- H2 set is exactly {Usage, Artifacts, Components} ----------------------
+# --- H2 structure matches the locked template -------------------------------
+# Required, in exactly this order: Getting started, What to expect, Common
+# workflows, Commands, Relationships to other plugins, Uninstalling. Any
+# extra H2 (## Tests, plugin-specific sections) may appear only between
+# Commands and Relationships to other plugins.
 
-H2_SET="$(grep '^## ' <<<"$BODY" | sed 's/^## //' | sort | tr '\n' ',' | sed 's/,$//')"
-check "README H2 sections are exactly Artifacts, Components, Usage (sorted)" \
-  "$H2_SET" "Artifacts,Components,Usage"
+REQUIRED_H2S="Getting started
+What to expect
+Common workflows
+Commands
+Relationships to other plugins
+Uninstalling"
 
-# Helper: the text of the section starting at a given "## <Name>" heading, up
-# to (excluding) the next "## " heading or EOF.
-section_body() { # name
-  local name="$1"
-  awk -v name="## $name" '
-    $0 == name { grab=1; next }
-    grab && /^## / { grab=0 }
-    grab { print }
-  ' <<<"$BODY"
-}
+ALL_H2S="$(grep '^## ' <<<"$BODY" | sed 's/^## //')"
 
-USAGE_BODY="$(section_body "Usage")"
-ARTIFACTS_BODY="$(section_body "Artifacts")"
-COMPONENTS_BODY="$(section_body "Components")"
+REQUIRED_PRESENT="yes"
+while IFS= read -r req; do
+  grep -qxF "$req" <<<"$ALL_H2S" || REQUIRED_PRESENT="no"
+done <<<"$REQUIRED_H2S"
+check "README has all six required H2 sections (Getting started, What to expect, Common workflows, Commands, Relationships to other plugins, Uninstalling)" \
+  "$REQUIRED_PRESENT" "yes"
 
-# --- Usage section -----------------------------------------------------
+# Order: filter the doc's H2 list down to only the required headings (extras
+# dropped) and compare against the canonical template order verbatim.
+REQUIRED_ONLY="$(grep -xFf <(echo "$REQUIRED_H2S") <<<"$ALL_H2S")"
+check "the six required H2 sections appear in template order" \
+  "$REQUIRED_ONLY" "$REQUIRED_H2S"
 
-check "Usage section names /debugging:root-cause" \
-  "$(grep -qF '/debugging:root-cause' <<<"$USAGE_BODY" && echo yes || echo no)" "yes"
-check "Usage section states the skill is also model-invocable" \
-  "$(grep -qiE 'model-invo' <<<"$USAGE_BODY" && echo yes || echo no)" "yes"
+# Extras: any H2 outside the required set must sit strictly after Commands
+# and strictly before Relationships to other plugins.
+COMMANDS_LINE="$(grep -n '^## Commands$' <<<"$BODY" | head -n1 | cut -d: -f1)"
+RELATIONSHIPS_LINE="$(grep -n '^## Relationships to other plugins$' <<<"$BODY" | head -n1 | cut -d: -f1)"
 
-# --- Artifacts section ---------------------------------------------------
+EXTRAS_OK="yes"
+if [[ -n "$COMMANDS_LINE" && -n "$RELATIONSHIPS_LINE" ]]; then
+  while IFS=: read -r lineno heading; do
+    grep -qxF "$heading" <<<"$REQUIRED_H2S" && continue
+    if (( lineno <= COMMANDS_LINE || lineno >= RELATIONSHIPS_LINE )); then
+      EXTRAS_OK="no"
+    fi
+  done < <(grep -n '^## ' <<<"$BODY" | sed 's/^\([0-9]*\):## /\1:/')
+else
+  EXTRAS_OK="no"
+fi
+check "every non-required H2 section (if any) appears only between Commands and Relationships to other plugins" \
+  "$EXTRAS_OK" "yes"
 
-check "Artifacts section names the .local/debug/ layout root" \
-  "$(grep -qF '.local/debug/' <<<"$ARTIFACTS_BODY" && echo yes || echo no)" "yes"
-check "Artifacts section mentions journal.md" \
-  "$(grep -qF 'journal.md' <<<"$ARTIFACTS_BODY" && echo yes || echo no)" "yes"
-check "Artifacts section mentions the queries/ subdirectory" \
-  "$(grep -qF 'queries/' <<<"$ARTIFACTS_BODY" && echo yes || echo no)" "yes"
-check "Artifacts section mentions results.md" \
-  "$(grep -qF 'results.md' <<<"$ARTIFACTS_BODY" && echo yes || echo no)" "yes"
-check "Artifacts section describes the paste-back flow" \
-  "$(grep -qiF 'paste-back' <<<"$ARTIFACTS_BODY" && echo yes || echo no)" "yes"
+# --- Facts preserved from the old Usage/Artifacts/Components sections -----
+# The old H2s (Usage, Artifacts, Components) don't exist under the new
+# template — their content relocates into Common workflows / Commands, which
+# heading exactly is the implementer's placement freedom within the contract
+# — but every fact they carried must still appear somewhere in the README
+# per the "nothing substantive is dropped" invariant. These checks are
+# body-wide on purpose: they assert the fact exists, not which heading it
+# sits under.
 
-# --- Components section: a table with one row per contracted component ----
+check "README names /debugging:root-cause" \
+  "$(grep -qF '/debugging:root-cause' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README states the skill is also model-invocable" \
+  "$(grep -qiE 'model-invo' <<<"$BODY" && echo yes || echo no)" "yes"
 
-check "Components section contains a markdown table (pipe-delimited header)" \
-  "$(grep -qE '^\|.*\|[[:space:]]*$' <<<"$COMPONENTS_BODY" && echo yes || echo no)" "yes"
-check "Components section contains a markdown table separator row" \
-  "$(grep -qE '^\|[[:space:]:|-]+\|[[:space:]]*$' <<<"$COMPONENTS_BODY" && echo yes || echo no)" "yes"
+check "README names the .local/debug/ layout root" \
+  "$(grep -qF '.local/debug/' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README mentions journal.md" \
+  "$(grep -qF 'journal.md' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README mentions the queries/ subdirectory" \
+  "$(grep -qF 'queries/' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README mentions results.md" \
+  "$(grep -qF 'results.md' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README describes the paste-back flow" \
+  "$(grep -qiF 'paste-back' <<<"$BODY" && echo yes || echo no)" "yes"
 
-TABLE_LINES="$(grep -E '^\|' <<<"$COMPONENTS_BODY")"
+# --- Components table: a table with one row per contracted component ------
+
+check "README contains a markdown table (pipe-delimited header)" \
+  "$(grep -qE '^\|.*\|[[:space:]]*$' <<<"$BODY" && echo yes || echo no)" "yes"
+check "README contains a markdown table separator row" \
+  "$(grep -qE '^\|[[:space:]:|-]+\|[[:space:]]*$' <<<"$BODY" && echo yes || echo no)" "yes"
+
+TABLE_LINES="$(grep -E '^\|' <<<"$BODY")"
 TABLE_DATA_ROWS="$(grep -vE '^\|[[:space:]:|-]+\|[[:space:]]*$' <<<"$TABLE_LINES" | grep -c '^|' || true)"
 # First remaining pipe-line is the header; the rest are data rows.
 TABLE_DATA_ROW_COUNT=$(( TABLE_DATA_ROWS > 0 ? TABLE_DATA_ROWS - 1 : 0 ))
-check "Components table has exactly 11 data rows (skill + 7 references + 2 templates + debug-session.sh)" \
+check "component table has exactly 11 data rows (skill + 7 references + 2 templates + debug-session.sh)" \
   "$TABLE_DATA_ROW_COUNT" "11"
 
 for token in root-cause reproduce.md what-changed.md differential-diagnosis.md \
              binary-search.md logs.md database.md prevention.md journal.md \
              query-results.md debug-session.sh; do
-  check "Components section mentions '$token'" \
-    "$(grep -qF "$token" <<<"$COMPONENTS_BODY" && echo yes || echo no)" "yes"
+  check "README mentions '$token'" \
+    "$(grep -qF "$token" <<<"$BODY" && echo yes || echo no)" "yes"
 done
 
 # ===========================================================================

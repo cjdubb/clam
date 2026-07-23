@@ -10,19 +10,22 @@
 #     placeholder marker
 #
 # Covers plugins/worktrees/README.md:
-#   - non-placeholder intro paragraph under the "# worktrees" heading
-#   - "## Prerequisite: git-helpers" section: names the upstream repo
-#     (github.com/cjdubb/git-helpers), points at the setup.sh install
-#     mechanism, states git-helpers is never installed by this plugin, and
-#     covers the absent-git-helpers "degrades to instructions, not a hard
-#     failure" edge case
-#   - "## Skills" section names both the `usage` and `per-worker` skills
-#   - "## Dependencies" section in requires/provides/consumes style
+#   - non-placeholder intro paragraph under the "# worktrees" heading (no
+#     TODO/NotImplemented marker)
+#   - the six PLUGIN_README_TEMPLATE.md H2 sections (Getting started, What
+#     to expect, Common workflows, Commands, Relationships to other
+#     plugins, Uninstalling) appear, in that order
+#   - facts carried over from the pre-restructure README, checked
+#     body-wide since placement under the new structure is the
+#     implementer's freedom: the upstream repo (github.com/cjdubb/
+#     git-helpers) named; the setup.sh install mechanism named; git-helpers
+#     is never installed by this plugin; the absent-git-helpers "degrades
+#     to instructions, not a hard failure" edge case; the `usage` and
+#     `per-worker` skills named; requires/provides/consumes style
 #   - the "installing changes nothing globally" invariant, stated somewhere
 #     in the README
 #   - no machine-specific absolute paths (e.g. /home/<user>, /Users/<user>)
 #     anywhere in the README
-#   - no section is left with a TODO/NotImplemented placeholder body
 #   - if a marketplace.json worktrees entry exists (B04), it has no version
 #     field (plugin.json is the single source of truth for version)
 #
@@ -107,54 +110,57 @@ check "README intro paragraph has no TODO/NotImplemented placeholder" \
   "$(printf '%s' "$intro" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
-# README.md — ## Prerequisite: git-helpers
+# README.md — required template H2 sections, in order
 # ---------------------------------------------------------------------------
+# The plugin-readme-conformance restructure (B17) moves this README onto
+# PLUGIN_README_TEMPLATE.md's locked section set. The old headings ("##
+# Prerequisite: git-helpers", "## Skills", "## Dependencies") do not survive
+# it, so this suite stops asserting on them by name. What it asserts here:
+# the six template H2s appear, in template order (extra plugin-specific H2s
+# elsewhere in the file are the implementer's freedom, per the template).
 
-prereq=$(section_body "$README" "## Prerequisite: git-helpers")
+expected_h2_order="## Getting started
+## What to expect
+## Common workflows
+## Commands
+## Relationships to other plugins
+## Uninstalling"
 
-check "README has a '## Prerequisite: git-helpers' section with content" \
-  "$(nonblank "$prereq")" "yes"
-check "Prerequisite section names the upstream repo (github.com/cjdubb/git-helpers)" \
-  "$(printf '%s' "$prereq" | grep -qiF 'cjdubb/git-helpers' && echo yes || echo no)" "yes"
-check "Prerequisite section points at the setup.sh install mechanism" \
-  "$(printf '%s' "$prereq" | grep -qiF 'setup.sh' && echo yes || echo no)" "yes"
-check "Prerequisite section states git-helpers is never installed by this plugin" \
-  "$(printf '%s' "$prereq" | grep -qiE "never install|not install|does not install|won.t install" && echo yes || echo no)" "yes"
-check "Prerequisite section covers the absent-git-helpers degrade (not hard-fail) edge case" \
-  "$(printf '%s' "$prereq" | grep -qi 'degrad' && echo yes || echo no)" "yes"
-check "Prerequisite section has no TODO/NotImplemented placeholder" \
-  "$(printf '%s' "$prereq" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
+actual_h2_order=$(grep '^## ' "$README" | grep -Fxf <(printf '%s\n' "$expected_h2_order"))
 
-# ---------------------------------------------------------------------------
-# README.md — ## Skills
-# ---------------------------------------------------------------------------
-
-skills=$(section_body "$README" "## Skills")
-
-check "README has a '## Skills' section with content" \
-  "$(nonblank "$skills")" "yes"
-check "Skills section names the 'usage' skill" \
-  "$(printf '%s' "$skills" | grep -qiw 'usage' && echo yes || echo no)" "yes"
-check "Skills section names the 'per-worker' skill" \
-  "$(printf '%s' "$skills" | grep -qiw 'per-worker' && echo yes || echo no)" "yes"
-check "Skills section has no TODO/NotImplemented placeholder" \
-  "$(printf '%s' "$skills" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
+check "README's six required template H2 sections appear, in template order" \
+  "$actual_h2_order" "$expected_h2_order"
 
 # ---------------------------------------------------------------------------
-# README.md — ## Dependencies
+# README.md — facts carried over from the old sections (location-agnostic)
 # ---------------------------------------------------------------------------
+# Everything the old "## Prerequisite: git-helpers" / "## Skills" / "##
+# Dependencies" sections required is still required here, unweakened — just
+# checked over the whole rendered body instead of a named section, since
+# where the restructure relocates each fact is the implementer's call.
+# Stripped of the HTML contract docblocks first, same rationale as the
+# whole-file invariants below: a fact must be STATED in the rendered
+# README, not merely present in a docblock's own contract prose.
 
-deps=$(section_body "$README" "## Dependencies")
+readme_body_facts=$(sed '/<!--/,/-->/d' "$README")
 
-check "README has a '## Dependencies' section with content" \
-  "$(nonblank "$deps")" "yes"
-check "Dependencies section is in requires/provides/consumes style (all three terms present)" \
-  "$(printf '%s' "$deps" | grep -qiw 'requires' \
-     && printf '%s' "$deps" | grep -qiw 'provides' \
-     && printf '%s' "$deps" | grep -qiw 'consumes' \
+check "README names the upstream repo (github.com/cjdubb/git-helpers)" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiF 'cjdubb/git-helpers' && echo yes || echo no)" "yes"
+check "README points at the setup.sh install mechanism" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiF 'setup.sh' && echo yes || echo no)" "yes"
+check "README states git-helpers is never installed by this plugin" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiE "never install|not install|does not install|won.t install" && echo yes || echo no)" "yes"
+check "README covers the absent-git-helpers degrade (not hard-fail) edge case" \
+  "$(printf '%s' "$readme_body_facts" | grep -qi 'degrad' && echo yes || echo no)" "yes"
+check "README names the 'usage' skill" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiw 'usage' && echo yes || echo no)" "yes"
+check "README names the 'per-worker' skill" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiw 'per-worker' && echo yes || echo no)" "yes"
+check "README is in requires/provides/consumes style (all three terms present)" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiw 'requires' \
+     && printf '%s' "$readme_body_facts" | grep -qiw 'provides' \
+     && printf '%s' "$readme_body_facts" | grep -qiw 'consumes' \
      && echo yes || echo no)" "yes"
-check "Dependencies section has no TODO/NotImplemented placeholder" \
-  "$(printf '%s' "$deps" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
 # README.md — whole-file invariants

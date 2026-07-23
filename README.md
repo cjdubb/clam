@@ -57,7 +57,7 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 | [deliver](plugins/deliver/) | ✅ v0.1.0 | High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. |
 | [render-doc](plugins/render-doc/) | ✅ v0.1.0 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.0 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
-| [debugging](plugins/debugging/) | ✅ v0.1.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back. |
+| [debugging](plugins/debugging/) | ✅ v0.2.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!--
 Contract: B02 registration

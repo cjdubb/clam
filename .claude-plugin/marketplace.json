@@ -67,7 +67,7 @@
     {
       "name": "debugging",
       "source": "./plugins/debugging",
-      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention."
+      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, and log/DB evidence gathering with engineer paste-back."
     },
     {
       "name": "skill-tracker",
@@ -85,9 +85,9 @@
       "description": "High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. Works best with companion plugins installed but degrades gracefully without them."
     },
     {
-      "name": "session-data",
-      "source": "./plugins/session-data",
-      "description": "Locate the current Claude Code session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations."
+      "name": "ask-in-text",
+      "source": "./plugins/ask-in-text",
+      "description": "Kills the AskUserQuestion picker UI: a PreToolUse deny blocks the tool outright, and SessionStart context redirects Claude to ask the engineer in plain text — numbered questions, one decision per number, a recommended default each, bare-go semantics."
     }
   ]
 }

@@ -70,6 +70,13 @@ ACTIVITY_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/a
 # shellcheck source=/dev/null
 [[ -f "$ACTIVITY_LIB" ]] && source "$ACTIVITY_LIB"
 
+# Cross-platform mtime reader (clam_mtime_epoch) for the freshness gate (B02).
+# Guarded source, same rationale as ACTIVITY_LIB above: a missing lib disables
+# the freshness gate only (fail-open), never the whole Stop hook.
+PLATFORM_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/platform.sh"
+# shellcheck source=/dev/null
+[[ -f "$PLATFORM_LIB" ]] && source "$PLATFORM_LIB"
+
 LOG_FILE="${CLAUDE_STOP_LOG:-$HOME/.claude/stop-log.jsonl}"
 
 input=$(cat)
@@ -439,8 +446,39 @@ state=$(todo_field "$todo" State)
 #     cleared at SessionStart → gate can fire again (by design).
 check_tracking_freshness() {
     FRESHNESS_BLOCK_REASON=""
-    echo "NotImplemented: B02 freshness-stop-gate" >&2
-    return 90
+
+    [[ "${CLAM_TRACKING_FRESHNESS_GATE:-enabled}" == "disabled" ]] && return 0
+
+    [[ -n "$transcript_path" && -f "$transcript_path" ]] || return 0
+
+    command -v activity_prompts_since &>/dev/null || return 0
+    command -v clam_mtime_epoch &>/dev/null || return 0
+
+    local marker="$cwd/.local/.freshness-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+
+    local ref_epoch
+    ref_epoch=$(clam_mtime_epoch "$todo")
+    [[ "$ref_epoch" =~ ^[0-9]+$ && "$ref_epoch" -gt 0 ]] || return 0
+
+    local threshold="${CLAM_TRACKING_FRESHNESS_THRESHOLD:-2}"
+    [[ "$threshold" =~ ^[0-9]+$ && "$threshold" -ge 1 ]] || threshold=2
+
+    local count
+    count=$(activity_prompts_since "$ref_epoch" "$transcript_path")
+    [[ "$count" =~ ^[0-9]+$ ]] || return 0
+
+    [[ "$count" -ge "$threshold" ]] || return 0
+
+    FRESHNESS_BLOCK_REASON="Stop hook: TODO State is ${state}, but ${count} conversation prompt(s) have occurred since .local/TODO.md was last updated (threshold: ${threshold}).
+
+Bring .local/TODO.md up to date before ending the turn — update State / Current Task / Implementation Log / open questions to reflect the conversation since the docs were last touched. If the docs are genuinely current, touch .local/TODO.md (or make any write to it) to refresh its mtime and satisfy this check.
+
+This nudge fires at most once per session epoch."
+
+    : > "$marker" 2>/dev/null || return 0
+
+    return 1
 }
 
 # Plan gate (Lego Block methodology): every .local/PLAN.md must carry a

@@ -78,6 +78,11 @@ configure, or modify that tooling itself.
 
 ## Prerequisite: git-helpers
 
+```
+/plugin marketplace add cjdubb/clam
+/plugin install worktrees@clam
+```
+
 This plugin is documentation and skills, not tooling. It has a hard
 prerequisite on [cjdubb/git-helpers](https://github.com/cjdubb/git-helpers),
 the repo that actually provides `newtree`, `rmtree`, `copyenv`, and
@@ -113,3 +118,12 @@ rather than failing outright or pretending the helpers exist.
   global configuration; installing the plugin changes nothing globally.
 - **Consumes:** nothing beyond git-helpers' shell functions when a skill's
   guidance leads Claude Code to run them via the Bash tool.
+
+## Uninstalling
+
+```
+/plugin uninstall worktrees@clam
+```
+
+git-helpers itself is not affected — it's managed separately via
+`setup.sh` and is never installed or removed by this plugin.

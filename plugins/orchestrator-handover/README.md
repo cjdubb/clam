@@ -85,3 +85,13 @@ key, a descriptive slug takes its place.
 /plugin marketplace add cjdubb/clam
 /plugin install orchestrator-handover@clam
 ```
+
+## Uninstalling
+
+```
+/plugin uninstall orchestrator-handover@clam
+```
+
+Handover documents already written to a worktree's `.local/` (e.g.
+`.local/handover-{ISSUE-KEY}.md`) are not removed — they're plain files in
+the worktree, independent of the plugin.

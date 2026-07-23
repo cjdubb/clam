@@ -17,17 +17,15 @@
 #   - deliver-context.sh exists and is executable
 #
 # Covers plugins/deliver/README.md:
-#   - H1 "# deliver" with a non-empty, non-placeholder intro paragraph (no
-#     TODO/NotImplemented marker)
-#   - the six PLUGIN_README_TEMPLATE.md H2 sections (Getting started, What
-#     to expect, Common workflows, Commands, Relationships to other
-#     plugins, Uninstalling) appear, in that order
-#   - facts carried over from the pre-restructure README, checked
-#     body-wide since placement under the new structure is the
-#     implementer's freedom: /deliver:sync-pr named; deliver-context.sh and
-#     SessionStart named
+#   - H1 "# deliver" with a non-empty, non-placeholder intro paragraph
+#   - required H2 sections present with content: Purpose, Companion plugins,
+#     Delivery lifecycle, Skills, Hook, Standing instructions
+#   - Skills section names /deliver:sync-pr
+#   - Hook section names deliver-context.sh and SessionStart
+#   - Standing instructions section states the PR description sync rule
 #   - no hard-dependency wording on companion plugins (invariant: companions
 #     are optional enhancers)
+#   - no section left with a TODO/NotImplemented placeholder body
 #
 # plugin.json and hooks.json are declarative data the scaffold already wrote
 # in full (no "NotImplemented" body is possible for static JSON) — these
@@ -135,48 +133,33 @@ check "README intro paragraph has no TODO/NotImplemented placeholder" \
   "$(printf '%s' "$intro" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
-# README.md — required template H2 sections, in order
+# README.md — required H2 sections present with real content
 # ---------------------------------------------------------------------------
-# The B08 restructure moves this README onto PLUGIN_README_TEMPLATE.md's
-# locked section set. The old headings ("## Purpose", "## Companion
-# plugins", "## Delivery lifecycle", "## Skills", "## Hook", "## Standing
-# instructions") do not survive it, so this suite stops asserting on them
-# by name. What it asserts here: the six template H2s appear, in template
-# order (extra plugin-specific H2s elsewhere in the file are the
-# implementer's freedom, per the template).
 
-expected_h2_order="## Getting started
-## What to expect
-## Common workflows
-## Commands
-## Relationships to other plugins
-## Uninstalling"
-
-actual_h2_order=$(grep '^## ' "$README" | grep -Fxf <(printf '%s\n' "$expected_h2_order"))
-
-check "README's six required template H2 sections appear, in template order" \
-  "$actual_h2_order" "$expected_h2_order"
+for h in "Purpose" "Companion plugins" "Delivery lifecycle" "Skills" "Hook" "Standing instructions"; do
+  body=$(section_body "$README" "## $h")
+  check "README has a '## $h' section with content" "$(nonblank "$body")" "yes"
+  check "'## $h' section has no TODO/NotImplemented placeholder" \
+    "$(printf '%s' "$body" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
+done
 
 # ---------------------------------------------------------------------------
-# README.md — facts carried over from the old sections (location-agnostic)
+# README.md — section-specific anchors
 # ---------------------------------------------------------------------------
-# Everything the old "## Skills" / "## Hook" / "## Standing instructions"
-# sections required is still required here, unweakened — just checked over
-# the whole rendered body instead of a named section, since where the
-# restructure relocates each fact is the implementer's call. Stripped of
-# any HTML contract docblocks first (this README currently carries none,
-# but stripping is defensive and matches the convention used elsewhere in
-# this repo): a fact must be STATED in the rendered README, not merely
-# present in a docblock's own contract prose.
 
-readme_body_facts=$(sed '/<!--/,/-->/d' "$README")
+skills_section=$(section_body "$README" "## Skills")
+check "Skills section names /deliver:sync-pr" \
+  "$(has "$skills_section" '/deliver:sync-pr')" "yes"
 
-check "README names /deliver:sync-pr" \
-  "$(has "$readme_body_facts" '/deliver:sync-pr')" "yes"
-check "README names deliver-context.sh" \
-  "$(has "$readme_body_facts" 'deliver-context.sh')" "yes"
-check "README names the SessionStart event" \
-  "$(has "$readme_body_facts" 'SessionStart')" "yes"
+hook_section=$(section_body "$README" "## Hook")
+check "Hook section names deliver-context.sh" \
+  "$(has "$hook_section" 'deliver-context.sh')" "yes"
+check "Hook section names the SessionStart event" \
+  "$(has "$hook_section" 'SessionStart')" "yes"
+
+standing_section=$(section_body "$README" "## Standing instructions")
+check "Standing instructions section states the PR description sync rule" \
+  "$(has "$standing_section" '/deliver:sync-pr')" "yes"
 
 # ---------------------------------------------------------------------------
 # README.md — whole-file invariant: no hard dependency on companion plugins

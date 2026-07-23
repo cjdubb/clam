@@ -32,6 +32,20 @@ Skills for recording technical decisions as lightweight Decision Logs (DLs):
 what was decided, why, and what alternatives were considered — with pros/cons
 grounded in the actual codebase, never generic claims.
 
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install decision-log@clam
+```
+
+No configuration required. Sessions that park in `Waiting For Decision` write
+pending-decision files to `.local/decisions/` (per-worktree, not tracked); DLs
+finalized via `/decision-log:create` or `/decision-log:interactive` land in
+`dev-docs/decision-logs/` (tracked, part of the repo history). Both
+directories are created on first use — see Conventions below for the exact
+naming scheme.
+
 ## Skills
 
 | Skill | Invocation | What it does |
@@ -57,9 +71,12 @@ Everything degrades gracefully when absent:
 - **team-council** (team-review plugin, not yet ported): escalation target for
   genuinely contested calls.
 
-## Install
+## Uninstalling
 
 ```
-/plugin marketplace add cjdubb/clam
-/plugin install decision-log@clam
+/plugin uninstall decision-log@clam
 ```
+
+Existing decision logs in `dev-docs/decision-logs/` and pending decisions in
+`.local/decisions/` are not removed — they're plain markdown files tracked
+independently of the plugin.

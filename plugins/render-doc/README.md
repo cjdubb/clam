@@ -136,6 +136,17 @@ emits standard annotation tags (`@COMMENT:`, `@QUESTION:`, `@CONCERN:`,
 `@APPROVE:`, `@EVIDENCE:`). The markdown stays the document of record; the
 HTML is a disposable derived view.
 
+## Getting started
+
+```
+/plugin marketplace add cjdubb/clam
+/plugin install render-doc@clam
+```
+
+No further configuration required. python3 is a soft requirement — it
+enables the `--open` annotation server; see Requirements below for the
+`file://` fallback when it's unavailable.
+
 ## Usage
 
 ```bash
@@ -169,3 +180,22 @@ Ported from clam-code, adapted to run as a standalone plugin: paths resolve
 relative to the plugin's own install location instead of a fixed skills
 directory, and cross-skill references degrade gracefully for skills not yet
 ported.
+
+## Relationships to other plugins
+
+decision-log is the primary consumer: `/decision-log:rundown` invokes
+`/render-doc:render` at feedback checkpoints (plan ready for review,
+decision parked), checking whether the `render-doc:render` skill is
+available and skipping silently when it isn't. This plugin has no
+dependencies on decision-log or any other plugin in the other direction —
+it doesn't reference decision-log or any other plugin's files.
+
+## Uninstalling
+
+```
+/plugin uninstall render-doc@clam
+```
+
+Rendered `.html` files next to your markdown documents are not removed —
+they're disposable derived views, so delete them manually if you don't want
+to keep them around.

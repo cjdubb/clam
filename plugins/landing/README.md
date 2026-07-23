@@ -1,3 +1,5 @@
+# landing
+
 <!--
 SCAFFOLD Contract: B09 landing-readme (plan 002-readme-conformance)
 This comment IS the unit's contract. It is removed as part of implementation;
@@ -44,6 +46,8 @@ Invariants:
     sources per the template's placeholder guidance.
   - This SCAFFOLD comment is deleted; no other file is touched.
 Edge cases / plugin-specific mapping:
+  NOTE: the H1 line stays ABOVE this comment — landing-docs.test.sh
+  requires '# landing' as the file's first line.
   Current H2s: the profile (.claude/clam-profile.jsonc), policy matrix,
   Skills, Hook, Failure modes, Roadmap, Tests. Skills (/landing:init,
   /landing:land) and Hook -> Commands; profile + policy matrix content ->
@@ -51,8 +55,6 @@ Edge cases / plugin-specific mapping:
   Roadmap, Tests -> optional slot; Common workflows: e.g. configure the
   landing policy, land finished work.
 -->
-
-# landing
 
 One generic landing verb across repos that land work differently.
 

@@ -90,8 +90,9 @@ Edge cases:
 Debugging is a loop, not a hunch. This skill sequences the phases that turn a
 reported symptom into a confirmed root cause: capture it precisely, reach a
 reliable repro, mine what changed, run a differential diagnosis, isolate by
-bisection, gather external evidence, and gate acceptance on explaining
-everything you've recorded. It is the methodology driver only — technique
+bisection, gather external evidence, gate acceptance on explaining everything
+you've recorded, and close the loop with class-level prevention before
+wrap-up. It is the methodology driver only — technique
 depth lives in `references/`, loaded one file at a time as each phase needs
 it; this file never inlines what a reference already covers. Every phase
 writes into the session journal before you move to the next one — the
@@ -207,9 +208,44 @@ reader (including a future you) can trust.
   story.
 - Journal: nothing new is written here beyond keeping the Hypotheses table
   honest — the Root Cause section itself is written once the gate passes,
-  in phase 9.
+  in phase 10.
 
-## 9. Wrap-up
+## 9. Prevention
+
+- Mandatory class-level analysis once phase 8's root cause gate passes: every
+  confirmed root cause gets generalized from the single instance that
+  surfaced it to the defect class it belongs to — the property of the system
+  that allowed it, stated so class membership is mechanically checkable.
+- Record a defect-class statement: not "this one null check was missing" but
+  "any handler on this path skips null checks on optional fields."
+- Run a latent-instance sweep for other current members of that class:
+  record the method (exact commands/queries run), the scope covered, and the
+  results. An explicit "0 found" is a valid recorded outcome — the sweep
+  still ran, it just came back clean.
+- Whenever the sweep or the defect class shows recurrence potential, propose
+  a concrete guardrail — the highest rung that fits the cost: impossible by
+  construction, static check or lint, test, CI gate, runtime check, or
+  process/documentation. The instance's own regression test (from phase 10)
+  is the floor, never a substitute for the class guardrail.
+- Declining a proposed guardrail is a legitimate outcome, but never a silent
+  one: it requires a journaled cost/benefit rationale plus explicit engineer
+  sign-off before wrap-up proceeds.
+- Edge case: a genuinely one-off root cause (transient outage, code slated
+  for deletion) still runs the full analysis — the journaled outcome is a
+  justified "no guardrail warranted", never a skipped phase.
+- Edge case: when the engineer declines a proposed guardrail, journal the
+  decline together with its cost/benefit rationale and the sign-off in the
+  Prevention section; wrap-up proceeds from there.
+- Load `references/prevention.md` when you need the guardrail ladder in
+  full, how to scope a sweep to the class's breadth, or the ritual-guardrail
+  pitfalls to avoid (e.g. relabeling the instance test as the class
+  guardrail).
+- Journal: record the defect-class statement, the sweep's method/scope/
+  results, and the guardrail decision in the journal's Prevention section —
+  labels there: `Defect class:`, `Sweep method:`, `Sweep results:`,
+  `Guardrail:`.
+
+## 10. Wrap-up
 
 - Write the journal's Root Cause section: the root cause statement, how it
   explains all the evidence, the fix direction, and a note that the repro

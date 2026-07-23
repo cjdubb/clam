@@ -105,3 +105,10 @@ Candidate changes in the window:
 - Explains all evidence: [how this explains every symptom and probe observation above]
 - Fix direction: [what should change]
 - Regression test: [note that the reproduction steps above become the regression test]
+
+## Prevention
+
+Defect class: [the class of defect this represents, not just this one instance]
+Sweep method: [commands or queries run, and their scope, to find other instances of this defect class]
+Sweep results: [instances found elsewhere; "0 found" is a valid recorded outcome]
+Guardrail: [proposed | built | declined with rationale + engineer sign-off | none warranted with rationale]

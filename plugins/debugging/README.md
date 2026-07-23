@@ -19,7 +19,7 @@ Outputs (required document structure — tests assert these):
       ## Artifacts       — the .local/debug/NNN-<slug>/ layout: journal.md,
                            queries/NN-<name>/ (query file + results.md),
                            paste-back flow in two sentences.
-      ## Components      — table listing the skill, the six references, the
+      ## Components      — table listing the skill, the seven references, the
                            two templates, and debug-session.sh with a
                            one-line role each.
 
@@ -30,10 +30,12 @@ Cross-file integrity (the composed behavior structure.test.sh verifies):
   - debug-session.sh's script-relative template paths exist
     (templates/journal.md, templates/query-results.md).
   - Section names the skill/references cite in the templates (Hypotheses,
-    Probe Log, Queries, Results, Interpretation) match the template
-    headings exactly.
-  - plugin.json parses; its name is "debugging"; its version matches the
-    marketplace entry's version and the root README row's version.
+    Probe Log, Queries, Prevention, Results, Interpretation) match the
+    template headings exactly.
+  - plugin.json parses; its name is "debugging"; its version (0.2.0 as of
+    the prevention release) matches the root README row's version; the
+    marketplace entry carries no version (plugin.json is the single source
+    of truth).
   - End-to-end artifact smoke: `start` then `query` in a temp .local
     produces the contracted tree (defers to B09's own tests for detail;
     here only the composed shape is asserted).

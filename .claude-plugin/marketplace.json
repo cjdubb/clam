@@ -83,11 +83,6 @@
       "name": "deliver",
       "source": "./plugins/deliver",
       "description": "High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. Works best with companion plugins installed but degrades gracefully without them."
-    },
-    {
-      "name": "session-data",
-      "source": "./plugins/session-data",
-      "description": "Locate the current Claude Code session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations."
     }
   ]
 }

@@ -148,12 +148,12 @@ TABLE_LINES="$(grep -E '^\|' <<<"$COMPONENTS_BODY")"
 TABLE_DATA_ROWS="$(grep -vE '^\|[[:space:]:|-]+\|[[:space:]]*$' <<<"$TABLE_LINES" | grep -c '^|' || true)"
 # First remaining pipe-line is the header; the rest are data rows.
 TABLE_DATA_ROW_COUNT=$(( TABLE_DATA_ROWS > 0 ? TABLE_DATA_ROWS - 1 : 0 ))
-check "Components table has exactly 10 data rows (skill + 6 references + 2 templates + debug-session.sh)" \
-  "$TABLE_DATA_ROW_COUNT" "10"
+check "Components table has exactly 11 data rows (skill + 7 references + 2 templates + debug-session.sh)" \
+  "$TABLE_DATA_ROW_COUNT" "11"
 
 for token in root-cause reproduce.md what-changed.md differential-diagnosis.md \
-             binary-search.md logs.md database.md journal.md query-results.md \
-             debug-session.sh; do
+             binary-search.md logs.md database.md prevention.md journal.md \
+             query-results.md debug-session.sh; do
   check "Components section mentions '$token'" \
     "$(grep -qF "$token" <<<"$COMPONENTS_BODY" && echo yes || echo no)" "yes"
 done
@@ -182,10 +182,10 @@ if [[ "$missing_refs" -eq 0 ]]; then
   echo "PASS  every references/*.md path named in SKILL.md exists under skills/root-cause/references/"
 fi
 
-# The six contracted references are each individually named (belt-and-braces
+# The seven contracted references are each individually named (belt-and-braces
 # on top of the dynamic sweep above, since the contract names them exactly).
 for ref in reproduce.md what-changed.md differential-diagnosis.md \
-           binary-search.md logs.md database.md; do
+           binary-search.md logs.md database.md prevention.md; do
   check "SKILL.md names references/$ref" \
     "$(grep -qF "references/$ref" <<<"$ref_paths" && echo yes || echo no)" "yes"
   check "skills/root-cause/references/$ref exists" \
@@ -225,7 +225,7 @@ check "debug-session.sh references ../templates/journal.md relative to its own l
 # --- 2d. Template headings cited across the docs match the templates ------
 
 journal_h2s="$(grep '^## ' "$JOURNAL_TPL" | sed 's/^## //')"
-for name in Hypotheses "Probe Log" Queries; do
+for name in Hypotheses "Probe Log" Queries Prevention; do
   check "templates/journal.md has an H2 named '$name'" \
     "$(grep -qxF "$name" <<<"$journal_h2s" && echo yes || echo no)" "yes"
 done
@@ -252,6 +252,8 @@ PLUGIN_VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)"
 
 check "plugin.json .version is non-empty" \
   "$([ -n "$PLUGIN_VERSION" ] && echo yes || echo no)" "yes"
+check "plugin.json .version is 0.2.0 (as of the prevention release)" \
+  "$PLUGIN_VERSION" "0.2.0"
 check "marketplace.json debugging entry has no version field (plugin.json is single source of truth)" \
   "$(jq -e '.plugins[]? | select(.name=="debugging") | .version' "$MARKETPLACE" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 

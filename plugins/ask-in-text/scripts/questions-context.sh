@@ -50,5 +50,24 @@
 #     default on bare "go") — it restates the same convention for
 #     question-asking generally.
 
-echo "NotImplemented: B02 questions-context" >&2
-exit 1
+set -euo pipefail
+
+cat <<'EOF'
+# Question-Asking Convention (ask-in-text plugin)
+
+Never call the AskUserQuestion tool. It is blocked in this environment by
+the ask-in-text plugin's PreToolUse gate — do not attempt it, do not retry
+it.
+
+Ask the engineer questions in the conversation as plain text instead:
+
+- Use numbered questions (1., 2., ...), one decision per number, so a
+  reply like "1: A, 2: B" resolves unambiguously.
+- Give a recommended default per question, with a one-line rationale or
+  trade-off where it helps.
+- Keep each question decidable at a glance — no walls of text.
+
+A bare "go" or "confirmed" accepts all the recommended defaults.
+EOF
+
+exit 0

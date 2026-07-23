@@ -2,49 +2,38 @@
 
 The deliver plugin is a composition layer for shipping work: it stitches
 landing, lego, and tracking into a single, coherent software delivery
-lifecycle, and provides the parts of that lifecycle that no single
-companion plugin owns — most importantly, keeping a pull request's
-description in sync with the branch it describes. It works standalone,
-and adapts its behavior as companion plugins become available.
+lifecycle, and provides the parts of that lifecycle no single companion
+plugin owns — most importantly, keeping a pull request's description in
+sync with the branch it describes. Landing, lego, and tracking each solve
+one slice of getting work from "in progress" to "shipped" (lego decomposes
+and dispatches units of work, tracking keeps state durable across
+sessions, and landing decides how and where finished work lands), but none
+of them alone describes the whole delivery framework a session is
+operating under. deliver works standalone and adapts its behavior as
+companion plugins become available.
 
-## Purpose
+## Getting started
 
-Landing, lego, and tracking each solve one slice of getting work from
-"in progress" to "shipped": lego decomposes and dispatches units of work,
-tracking keeps state durable across sessions, and landing decides how and
-where finished work lands. None of them, on their own, describe the whole
-delivery framework a session is operating under, and none of them own the
-job of keeping a pull request's description honest as the branch behind
-it keeps changing. deliver is the composition layer above those plugins:
-it explains, at session start, which parts of the delivery lifecycle are
-available and how they fit together, and it supplies the PR description
-sync workflow that ties the end of that lifecycle together regardless of
-which companions produced the PR in the first place.
+```
+/plugin marketplace add cjdubb/clam
+/plugin install deliver@clam
+```
 
-## Companion plugins
+No configuration required. deliver detects companion plugins (landing,
+lego, tracking) automatically by checking for their directories under
+`plugins/` — there's no setup step to enable that. The one prerequisite is
+for the `/deliver:sync-pr` skill: the `gh` CLI must be installed and
+authenticated when you run it, not to install the plugin.
 
-deliver detects landing, lego, and tracking by checking for their
-directories under `plugins/` in the current repo — a directory-based
-check, not an import of their code. Each companion that is present adds
-its own section to the session-start context:
+## What to expect
 
-- **landing present** — adds context about merge policy (how finished
-  work lands: local merge or PR) and PR creation guidance.
-- **lego present** — adds context about the plan/scaffold/dispatch
-  workflow for decomposing and delivering work in units.
-- **tracking present** — adds context about the state lifecycle recorded
-  in `.local/` tracking docs across sessions.
-
-Any subset of these can be present, including none at all. Detection is
-independent per plugin, so a repo with only lego installed gets only the
-lego-flavored context, and a repo with none installed still gets a
-minimal, useful context plus the standing instructions below.
-
-## Delivery lifecycle
-
-The stages below span "ready to land" through "deployed." Each stage
-names the companion that owns it when installed, and what happens when
-that companion is absent:
+Installing deliver wires a `SessionStart` hook, `deliver-context.sh`, that
+fires on every session start, resume, clear, and compact. It reads the
+session's `cwd` from its stdin payload, checks for companion plugin
+directories under `plugins/` (a directory-based check, not an import of
+their code), and injects an `additionalContext` block naming which
+delivery-lifecycle stages are available in this session and how they
+compose:
 
 1. **Plan and dispatch work** — owned by lego when installed (plan,
    scaffold, dispatch units of work). Without lego, work can still be
@@ -59,7 +48,49 @@ that companion is absent:
    `/deliver:sync-pr` skill, regardless of which companion (or manual
    `gh pr create`) opened the PR in the first place.
 
-## Skills
+Any subset of the three companions can be present, including none — a
+repo with only lego installed gets only the lego-flavored context, and a
+repo with none installed still gets a minimal context explaining
+deliver's standalone purpose plus the standing instruction below.
+Regardless of which companions are present, the injected context always
+includes:
+
+> After every push to a branch with an open PR, sync the PR description
+> with `/deliver:sync-pr` so it always reflects the current state of the
+> branch rather than the state at PR creation time.
+
+The hook fails open: if `jq` is unavailable, the payload has no `cwd`, or
+the input is malformed, it exits 0 with no output rather than
+interrupting session start. Beyond this session-start context, deliver is
+otherwise inert — its only other user-facing behavior is the
+`/deliver:sync-pr` skill, which runs only when invoked.
+
+## Common workflows
+
+### Sync a PR description after a push
+
+Whenever you push new commits to a branch that already has an open PR,
+run `/deliver:sync-pr`. It finds the open PR for your current branch,
+gathers the diff against the merge target, any `.local/PLAN.md` /
+`.local/TODO.md` context if present, and the commit log, then rewrites
+the PR body to match — never touching the title. If there's no open PR
+yet, it reports that and stops rather than creating one. Run it again
+after addressing review feedback; it's idempotent, so re-running with no
+new changes leaves the description unchanged.
+
+### See what's available in a session
+
+Nothing to run — just start a session in a repo with deliver installed.
+The `SessionStart` hook checks which of landing, lego, and tracking are
+also installed and injects context describing the delivery stages each
+one owns, plus the standing instruction to keep PR descriptions in sync.
+Install landing, lego, and/or tracking alongside deliver for the richer,
+companion-specific context; deliver still works standalone for PR
+description sync without any of them.
+
+## Commands
+
+### Skills
 
 - **`/deliver:sync-pr`** — updates the current branch's open PR
   description to reflect the branch's current state. It detects the PR
@@ -69,21 +100,43 @@ that companion is absent:
   PR title; running it repeatedly with no new changes leaves the
   description unchanged.
 
-## Hook
+### Hooks
 
-`deliver-context.sh` is wired to the `SessionStart` event. On every
-session start, resume, clear, or compact, it reads the session's `cwd`
-from its JSON stdin payload, checks for the companion plugin directories
-described above, and emits an `additionalContext` block naming the
-delivery lifecycle stages that are available and how they compose. It
-fails open: if `jq` is unavailable, the payload has no `cwd`, or the
-input is malformed, it exits 0 with no output rather than interrupting
-session start.
+- **`deliver-context.sh`** — fires on the `SessionStart` event (session
+  start, resume, clear, and compact). Detects companion plugins and
+  injects the delivery framework context described above under What to
+  expect. Fails open (exits 0, no output) if `jq` is unavailable, the
+  payload's `cwd` is missing, or the input is malformed. No gating env
+  vars.
 
-## Standing instructions
+## Relationships to other plugins
 
-After every push to a branch with an open PR, sync the PR description
-with `/deliver:sync-pr` so it always reflects the current state of the
-branch rather than the state at PR creation time. This instruction is
-injected on every session start regardless of which companion plugins
-are installed.
+deliver detects landing, lego, and tracking by checking for their
+directories under `plugins/` in the current repo — a directory-based
+check, not an import of their code. Each one that is present adds its own
+section to the session-start context injected by the `SessionStart` hook
+(see What to expect for what each section says):
+
+- **landing** — soft integration. Adds context about merge policy (how
+  finished work lands: local merge or PR) and PR creation guidance.
+- **lego** — soft integration. Adds context about the plan/scaffold/
+  dispatch workflow for decomposing and delivering work in units.
+- **tracking** — soft integration. Adds context about the state
+  lifecycle recorded in `.local/` tracking docs across sessions.
+
+Detection is independent per plugin, so any subset can be present,
+including none. deliver has no hard dependencies — it is fully functional
+standalone, needing only the `gh` CLI for `/deliver:sync-pr` — and
+doesn't currently provide any interface, file, or skill that another clam
+plugin consumes.
+
+## Uninstalling
+
+```
+/plugin uninstall deliver@clam
+```
+
+No cleanup needed beyond uninstalling — deliver writes no settings,
+config files, or `.local/` state of its own. Uninstalling stops the
+`SessionStart` hook from firing and removes the `/deliver:sync-pr` skill;
+any PR descriptions it already synced remain on the forge as-is.

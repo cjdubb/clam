@@ -6,7 +6,7 @@
     "strategy": "github-pr",
     "target": "master",
     "merged-by": "user",
-    "verify": "for t in plugins/*/scripts/*.test.sh plugins/*/lib/*.test.sh; do [ -f \"$t\" ] || continue; bash \"$t\" || exit 1; done; jq -e . .claude-plugin/marketplace.json >/dev/null",
+    "verify": "bash scripts/ci.sh",
     "open-as": "ready",
     "bot-reviewers": [],
     "human-review": "none",

@@ -56,5 +56,22 @@
 #   - --no-verify: git never invokes this hook; explicitly accepted bypass.
 # -->
 
-echo "NotImplemented: B03a pre-push hook" >&2
-exit 99
+# Drain stdin without parsing it -- git feeds a stream of ref lines here and
+# the gate is branch-agnostic.
+cat >/dev/null
+
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || { echo "pre-push: $ROOT" >&2; exit 1; }
+
+if [ ! -f "$ROOT/scripts/ci.sh" ]; then
+  echo "pre-push: scripts/ci.sh not on this branch; skipping checks" >&2
+  exit 0
+fi
+
+( cd "$ROOT" && bash scripts/ci.sh --post-status )
+CODE=$?
+
+if [ "$CODE" -ne 0 ]; then
+  echo "pre-push: pseudo-CI failed — push blocked (bypass: git push --no-verify)" >&2
+fi
+
+exit "$CODE"

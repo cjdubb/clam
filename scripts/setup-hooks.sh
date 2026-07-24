@@ -65,5 +65,65 @@
 #     where ci.sh is absent.
 # -->
 
-echo "NotImplemented: B03b setup-hooks" >&2
-exit 99
+usage() {
+  echo "usage: setup-hooks.sh [--remove]" >&2
+}
+
+REMOVE=0
+if [ "$#" -eq 0 ]; then
+  :
+elif [ "$#" -eq 1 ] && [ "$1" = "--remove" ]; then
+  REMOVE=1
+else
+  usage
+  exit 2
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || { echo "setup-hooks: $ROOT" >&2; exit 2; }
+
+command -v jq >/dev/null 2>&1 || {
+  echo "setup-hooks: jq is required but was not found in PATH" >&2
+  exit 2
+}
+
+MARKETPLACE="$ROOT/.claude-plugin/marketplace.json"
+if [ ! -f "$MARKETPLACE" ]; then
+  echo "setup-hooks: not a clam checkout ($MARKETPLACE not found)" >&2
+  exit 2
+fi
+
+NAME="$(jq -r '.name // empty' "$MARKETPLACE" 2>/dev/null)"
+if [ "$NAME" != "clam" ]; then
+  echo "setup-hooks: not a clam checkout (marketplace name is '$NAME', expected 'clam')" >&2
+  exit 2
+fi
+
+cd "$ROOT" || { echo "setup-hooks: cannot cd to $ROOT" >&2; exit 2; }
+
+CURRENT="$(git config --get core.hooksPath 2>/dev/null)"
+
+if [ "$REMOVE" -eq 0 ]; then
+  if [ -z "$CURRENT" ]; then
+    git config core.hooksPath scripts/githooks
+    echo "hooks enabled: core.hooksPath = scripts/githooks (all worktrees of this repo)"
+    exit 0
+  elif [ "$CURRENT" = "scripts/githooks" ]; then
+    echo "hooks already enabled"
+    exit 0
+  else
+    echo "setup-hooks: core.hooksPath is already set to '$CURRENT'; refusing to overwrite. To switch, run: git config core.hooksPath scripts/githooks" >&2
+    exit 1
+  fi
+else
+  if [ -z "$CURRENT" ]; then
+    echo "hooks were not enabled"
+    exit 0
+  elif [ "$CURRENT" = "scripts/githooks" ]; then
+    git config --unset core.hooksPath
+    echo "hooks disabled"
+    exit 0
+  else
+    echo "setup-hooks: core.hooksPath is set to '$CURRENT', which this tool did not install; refusing to remove it." >&2
+    exit 1
+  fi
+fi

@@ -22,8 +22,8 @@
 #   - Gated on .local/ directory existing — if there is no tracking state, there
 #     is nothing to recover.
 #   - Files dumped: TODO.md, PLAN.md, IMPLEMENTATION-PLAN.md,
-#     TROUBLESHOOTING.md from .local/. Each file is preceded by a
-#     "--- .local/<filename> ---" separator.
+#     TROUBLESHOOTING.md, FOLLOWUPS.md from .local/. Each file is preceded by
+#     a "--- .local/<filename> ---" separator.
 #   - Recovery text includes the working directory and current git branch (if
 #     in a git repo) for re-grounding.
 #   - Resume instructions tell the agent to: (1) review the state files,
@@ -71,8 +71,14 @@ recovery_text=$(
     fi
     echo ""
 
+    # Contract: B04 — followups-lifecycle (recovery leg)
+    # Behavior: FOLLOWUPS.md joins this fixed re-injection list, appended
+    #   after TROUBLESHOOTING.md, so open follow-ups re-enter context after
+    #   compaction (dump-if-present semantics and framing lines unchanged).
+    # Invariants: list order otherwise preserved; the header comment naming
+    #   the dumped files is updated to match.
     has_files=false
-    for file in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md; do
+    for file in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md FOLLOWUPS.md; do
         if [ -f "$STATE_DIR/$file" ]; then
             has_files=true
             echo "--- .local/$file ---"

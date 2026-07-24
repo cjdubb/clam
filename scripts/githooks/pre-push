@@ -1,0 +1,77 @@
+#!/bin/bash
+# Git pre-push hook: run the pseudo-CI gate before anything leaves the machine.
+#
+# Activated via scripts/setup-hooks.sh (sets core.hooksPath); never runs
+# unless the user opted in.
+
+# <!--
+# Contract: B03a pre-push hook (plan 001-pseudo-ci)
+#
+# Behavior:
+#   Runs the full pseudo-CI suite (bash scripts/ci.sh --post-status) from
+#   the repo root before git completes a push. A non-zero ci.sh exit blocks
+#   the push with a plain-language failure message that names the failing
+#   stage/check line from ci.sh output and states the escape hatch
+#   (git push --no-verify). When scripts/ci.sh does not exist at the repo
+#   root — a worktree on a branch predating pseudo-CI — the hook prints a
+#   one-line notice and exits 0 (never blocks such branches).
+#
+# Inputs:
+#   - Standard git pre-push invocation: $1 remote name, $2 remote URL, and
+#     ref lines on stdin — all accepted and all ignored; the gate is
+#     branch-agnostic (stdin is drained, not parsed).
+#   - The worktree it runs in (git changes cwd to the worktree root before
+#     invoking hooks; the hook re-resolves the root via git rev-parse for
+#     safety).
+#   - Requires: git, bash. Everything else is ci.sh's concern.
+#
+# Outputs:
+#   - ci.sh output passes through untouched.
+#   - On block: "pre-push: pseudo-CI failed — push blocked (bypass:
+#     git push --no-verify)" on stderr, exit = ci.sh's exit code.
+#   - On missing ci.sh: "pre-push: scripts/ci.sh not on this branch;
+#     skipping checks" on stderr, exit 0.
+#   - On pass: ci.sh output then exit 0; no extra ceremony.
+#
+# Errors:
+#   - git rev-parse fails (not a repo — should be impossible under git's
+#     own hook invocation): diagnostic on stderr, exit 1 (blocks the push;
+#     a broken environment must not silently wave pushes through).
+#
+# Invariants:
+#   - Exit 0 if and only if ci.sh exited 0 or ci.sh is absent.
+#   - Never modifies repo state; delegates every check decision to ci.sh —
+#     the hook contains NO check logic of its own.
+#   - Standalone bash+git; works for contributors with no clam plugins and
+#     no Claude Code.
+#   - Committed with executable mode (100755) — git ignores non-executable
+#     hooksPath hooks, which would silently disable the gate.
+#
+# Edge cases:
+#   - Push with no refs (e.g. git push --tags with nothing to send): hook
+#     still runs; same gate applies.
+#   - ci.sh present but not readable/parseable: bash's own failure exit
+#     propagates and blocks the push (fail closed when the gate itself is
+#     broken, fail open only when it is legitimately absent).
+#   - --no-verify: git never invokes this hook; explicitly accepted bypass.
+# -->
+
+# Drain stdin without parsing it -- git feeds a stream of ref lines here and
+# the gate is branch-agnostic.
+cat >/dev/null
+
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || { echo "pre-push: $ROOT" >&2; exit 1; }
+
+if [ ! -f "$ROOT/scripts/ci.sh" ]; then
+  echo "pre-push: scripts/ci.sh not on this branch; skipping checks" >&2
+  exit 0
+fi
+
+( cd "$ROOT" && bash scripts/ci.sh --post-status )
+CODE=$?
+
+if [ "$CODE" -ne 0 ]; then
+  echo "pre-push: pseudo-CI failed — push blocked (bypass: git push --no-verify)" >&2
+fi
+
+exit "$CODE"

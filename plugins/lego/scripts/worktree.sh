@@ -386,18 +386,38 @@ find_worktree_for_branch() {
   '
 }
 
-# newest_commit_with_subject <branch> <exact-subject> -- prints the sha of
-# the newest commit on <branch> whose subject equals <exact-subject> exactly,
-# or nothing if none. Never calls die/exit.
+# newest_commit_with_subject <branch> <exact-subject> [base] -- prints
+# the sha of the newest commit on <branch> whose subject equals
+# <exact-subject> exactly, or nothing if none. Never calls die/exit. When
+# <base> is given, the scan range is conditional on the branch's
+# relationship to <base>, to satisfy three constraints at once: (1) stray
+# same-subject commits inherited from an old plan's history via <base> must
+# be excluded; (2) the unit's own commits must be found regardless of which
+# paths they touch; (3) the unit's own commits must still be found even
+# when <branch> has already been merged into <base> (the merge-then-deliver
+# flow). If <branch> is fully merged into <base> (`git merge-base
+# --is-ancestor <branch> <base>` succeeds), base..branch is empty by
+# definition, so this falls back to a full scan of <branch> -- identical to
+# the original unfixed behavior, preserving the merge-then-deliver flow with
+# no new regression surface. Otherwise it scans `git log <base>..<branch>`
+# (commits reachable from <branch> but not from <base>), which excludes the
+# inherited stray commits. Without <base>, the entire branch history is
+# scanned unconditionally, as before.
 newest_commit_with_subject() {
-  local branch="$1" subject="$2"
+  local branch="$1" subject="$2" base="${3:-}"
   local sha subj
   while IFS=$'\t' read -r sha subj; do
     if [ "$subj" = "$subject" ]; then
       printf '%s' "$sha"
       return 0
     fi
-  done < <(git -C "$REPO_ROOT" log --format='%H%x09%s' "$branch" 2>/dev/null)
+  done < <(
+    if [ -n "$base" ] && ! git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" "$base" 2>/dev/null; then
+      git -C "$REPO_ROOT" log --format='%H%x09%s' "$base..$branch" 2>/dev/null
+    else
+      git -C "$REPO_ROOT" log --format='%H%x09%s' "$branch" 2>/dev/null
+    fi
+  )
   return 0
 }
 
@@ -793,6 +813,8 @@ cmd_deliver() {
     die 4 "delivery branch $delivery_branch already exists"
   fi
 
+  git -C "$REPO_ROOT" rev-parse --verify --quiet "$base_branch^{commit}" >/dev/null 2>&1 || die 4 "base branch not found: $base_branch"
+
   # ---- Pass 1: resolve and validate everything, read-only ----
   local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=() UNIT_PATHS_JOINED=()
   local -a ALL_HEADINGS=() ALL_CONTRACTS=()
@@ -832,8 +854,8 @@ cmd_deliver() {
     UNIT_PATHS_JOINED+=("$(printf '%s\n' "${unit_paths[@]}")")
 
     local tests_sha impl_sha
-    tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests")"
-    impl_sha="$(newest_commit_with_subject "$branch" "lego($u): implementation")"
+    tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests" "$base_branch")"
+    impl_sha="$(newest_commit_with_subject "$branch" "lego($u): implementation" "$base_branch")"
     if [ -z "$impl_sha" ]; then
       die 4 "unit $u is missing the required implementation commit"
     fi

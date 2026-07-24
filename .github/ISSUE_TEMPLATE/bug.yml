@@ -1,0 +1,92 @@
+# Contract: B02 bug-issue-form (plan 001-repo-issue-template)
+# Behavior:
+#   GitHub issue form for bug reports. Renders in the "New issue" chooser
+#   as "Bug report"; submitted issues get the `bug` label automatically and
+#   a title pre-filled with the `fix: ` prefix.
+# Inputs (form fields, in this order):
+#   1. dropdown  id=plugin       "Affected plugin"        required
+#      Options: "repo-wide / other" first, then every plugins/* directory
+#      name in alphabetical order (same list as feature.yml; kept in sync
+#      by scripts/issue-template-lint.sh, B05).
+#   2. textarea  id=repro        "Steps to reproduce"     required
+#   3. textarea  id=expected     "Expected behavior"      required
+#   4. textarea  id=actual       "Actual behavior"        required
+#   5. input     id=version      "Plugin version"         optional
+#   6. textarea  id=environment  "Environment"            optional
+#      (Claude Code version, OS — free-form)
+# Outputs:
+#   Top-level keys: name ("Bug report"), description (one line),
+#   title ("fix: "), labels (exactly [bug]), body (the fields above).
+# Errors:
+#   n/a — a malformed form is rejected by GitHub at render time and by
+#   scripts/issue-template-lint.sh (B05) at lint time.
+# Invariants:
+#   - Parseable YAML (GitHub issue-form schema).
+#   - Field ids (plugin, repro, expected, actual, version, environment)
+#     are stable; B05 and future tooling key off them.
+#   - Dropdown options stay in sync with plugins/* (enforced by B05).
+# Edge cases:
+#   - Repo-wide bugs (not tied to one plugin) select "repo-wide / other".
+
+name: "Bug report"
+description: "Report a bug in clam."
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: "Affected plugin"
+      options:
+        - "repo-wide / other"
+        - ask-in-text
+        - attribution
+        - debugging
+        - decision-log
+        - deliver
+        - landing
+        - lego
+        - notifications
+        - orchestrator-handover
+        - privacy
+        - render-doc
+        - session-data
+        - settings
+        - skill-tracker
+        - statusline
+        - tracking
+        - worktrees
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: "Steps to reproduce"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected behavior"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Actual behavior"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "Plugin version"
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Claude Code version, OS — free-form."
+    validations:
+      required: false

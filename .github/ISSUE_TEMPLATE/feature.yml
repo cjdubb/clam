@@ -1,0 +1,79 @@
+# Contract: B01 feature-issue-form (plan 001-repo-issue-template)
+# Behavior:
+#   GitHub issue form for feature requests. Renders in the "New issue"
+#   chooser as "Feature request"; submitted issues get the `feature` label
+#   automatically and a title pre-filled with the `feat: ` prefix.
+# Inputs (form fields, in this order):
+#   1. dropdown  id=plugin        "Affected plugin"          required
+#      Options: "repo-wide / other" first, then every plugins/* directory
+#      name in alphabetical order (currently 17: ask-in-text, attribution,
+#      debugging, decision-log, deliver, landing, lego, notifications,
+#      orchestrator-handover, privacy, render-doc, session-data, settings,
+#      skill-tracker, statusline, tracking, worktrees).
+#   2. textarea  id=problem       "Problem / motivation"     required
+#   3. textarea  id=proposal      "Proposed behavior"        required
+#   4. textarea  id=alternatives  "Alternatives considered"  optional
+# Outputs:
+#   Top-level keys: name ("Feature request"), description (one line),
+#   title ("feat: "), labels (exactly [feature]), body (the fields above).
+# Errors:
+#   n/a — a malformed form is rejected by GitHub at render time and by
+#   scripts/issue-template-lint.sh (B05) at lint time.
+# Invariants:
+#   - Parseable YAML (GitHub issue-form schema).
+#   - Field ids (plugin, problem, proposal, alternatives) are stable; B05
+#     and future tooling key off them.
+#   - Dropdown options stay in sync with plugins/* (enforced by B05).
+# Edge cases:
+#   - A plugin added/renamed/removed without updating the dropdown is the
+#     drift B05 exists to catch.
+
+name: "Feature request"
+description: "Propose a new feature or enhancement for clam."
+title: "feat: "
+labels:
+  - feature
+body:
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: "Affected plugin"
+      options:
+        - "repo-wide / other"
+        - ask-in-text
+        - attribution
+        - debugging
+        - decision-log
+        - deliver
+        - landing
+        - lego
+        - notifications
+        - orchestrator-handover
+        - privacy
+        - render-doc
+        - session-data
+        - settings
+        - skill-tracker
+        - statusline
+        - tracking
+        - worktrees
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem / motivation"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed behavior"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+    validations:
+      required: false

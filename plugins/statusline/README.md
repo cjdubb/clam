@@ -35,9 +35,6 @@ Edge cases:
   render's cost; concurrent sessions in one worktree keep separate
   per-session bundles.
 -->
-<!-- B03 scaffold: version still 0.1.0 and caching docs absent until the
-composition block is implemented (NotImplemented marker). -->
-
 
 ## Getting started
 
@@ -86,6 +83,33 @@ In a repo using the tracking plugin's `.local/TODO.md` convention, a State
 segment (emoji + colour from the shared states manifest) appears on the
 first line; elsewhere it stays hidden — the statusline works fine without
 the tracking plugin.
+
+### Caching and staleness
+
+Rendering the full statusline on every heartbeat is expensive (git calls,
+badge-file reads, a cost recompute), so `context.sh` caches the pricier
+segments and accepts a small amount of staleness in exchange:
+
+- **Branch, PR badge, git-sync, the State segment, the clam mode, and the
+  Cost line** are one bundle, refreshed at most once every 5 seconds
+  (`CLAM_STATUSLINE_SEGMENT_TTL_SECONDS`, default `5`) and stored
+  per-session under `CLAM_STATUSLINE_CACHE_DIR` (default
+  `~/.claude/.statusline-cache`). A render inside that window reuses the
+  cached bundle instead of re-running git/badge/state lookups.
+- **Session cost** — the figure inside that cached Cost line — has its
+  own inner window on top: it recomputes at most once every 30 seconds
+  (`CCOST_SESSION_TTL_SECONDS`, default `30`), so even a full bundle
+  rebuild doesn't necessarily force a fresh transcript scan; the two
+  windows stack.
+- **Day/week cost** keep the existing 300-second cache described under
+  [`scripts/ccost.sh`](#scripts) below.
+- The **cwd path, model + effort, and the context-usage meter always
+  render live** — recomputed from stdin on every render, never cached —
+  along with the `.local/.ctx-status.json` publish. Only the bundled
+  segments above are throttled.
+- Cache failures (unwritable cache dir, corrupt cache file, etc.) degrade
+  to a full, freshly computed render — you get a slightly slower
+  statusline, never a broken or blank one.
 
 ## Common workflows
 
@@ -156,7 +180,11 @@ as described above. Also opportunistically writes
 `.local/.ctx-status.json` (context tokens, budget, occupancy, idle seconds,
 staleness level, timestamp) for the separate agent-dash project to read
 across sessions — best-effort and atomic, never errors the statusline on
-failure.
+failure. Caches the branch/badges/State/mode/Cost-line bundle per session
+under `CLAM_STATUSLINE_CACHE_DIR` for `CLAM_STATUSLINE_SEGMENT_TTL_SECONDS`
+(default 5s) — the cwd path, model + effort, and Ctx line stay live on
+every render regardless; see
+[Caching and staleness](#caching-and-staleness).
 
 **`scripts/ccost.sh`** — cost calculator invoked by `context.sh` and usable
 standalone (see [Common workflows](#common-workflows)). Sums
@@ -167,9 +195,11 @@ falls back to no cutoff if `python3` is unavailable) and cached 300s under
 `~/.claude/.ccost-cache`, single-flighted with an `mkdir`-based lock (stale
 after 120s) so concurrent sessions don't all rescan hundreds of MB of
 transcripts at once — a process that loses the lock race serves the last
-cached figure (or `0` if none exists) instead of waiting. `session` mode is
-cached per transcript path and stays valid while the transcript is
-untouched.
+cached figure (or `0` if none exists) instead of waiting. `session` mode
+serves its cached figure without touching the transcript at all while the
+cache is younger than `CCOST_SESSION_TTL_SECONDS` (default 30s); once that
+window lapses it falls back to the legacy behaviour of staying cached as
+long as the transcript itself is untouched.
 
 **`scripts/prices.json`** — the pinned price table `ccost.sh` reads;
 see [Common workflows](#common-workflows) for updating it.
@@ -185,6 +215,9 @@ States manifest; keep it in lockstep with the canonical copy there.
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | unset | Context-meter budget; falls back to the same key in `~/.claude/settings.json`, then the model's reported context window. |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where `ccost.sh` looks for transcript JSONL files. |
 | `CCOST_CACHE_DIR` | `~/.claude/.ccost-cache` | Where `ccost.sh` caches period sums and locks. |
+| `CCOST_SESSION_TTL_SECONDS` | `30` | How long `ccost.sh session` serves its cached figure without touching the transcript. `<= 0` disables the window. |
+| `CLAM_STATUSLINE_CACHE_DIR` | `~/.claude/.statusline-cache` | Where `context.sh` caches the per-session branch/badges/State/mode/Cost-line bundle (path, model + effort, and Ctx stay live). |
+| `CLAM_STATUSLINE_SEGMENT_TTL_SECONDS` | `5` | How long that cached bundle is served before `context.sh` rebuilds it. `<= 0` disables the cache. |
 
 ## Tests
 

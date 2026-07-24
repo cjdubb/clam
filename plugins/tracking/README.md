@@ -10,6 +10,37 @@ statusline plugin's State segment. It also absorbs the former make-progress
 plugin's stall-recovery: a capture hook plus the `/tracking:make-progress`
 skill for the user to manually get a stalled session moving again.
 
+<!--
+Contract: B05 — followups-docs-and-version
+
+Behavior:
+  Documents the follow-ups feature (v0.6.0) within this README's LOCKED
+  template sections (readme-lint: 6 required H2s, extra H2 only between
+  Commands and Relationships):
+  - What to expect: the `.local/FOLLOWUPS.md` artifact — lazy-created,
+    entry-per-follow-up with disposition Status; open entries surfaced at
+    session start; Complete-state close-out gate (once per epoch).
+  - Common workflows: a "### Capture and disposition follow-ups" walkthrough
+    (mention → entry appended → close-out gate → filed/resolved/dropped).
+  - Commands → Hooks: SessionStart and Stop hook rows updated to name the
+    new surfacing/gate behavior; templates list gains FOLLOWUPS.md.
+  - Commands → Env var summary: CLAM_FOLLOWUPS_GATE row (default enabled;
+    any other value disables the close-out gate).
+  Sibling obligations in this unit: plugin.json version 0.5.0 → 0.6.0
+  (single source of truth for version; marketplace.json entry carries no
+  version field and its description string MUST NOT change — it is
+  byte-pinned by the root README table and debugging's b10 fixture);
+  make-progress SKILL.md step-2 list gains an explicit FOLLOWUPS.md row.
+  Test-wave-only obligation: compaction-wiring.test.sh's version pin moves
+  0.5.0 → 0.6.0 (test-realm file; never touched by the implementer).
+Invariants:
+  - readme-lint stays green; existing section content is extended, not
+    restructured.
+  - No lib/states.tsv or marketplace description changes.
+Edge cases: none beyond the lint constraints above.
+-->
+
+
 ## Getting started
 
 ```
@@ -65,6 +96,18 @@ Concretely, once enabled:
   blocks the turn-end once per session epoch until they're updated (or
   merely touched, which also satisfies it) — see [Commands](#commands).
   Every invocation past the gate appends a JSONL audit entry.
+- **Follow-ups mentioned in conversation** — "worth filing later", a
+  deferred product decision, a defect noticed but out of scope here — land
+  in `.local/FOLLOWUPS.md`, lazily created from `templates/FOLLOWUPS.md` on
+  first capture (no hook creates it ahead of need). One entry is appended
+  per follow-up, each carrying a disposition `Status:` (`open` / `filed
+  <ref>` / `resolved` / `dropped (<reason>)`); entries are never deleted,
+  only dispositioned in place. Every open entry is surfaced at
+  SessionStart in an "Open follow-ups" block until it's dispositioned, and
+  a close-out gate blocks parking `State: Complete` while any follow-up
+  entry is still open — once per session epoch, same marker scheme as the
+  other nudges; see [Commands](#commands) for the mechanics and the
+  `CLAM_FOLLOWUPS_GATE` escape hatch.
 - **A prompt arriving into a parked session** (State in the manifest's
   `parked` category, e.g. `Awaiting User Review`) gets a one-time nudge
   reminding the agent that the park may be over: set `State: In Progress`
@@ -130,6 +173,20 @@ re-blocked. End the turn with a user-facing message that restates the
 decision in plain terms; the screen-bottom line is what the user sees
 first.
 
+### Capture and disposition follow-ups
+
+The moment a follow-up surfaces in conversation — "worth filing later", a
+separate decision, a defect noticed but not fixed here — append an entry to
+`.local/FOLLOWUPS.md` in real time (create it from `templates/FOLLOWUPS.md`
+on first capture; see [What to expect](#what-to-expect) for the entry
+format). Every new entry starts `Status: open`, and SessionStart surfaces
+every still-open entry at the start of each session until it's
+dispositioned. Before parking `State: Complete`, the Stop hook's close-out
+gate blocks once per session epoch while any entry remains open. Disposition
+each one in place — edit its `Status:` line to `filed <issue-ref>`,
+`resolved`, or `dropped (<reason>)` — never delete an entry, even a dropped
+one.
+
 ## Commands
 
 ### Skills
@@ -172,7 +229,10 @@ first.
   hatch: `CLAM_TRACKING_RESUME_STALE_GATE=disabled` (default `enabled`).
   Fail-open throughout, including this check: any error exits 0 with no
   output (or falls back to the plain resume message) rather than breaking
-  session start.
+  session start. It also surfaces any open follow-up entries from
+  `.local/FOLLOWUPS.md` (see [What to expect](#what-to-expect)) as a
+  trailing "Open follow-ups" block, read-only and appended after the
+  resume text.
 - **SessionStart, `compact` matcher** (`scripts/post-compact-recovery.sh`)
   — re-injects the full contents of `.local/TODO.md`, `PLAN.md`,
   `IMPLEMENTATION-PLAN.md`, and `TROUBLESHOOTING.md` after a compaction,
@@ -195,6 +255,15 @@ first.
   are updated — or merely touched, since any write to TODO.md moves its
   mtime and satisfies the gate on the re-stop. Escape hatch:
   `CLAM_TRACKING_FRESHNESS_GATE=disabled` (default `enabled`).
+
+  A follow-ups close-out gate runs first within `State: Complete`, ahead of
+  the two backstops below: once per session epoch (marker
+  `.local/.followups-nudge-fired`, cleared at SessionStart), it blocks
+  parking `Complete` while `.local/FOLLOWUPS.md` still has open entries,
+  listing each by title and instructing that it be dispositioned (`filed
+  <ref>` / `resolved` / `dropped (<reason>)`) — or the State moved off
+  `Complete` if the work genuinely isn't done. Escape hatch:
+  `CLAM_FOLLOWUPS_GATE=disabled` (default `enabled`).
 
   Two further backstops compose on top of the state check:
   - `CLAM_PR_CRONS=enabled` (default `disabled`) blocks parking on
@@ -306,6 +375,13 @@ first.
   threads a durable, structured home; existing worktrees' TODO.md files
   are not migrated — the section applies only to newly instantiated
   templates (auto-create and manual copies).
+- **`templates/FOLLOWUPS.md`** is the reference/template for
+  `.local/FOLLOWUPS.md`, instantiated by hand (or by the agent, per the
+  injected rules) on first capture — unlike `templates/TODO.md`, no hook
+  auto-creates it. Documents the entry format (`## F<NN> — <title>` plus
+  `Status:`/`Captured:`/`Source:`/`Refs:`/`Statement:` fields) that
+  `session-context.sh`'s surfacing and `keep-working.sh`'s close-out gate
+  both parse.
 
 ### Env var summary
 
@@ -314,6 +390,7 @@ first.
 | `CLAM_TRACKING_STOP_GATE` | `enabled` | `disabled` turns off the Stop-hook state-lifecycle enforcement entirely. |
 | `CLAM_TRACKING_FRESHNESS_GATE` | `enabled` | `disabled` turns off the Stop-hook freshness-drift gate. |
 | `CLAM_TRACKING_FRESHNESS_THRESHOLD` | `2` | Human prompts since `.local/TODO.md`'s mtime, in the current transcript, at or above which the freshness gate blocks a turn-end-permitting state once per session epoch. |
+| `CLAM_FOLLOWUPS_GATE` | `enabled` | Any other value disables the Stop-hook follow-ups close-out gate that blocks parking `Complete` while `.local/FOLLOWUPS.md` has open entries. |
 | `CLAM_TRACKING_TASK_TOOLS_GATE` | `enabled` | `disabled` turns off the built-in task-tools deny. |
 | `CLAM_PR_CRONS` | `disabled` | `enabled` blocks parking/completing with an open PR that has no monitoring cron (needs the pr-workflow plugin's create-pr watch crons; opt-in here, unlike clam-code where unset meant enabled). |
 | `CLAM_INDEPENDENT_REVIEW` | `disabled` | `enabled` blocks human-handoff states without an independent-review report (needs the independent-review skill). |

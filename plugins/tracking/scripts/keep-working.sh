@@ -510,6 +510,87 @@ case "$state" in
         ;;
 esac
 
+# Contract: B03 — followups-closeout-gate
+#
+# Behavior:
+#   Once per session epoch, prevent a Complete park while
+#   $cwd/.local/FOLLOWUPS.md still has OPEN entries. Wiring (part of this
+#   block's implementation): runs FIRST in the Complete branch below, before
+#   check_independent_review — being once-per-epoch it yields on subsequent
+#   stops, so the repeating IR/PR-cron block reasons are masked for at most
+#   one turn. On the first violating stop of the epoch: write the marker,
+#   set FOLLOWUPS_BLOCK_REASON to a message listing each open entry
+#   (`F<NN> — <title>`) and instructing that every one be dispositioned —
+#   filed <issue-ref> / resolved / dropped (<reason>) — or the State moved
+#   off Complete; the caller then logs log_stop "block_followups_open" and
+#   emits the block JSON, exactly like the sibling Complete-branch checks.
+# Inputs: $cwd; $cwd/.local/FOLLOWUPS.md (absent → pass);
+#   marker $cwd/.local/.followups-nudge-fired (cleared each SessionStart by
+#   session-context.sh, B02); env CLAM_FOLLOWUPS_GATE (default "enabled";
+#   any other value disables the gate → always pass).
+#   Open entry := line matching ^- Status: open[[:space:]]*$.
+# Outputs: return 0 = pass (file absent, no open entries, gate disabled,
+#   marker already present, or marker unwritable). return 1 = block, with
+#   FOLLOWUPS_BLOCK_REASON set (non-empty).
+# Errors: unreadable file or unwritable marker → return 0 (fail-open; an
+#   unwritable filesystem must never block parking, same as the WFD nudge).
+# Invariants:
+#   - Never blocks more than once per session epoch.
+#   - Read-only wrt FOLLOWUPS.md; side effects are only the marker file and
+#     the caller's log line.
+#   - States other than Complete are unaffected; Complete with a fully
+#     dispositioned (or absent) FOLLOWUPS.md behaves exactly as today.
+# Edge cases:
+#   - Engineer genuinely wants an item to stay open past close-out: re-stop
+#     after the nudge (marker → pass) or use dropped (<reason>) — the
+#     sanctioned escape hatches; the gate is a nudge, not a wall.
+#   - FOLLOWUPS.md present but zero-byte/malformed → pass (no open lines).
+check_followups_disposition() {
+    FOLLOWUPS_BLOCK_REASON=""
+
+    [[ "${CLAM_FOLLOWUPS_GATE:-enabled}" == "enabled" ]] || return 0
+
+    local followups="$cwd/.local/FOLLOWUPS.md"
+    [[ -f "$followups" && -r "$followups" ]] || return 0
+
+    local marker="$cwd/.local/.followups-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+
+    # Open entry := a "- Status: open" line (trailing whitespace tolerated),
+    # attributed to the nearest preceding "## F<NN> — <title>" heading. The
+    # heading search is unanchored (not "line starts with") because a
+    # heading can land mid-line, glued onto the prior entry's last content
+    # line with no separating newline.
+    local open_re='^- Status: open[[:space:]]*$'
+    local heading_re='##[[:space:]]F[0-9]+[[:space:]].*$'
+    local heading="" line="" entries=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ $heading_re ]]; then
+            heading="${BASH_REMATCH[0]#"## "}"
+        fi
+        if [[ -n "$heading" && "$line" =~ $open_re ]]; then
+            entries="${entries}  - ${heading}"$'\n'
+        fi
+    done < "$followups"
+
+    [[ -z "$entries" ]] && return 0
+
+    # Fail-open when the marker can't be written: an unwritable filesystem
+    # must never block parking, same as the WFD nudge.
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    FOLLOWUPS_BLOCK_REASON="Stop hook: TODO State is Complete, but .local/FOLLOWUPS.md has open follow-up(s) that still need a disposition:
+
+${entries}
+Disposition every open entry before ending the turn — set its Status to filed <issue-ref>, resolved, or dropped (<reason>) — or move State off Complete if the work genuinely is not done.
+
+This nudge fires at most once per session epoch."
+
+    return 1
+}
+
 # Parked states (the manifest's parked category) allow stop — work resumes on
 # its own, no user action. state_is_parked / state_parked_list come from
 # lib/states.sh, the single source that also feeds the reject message
@@ -519,6 +600,15 @@ esac
 # PR-monitoring backstop.
 case "$state" in
     Complete)
+        # Followups closeout gate (B03) runs FIRST, ahead of the other two
+        # Complete-branch backstops: an open follow-up is a closeout-readiness
+        # problem, and being once-per-epoch it should get first crack at the
+        # turn before the (repeating) IR/PR-cron reasons would otherwise mask it.
+        if ! check_followups_disposition; then
+            log_stop "block_followups_open" "$state" "$FOLLOWUPS_BLOCK_REASON"
+            jq -n --arg r "$FOLLOWUPS_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
         # Two independent backstops compose: both must pass to allow Complete.
         # Independent-review is checked first so its block reason wins when both
         # are unsatisfied (it is the earlier semantic deadline).

@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -98,6 +98,15 @@ the next approach.
 
 Park unresolved conversation threads (a question asked but never answered, a naming/design thread left hanging) in \`TODO.md\`'s Open Questions section in real time, and clear each entry once it is resolved, recording the answer where it belongs (Implementation Log, PLAN.md's Changelog, or a decisions/ file).
 
+Capture every follow-up or deferred-work item surfaced in conversation —
+"worth filing later", a separate decision, "X should grow Y", a defect
+noticed but not fixed here — in \`.local/FOLLOWUPS.md\` in real time, at the
+moment it is mentioned. On first capture, create the file from the template
+at \`$PLUGIN_ROOT/templates/FOLLOWUPS.md\` (lazy creation — do not create it
+ahead of need). Append one entry per item, in the template's entry format,
+and mark each entry's outcome in place as it is addressed — filed <ref>,
+resolved, or dropped (<reason>) — rather than deleting it.
+
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):
 
@@ -131,6 +140,73 @@ meaning, one-line trade-off, recommendation and why, the default on a bare
 "go", and the decision-file path (~10 lines for a 2-3 option decision).
 EOF
 )
+
+# Contract: B02 — followups-capture-and-surfacing
+#
+# Behavior:
+#   Three coupled obligations, all in this script:
+#   (1) Capture rule: the rules heredoc above gains an instruction (placed
+#       directly after the Open Questions rule) requiring agents to record
+#       EVERY follow-up or deferred-work item surfaced in conversation —
+#       "worth filing later", "separate decision", "X should grow Y", a
+#       defect noticed but not fixed here — into `.local/FOLLOWUPS.md`
+#       IN REAL TIME at mention: create the file from
+#       $PLUGIN_ROOT/templates/FOLLOWUPS.md on first capture (lazy creation),
+#       append one entry per item in the template's entry format, and
+#       disposition entries (filed <ref> / resolved / dropped (<reason>))
+#       rather than delete them.
+#   (2) Surfacing: _followups_surfacing prints an "Open follow-ups" block
+#       for injection whenever $cwd/.local/FOLLOWUPS.md exists and contains
+#       at least one open entry. Wiring: the final assembly becomes
+#       printf '%s%s%s' "$rules" "$resume" "<this output>" (wiring the third
+#       operand is part of this block's implementation).
+#   (3) Epoch marker: `.local/.followups-nudge-fired` joins the marker-clear
+#       rm -f list at the top of this script, same session-boundary scheme
+#       as the other nudge markers.
+# Inputs: $cwd; $cwd/.local/FOLLOWUPS.md (may be absent). An entry is OPEN
+#   iff it contains a line matching ^- Status: open[[:space:]]*$.
+# Outputs (stdout of _followups_surfacing): empty when $cwd is empty, the
+#   file is absent/unreadable, or no entry is open. Otherwise:
+#     - header line: `# Open follow-ups (N)` (N = count of open entries);
+#     - one line per open entry: its `## F<NN> — <title>` heading text with
+#       the leading `## ` stripped, or `(untitled)` if the Status line has
+#       no preceding F-heading;
+#     - one closing line instructing that each must be dispositioned
+#       (filed / resolved / dropped with reason) before work closes out.
+# Errors: fail-open — any failure prints nothing and returns 0; SessionStart
+#   is never broken by this feature.
+# Invariants:
+#   - Read-only: never creates or modifies FOLLOWUPS.md.
+#   - Existing rules text, auto-create, resume behavior, and all
+#     pre-existing session-context tests remain unchanged/green.
+#   - bash 3.2 safe (no associative arrays, no bash 4+ features).
+# Edge cases:
+#   - FOLLOWUPS.md exists, all entries dispositioned → empty output.
+#   - Zero-byte or malformed file → empty output, no error.
+#   - Open entry count N counts Status lines, not headings.
+_followups_surfacing() {
+    [ -n "$cwd" ] || return 0
+    local file="$cwd/.local/FOLLOWUPS.md"
+    [ -f "$file" ] && [ -r "$file" ] || return 0
+
+    local entries
+    entries=$(awk '
+        /^## / { heading = substr($0, 4); next }
+        /^- Status: open[ \t]*$/ {
+            if (heading == "") print "(untitled)"
+            else print heading
+            next
+        }
+    ' "$file" 2>/dev/null)
+    [ -n "$entries" ] || return 0
+
+    local count
+    count=$(printf '%s\n' "$entries" | wc -l | tr -d '[:space:]')
+
+    printf '\n\n# Open follow-ups (%s)\n' "$count"
+    printf '%s\n' "$entries"
+    printf '\nEach open follow-up above must be dispositioned — filed <ref>, resolved, or dropped (<reason>) — before this work closes out.\n'
+}
 
 # Contract: B04 — resume-freshness
 #
@@ -302,4 +378,6 @@ EOF
     fi
 fi
 
-printf '%s%s' "$rules" "$resume" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'
+followups_block=$(_followups_surfacing 2>/dev/null) || followups_block=""
+
+printf '%s%s%s' "$rules" "$resume" "$followups_block" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'

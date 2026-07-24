@@ -1489,6 +1489,71 @@ test_deliver_cross_plan_isolation() {
   fi
 }
 
+# Regression test for the "stray same-subject commit from an old plan"
+# defect: unit ids (U01, U02, ...) recur across plans, so a commit-subject
+# scan over a unit branch's ENTIRE history can surface an unrelated OLD
+# commit that happens to share the exact subject "lego(U01): tests" but
+# was inherited from the base branch's history long before the current
+# unit branch forked. Before the fix, that stray commit was picked as
+# tests_sha and restore_and_commit's `git checkout <stray-sha> --
+# <unit-paths>` failed outright (none of the paths exist at that ancient
+# tree), and deliver died exit 4. The fix scopes the commit-subject lookup
+# to the fork range `<base>..<branch>` (commits reachable from the unit
+# branch but not from the base branch it forked from), so the stray commit
+# -- reachable via the base -- is never a candidate: the tests restore is
+# skipped (as if no tests commit existed) and the impl commit still
+# delivers cleanly.
+test_deliver_stale_tests_commit_in_base_history_is_skipped() {
+  local repo root_sha
+  repo="$(build_deliver_base)"
+  root_sha="$(git -C "$repo" rev-list --max-parents=0 master)"
+
+  # An OLD plan's history, reachable via master, containing a commit with
+  # the exact subject a fresh U01 tests commit would use -- but at a point
+  # before any of U01's current Code paths (src/greet.sh etc.) existed,
+  # and touching only an unrelated path.
+  git -C "$repo" checkout -q "$root_sha"
+  git -C "$repo" checkout -q -b old-plan-history
+  commit_file "$repo" "src/old-plan-artifact.sh" "old plan artifact" "lego(U01): tests"
+  git -C "$repo" checkout -q master
+  git -C "$repo" merge -q --no-ff old-plan-history -m "merge old plan history into master" >/dev/null
+
+  # The current U01 branch never gets its own tests commit -- only impl.
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n '{title: "test: stale tests subject outside unit paths", branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "lego(U01): implementation"}}}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "stale cross-history same-subject commit must be skipped, not fatal: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    local subjects
+    # Scoped to the delivery branch's own range past master: the stray
+    # commit is legitimately reachable via master (it was merged into
+    # master above), so it would appear in the full log even on correct
+    # behavior. Only commits master..lego/deliver/plan1/U01 tell us what
+    # deliver actually restored/committed.
+    subjects="$(git -C "$repo" log --format=%s master..lego/deliver/plan1/U01 2>/dev/null)"
+    if printf '%s\n' "$subjects" | grep -qF "lego(U01): tests"; then
+      record_fail "no in-scope tests commit existed for U01; delivery must not restore the stale out-of-scope tests commit"
+    fi
+    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "expected delivery branch to contain the implementation commit"
+    fi
+    local greet_content
+    greet_content="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v1" "$greet_content" "delivered greet.sh content comes from the impl commit, not any stale restore"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
 test_deliver_unit_with_no_code_paths_fails() {
   local repo
   repo="$(build_deliver_base)"
@@ -2781,6 +2846,7 @@ run_test "deliver: missing gh dependency" test_deliver_missing_gh
 run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)" test_deliver_missing_dependencies
 run_test "deliver: constructed unit branch does not exist" test_deliver_zero_branch_match
 run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_deliver_cross_plan_isolation
+run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_deliver_stale_tests_commit_in_base_history_is_skipped
 run_test "deliver: unit with no Code paths cannot be delivered (EC4)" test_deliver_unit_with_no_code_paths_fails
 run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
 run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists

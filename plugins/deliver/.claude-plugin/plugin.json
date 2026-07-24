@@ -1,7 +1,7 @@
 {
   "name": "deliver",
   "description": "High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. Works best with companion plugins installed but degrades gracefully without them.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

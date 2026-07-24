@@ -87,7 +87,7 @@ Clauses (each independently checked, non-zero exit listing failures):
   files' own exclusion logic.
 - Version agreement: plugins/render-doc/.claude-plugin/plugin.json version ==
   the render-doc entry in .claude-plugin/marketplace.json == the root README
-  render-doc row (v0.1.0).
+  render-doc row (v0.1.1).
 - plugins/decision-log/skills/rundown/SKILL.md references the skill name
   `render-doc:render` (the consumer seam holds).
 - End-to-end: rendering one fixture through scripts/render.sh in a temp

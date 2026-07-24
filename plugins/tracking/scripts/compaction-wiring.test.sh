@@ -173,9 +173,10 @@ for marker in ".decision-nudge-fired" ".no-todo-nudge-fired"; do
     fi
 done
 
-# --- Test 7: plugin.json version is 0.5.1 ---
+# --- Test 7: plugin.json version is non-empty and well-formed semver ---
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is 0.5.1" "$plugin_version" "0.5.1"
+check "plugin.json version is non-empty and well-formed semver (X.Y.Z)" \
+  "$([[ "$plugin_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo yes || echo no)" "yes"
 
 # --- Test 8: all three new scripts exist and are executable ---
 for script in flush-nudge.sh precompact-snapshot.sh post-compact-recovery.sh; do

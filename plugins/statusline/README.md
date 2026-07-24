@@ -7,6 +7,38 @@ and State (emoji + colour straight from the shared states manifest). Claude
 Code has no plugin field for statuslines, so installing this plugin changes
 nothing by itself; you opt in explicitly with `/statusline:setup`.
 
+<!-- Contract: B03 warm-render-budget
+Behavior:
+  The composed statusline render (context.sh + ccost.sh, blocks B01 + B02)
+  with warm caches invokes at most 10 external commands end-to-end
+  (children included), opens no transcript/JSONL under
+  CLAUDE_PROJECTS_DIR, and does not spawn ccost.sh at all. A cold render
+  (empty caches) produces the full, correct statusline and leaves the
+  caches populated so that an immediately following render is warm.
+Inputs:
+  The same statusLine JSON stdin contract as context.sh (B01); env knobs
+  CLAM_STATUSLINE_CACHE_DIR, CLAM_STATUSLINE_SEGMENT_TTL_SECONDS,
+  CCOST_SESSION_TTL_SECONDS, CCOST_CACHE_DIR, CLAUDE_PROJECTS_DIR.
+Outputs:
+  Plugin version 0.2.0 in .claude-plugin/plugin.json (installed copies
+  are version-keyed; without the bump installs never pick up the change).
+  This README documents the caching/staleness model (segment bundle 5s,
+  session cost 30s, day/week 300s) and the env knobs.
+Errors:
+  None beyond B01/B02's own degradation clauses (cache failures degrade
+  to cold renders, never a broken statusline).
+Invariants:
+  Rendering semantics identical to the pre-caching statusline for the
+  same inputs, modulo the agreed staleness budgets.
+Edge cases:
+  First render after install (all caches cold) must not exceed the legacy
+  render's cost; concurrent sessions in one worktree keep separate
+  per-session bundles.
+-->
+<!-- B03 scaffold: version still 0.1.0 and caching docs absent until the
+composition block is implemented (NotImplemented marker). -->
+
+
 ## Getting started
 
 ```

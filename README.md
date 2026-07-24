@@ -39,28 +39,25 @@ enabled for the marketplace, otherwise follow it with `claude plugin update`.
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.5.1 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.4.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
-| [decision-log](plugins/decision-log/) | ✅ v0.1.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
-| [tracking](plugins/tracking/) | ✅ v0.6.1 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
-| [statusline](plugins/statusline/) | ✅ v0.1.1 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
-| [landing](plugins/landing/) | ✅ v0.1.1 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
-| [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.1 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
+| [decision-log](plugins/decision-log/) | ✅ v0.1.0 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
+| [tracking](plugins/tracking/) | ✅ v0.1.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
+| [statusline](plugins/statusline/) | ✅ v0.1.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
+| [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
+| [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.0 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
-| [worktrees](plugins/worktrees/) | ✅ v0.1.1 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
-| [attribution](plugins/attribution/) | ✅ v0.1.1 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
-| [settings](plugins/settings/) | ✅ v0.1.1 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
-| [privacy](plugins/privacy/) | ✅ v0.1.1 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
+| [worktrees](plugins/worktrees/) | ✅ v0.1.0 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
+| [attribution](plugins/attribution/) | ✅ v0.1.0 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
+| [settings](plugins/settings/) | ✅ v0.1.0 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
+| [privacy](plugins/privacy/) | ✅ v0.1.0 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
-| [deliver](plugins/deliver/) | ✅ v0.1.1 | High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. |
-| [render-doc](plugins/render-doc/) | ✅ v0.1.1 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
-| [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.1 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
-| [notifications](plugins/notifications/) | ✅ v0.1.1 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
-| [session-data](plugins/session-data/) | ✅ v0.1.1 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations. |
-| [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
-| [debugging](plugins/debugging/) | ✅ v0.2.1 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
+| [deliver](plugins/deliver/) | ✅ v0.1.0 | High-level software delivery framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context. |
+| [render-doc](plugins/render-doc/) | ✅ v0.1.0 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
+| [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.0 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
+| [debugging](plugins/debugging/) | ✅ v0.2.0 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!--
 Contract: B02 registration
@@ -131,34 +128,6 @@ uniqueness are contractual, position is not.
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.
 
-## Checks
-
-No plugins need to be installed to run the repo's checks — they're plain
-bash/jq scripts.
-
-```
-bash scripts/ci.sh          # full gate: lint, test, then validate
-bash scripts/ci.sh --lint   # lint stage only
-bash scripts/ci.sh --test   # test stage only
-```
-
-The validate stage shells out to `claude plugin validate`; without the
-`claude` CLI on PATH it prints `WARN  validate skipped (claude CLI not
-found)` and does not fail the run — everything else in `ci.sh` runs and
-gates normally regardless of whether `claude` is installed.
-
-One-time per clone: `bash scripts/setup-hooks.sh` points `core.hooksPath`
-at the committed `scripts/githooks/`, wiring the pre-push hook. Because
-worktrees share the repo's config, this only needs to run once and takes
-effect across every worktree of the clone.
-
-**Version-bump rule:** any change under `plugins/<name>/` — code, README,
-or test files alike — requires bumping that plugin's `.claude-plugin/
-plugin.json` `version`. There are no exemptions; installed copies are
-whole-directory snapshots keyed by version, so an unbumped change silently
-never reaches installs. `scripts/version-bump-lint.sh` enforces this over
-the committed range and runs as part of `ci.sh`'s lint stage.
-
 ## Repo conventions
 
 - Each plugin lives in `plugins/<name>/` with its own
@@ -178,12 +147,3 @@ the committed range and runs as part of `ci.sh`'s lint stage.
 - Run `bash scripts/marketplace-lint.sh` before merging to catch
   directory/marketplace mismatches, stale renames, and redundant version
   fields.
-
-- Every issue is one of two categories — feature or bug — filed through the
-  issue forms in `.github/ISSUE_TEMPLATE/` (blank issues are disabled);
-  forms auto-apply the `feature` / `bug` label.
-- Issue titles carry the matching commit-style prefix: `feat: ` for
-  features, `fix: ` for bugs (the forms pre-fill it).
-- The forms' affected-plugin dropdown must list every `plugins/*`
-  directory; `bash scripts/issue-template-lint.sh` enforces sync.
-

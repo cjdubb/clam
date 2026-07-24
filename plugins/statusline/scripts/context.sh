@@ -1,5 +1,88 @@
 #!/bin/bash
 
+# Contract: B01 context-cheap-render
+# Behavior:
+#   context.sh renders the statusline from the statusLine JSON on stdin.
+#   Rendering splits into a LIVE path computed on every invocation and an
+#   EXPENSIVE segment bundle served from a per-session cache with a short
+#   TTL. Live on every render: the cwd path (from stdin), the model+effort
+#   portion of the mode line, the Ctx-usage line (stdin token counts +
+#   transcript idle age + compaction budget), and the atomic
+#   .local/.ctx-status.json publish. Cached as ONE bundle, rebuilt at most
+#   once per TTL: git branch, PR badge, git-sync segment, TODO State
+#   segment, clam mode, and the Cost line. The background refresh-engine
+#   kicks (pr-status / git-sync staleness checks) are evaluated only when
+#   the bundle is rebuilt, never on the warm path.
+# Inputs:
+#   stdin: statusLine JSON (context_window, transcript_path, workspace,
+#     model, effort) — parsed with EXACTLY ONE jq invocation per render.
+#   CLAM_STATUSLINE_CACHE_DIR: segment-cache directory (default
+#     ~/.claude/.statusline-cache; created on demand).
+#   CLAM_STATUSLINE_SEGMENT_TTL_SECONDS: bundle TTL in integer seconds
+#     (default 5). Values <= 0 disable cache serving (every render
+#     rebuilds); a non-integer value falls back to the default.
+#   Cache key: derived from transcript_path (fallback: cwd) so two
+#     sessions never share a bundle, even in the same worktree.
+# Outputs:
+#   Identical statusline text semantics and segment order as the
+#   pre-cache renderer: for the same inputs, a cold render is
+#   byte-identical to the legacy output; a warm render differs from the
+#   bundle-write-time output at most in the live parts reflecting newer
+#   stdin values. .local/.ctx-status.json keeps its schema and is
+#   atomically replaced on every render inside a git worktree with .local/.
+# Errors:
+#   Cache dir uncreatable or unwritable: fall back to a full (cold)
+#   render every time; the statusline never breaks and never prints cache
+#   errors to stdout. A corrupt or partially-written bundle is treated as
+#   absent; bundle writes are atomic (temp file + rename) so a reader
+#   never sees a partial bundle.
+# Invariants:
+#   A WARM render (bundle younger than TTL):
+#     - invokes at most 10 external commands in total, children included
+#       (bash builtins are free; every non-builtin process counts);
+#     - runs exactly one jq over the stdin payload, plus at most one jq
+#       for the settings.json compaction-budget fallback;
+#     - does not invoke ccost.sh, does not invoke git, and opens no file
+#       under CLAUDE_PROJECTS_DIR (~/.claude/projects).
+#   A COLD render does at most the legacy renderer's work plus one atomic
+#   bundle write, and leaves the bundle fresh so an immediately following
+#   render is warm. Cache entries are only ever replaced whole.
+# Edge cases:
+#   Missing/empty transcript_path: key falls back to cwd; cost renders as
+#     today; the bundle is still cached. TTL boundary: age < TTL is
+#     fresh, age >= TTL is stale; a negative age (future-dated bundle
+#     after a clock step) reads fresh. No git worktree / no .local/:
+#     segments degrade exactly as today and the ctx-status publish is
+#     skipped as today. First-ever render: cold, creates dir + bundle.
+
+# --- B01 scaffold surface (deliberately unimplemented) -------------------
+# Public env knobs of the cheap-render path. Declared here so the
+# interface is fixed; unused until the block is implemented.
+SL_CACHE_DIR="${CLAM_STATUSLINE_CACHE_DIR:-$HOME/.claude/.statusline-cache}"
+SL_SEGMENT_TTL_SECONDS="${CLAM_STATUSLINE_SEGMENT_TTL_SECONDS:-5}"
+
+_sl_not_implemented() {
+  echo "NotImplemented: B01 context-cheap-render" >&2
+  exit 1
+}
+
+# sl_parse_input: parse the ENTIRE stdin payload (window size, total input
+# tokens, transcript path, cwd, model display name, effort level) with one
+# single jq invocation, populating the same variables the legacy per-field
+# jq calls populate today.
+sl_parse_input() { _sl_not_implemented; }
+
+# sl_bundle_read: emit the cached expensive-segment bundle for the current
+# session key iff it is fresh (age < SL_SEGMENT_TTL_SECONDS); non-zero exit
+# when stale, absent, corrupt, or caching is disabled (TTL <= 0).
+sl_bundle_read() { _sl_not_implemented; }
+
+# sl_bundle_write: atomically (temp + rename) persist the freshly rendered
+# expensive-segment bundle for the current session key; best-effort — a
+# write failure leaves rendering unaffected.
+sl_bundle_write() { _sl_not_implemented; }
+# ------------------------------------------------------------------------
+
 # Read JSON input from stdin
 input=$(cat)
 

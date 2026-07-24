@@ -86,5 +86,211 @@
 #   - Interrupted run (signal): no status is posted; partial output stands.
 # -->
 
-echo "NotImplemented: B02 ci-runner" >&2
-exit 99
+set -u
+
+usage() {
+  echo "Usage: ci.sh [--lint | --test] [--post-status]" >&2
+}
+
+STAGE_ONLY=""
+POST_STATUS=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --lint)
+      if [ -n "$STAGE_ONLY" ] && [ "$STAGE_ONLY" != "lint" ]; then
+        echo "ci.sh: --lint and --test are mutually exclusive" >&2
+        usage
+        exit 2
+      fi
+      STAGE_ONLY="lint"
+      ;;
+    --test)
+      if [ -n "$STAGE_ONLY" ] && [ "$STAGE_ONLY" != "test" ]; then
+        echo "ci.sh: --lint and --test are mutually exclusive" >&2
+        usage
+        exit 2
+      fi
+      STAGE_ONLY="test"
+      ;;
+    --post-status)
+      POST_STATUS=1
+      ;;
+    *)
+      echo "ci.sh: unknown flag: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || {
+  echo "ci.sh: $ROOT" >&2
+  exit 2
+}
+
+SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"
+
+FAIL_LABEL=""
+
+# Runs one check: prints its "-- <name>" line, executes it with cwd at the
+# repo root, and records stage/name on failure for the final CI FAIL line.
+run_check() { # <stage> <name> <cmd...>
+  local stage="$1" name="$2"
+  shift 2
+  echo "-- $name"
+  ( cd "$ROOT" && "$@" )
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAIL_LABEL="$stage/$name"
+    return 1
+  fi
+  return 0
+}
+
+run_lint_stage() {
+  echo "== lint =="
+  local checks=(marketplace-lint executable-lint readme-lint version-bump-lint)
+  local c
+  for c in "${checks[@]}"; do
+    run_check "lint" "$c" bash "scripts/$c.sh" || return 1
+  done
+  return 0
+}
+
+run_test_stage() {
+  echo "== test =="
+  mapfile -t repo_tests < <(find "$ROOT/scripts" -maxdepth 1 -type f -name '*.test.sh' 2>/dev/null | sort)
+  mapfile -t plugin_tests < <(find "$ROOT/plugins" -mindepth 3 -maxdepth 3 -type f -name '*.test.sh' \( -path '*/scripts/*' -o -path '*/lib/*' \) 2>/dev/null | sort)
+  local all=("${repo_tests[@]}" "${plugin_tests[@]}")
+  if [ "${#all[@]}" -eq 0 ]; then
+    echo "no test checks to run"
+    return 0
+  fi
+  local abs rel
+  for abs in "${all[@]}"; do
+    rel="${abs#$ROOT/}"
+    run_check "test" "$rel" bash "$abs" || return 1
+  done
+  return 0
+}
+
+run_validate_stage() {
+  echo "== validate =="
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "WARN  validate skipped (claude CLI not found)"
+    return 0
+  fi
+  local targets=(".claude-plugin/marketplace.json")
+  local names
+  mapfile -t names < <(find "$ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+  local n
+  for n in "${names[@]}"; do
+    targets+=("plugins/$n")
+  done
+  local t
+  for t in "${targets[@]}"; do
+    run_check "validate" "$t" claude plugin validate "$t" || return 1
+  done
+  return 0
+}
+
+# Extracts "owner/repo" from a GitHub origin URL (https, http, ssh, or
+# git@ scp-like form). Fails (non-zero) for any non-GitHub host.
+parse_github_repo() { # <url>
+  local url="$1" rest
+  case "$url" in
+    git@github.com:*)
+      rest="${url#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      rest="${url#ssh://git@github.com/}"
+      ;;
+    https://github.com/*|http://github.com/*)
+      rest="${url#*github.com/}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  rest="${rest%.git}"
+  rest="${rest%/}"
+  [ -n "$rest" ] || return 1
+  printf '%s' "$rest"
+}
+
+# Posts the run outcome as a GitHub commit status on HEAD, or prints a WARN
+# and returns cleanly when any prerequisite is missing -- never affects the
+# run's exit code.
+post_status() { # <state: success|failure>
+  local state="$1"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "WARN  status not posted (gh CLI not found)"
+    return
+  fi
+  local origin
+  if ! origin="$(git -C "$ROOT" remote get-url origin 2>/dev/null)" || [ -z "$origin" ]; then
+    echo "WARN  status not posted (no origin remote)"
+    return
+  fi
+  local repo
+  if ! repo="$(parse_github_repo "$origin")"; then
+    echo "WARN  status not posted (origin is not a GitHub remote)"
+    return
+  fi
+  if ! gh api "repos/$repo/statuses/$SHA" \
+      -f "state=$state" \
+      -f "context=pseudo-ci" \
+      -f "description=pseudo-ci $state" \
+      >/dev/null 2>&1; then
+    echo "WARN  status not posted (gh api call failed)"
+    return
+  fi
+}
+
+FAILED=0
+if [ -n "$STAGE_ONLY" ]; then
+  STAGES=("$STAGE_ONLY")
+else
+  STAGES=(lint test validate)
+fi
+
+for s in "${STAGES[@]}"; do
+  case "$s" in
+    lint) run_lint_stage ;;
+    test) run_test_stage ;;
+    validate) run_validate_stage ;;
+  esac
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAILED=1
+    break
+  fi
+done
+
+if [ "$FAILED" -eq 0 ]; then
+  STATE="success"
+  EXIT_CODE=0
+else
+  STATE="failure"
+  EXIT_CODE=1
+fi
+
+# The status POST (when requested) happens here, before the final summary
+# line is printed, so "CI PASS"/"CI FAIL: ..." always stays the true last
+# line. This is a plain statement, not a trap: on an interrupting signal
+# the script simply dies here and this line -- and the POST -- never runs,
+# which is exactly the contracted "interrupted run: no status posted"
+# behavior.
+if [ "$POST_STATUS" -eq 1 ]; then
+  post_status "$STATE"
+fi
+
+if [ "$FAILED" -eq 0 ]; then
+  echo "CI PASS"
+else
+  echo "CI FAIL: $FAIL_LABEL"
+fi
+
+exit "$EXIT_CODE"

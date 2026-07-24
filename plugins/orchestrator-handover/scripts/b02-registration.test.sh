@@ -161,16 +161,21 @@ check "orchestrator-handover row has a non-empty description cell" \
 
 # Invariant: other rows untouched — the already-✅ rows keep their exact
 # status cells, and the still-planned rows keep saying "planned".
-check "lego row still ✅ v0.4.0" \
-  "$(grep -E '^\| \[lego\]' "$README" | grep -qF '✅ v0.4.0' && echo yes || echo no)" "yes"
-check "decision-log row still ✅ v0.1.0" \
-  "$(grep -E '^\| \[decision-log\]' "$README" | grep -qF '✅ v0.1.0' && echo yes || echo no)" "yes"
-check "tracking row still ✅ v0.1.0" \
-  "$(grep -E '^\| \[tracking\]' "$README" | grep -qF '✅ v0.1.0' && echo yes || echo no)" "yes"
-check "statusline row still ✅ v0.1.0" \
-  "$(grep -E '^\| \[statusline\]' "$README" | grep -qF '✅ v0.1.0' && echo yes || echo no)" "yes"
-check "worktrees row still ✅ v0.1.0" \
-  "$(grep -E '^\| \[worktrees\]' "$README" | grep -qF '✅ v0.1.0' && echo yes || echo no)" "yes"
+LEGO_VERSION="$(jq -r '.version // empty' "$ROOT/plugins/lego/.claude-plugin/plugin.json" 2>/dev/null)"
+check "lego row still ✅ v$LEGO_VERSION" \
+  "$(grep -E '^\| \[lego\]' "$README" | grep -qF "✅ v$LEGO_VERSION" && echo yes || echo no)" "yes"
+DECISION_LOG_VERSION="$(jq -r '.version // empty' "$ROOT/plugins/decision-log/.claude-plugin/plugin.json" 2>/dev/null)"
+check "decision-log row still ✅ v$DECISION_LOG_VERSION" \
+  "$(grep -E '^\| \[decision-log\]' "$README" | grep -qF "✅ v$DECISION_LOG_VERSION" && echo yes || echo no)" "yes"
+TRACKING_VERSION="$(jq -r '.version // empty' "$ROOT/plugins/tracking/.claude-plugin/plugin.json" 2>/dev/null)"
+check "tracking row still ✅ v$TRACKING_VERSION" \
+  "$(grep -E '^\| \[tracking\]' "$README" | grep -qF "✅ v$TRACKING_VERSION" && echo yes || echo no)" "yes"
+STATUSLINE_VERSION="$(jq -r '.version // empty' "$ROOT/plugins/statusline/.claude-plugin/plugin.json" 2>/dev/null)"
+check "statusline row still ✅ v$STATUSLINE_VERSION" \
+  "$(grep -E '^\| \[statusline\]' "$README" | grep -qF "✅ v$STATUSLINE_VERSION" && echo yes || echo no)" "yes"
+WORKTREES_VERSION="$(jq -r '.version // empty' "$ROOT/plugins/worktrees/.claude-plugin/plugin.json" 2>/dev/null)"
+check "worktrees row still ✅ v$WORKTREES_VERSION" \
+  "$(grep -E '^\| \[worktrees\]' "$README" | grep -qF "✅ v$WORKTREES_VERSION" && echo yes || echo no)" "yes"
 check "pr-workflow row still 'planned' (unrelated row untouched)" \
   "$(grep -E '^\| pr-workflow' "$README" | grep -qi 'planned' && echo yes || echo no)" "yes"
 check "team-review row still 'planned' (unrelated row untouched)" \

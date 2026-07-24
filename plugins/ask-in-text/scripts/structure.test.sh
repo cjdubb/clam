@@ -81,7 +81,8 @@ pj_name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'ask-in-text'" "$pj_name" "ask-in-text"
 
 pj_version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is exactly '0.1.0'" "$pj_version" "0.1.0"
+check "plugin.json .version is non-empty and well-formed semver (X.Y.Z)" \
+  "$([[ "$pj_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo yes || echo no)" "yes"
 
 pj_description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \

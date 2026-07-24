@@ -212,11 +212,14 @@ assert_contains_re_i "CLAM_FOLLOWUPS_GATE row: names the close-out gate" "$env_r
     'close-?out|gate'
 
 # ===========================================================================
-# Clause: plugin.json version is exactly 0.6.0.
+# Clause: plugin.json version is bumped — non-empty and well-formed semver
+# (X.Y.Z), not pinned to a literal value (see compaction-wiring.test.sh's
+# equivalent check, which this mirrors).
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is 0.6.0" "$plugin_version" "0.6.0"
+check "plugin.json version is non-empty and well-formed semver (X.Y.Z)" \
+    "$([[ "$plugin_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo yes || echo no)" "yes"
 
 # ===========================================================================
 # Clause: make-progress SKILL.md step-2 list has an explicit numbered

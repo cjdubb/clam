@@ -283,13 +283,14 @@ PLUGIN_VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)"
 
 check "plugin.json .version is non-empty" \
   "$([ -n "$PLUGIN_VERSION" ] && echo yes || echo no)" "yes"
-check "plugin.json .version is 0.2.0 (as of the prevention release)" \
-  "$PLUGIN_VERSION" "0.2.0"
-check "marketplace.json debugging entry has no version field (plugin.json is single source of truth)" \
-  "$(jq -e '.plugins[]? | select(.name=="debugging") | .version' "$MARKETPLACE" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
 ROOT_README_ROW="$(grep -E '^\|.*\[debugging\]\(plugins/debugging/\).*\|' "$ROOT_README" | head -n1)"
 ROOT_README_VERSION="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$ROOT_README_ROW" | head -n1 | sed 's/^v//')"
+
+check "plugin.json .version agrees with the root README debugging row (single source of truth)" \
+  "$PLUGIN_VERSION" "$ROOT_README_VERSION"
+check "marketplace.json debugging entry has no version field (plugin.json is single source of truth)" \
+  "$(jq -e '.plugins[]? | select(.name=="debugging") | .version' "$MARKETPLACE" >/dev/null 2>&1 && echo present || echo absent)" "absent"
 
 check "root README.md has a debugging row" \
   "$([ -n "$ROOT_README_ROW" ] && echo yes || echo no)" "yes"

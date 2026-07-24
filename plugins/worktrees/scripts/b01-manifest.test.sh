@@ -81,7 +81,8 @@ name=$(jq -r '.name' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'worktrees'" "$name" "worktrees"
 
 version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is '0.1.0'" "$version" "0.1.0"
+check "plugin.json .version is non-empty and well-formed semver (X.Y.Z)" \
+  "$([[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo yes || echo no)" "yes"
 
 description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty and free of TODO/NotImplemented markers" \

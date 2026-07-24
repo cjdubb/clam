@@ -72,8 +72,14 @@ check "plugin.json top-level keys are name/description/version/author" \
 check "plugin.json name is 'debugging'" \
   "$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)" "debugging"
 
-check "plugin.json version is '0.2.0'" \
-  "$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)" "0.2.0"
+# Cross-surface source of truth for the version check below: the debugging
+# row's version in the root README (same authoritative-value pattern used
+# for the invariant checks further down this file).
+EARLY_LAST_ROW="$(grep '^|' "$README" | tail -n1)"
+EARLY_README_VERSION="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$EARLY_LAST_ROW" | head -n1 | sed 's/^v//')"
+
+check "plugin.json version agrees with the root README debugging row's version" \
+  "$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)" "$EARLY_README_VERSION"
 
 PJ_DESC=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json description is non-empty" \
@@ -146,8 +152,8 @@ check "debugging row shows the ✅ status marker" \
   "$(grep -qF '✅' <<<"$LAST_ROW" && echo yes || echo no)" "yes"
 check "debugging row shows version v$VERSION" \
   "$(grep -qF "v$VERSION" <<<"$LAST_ROW" && echo yes || echo no)" "yes"
-check "debugging row shows version v0.2.0" \
-  "$(grep -qF 'v0.2.0' <<<"$LAST_ROW" && echo yes || echo no)" "yes"
+check "debugging row shows version v$VERSION (belt-and-braces duplicate)" \
+  "$(grep -qF "v$VERSION" <<<"$LAST_ROW" && echo yes || echo no)" "yes"
 
 ROW_DESC="$(awk -F'|' '{print $4}' <<<"$LAST_ROW" | sed -E 's/^ +| +$//g')"
 check "debugging row has a non-empty description cell" \
@@ -155,30 +161,54 @@ check "debugging row has a non-empty description cell" \
 check "debugging row description contains no 'NotImplemented' placeholder" \
   "$(grep -qi 'notimplemented' <<<"$ROW_DESC" && echo placeholder || echo ok)" "ok"
 
-# Invariant: no other row is modified — spot-check every pre-existing row
-# (both already-✅ rows and still-planned rows) against its exact,
-# pre-registration text.
-mapfile -t EXPECTED_ROWS <<'EOF'
+# Invariant: no other row is modified. The header/separator and the
+# still-"planned" rows (no plugin.json, nothing to bump) are checked
+# byte-for-byte against their exact, pre-registration text. The already-✅
+# plugin rows check wording/link byte-for-byte too, but read their version
+# cell dynamically from that plugin's own plugin.json instead of a frozen
+# literal, so a legitimate version bump of a NEIGHBORING plugin doesn't
+# flip this check red. Presence is a substring search over the whole file
+# (not position- or count-anchored), so this also tolerates other rows
+# being inserted elsewhere in the table.
+mapfile -t STATIC_EXPECTED_ROWS <<'EOF'
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.4.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
-| [decision-log](plugins/decision-log/) | ✅ v0.1.0 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
-| [tracking](plugins/tracking/) | ✅ v0.1.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
-| [statusline](plugins/statusline/) | ✅ v0.1.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
-| [landing](plugins/landing/) | ✅ v0.1.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
-| [worktrees](plugins/worktrees/) | ✅ v0.1.0 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 EOF
 
-for row in "${EXPECTED_ROWS[@]}"; do
+for row in "${STATIC_EXPECTED_ROWS[@]}"; do
   label="${row:0:60}"
   check "pre-existing row unchanged: $label..." \
     "$(grep -qxF "$row" "$README" && echo yes || echo no)" "yes"
 done
+
+check_plugin_row_unchanged() { # plugin_dir_name row_template_with___VERSION___
+  local plugin_name="$1" template="$2"
+  local pj="$ROOT/plugins/$plugin_name/.claude-plugin/plugin.json"
+  local version expected label
+  version="$(jq -r '.version // empty' "$pj" 2>/dev/null)"
+  expected="${template/__VERSION__/$version}"
+  label="${expected:0:60}"
+  check "pre-existing row unchanged: $label..." \
+    "$(grep -qxF "$expected" "$README" && echo yes || echo no)" "yes"
+}
+
+check_plugin_row_unchanged "lego" \
+  '| [lego](plugins/lego/) | ✅ v__VERSION__ | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |'
+check_plugin_row_unchanged "decision-log" \
+  '| [decision-log](plugins/decision-log/) | ✅ v__VERSION__ | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |'
+check_plugin_row_unchanged "tracking" \
+  '| [tracking](plugins/tracking/) | ✅ v__VERSION__ | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |'
+check_plugin_row_unchanged "statusline" \
+  '| [statusline](plugins/statusline/) | ✅ v__VERSION__ | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |'
+check_plugin_row_unchanged "landing" \
+  '| [landing](plugins/landing/) | ✅ v__VERSION__ | The landing seam: `/landing:land` lands finished work per the repo'"'"'s committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |'
+check_plugin_row_unchanged "worktrees" \
+  '| [worktrees](plugins/worktrees/) | ✅ v__VERSION__ | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |'
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

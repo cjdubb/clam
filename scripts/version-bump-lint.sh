@@ -74,5 +74,151 @@
 #     plugin and have no version to bump.
 # -->
 
-echo "NotImplemented: B01 version-bump-lint" >&2
-exit 99
+usage() {
+  echo "usage: version-bump-lint.sh [--base <ref>]" >&2
+}
+
+BASE=""
+BASE_GIVEN=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --base)
+      if [ "$#" -lt 2 ]; then
+        usage
+        exit 2
+      fi
+      BASE="$2"
+      BASE_GIVEN=1
+      shift 2
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+ROOT="$(git rev-parse --show-toplevel 2>&1)" || { echo "$ROOT" >&2; exit 2; }
+
+command -v jq >/dev/null 2>&1 || {
+  echo "version-bump-lint: jq is required but was not found in PATH" >&2
+  exit 2
+}
+
+if [ "$BASE_GIVEN" -eq 1 ]; then
+  BASE_SHA="$(git -C "$ROOT" rev-parse --verify --quiet "${BASE}^{commit}" 2>/dev/null)"
+  if [ -z "$BASE_SHA" ]; then
+    echo "version-bump-lint: --base '$BASE' does not resolve to a commit" >&2
+    exit 2
+  fi
+else
+  BASE_SHA="$(git -C "$ROOT" rev-parse --verify --quiet "origin/master^{commit}" 2>/dev/null)"
+  if [ -z "$BASE_SHA" ]; then
+    BASE_SHA="$(git -C "$ROOT" rev-parse --verify --quiet "master^{commit}" 2>/dev/null)"
+  fi
+  if [ -z "$BASE_SHA" ]; then
+    echo "version-bump-lint: neither origin/master nor master resolves to a commit; pass --base <ref>" >&2
+    exit 2
+  fi
+fi
+
+HEAD_SHA="$(git -C "$ROOT" rev-parse --verify --quiet HEAD 2>/dev/null)"
+if [ -z "$HEAD_SHA" ]; then
+  echo "version-bump-lint: HEAD does not resolve to a commit" >&2
+  exit 2
+fi
+
+MB="$(git -C "$ROOT" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)"
+if [ -z "$MB" ]; then
+  echo "version-bump-lint: no common ancestor between '$BASE_SHA' and HEAD" >&2
+  exit 2
+fi
+
+FAILED=0
+VERDICTS=0
+FAIL_PATHS=()
+
+declare -A SEEN=()
+PLUGIN_ORDER=()
+
+add_plugin() { # path -> records the owning plugin name, once, in order seen
+  local path="$1" rest name
+  case "$path" in
+    plugins/*/*) ;;
+    *) return ;;
+  esac
+  rest="${path#plugins/}"
+  name="${rest%%/*}"
+  [ -n "$name" ] || return
+  if [ -z "${SEEN[$name]:-}" ]; then
+    SEEN[$name]=1
+    PLUGIN_ORDER+=("$name")
+  fi
+}
+
+while IFS=$'\t' read -r status p1 p2; do
+  [ -n "$status" ] || continue
+  case "$status" in
+    R*)
+      add_plugin "$p1"
+      add_plugin "$p2"
+      ;;
+    *)
+      add_plugin "$p1"
+      ;;
+  esac
+done < <(git -C "$ROOT" diff --name-status -M "$MB" "$HEAD_SHA" -- plugins)
+
+for name in "${PLUGIN_ORDER[@]}"; do
+  if [ -z "$(git -C "$ROOT" ls-tree -r --name-only "$HEAD_SHA" -- "plugins/$name" 2>/dev/null)" ]; then
+    # Plugin deleted entirely at HEAD: skipped, no verdict line.
+    continue
+  fi
+
+  head_content="$(git -C "$ROOT" show "$HEAD_SHA:plugins/$name/.claude-plugin/plugin.json" 2>/dev/null)"
+  head_version=""
+  if [ -n "$head_content" ]; then
+    head_version="$(printf '%s' "$head_content" | jq -r '.version // empty' 2>/dev/null)"
+    [ $? -eq 0 ] || head_version=""
+  fi
+
+  VERDICTS=$((VERDICTS + 1))
+
+  if [ -z "$head_version" ]; then
+    echo "FAIL  $name -> plugin.json missing or unreadable at HEAD; a changed plugin must carry a readable version"
+    FAIL_PATHS+=("plugins/$name/.claude-plugin/plugin.json")
+    FAILED=1
+    continue
+  fi
+
+  base_content="$(git -C "$ROOT" show "$MB:plugins/$name/.claude-plugin/plugin.json" 2>/dev/null)"
+  base_version=""
+  if [ -n "$base_content" ]; then
+    base_version="$(printf '%s' "$base_content" | jq -r '.version // empty' 2>/dev/null)"
+    [ $? -eq 0 ] || base_version=""
+  fi
+
+  if [ "$base_version" = "$head_version" ]; then
+    echo "FAIL  $name -> files changed but version unchanged ($head_version)"
+    FAIL_PATHS+=("plugins/$name/.claude-plugin/plugin.json")
+    FAILED=1
+  elif [ -z "$base_version" ]; then
+    echo "PASS  $name (version (new) -> $head_version)"
+  else
+    echo "PASS  $name (version $base_version -> $head_version)"
+  fi
+done
+
+if [ "$VERDICTS" -eq 0 ]; then
+  echo "no plugin changes to check"
+  exit 0
+fi
+
+echo ""
+if [ "$FAILED" -eq 0 ]; then
+  echo "ALL PASS"
+else
+  echo "FAILURES — fix before merging"
+  echo "  bump the version in: ${FAIL_PATHS[*]}"
+fi
+exit "$FAILED"

@@ -147,3 +147,12 @@ clam-code, including what is deliberately left behind.
 - Run `bash scripts/marketplace-lint.sh` before merging to catch
   directory/marketplace mismatches, stale renames, and redundant version
   fields.
+
+- Every issue is one of two categories — feature or bug — filed through the
+  issue forms in `.github/ISSUE_TEMPLATE/` (blank issues are disabled);
+  forms auto-apply the `feature` / `bug` label.
+- Issue titles carry the matching commit-style prefix: `feat: ` for
+  features, `fix: ` for bugs (the forms pre-fill it).
+- The forms' affected-plugin dropdown must list every `plugins/*`
+  directory; `bash scripts/issue-template-lint.sh` enforces sync.
+

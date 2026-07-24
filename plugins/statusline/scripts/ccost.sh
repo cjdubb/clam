@@ -23,6 +23,52 @@ CACHE_TTL_SECONDS=300
 # stealing it beats serving stale data forever.
 LOCK_STALE_SECONDS=120
 
+# Contract: B02 ccost-session-window
+# Behavior:
+#   `ccost.sh session <transcript>` serves the per-session cost cache
+#   WITHOUT consulting the transcript at all while the cache file is
+#   younger than CCOST_SESSION_TTL_SECONDS. Only once the cache is at
+#   least TTL old does the legacy freshness logic apply: an unchanged
+#   transcript (cache newer than transcript) serves the cache; otherwise
+#   the transcript is re-summed and the cache rewritten, which restarts
+#   the TTL window.
+# Inputs:
+#   CCOST_SESSION_TTL_SECONDS: integer seconds, default 30. Values <= 0
+#     disable the window (pure legacy behavior); a non-integer value
+#     falls back to the default. $2: transcript path, semantics unchanged
+#     (missing/unreadable transcript still prints "0" before any cache
+#     logic, exactly as today).
+# Outputs:
+#   A single decimal number on stdout, format unchanged. The printed
+#   value is never staler than TTL seconds beyond what legacy behavior
+#   would print.
+# Errors:
+#   Unchanged: missing args/file/jq print "0"; an unwritable cache prints
+#   the freshly computed result without caching it.
+# Invariants:
+#   While the window holds (cache age < TTL), session mode opens neither
+#   the transcript nor any jq process. day/week modes, the period cache,
+#   and the single-flight lock are untouched by this block.
+# Edge cases:
+#   Cache file absent: recompute (the window cannot apply). Future-dated
+#   cache after a clock step: negative age reads fresh. Transcript
+#   deleted while the cache is warm: "0" via the existing -f guard (the
+#   window is never consulted for a missing transcript).
+
+# --- B02 scaffold surface (deliberately unimplemented) -------------------
+# Public env knob of the session freshness window. Declared here so the
+# interface is fixed; unused until the block is implemented.
+CCOST_SESSION_TTL_SECONDS="${CCOST_SESSION_TTL_SECONDS:-30}"
+
+# ccost_session_window_fresh: succeed iff the session cache file ($1) is
+# younger than CCOST_SESSION_TTL_SECONDS (window active), meaning the
+# cached value must be served without any transcript consultation.
+ccost_session_window_fresh() {
+  echo "NotImplemented: B02 ccost-session-window" >&2
+  exit 1
+}
+# ------------------------------------------------------------------------
+
 mkdir -p "$CACHE_DIR" 2>/dev/null || true
 
 if ! command -v jq &>/dev/null; then

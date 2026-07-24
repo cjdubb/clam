@@ -36,8 +36,10 @@ LOCK_STALE_SECONDS=120
 #   CCOST_SESSION_TTL_SECONDS: integer seconds, default 30. Values <= 0
 #     disable the window (pure legacy behavior); a non-integer value
 #     falls back to the default. $2: transcript path, semantics unchanged
-#     (missing/unreadable transcript still prints "0" before any cache
-#     logic, exactly as today).
+#     (missing transcript still prints "0" before any cache logic,
+#     exactly as today; an existing-but-unreadable transcript keeps the
+#     legacy failure mode — known pre-existing defect, out of scope
+#     here, logged for a separate fix).
 # Outputs:
 #   A single decimal number on stdout, format unchanged. The printed
 #   value is never staler than TTL seconds beyond what legacy behavior
@@ -55,19 +57,26 @@ LOCK_STALE_SECONDS=120
 #   deleted while the cache is warm: "0" via the existing -f guard (the
 #   window is never consulted for a missing transcript).
 
-# --- B02 scaffold surface (deliberately unimplemented) -------------------
-# Public env knob of the session freshness window. Declared here so the
-# interface is fixed; unused until the block is implemented.
+# --- B02 ccost-session-window ---------------------------------------------
+# Public env knob of the session freshness window.
 CCOST_SESSION_TTL_SECONDS="${CCOST_SESSION_TTL_SECONDS:-30}"
+# A non-integer override falls back to the default instead of disabling the
+# window or breaking the arithmetic comparisons below.
+[[ "$CCOST_SESSION_TTL_SECONDS" =~ ^-?[0-9]+$ ]] || CCOST_SESSION_TTL_SECONDS=30
 
 # ccost_session_window_fresh: succeed iff the session cache file ($1) is
 # younger than CCOST_SESSION_TTL_SECONDS (window active), meaning the
 # cached value must be served without any transcript consultation.
 ccost_session_window_fresh() {
-  echo "NotImplemented: B02 ccost-session-window" >&2
-  exit 1
+  local cache_file="$1"
+  [[ -f "$cache_file" ]] || return 1
+  (( CCOST_SESSION_TTL_SECONDS > 0 )) || return 1
+  local now_epoch cache_epoch
+  now_epoch=$(date +%s)
+  cache_epoch=$(clam_mtime_epoch "$cache_file")
+  (( now_epoch - cache_epoch < CCOST_SESSION_TTL_SECONDS ))
 }
-# ------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 mkdir -p "$CACHE_DIR" 2>/dev/null || true
 
@@ -257,6 +266,13 @@ case "$mode" in
     # (Claude Code only appends, so any new record bumps the mtime). Idle
     # statusline heartbeats then cost a stat instead of a full-transcript scan.
     session_cache="$CACHE_DIR/session-$(printf '%s' "$transcript_path" | cksum | cut -d' ' -f1).cache"
+    # B02: while the window holds, serve the cache without ever touching the
+    # transcript. Only once the cache is at least TTL old does the legacy
+    # mtime comparison below run.
+    if ccost_session_window_fresh "$session_cache"; then
+      cat "$session_cache"
+      exit 0
+    fi
     if [[ -f "$session_cache" && "$session_cache" -nt "$transcript_path" ]]; then
       cat "$session_cache"
       exit 0

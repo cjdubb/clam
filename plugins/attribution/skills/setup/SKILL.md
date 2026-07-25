@@ -7,6 +7,29 @@ disable-model-invocation: true
 # Attribution Setup
 
 <!--
+Contract: B05 setup-version-stamp — attribution (plan 001-update-flow-for-users)
+Behavior (extension, to be added): after a successful install write (the
+  verify step passes), record a setup stamp
+  {plugin: "attribution", version, scope, target, at} in the stamp file per
+  plugins/updates/docs/setup-stamps.md; on `/attribution:setup remove`,
+  delete this plugin's stamp for the same target.
+Inputs: version is read from the plugin.json at this installation's
+  installPath (from its installed_plugins.json entry) — never from the
+  entry's version field. target = the settings file written; scope = the
+  configured scope.
+Outputs: stamp record created/replaced (keyed plugin+target); the final
+  confirmation message also names the stamp that was written.
+Errors: a stamp write failure is reported but never fails the setup; a
+  corrupt stamp file is moved aside (.corrupt-<date>) and recreated, per
+  the format doc.
+Invariants: setup behaves identically whether or not the updates plugin is
+  installed; stamp writes are temp-file + mv; no stamp records other than
+  this plugin+target are touched.
+Edge cases: absent stamp file → created; remove with no stamp → silent
+  success (stamp-wise). Plugin version bumps 0.1.0 → 0.2.0 with this change.
+-->
+
+<!--
 Contract: B01 attribution
 Behavior:   Writes `attribution: {"commit":"","pr":""}` to the Claude Code
              settings file matching the plugin's installation scope, suppressing

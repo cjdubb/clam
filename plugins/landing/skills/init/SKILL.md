@@ -43,6 +43,32 @@ Edge cases:
 
 # Landing Init
 
+<!--
+Contract: B05 setup-version-stamp — landing (plan 001-update-flow-for-users)
+Behavior (extension, to be added): after .claude/clam-profile.jsonc is
+  successfully written and confirmed, record a setup stamp
+  {plugin: "landing", version, scope: "project",
+   target: <absolute path of the repo's .claude/clam-profile.jsonc>, at}
+  in the stamp file per plugins/updates/docs/setup-stamps.md. There is no
+  remove subcommand; deleting a repo's profile is manual, so stale landing
+  stamps for removed profiles are acceptable and harmless.
+Inputs: version is read from the plugin.json at this installation's
+  installPath (from its installed_plugins.json entry) — never from the
+  entry's version field. One stamp per repo (target is the profile path),
+  so initializing several repos yields several records.
+Outputs: stamp record created/replaced (keyed plugin+target); the final
+  confirmation message also names the stamp that was written.
+Errors: a stamp write failure is reported but never fails the init; a
+  corrupt stamp file is moved aside (.corrupt-<date>) and recreated, per
+  the format doc.
+Invariants: init behaves identically whether or not the updates plugin is
+  installed; stamp writes are temp-file + mv; no stamp records other than
+  this plugin+target are touched.
+Edge cases: absent stamp file → created; migrating a legacy .md profile or
+  updating an existing .jsonc both count as successful init and are
+  stamped. Plugin version bumps 0.1.0 → 0.2.0 with this change.
+-->
+
 Create the repo's committed landing policy. Detection informs the proposal;
 the user decides — "who merges" is a human policy choice, never derivable
 from remotes.

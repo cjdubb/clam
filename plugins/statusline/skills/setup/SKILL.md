@@ -6,6 +6,34 @@ disable-model-invocation: true
 
 # Statusline Setup
 
+<!--
+Contract: B05 setup-version-stamp — statusline (plan 001-update-flow-for-users)
+Behavior (extension, to be added): after a successful statusLine write (the
+  verify step passes), record a setup stamp
+  {plugin: "statusline", version, scope: "user",
+   target: <absolute path of ~/.claude/settings.json>, at} in the stamp
+  file per plugins/updates/docs/setup-stamps.md; on
+  `/statusline:setup remove` (or the documented removal flow), delete this
+  plugin's stamp for the same target.
+Inputs: version is read from the plugin.json at this installation's
+  installPath (from its installed_plugins.json entry) — never from the
+  entry's version field. statusLine lives only in user settings, so scope
+  is always "user".
+Outputs: stamp record created/replaced (keyed plugin+target); the final
+  confirmation message also names the stamp that was written.
+Errors: a stamp write failure is reported but never fails the setup; a
+  corrupt stamp file is moved aside (.corrupt-<date>) and recreated, per
+  the format doc.
+Invariants: setup behaves identically whether or not the updates plugin is
+  installed; stamp writes are temp-file + mv; no stamp records other than
+  this plugin+target are touched.
+Edge cases: absent stamp file → created; removal with no stamp → silent
+  success (stamp-wise). Updates keep the same install path so the
+  statusLine entry survives updates — the stamp is what tells the update
+  flow whether this setup ran against the current version. Plugin version
+  bumps 0.1.0 → 0.2.0 with this change.
+-->
+
 Claude Code has no plugin field for statuslines — `statusLine` lives only in
 `~/.claude/settings.json`, and `${CLAUDE_PLUGIN_ROOT}` does not resolve there.
 This skill performs that one global write explicitly, at the user's request,

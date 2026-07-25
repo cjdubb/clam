@@ -81,6 +81,24 @@ that fails its gate must not be dispatched.
   field in `.local/blocks.md` with each block's **actual** path(s), verified
   pairwise disjoint across work units. A violation goes back to `/lego:plan`
   as a decomposition defect rather than being resolved silently here.
+<!-- Contract: B02 skill-gate-reinforcement (scaffold Step 3)
+Behavior:   Adds a reinforcement sentence before the commit instruction,
+            requiring the orchestrator to verify that any questions raised
+            during scaffolding (e.g., contract ambiguities surfaced while
+            writing stubs, path-disjointness concerns) have been resolved
+            with the engineer before committing.
+Inputs:     None (static markdown instruction text).
+Outputs:    One sentence inserted at this location.
+Errors:     None.
+Invariants: - References the standing rule rather than restating it.
+            - Covers the specific scaffold failure mode: surfacing a contract
+              question mid-scaffold and committing before the engineer answers.
+Edge cases: - If no questions were raised during scaffolding, the gate is
+              trivially satisfied.
+-->
+
+  **NotImplemented: B02 — skill-gate-reinforcement (scaffold Step 3).**
+
 - Commit the scaffold (with the engineer's consent) as a phase boundary. Clean
   phase-boundary commits are what make realm verification precise in dispatch:
   each wave's diff can then be checked in isolation. This commit is what every

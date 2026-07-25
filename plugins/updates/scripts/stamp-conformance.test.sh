@@ -246,14 +246,18 @@ for name in "${PLUGINS[@]}"; do
     "$(grep -qiE 'requires? (the )?updates plugin|updates plugin (is |must be )?required|needs? (the )?updates plugin( installed)?|depends on (the )?updates plugin|updates plugin.{0,10}(must|has to) be installed' <<< "$stripped" && echo no || echo yes)" "yes"
 
   # -- generic: manifest version bump ----------------------------------------
-  # statusline's target is 0.3.0, not 0.2.0: upstream PR #123 already bumped
-  # statusline's plugin.json to 0.2.0 for unrelated caching work, so B05's
-  # stamp-recording bump for statusline lands one minor ahead of the other
-  # four plugins.
-  expected="0.2.0"
-  [[ "$name" == "statusline" ]] && expected="0.3.0"
+  # Floors, not pins: B05's stamp behavior shipped at 0.2.0 (statusline at
+  # 0.3.0 — upstream PR #123 had already consumed 0.2.0 for its caching
+  # work). Later unrelated bumps must not regress this clause, so assert a
+  # well-formed semver no lower than the shipped floor, mirroring
+  # render-budget.test.sh's clause 4.
+  floor="0.2.0"
+  [[ "$name" == "statusline" ]] && floor="0.3.0"
   mversion=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-  check "$name: plugin.json .version is '$expected'" "$mversion" "$expected"
+  check "$name: plugin.json .version is a semver >= $floor (stamp bump landed)" \
+    "$([[ "$mversion" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+       && [[ "$(printf '%s\n%s\n' "$floor" "$mversion" | sort -V | head -n1)" == "$floor" ]] \
+       && echo yes || echo no)" "yes"
 
   # -- per-plugin specifics ---------------------------------------------------
   case "$name" in

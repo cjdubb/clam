@@ -690,8 +690,19 @@ cmd_add() {
 #             Target branch equals current branch — fails (2) even if
 #             current branch is not a unit branch.
 guard_merge_context() {
-  # NotImplemented: B01 merge-self-guard
-  return 0
+  local target_branch="$1" current_branch
+
+  if current_branch="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null)"; then
+    case "$current_branch" in
+      lego/*/U*-*)
+        die 4 "merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)"
+        ;;
+    esac
+
+    if [ "$target_branch" = "$current_branch" ]; then
+      die 4 "cannot merge a branch into itself (branch: $current_branch)"
+    fi
+  fi
 }
 
 cmd_merge() {

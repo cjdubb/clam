@@ -43,13 +43,6 @@
 #   - no hard-dependency wording on companion plugins (invariant: companions
 #     are optional enhancers)
 #
-# NotImplemented: B02 — update HOOK_SCRIPT variable to point at
-# build-context.sh, update plugin.json name assertion from "deliver" to
-# "build", update hooks.json command assertion to reference
-# build-context.sh, update README H1 assertion from "# deliver" to
-# "# build", and update all body-wide fact checks from "/deliver:sync-pr"
-# to "/build:sync-pr" and from "deliver-context.sh" to "build-context.sh".
-#
 # Run: bash plugins/build/scripts/b03-plugin-metadata.test.sh (exits
 # non-zero on failure)
 

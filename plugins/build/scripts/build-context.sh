@@ -50,10 +50,6 @@
 #   - Multiple repos in a worktree layout: cwd determines which repo's
 #     plugins are checked.
 
-# NotImplemented: B01 — replace all "deliver" references in the script body
-# (no-companions message, standing instruction) with "build" / "/build:sync-pr".
-# The script logic (companion detection, context assembly, fail-open) is unchanged.
-
 set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
@@ -103,8 +99,8 @@ fi
 
 if ! $landing_present && ! $lego_present && ! $tracking_present; then
   sections="
-No companion plugins (landing, lego, tracking) were detected. The deliver
-plugin still works standalone for PR description sync via /deliver:sync-pr,
+No companion plugins (landing, lego, tracking) were detected. The build
+plugin still works standalone for PR description sync via /build:sync-pr,
 as long as the gh CLI is installed and authenticated. Installing the
 companion plugins under plugins/ unlocks richer session context: how
 merges and pull requests are handled, how work gets planned and carried
@@ -115,7 +111,7 @@ fi
 standing="
 Standing instruction: after every push to a branch with an open PR, sync
 the PR description to reflect the current state of the branch using
-/deliver:sync-pr.
+/build:sync-pr.
 "
 
 context="# Delivery framework

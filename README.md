@@ -49,7 +49,7 @@ auto-update doesn't refresh the recorded install path
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.1.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.6.1 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
-| [statusline](plugins/statusline/) | ✅ v0.2.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
+| [statusline](plugins/statusline/) | ✅ v0.3.0 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.2.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.1 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
@@ -84,7 +84,7 @@ Outputs:
   | [notifications](plugins/notifications/) | ✅ v<plugin.json> | <summoning stack per its marketplace description> |
   | [skill-tracker](plugins/skill-tracker/) | ✅ v<plugin.json> | <skill telemetry, naming /skill-tracker:stats> |
   | [session-data](plugins/session-data/) | ✅ v<plugin.json> | <session data file location, naming /session-data:paths> |
-- Existing drifted rows corrected: lego → v0.5.0, tracking → v0.5.1.
+- Existing drifted rows corrected: lego → v0.5.1, tracking → v0.6.1.
 - The five B05-bumped plugins' rows updated to v0.2.0 (attribution,
   privacy, settings, statusline, landing) — B05 is a dependency; use the
   plugin.json values as they stand when this block is implemented.

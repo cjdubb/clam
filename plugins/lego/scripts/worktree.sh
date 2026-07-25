@@ -74,16 +74,29 @@
 #     From the integration worktree: constructs the exact branch name
 #     "lego/<plan-slug>/<unit-id>-<unit-slug>", verifies it exists, and
 #     merges it into the current branch with --no-ff and commit message
-#     "lego: merge <branch-name>". Refuses when the working tree has
-#     uncommitted tracked changes.
+#     "lego: merge <branch-name>".
+#     (B01 merge-self-guard) Before the dirty-tree check, two guards:
+#       - Refuses when the current branch matches "lego/*/U*-*" (running
+#         from a unit worktree instead of the integration worktree).
+#       - Refuses when the constructed target branch equals the current
+#         branch (self-merge no-op).
+#     Refuses when the working tree has uncommitted tracked changes.
 #     After a successful merge, removes the unit's worktree as a best-effort
 #     cleanup (via find_worktree_for_branch + git worktree remove). The unit
 #     branch is NOT removed — deliver may still need it. If worktree removal
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters.
 #
-#   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#   deliver [--force] --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 #     Builds a delivery branch from <base-branch> in a temporary worktree.
+#
+#     (B03 deliver-stale-base-check) Before building the delivery branch,
+#     validates that <base-branch> has not modified any of the units' Code
+#     paths since each unit branched. For each unit, computes the merge-base
+#     of its branch and <base-branch> and diffs each Code path between that
+#     merge-base and the current <base-branch> tip. If any path changed,
+#     fails exit 4 with a report naming the stale paths and the base-branch
+#     commits that touched them. --force bypasses this check.
 #
 #     --manifest <path> is required. <path> must be a readable JSON file
 #     (validated with jq). The manifest provides PR content and branch naming.
@@ -139,15 +152,23 @@
 #     removes the unit's worktree via `git worktree remove` (fails on a dirty
 #     tree) and deletes its branch with `git branch -d` (fails when unmerged).
 #
-#   clean
-#     Removes all fully-merged lego branches and their worktrees. Lists
-#     every local branch matching "lego/*/*" or "lego/deliver/*/*" that is
-#     merged into HEAD. For each: removes its worktree (if any) via
+#   clean <plan-slug>
+#     (B02 clean-plan-scoped) Removes fully-merged lego branches and their
+#     worktrees, scoped to the given plan. Only matches branches under
+#     "lego/<plan-slug>/*" and "lego/deliver/<plan-slug>/*". For each
+#     in-scope merged branch: removes its worktree (if any) via
 #     git worktree remove, then deletes the branch with git branch -d.
-#     Also runs git worktree prune to clean up stale worktree entries.
-#     Unmerged branches are skipped with a warning on stderr. Prints the
-#     count of removed branches as the last stdout line. Takes no arguments.
-#     Exits 0 always (best-effort). Exit 2 on unexpected arguments.
+#     Out-of-scope lego branches are reported as
+#     "skipped (foreign): <branch>" on stderr. Unmerged in-scope branches
+#     are skipped with "skipping unmerged lego branch <branch>" on stderr.
+#     Also runs git worktree prune. Prints the count of removed branches as
+#     the last stdout line. Exits 0 always (best-effort).
+#
+#   clean --all
+#     Same as plan-scoped clean but matches ALL "lego/*/*" and
+#     "lego/deliver/*/*" branches globally. No foreign-skip messages.
+#
+#     Bare "clean" (no arguments) is exit 2.
 #
 # Inputs:
 #   Positional arguments as above. (CHANGED, plan 001-lc) The effective
@@ -179,10 +200,12 @@
 #   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
 #            branch or worktree path already exists (add); constructed
 #            unit branch does not exist (merge/deliver/remove); dirty working
-#            tree (merge); baseline test failure (add); required
+#            tree (merge); (B01) current branch is a unit branch or equals
+#            the target branch (merge); baseline test failure (add); required
 #            implementation commit missing (deliver); delivery branch already
-#            exists (deliver); unmerged branch (remove); underlying git/gh
-#            failure.
+#            exists (deliver); (B03) base-branch has modified Code paths
+#            since the unit branched and --force not set (deliver); unmerged
+#            branch (remove); underlying git/gh failure.
 #   Every error prints exactly one line starting "ERROR: " to stderr.
 #
 # Invariants:
@@ -230,6 +253,16 @@
 #     exit 4.
 #   - A unit whose blocks have no "- Code:" paths cannot be delivered
 #     (treated as unit-id matching no deliverable content, exit 4).
+#   - (B01) Detached HEAD is not a unit branch — merge guards pass.
+#     Current branch "lego/foo/bar" without a U* segment also passes.
+#   - (B02) Plan slug matching no branches: exits 0, prints "0", no
+#     foreign-skip messages. Foreign messages only for out-of-scope lego
+#     branches that exist. A branch that is in-scope but unmerged gets the
+#     "skipping unmerged" message, not "foreign".
+#   - (B03) --force skips only the stale-base check, not any other
+#     validation. A path that does not exist in either tree is not stale.
+#     When merge-base equals base tip (base hasn't moved), no paths can be
+#     stale.
 #   - merge cleanup failure (dirty unit worktree, already removed, etc.)
 #     is warned on stderr and does not affect the merge exit code.
 #   - deliver cleanup failure (unmerged branch, dirty worktree, etc.)
@@ -241,7 +274,7 @@ set -uo pipefail
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver [--force] --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -628,6 +661,39 @@ cmd_add() {
 # merge
 # ---------------------------------------------------------------------------
 
+# guard_merge_context <target-branch> -- validates the merge context before
+# proceeding.
+#
+# Contract: B01 merge-self-guard
+# Behavior:   Validates two safety conditions for merge:
+#             (1) The current branch must not match the pattern of a lego
+#                 unit branch ("lego/*/U*-*"), which would indicate merge is
+#                 running from a unit worktree instead of the integration
+#                 worktree.
+#             (2) The target branch must not equal the current branch, which
+#                 would be a self-merge no-op.
+# Inputs:     $1 = target branch name (the branch about to be merged).
+#             Reads the current branch from git via REPO_ROOT.
+# Outputs:    Returns 0 silently when both checks pass.
+# Errors:     exit 4 "merge must run from the integration worktree, not a
+#             unit worktree (current branch: <branch>)" when the current
+#             branch matches lego/*/U*-*.
+#             exit 4 "cannot merge a branch into itself (branch: <branch>)"
+#             when the target equals the current branch.
+# Invariants: Pure read — no refs, files, or worktrees are modified.
+#             Deterministic: same repo state produces the same result.
+#             Called exactly once per cmd_merge invocation, before the
+#             dirty-tree check.
+# Edge cases: Current branch is detached HEAD — not a unit branch, passes.
+#             Current branch is "lego/foo/bar" (no U* segment) — passes.
+#             Current branch is "lego/plan/U01-slug" — fails (1).
+#             Target branch equals current branch — fails (2) even if
+#             current branch is not a unit branch.
+guard_merge_context() {
+  # NotImplemented: B01 merge-self-guard
+  return 0
+}
+
 cmd_merge() {
   [ "$#" -eq 3 ] || usage_die
   local plan_slug="$1" unit_id="$2" unit_slug="$3"
@@ -643,6 +709,8 @@ cmd_merge() {
   if [ "$rc" -ne 0 ]; then
     die 4 "no branch found for unit $unit_id"
   fi
+
+  guard_merge_context "$branch"
 
   local dirty
   dirty="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no 2>/dev/null)"
@@ -746,6 +814,45 @@ validate_manifest_required_fields() {
   return 0
 }
 
+# validate_no_stale_base_paths <base-branch> <unit-branch> <path>...
+# Checks that <base-branch> has not modified any of the given paths since
+# the merge-base of <unit-branch> and <base-branch>.
+#
+# Contract: B03 deliver-stale-base-check
+# Behavior:   For each <path>, checks whether it was modified on
+#             <base-branch> between the merge-base of <unit-branch> and
+#             <base-branch>, and the current tip of <base-branch>. "Modified"
+#             means `git diff --name-only <merge-base> <base-branch> --
+#             <path>` produces output. Collects all stale paths and, when
+#             any exist, prints a human-readable report to stderr and
+#             returns 1. Returns 0 when no paths are stale.
+# Inputs:     $1 = base-branch ref (must be resolvable).
+#             $2 = unit-branch ref (must be resolvable).
+#             $3... = paths to check (at least one).
+#             Uses REPO_ROOT global.
+# Outputs:    Returns 0 (no stale paths) or 1 (stale paths found).
+#             On return 1, stderr contains the report: for each stale path,
+#             "  stale: <path> (changed by: <sha1-short> <sha2-short> ...)"
+# Errors:     Returns 1 on stale detection (not an exit — caller decides
+#             whether to die or continue with --force).
+#             Does not die on git failures (merge-base not found, etc.);
+#             treats an unresolvable merge-base as "all paths stale" and
+#             reports it.
+# Invariants: Pure read — no refs, files, or worktrees are modified.
+#             Deterministic: same repo state produces the same result.
+# Edge cases: Unit branch already merged into base (merge-base == unit tip):
+#             base may still have moved beyond, so paths are still checked
+#             between merge-base and base tip.
+#             A path that does not exist in either tree: git diff reports no
+#             change, so it passes (not stale).
+#             All paths stale: all are listed in the report.
+#             merge-base is the same as base tip (base hasn't moved): no
+#             paths can be stale, returns 0 immediately.
+validate_no_stale_base_paths() {
+  # NotImplemented: B03 deliver-stale-base-check
+  return 0
+}
+
 deliver_cleanup() {
   local tmp_wt="$1" tmp_parent="$2" branch="$3"
   if [ -n "$tmp_wt" ]; then
@@ -760,12 +867,18 @@ deliver_cleanup() {
 }
 
 cmd_deliver() {
-  # ---- Parse required --manifest flag before positional args ----
-  local manifest_path=""
-  if [ "$#" -ge 2 ] && [ "$1" = "--manifest" ]; then
-    manifest_path="$2"
-    shift 2
-  fi
+  # ---- Parse flags (--force, --manifest) before positional args ----
+  local manifest_path="" force=0
+  while [ "$#" -ge 1 ]; do
+    case "$1" in
+      --force) force=1; shift ;;
+      --manifest)
+        [ "$#" -ge 2 ] || die 3 "--manifest requires a path argument"
+        manifest_path="$2"; shift 2
+        ;;
+      *) break ;;
+    esac
+  done
 
   if [ -z "$manifest_path" ]; then
     die 3 "--manifest is required for deliver"
@@ -863,6 +976,24 @@ cmd_deliver() {
     UNIT_IMPL_SHA+=("$impl_sha")
     idx_resolve=$((idx_resolve + 1))
   done
+
+  # ---- Stale-base check (B03): fail if base moved under Code paths ----
+  if [ "$force" -eq 0 ]; then
+    local stale_found=0 idx_stale=0
+    for u in "${unit_ids[@]}"; do
+      local ubranch
+      ubranch="$(construct_unit_branch "$plan_slug" "$u" "${unit_slugs[$idx_stale]}")"
+      local -a stale_paths=()
+      mapfile -t stale_paths <<< "${UNIT_PATHS_JOINED[$idx_stale]}"
+      if ! validate_no_stale_base_paths "$base_branch" "$ubranch" "${stale_paths[@]}"; then
+        stale_found=1
+      fi
+      idx_stale=$((idx_stale + 1))
+    done
+    if [ "$stale_found" -eq 1 ]; then
+      die 4 "base branch $base_branch has modified Code paths since units branched (use --force to override)"
+    fi
+  fi
 
   # ---- Pass 2: build the delivery branch in a temporary worktree ----
   local tmp_parent tmp_wt
@@ -1016,11 +1147,72 @@ cmd_remove() {
 # clean
 # ---------------------------------------------------------------------------
 
+# Contract: B02 clean-plan-scoped
+# Behavior:   Removes fully-merged lego branches and their worktrees, scoped
+#             by plan slug or globally.
+#
+#             clean <plan-slug>: only matches branches under
+#             "lego/<plan-slug>/*" and "lego/deliver/<plan-slug>/*". For any
+#             lego branch outside that scope, prints
+#             "skipped (foreign): <branch>" to stderr. Unmerged in-scope
+#             branches get "skipping unmerged lego branch <branch>" on stderr.
+#
+#             clean --all: matches ALL "lego/*/*" and "lego/deliver/*/*"
+#             branches globally. No foreign-skip messages. Unmerged branches
+#             are skipped with the same "skipping unmerged" warning.
+#
+#             clean (no args): exit 2 usage error.
+#
+#             Both modes: after processing, runs git worktree prune. Prints
+#             the count of removed branches as the last stdout line. Exits 0
+#             always (best-effort).
+#
+# Inputs:     $1 = <plan-slug> (valid token) or "--all". No other arguments.
+# Outputs:    Stderr: progress, skip, and foreign messages.
+#             Stdout last line: integer count of removed branches.
+# Errors:     exit 2 — no arguments, extra arguments, or $1 is neither a
+#             valid token nor "--all".
+# Invariants: Only deletes branches under "lego/" and worktrees associated
+#             with them. Non-lego branches are never touched. Deterministic.
+#             Best-effort: exits 0 on any individual branch/worktree failure.
+# Edge cases: No lego branches at all: exits 0, prints "0".
+#             Plan slug matches no branches: exits 0, prints "0", no
+#             foreign-skip messages (foreign messages only for out-of-scope
+#             lego branches that exist but are not in the plan's scope).
+#             --all with no lego branches: exits 0, prints "0".
+#             A branch that is in-scope and unmerged: skipped with
+#             "skipping unmerged" message, not "foreign".
 cmd_clean() {
-  [ "$#" -eq 0 ] || usage_die
+  # ---- Parse mode: <plan-slug> or --all ----
+  local mode="" plan_slug=""
+  if [ "$#" -eq 0 ]; then
+    # TODO(B02): bare clean should be exit 2 after implementation.
+    # Kept as --all fallback during scaffold for test isolation.
+    mode="all"
+  elif [ "$#" -eq 1 ]; then
+    case "$1" in
+      --all) mode="all" ;;
+      *)
+        if valid_token "$1"; then
+          plan_slug="$1"
+          mode="scoped"
+        else
+          usage_die
+        fi
+        ;;
+    esac
+  else
+    usage_die
+  fi
 
   require_repo_root
 
+  if [ "$mode" = "scoped" ]; then
+    # NotImplemented: B02 clean-plan-scoped
+    die 4 "NotImplemented: B02 clean-plan-scoped"
+  fi
+
+  # ---- Global mode (--all or bare-clean scaffold fallback) ----
   local -a candidates=()
   mapfile -t candidates < <(
     git -C "$REPO_ROOT" branch --list --format='%(refname:short)' \

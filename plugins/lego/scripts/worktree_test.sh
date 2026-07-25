@@ -1327,6 +1327,173 @@ test_merge_cross_plan_isolation() {
   assert_eq "$shaB_before" "$shaB_after" "planB's branch ref is byte-for-byte unchanged (construct_unit_branch is a pure lookup: it never creates, deletes, or modifies any ref)"
 }
 
+# ---------------------------------------------------------------------------
+# merge: guard_merge_context (B01 merge-self-guard)
+# ---------------------------------------------------------------------------
+
+test_merge_guard_current_branch_is_unit_branch_refuses() {
+  local repo current_branch target_branch current_sha target_sha
+  repo="$(new_git_repo)"
+  target_branch="lego/planB/U05-target"
+  current_branch="lego/plan1/U02-current"
+
+  git -C "$repo" checkout -q -b "$target_branch"
+  commit_file "$repo" "target-feature.txt" "target feature" "unit work"
+  git -C "$repo" checkout -q master
+  git -C "$repo" checkout -q -b "$current_branch"
+
+  current_sha="$(git -C "$repo" rev-parse HEAD)"
+  target_sha="$(git -C "$repo" rev-parse "$target_branch")"
+
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "current branch matches unit-branch pattern: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "current branch matches unit-branch pattern"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "unit-worktree guard error message"
+
+  # Invariant: pure read -- no refs, files, or worktrees modified on refusal.
+  assert_eq "$current_sha" "$(git -C "$repo" rev-parse HEAD)" "current branch HEAD unchanged after refused merge"
+  assert_eq "$target_sha" "$(git -C "$repo" rev-parse "$target_branch")" "target branch ref unchanged after refused merge"
+  assert_eq "$current_branch" "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || echo "")" "still checked out on current branch (no branch switch, no detach)"
+  if [ -e "$repo/.git/MERGE_HEAD" ]; then
+    record_fail "no merge should have been attempted (MERGE_HEAD present)"
+  fi
+
+  # Invariant: deterministic -- rerunning against unchanged repo state gives
+  # the identical result.
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "second run: expected exit 4, got $RUN_EXIT"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "second run: identical error message (deterministic)"
+}
+
+test_merge_guard_self_merge_refuses() {
+  local repo branch sha
+  repo="$(new_git_repo)"
+  # "foo" does not start with "U", so this branch does NOT match the
+  # lego/*/U*-* unit-branch pattern -- isolates check (2) from check (1).
+  branch="lego/plan1/foo-bar"
+
+  git -C "$repo" checkout -q -b "$branch"
+  sha="$(git -C "$repo" rev-parse HEAD)"
+
+  run_in "$repo" merge plan1 foo bar
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "self-merge (target == current, current not a unit branch): expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "self-merge"
+  assert_eq "ERROR: cannot merge a branch into itself (branch: $branch)" "$RUN_ERR" "self-merge guard error message"
+
+  # Invariant: pure read -- no refs, files, or worktrees modified on refusal.
+  assert_eq "$sha" "$(git -C "$repo" rev-parse HEAD)" "branch HEAD unchanged after refused self-merge"
+  assert_eq "$branch" "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || echo "")" "still checked out on same branch"
+  if [ -e "$repo/.git/MERGE_HEAD" ]; then
+    record_fail "no merge should have been attempted (MERGE_HEAD present)"
+  fi
+}
+
+test_merge_guard_non_unit_lego_branch_as_current_succeeds() {
+  local repo current branch head_before
+  repo="$(new_git_repo)"
+  # "foo-bar" has no U*-* trailing segment, so this current branch does NOT
+  # match lego/*/U*-* even though it lives under "lego/" like a unit branch.
+  current="lego/plan1/foo-bar"
+  branch="lego/plan2/U01-feature"
+
+  git -C "$repo" checkout -q -b "$current"
+  head_before="$(git -C "$repo" rev-parse HEAD)"
+
+  git -C "$repo" checkout -q -b "$branch" master
+  printf 'feature content\n' > "$repo/feature.txt"
+  git -C "$repo" add feature.txt
+  git -C "$repo" commit -q -m "unit work"
+  git -C "$repo" checkout -q "$current"
+
+  run_in "$repo" merge plan2 U01 feature
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "non-unit lego/* current branch: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "" "$RUN_ERR" "guard passes silently: no stderr on success"
+
+  local head_after
+  head_after="$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo "")"
+  if [ -z "$head_after" ] || [ "$head_after" = "$head_before" ]; then
+    record_fail "expected HEAD to advance via a merge commit"
+  else
+    local subject parents
+    subject="$(git -C "$repo" log -1 --format=%s HEAD 2>/dev/null || echo "")"
+    assert_eq "lego: merge $branch" "$subject" "merge commit subject"
+    parents="$(git -C "$repo" log -1 --format=%P HEAD 2>/dev/null | wc -w | tr -d ' ')"
+    assert_eq "2" "$parents" "merge commit has two parents (--no-ff)"
+    if [ ! -f "$repo/feature.txt" ]; then
+      record_fail "expected feature.txt introduced by unit branch to be present after merge"
+    fi
+  fi
+}
+
+test_merge_guard_detached_head_succeeds() {
+  local repo branch base_sha
+  repo="$(new_git_repo)"
+  branch="lego/plan1/U01-greetstuff"
+  base_sha="$(git -C "$repo" rev-parse HEAD)"
+
+  git -C "$repo" checkout -q -b "$branch"
+  printf 'feature content\n' > "$repo/feature.txt"
+  git -C "$repo" add feature.txt
+  git -C "$repo" commit -q -m "unit work"
+  git -C "$repo" checkout -q --detach "$base_sha"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "detached HEAD as current branch: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "" "$RUN_ERR" "guard passes silently: no stderr on success"
+
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected feature.txt introduced by unit branch to be present after merge"
+  fi
+
+  local head_after
+  head_after="$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo "")"
+  if [ -z "$head_after" ] || [ "$head_after" = "$base_sha" ]; then
+    record_fail "expected HEAD to advance via a merge commit"
+  fi
+  if git -C "$repo" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    record_fail "expected HEAD to remain detached after merging from a detached HEAD (no branch was ever current)"
+  fi
+}
+
+test_merge_guard_runs_before_dirty_tree_check() {
+  local repo current_branch target_branch
+  repo="$(new_git_repo)"
+  target_branch="lego/planB/U05-target"
+  current_branch="lego/plan1/U02-current"
+
+  git -C "$repo" checkout -q -b "$target_branch"
+  commit_file "$repo" "target-feature.txt" "target feature" "unit work"
+  git -C "$repo" checkout -q master
+  git -C "$repo" checkout -q -b "$current_branch"
+
+  # Dirty tracked tree AND current branch matches the unit-branch pattern:
+  # per the contract, guard_merge_context runs before the dirty-tree check,
+  # so the unit-worktree error must win, not the dirty-tree error.
+  printf 'uncommitted change\n' >> "$repo/README.md"
+
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "guard should fire before the dirty-tree check"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "unit-worktree guard message wins over the dirty-tree message when both conditions hold"
+}
+
+test_merge_guard_check_order_unit_branch_before_self_merge() {
+  local repo branch
+  repo="$(new_git_repo)"
+  branch="lego/plan1/U01-greetstuff"
+
+  git -C "$repo" checkout -q -b "$branch"
+
+  # Current branch matches the unit-branch pattern AND target == current:
+  # both check (1) and check (2) conditions hold simultaneously. Per the
+  # contract's enumeration order ("(1) ... (2) ..."), check (1) must be
+  # evaluated first.
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "check ordering"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $branch)" "$RUN_ERR" "check (1) unit-worktree guard fires before check (2) self-merge guard when both apply"
+}
+
 # ===========================================================================
 # deliver
 #
@@ -2837,6 +3004,13 @@ run_test "merge: refuses on dirty tracked working tree" test_merge_dirty_tracked
 run_test "merge: untracked-only changes do not block merge" test_merge_untracked_only_does_not_block
 run_test "merge: success (--no-ff, commit message, file introduced)" test_merge_success
 run_test "merge: cross-plan isolation (same unit-id under a different plan is untouched)" test_merge_cross_plan_isolation
+
+run_test "merge: guard refuses when current branch matches the unit-branch pattern (B01 merge-self-guard)" test_merge_guard_current_branch_is_unit_branch_refuses
+run_test "merge: guard refuses self-merge when target branch equals current branch (B01 merge-self-guard)" test_merge_guard_self_merge_refuses
+run_test "merge: guard passes for a lego/* current branch with no U*-* segment (B01 merge-self-guard)" test_merge_guard_non_unit_lego_branch_as_current_succeeds
+run_test "merge: guard passes for a detached HEAD current branch (B01 merge-self-guard)" test_merge_guard_detached_head_succeeds
+run_test "merge: guard runs before the dirty-tree check (B01 merge-self-guard)" test_merge_guard_runs_before_dirty_tree_check
+run_test "merge: guard check (1) unit-worktree fires before check (2) self-merge when both apply (B01 merge-self-guard)" test_merge_guard_check_order_unit_branch_before_self_merge
 
 run_test "deliver: usage error on wrong argument count (plan-scoped, --manifest present)" test_deliver_usage
 run_test "deliver: usage error on odd unit-id/unit-slug pair count (--manifest present)" test_deliver_odd_paired_args

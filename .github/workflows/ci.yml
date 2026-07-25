@@ -14,8 +14,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install en_US.UTF-8 locale
+        run: |
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale
+
       - name: Lint
         run: bash scripts/ci.sh --lint
 
       - name: Test
         run: bash scripts/ci.sh --test
+        env:
+          LC_ALL: en_US.UTF-8

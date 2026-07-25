@@ -58,7 +58,7 @@ PLUGIN_ROOT="$SCRIPT_DIR/.."
 REPO_ROOT="$SCRIPT_DIR/../../.."
 PLUGIN_JSON="$PLUGIN_ROOT/.claude-plugin/plugin.json"
 HOOKS_JSON="$PLUGIN_ROOT/hooks/hooks.json"
-HOOK_SCRIPT="$PLUGIN_ROOT/scripts/deliver-context.sh"
+HOOK_SCRIPT="$PLUGIN_ROOT/scripts/build-context.sh"
 README="$PLUGIN_ROOT/README.md"
 MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
 

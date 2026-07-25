@@ -34,7 +34,7 @@
 # and update test labels from "deliver" to "build" references.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK="$SCRIPT_DIR/deliver-context.sh"
+HOOK="$SCRIPT_DIR/build-context.sh"
 
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT

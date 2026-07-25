@@ -31,7 +31,8 @@ Edge cases: absent stamp file → created; removal with no stamp → silent
   success (stamp-wise). Updates keep the same install path so the
   statusLine entry survives updates — the stamp is what tells the update
   flow whether this setup ran against the current version. Plugin version
-  bumps 0.1.0 → 0.2.0 with this change.
+  bumps to 0.3.0 with this change (0.2.0 was the caching release, without
+  stamp support).
 -->
 
 Claude Code has no plugin field for statuslines — `statusLine` lives only in

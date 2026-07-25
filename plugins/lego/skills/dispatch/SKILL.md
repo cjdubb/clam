@@ -415,13 +415,13 @@ every deviation.
 As a final sweep, run:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh clean
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh clean <plan-slug>
 ```
 
-This removes any lego branches and worktrees that survived the normal flow —
-aborted sessions, failed cleanup, `local-only` branch leftovers — and prunes
-stale worktree entries. It is best-effort (exits 0 always) and safe to run
-at any time.
+This removes any lego branches and worktrees that survived the normal flow for
+the given plan — scoped to `lego/<plan-slug>/*` and `lego/deliver/<plan-slug>/*`.
+It is best-effort (exits 0 always) and safe to run at any time. Use `--all`
+instead of `<plan-slug>` for a global sweep across all plans.
 
 Present the engineer a contract-level summary: which blocks exist, what
 changed since approval, where the map lives. No lego worktrees remain.

@@ -2794,9 +2794,20 @@ test_clean_usage_unexpected_args() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" clean extra-arg
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "unexpected argument: expected exit 2, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "clean with unexpected argument"
+  # Bare "clean" (no args) is a usage error under B02 (previously fell back
+  # to global mode during scaffold).
+  run_in "$repo" clean
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "bare clean (no args): expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean with no arguments"
+
+  # Extra arguments are a usage error in both scoped and --all mode.
+  run_in "$repo" clean plan1 extra-arg
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "clean <slug> extra: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean <slug> extra"
+
+  run_in "$repo" clean --all extra-arg
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "clean --all extra: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean --all extra"
 }
 
 test_clean_requires_git_work_tree() {
@@ -2804,18 +2815,18 @@ test_clean_requires_git_work_tree() {
   dir="$(mktemp -d)"
   track_tmp "$dir"
 
-  run_in "$dir" clean
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "clean outside git worktree: expected exit 3, got $RUN_EXIT"
+  run_in "$dir" clean --all
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "clean --all outside git worktree: expected exit 3, got $RUN_EXIT"
 }
 
 test_clean_no_lego_branches() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" clean
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "clean with no lego branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  run_in "$repo" clean --all
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "clean --all with no lego branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (count), got $RUN_OUT_LINES (stdout: $RUN_OUT)"
-  assert_eq "0" "$RUN_OUT_LAST" "clean with no lego branches prints count 0 as last stdout line"
+  assert_eq "0" "$RUN_OUT_LAST" "clean --all with no lego branches prints count 0 as last stdout line"
 }
 
 test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
@@ -2853,7 +2864,7 @@ test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
   # HEAD) -- must be left untouched since it does not match a lego pattern.
   git -C "$repo" branch "$other_branch"
 
-  run_in "$repo" clean
+  run_in "$repo" clean --all
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "2" "$RUN_OUT_LAST" "count of removed branches (branch1 + branch2) as last stdout line"
 
@@ -2904,7 +2915,7 @@ test_clean_prunes_stale_worktree_entries() {
     return
   fi
 
-  run_in "$repo" clean
+  run_in "$repo" clean --all
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "0" "$RUN_OUT_LAST" "no lego branches removed; only a stale worktree entry pruned"
 
@@ -2914,6 +2925,160 @@ test_clean_prunes_stale_worktree_entries() {
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     record_fail "expected the non-lego branch $branch itself to remain untouched by prune"
   fi
+}
+
+# ===========================================================================
+# clean: plan-scoped (B02 clean-plan-scoped)
+# ===========================================================================
+
+test_clean_plan_scoped_removes_only_in_scope_and_reports_foreign() {
+  local repo container p1a p1deliver p2 p1unmerged other wt1 wt2
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  p1a="lego/plan1/U01-greetstuff"
+  p1deliver="lego/deliver/plan1/U02"
+  p2="lego/plan2/U01-otherstuff"
+  p1unmerged="lego/plan1/U03-unmergedslug"
+  other="feature/other"
+  wt1="$container/manual-wt-p1a"
+  wt2="$container/manual-wt-p1deliver"
+
+  # p1a: in-scope for plan1, merged, has its own worktree.
+  git -C "$repo" branch "$p1a"
+  git -C "$repo" worktree add -q "$wt1" "$p1a"
+  commit_file "$wt1" "feature1.txt" "feature1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $p1a" "$p1a"
+
+  # p1deliver: in-scope delivery branch for plan1, merged, has its own
+  # worktree.
+  git -C "$repo" branch "$p1deliver"
+  git -C "$repo" worktree add -q "$wt2" "$p1deliver"
+  commit_file "$wt2" "feature2.txt" "feature2" "unit work 2"
+  git -C "$repo" merge -q --no-ff -m "merge $p1deliver" "$p1deliver"
+
+  # p2: a merged branch belonging to a DIFFERENT plan -- out of scope for a
+  # plan1-scoped clean; must be reported as foreign and left untouched.
+  git -C "$repo" branch "$p2"
+  git -C "$repo" merge -q --no-ff -m "merge $p2" "$p2"
+
+  # p1unmerged: in-scope for plan1 but unmerged -- must be skipped with the
+  # "skipping unmerged" message, never reported as foreign.
+  git -C "$repo" checkout -q -b "$p1unmerged"
+  commit_file "$repo" "unmerged.txt" "content" "unit work 3"
+  git -C "$repo" checkout -q master
+
+  # other: non-lego branch, left untouched regardless of scope.
+  git -C "$repo" branch "$other"
+
+  run_in "$repo" clean plan1
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "2" "$RUN_OUT_LAST" "count of removed branches scoped to plan1 (p1a + p1deliver)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$p1a"; then
+    record_fail "expected in-scope merged branch $p1a to be deleted"
+  fi
+  if [ -d "$wt1" ] || git -C "$repo" worktree list | grep -qF "$wt1"; then
+    record_fail "expected the worktree for $p1a to be removed"
+  fi
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$p1deliver"; then
+    record_fail "expected in-scope merged delivery branch $p1deliver to be deleted"
+  fi
+  if [ -d "$wt2" ] || git -C "$repo" worktree list | grep -qF "$wt2"; then
+    record_fail "expected the worktree for $p1deliver to be removed"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$p2"; then
+    record_fail "expected out-of-scope (foreign) branch $p2 to be left untouched by a plan1-scoped clean"
+  fi
+  case "$RUN_ERR" in
+    *"skipped (foreign): $p2"*) : ;;
+    *) record_fail "expected stderr to report the foreign branch $p2 (stderr: $RUN_ERR)" ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$p1unmerged"; then
+    record_fail "expected unmerged in-scope branch $p1unmerged to be skipped, not deleted"
+  fi
+  case "$RUN_ERR" in
+    *"skipping unmerged lego branch $p1unmerged"*) : ;;
+    *) record_fail "expected stderr to report the unmerged in-scope branch $p1unmerged (stderr: $RUN_ERR)" ;;
+  esac
+  case "$RUN_ERR" in
+    *"foreign): $p1unmerged"*)
+      record_fail "unmerged in-scope branch must never be reported as foreign (stderr: $RUN_ERR)" ;;
+    *) : ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$other"; then
+    record_fail "expected non-lego branch $other to be left untouched"
+  fi
+}
+
+test_clean_plan_scoped_matches_no_branches() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean noexistplan
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "plan slug matching no branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "0" "$RUN_OUT_LAST" "plan slug matching no branches prints count 0"
+  [ -z "$RUN_ERR" ] || record_fail "expected no stderr output when no lego branches exist at all, got: $RUN_ERR"
+}
+
+test_clean_all_mode_spans_all_plans_with_no_foreign_messages() {
+  local repo container p1 p2 pdeliver wt b
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  p1="lego/plan1/U01-a"
+  p2="lego/plan2/U01-b"
+  pdeliver="lego/deliver/plan1/U02"
+  wt="$container/manual-wt-p1"
+
+  git -C "$repo" branch "$p1"
+  git -C "$repo" worktree add -q "$wt" "$p1"
+  commit_file "$wt" "f1.txt" "f1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $p1" "$p1"
+
+  git -C "$repo" branch "$p2"
+  git -C "$repo" merge -q --no-ff -m "merge $p2" "$p2"
+
+  git -C "$repo" branch "$pdeliver"
+  git -C "$repo" merge -q --no-ff -m "merge $pdeliver" "$pdeliver"
+
+  run_in "$repo" clean --all
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "3" "$RUN_OUT_LAST" "count of removed branches spanning multiple plans in --all mode"
+
+  for b in "$p1" "$p2" "$pdeliver"; do
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$b"; then
+      record_fail "expected branch $b to be deleted by clean --all"
+    fi
+  done
+  if [ -d "$wt" ] || git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected the worktree for $p1 to be removed"
+  fi
+
+  case "$RUN_ERR" in
+    *"foreign"*) record_fail "expected no foreign-skip messages in --all mode (stderr: $RUN_ERR)" ;;
+    *) : ;;
+  esac
+}
+
+test_clean_invalid_plan_slug_token_is_usage_error() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean "plan slug"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean with space in plan-slug"
+
+  run_in "$repo" clean "plan/slug"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "slash in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" clean 'slug;rm'
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "semicolon in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" clean ""
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "empty-string plan-slug: expected exit 2, got $RUN_EXIT"
 }
 
 # ===========================================================================
@@ -3063,11 +3228,16 @@ run_test "merge: unit-worktree cleanup failure does not change exit code (B01)" 
 run_test "deliver: cleanup removes unit branch and worktree, keeps delivery branch and PR URL (B01)" test_deliver_cleanup_removes_unit_branch_and_worktree
 run_test "deliver: branch-cleanup failure does not change exit code or suppress PR URL (B01)" test_deliver_cleanup_branch_deletion_failure_still_exits_0
 
-run_test "clean: usage error on unexpected arguments (B01)" test_clean_usage_unexpected_args
-run_test "clean: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
-run_test "clean: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
-run_test "clean: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
-run_test "clean: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
+run_test "clean: bare clean and extra arguments are usage errors (B02 clean-plan-scoped)" test_clean_usage_unexpected_args
+run_test "clean --all: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
+run_test "clean --all: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
+run_test "clean --all: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
+run_test "clean --all: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
+
+run_test "clean <plan-slug>: removes only in-scope merged branches; reports foreign; unmerged in-scope wins over foreign (B02 clean-plan-scoped)" test_clean_plan_scoped_removes_only_in_scope_and_reports_foreign
+run_test "clean <plan-slug>: plan slug matching no branches exits 0, prints 0, no messages (B02 clean-plan-scoped)" test_clean_plan_scoped_matches_no_branches
+run_test "clean --all: spans all plans, no foreign-skip messages (B02 clean-plan-scoped)" test_clean_all_mode_spans_all_plans_with_no_foreign_messages
+run_test "clean <plan-slug>: invalid token as plan-slug is a usage error (B02 clean-plan-scoped)" test_clean_invalid_plan_slug_token_is_usage_error
 
 run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
 run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present

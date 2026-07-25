@@ -29,10 +29,6 @@
 #   - All existing test cases preserved (no coverage regression)
 #   - The HOOK variable points at build-context.sh, not deliver-context.sh
 
-# NotImplemented: B02 — update HOOK variable to point at build-context.sh,
-# update all assertion strings from "/deliver:sync-pr" to "/build:sync-pr",
-# and update test labels from "deliver" to "build" references.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/build-context.sh"
 
@@ -85,7 +81,7 @@ check "all-companions context includes the lego dispatch marker" \
   "$(has "$out" 'dispatch')" "yes"
 check "all-companions context includes the tracking state-lifecycle marker" \
   "$(has "$out" 'state lifecycle')" "yes"
-check "all-companions context includes the /deliver:sync-pr standing instruction" \
+check "all-companions context includes the /build:sync-pr standing instruction" \
   "$(has "$out" '/build:sync-pr')" "yes"
 
 # ---------------------------------------------------------------------------
@@ -97,7 +93,7 @@ WD2="$TMPROOT/none"
 mkdir -p "$WD2"
 out=$(ctx "$(payload "$WD2")")
 
-check "no-companions context still includes the /deliver:sync-pr standing instruction" \
+check "no-companions context still includes the /build:sync-pr standing instruction" \
   "$(has "$out" '/build:sync-pr')" "yes"
 check "no-companions context has no landing merge-policy marker" \
   "$(has "$out" 'merge policy')" "no"

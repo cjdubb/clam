@@ -91,7 +91,10 @@ Edge cases: - Engineer declines a question ("skip that") = answered.
             - Bare "go" accepting defaults = all questions answered.
 -->
 
-**NotImplemented: B02 — skill-gate-reinforcement (plan Step 0).**
+Before closing this gate, apply the standing rule: verify that every question
+asked during deliverable scoping has received an explicit answer. Do not
+launch exploration agents, begin discovery, or proceed to Step 1 while any
+question remains unanswered.
 
 This gate is an instance of the workflow's central rule: clarify and verify,
 never assume. It applies at every level below this one too — an ambiguous
@@ -227,7 +230,10 @@ Edge cases: - Multi-turn decomposition where answers arrive incrementally is
               fine as long as all are resolved before Step 4.
 -->
 
-**NotImplemented: B02 — skill-gate-reinforcement (plan Step 3).**
+Before moving to Step 4, apply the standing rule: confirm every decomposition
+question — block name, dependencies, owner, paths, unit assignment, and PR
+group — has been answered by the engineer. Do not write plan artifacts while
+any remain open.
 
 Decomposition happens HERE and only here. Workers never design; if
 implementation later reveals a mis-sized block, it comes back to this skill as a

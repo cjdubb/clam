@@ -97,7 +97,9 @@ Edge cases: - If no questions were raised during scaffolding, the gate is
               trivially satisfied.
 -->
 
-  **NotImplemented: B02 — skill-gate-reinforcement (scaffold Step 3).**
+  Before committing, apply the standing rule: any questions raised during
+  scaffolding — contract ambiguities, path-disjointness concerns — must be
+  resolved with the engineer first.
 
 - Commit the scaffold (with the engineer's consent) as a phase boundary. Clean
   phase-boundary commits are what make realm verification precise in dispatch:

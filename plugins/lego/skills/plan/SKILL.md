@@ -72,10 +72,9 @@ own words. Nothing else is a source for it:
   engineer explicitly confirms. That confirmed restatement is what the plan
   document opens with.
 
-Before closing this gate, apply the standing rule: verify that every question
-asked during deliverable scoping has received an explicit answer. Do not
-launch exploration agents, begin discovery, or proceed to Step 1 while any
-question remains unanswered.
+Before closing this gate, verify that every question asked during deliverable
+scoping has received an explicit answer. Do not launch exploration agents,
+begin discovery, or proceed to Step 1 while any question remains unanswered.
 
 This gate is an instance of the workflow's central rule: clarify and verify,
 never assume. It applies at every level below this one too — an ambiguous
@@ -194,10 +193,9 @@ For every block, agree with the engineer on:
 - **PR group** (`PR group: G<NN>`): default one unit per group; small units
   may be grouped to share one PR to master/main.
 
-Before moving to Step 4, apply the standing rule: confirm every decomposition
-question — block name, dependencies, owner, paths, unit assignment, and PR
-group — has been answered by the engineer. Do not write plan artifacts while
-any remain open.
+Before moving to Step 4, confirm that every decomposition question — block
+name, dependencies, owner, paths, unit assignment, and PR group — has been
+answered by the engineer. Do not write plan artifacts while any remain open.
 
 Decomposition happens HERE and only here. Workers never design; if
 implementation later reveals a mis-sized block, it comes back to this skill as a

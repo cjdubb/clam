@@ -81,9 +81,9 @@ that fails its gate must not be dispatched.
   field in `.local/blocks.md` with each block's **actual** path(s), verified
   pairwise disjoint across work units. A violation goes back to `/lego:plan`
   as a decomposition defect rather than being resolved silently here.
-  Before committing, apply the standing rule: any questions raised during
-  scaffolding — contract ambiguities, path-disjointness concerns — must be
-  resolved with the engineer first.
+  Before committing, verify that any questions raised during scaffolding —
+  contract ambiguities, path-disjointness concerns — have been resolved with
+  the engineer.
 
 - Commit the scaffold (with the engineer's consent) as a phase boundary. Clean
   phase-boundary commits are what make realm verification precise in dispatch:

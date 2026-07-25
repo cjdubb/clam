@@ -110,8 +110,8 @@ check "plan Step 0 placeholder is gone" \
 check "plan Step 0 zone is non-empty (reinforcement text present)" \
   "$([[ -n "$(tr -d '[:space:]' <<<"$PLAN_STEP0_ZONE")" ]] && echo yes || echo no)" \
   "yes"
-check "plan Step 0 zone references the standing rule" \
-  "$(has_f "$PLAN_STEP0_ZONE" 'standing rule')" "yes"
+check "plan Step 0 zone requires verifying questions answered" \
+  "$(has_any "$PLAN_STEP0_ZONE" 'verify' 'every question')" "yes"
 check "plan Step 0 zone names a prohibited behavior (exploration/discovery)" \
   "$(has_any "$PLAN_STEP0_ZONE" 'exploration' 'discovery')" "yes"
 
@@ -122,8 +122,8 @@ check "plan Step 3 placeholder is gone" \
 check "plan Step 3 zone is non-empty (reinforcement text present)" \
   "$([[ -n "$(tr -d '[:space:]' <<<"$PLAN_STEP3_ZONE")" ]] && echo yes || echo no)" \
   "yes"
-check "plan Step 3 zone references the standing rule" \
-  "$(has_f "$PLAN_STEP3_ZONE" 'standing rule')" "yes"
+check "plan Step 3 zone requires confirming questions answered" \
+  "$(has_any "$PLAN_STEP3_ZONE" 'confirm' 'answered')" "yes"
 check "plan Step 3 zone covers all decomposition questions answered before Step 4" \
   "$(has_any "$PLAN_STEP3_ZONE" 'Step 4' 'answered' 'answers')" "yes"
 
@@ -134,8 +134,8 @@ check "scaffold Step 3 placeholder is gone" \
 check "scaffold Step 3 zone is non-empty (reinforcement text present)" \
   "$([[ -n "$(tr -d '[:space:]' <<<"$SCAFFOLD_STEP3_ZONE")" ]] && echo yes || echo no)" \
   "yes"
-check "scaffold Step 3 zone references the standing rule" \
-  "$(has_f "$SCAFFOLD_STEP3_ZONE" 'standing rule')" "yes"
+check "scaffold Step 3 zone requires verifying questions resolved" \
+  "$(has_any "$SCAFFOLD_STEP3_ZONE" 'verify' 'resolved')" "yes"
 check "scaffold Step 3 zone covers questions resolved with the engineer before committing" \
   "$(has_any "$SCAFFOLD_STEP3_ZONE" 'resolved' 'engineer')" "yes"
 
@@ -146,8 +146,8 @@ check "dispatch escalation placeholder is gone" \
 check "dispatch escalation zone is non-empty (reinforcement text present)" \
   "$([[ -n "$(tr -d '[:space:]' <<<"$DISPATCH_ESCALATION_ZONE")" ]] && echo yes || echo no)" \
   "yes"
-check "dispatch escalation zone references the standing rule" \
-  "$(has_f "$DISPATCH_ESCALATION_ZONE" 'standing rule')" "yes"
+check "dispatch escalation zone requires waiting for full decision" \
+  "$(has_any "$DISPATCH_ESCALATION_ZONE" 'Wait' 'decision')" "yes"
 check "dispatch escalation zone covers waiting for the engineer's full decision" \
   "$(has_any "$DISPATCH_ESCALATION_ZONE" 'decision' 're-dispatch' 're-scaffold')" "yes"
 

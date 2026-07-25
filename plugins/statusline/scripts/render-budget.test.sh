@@ -15,7 +15,7 @@
 # never spawns ccost.sh at all (clause 2); a cold render produces the full,
 # correct statusline and leaves both the segment-bundle and ccost session
 # caches populated so the immediately-following render is warm (clause 3);
-# the plugin.json version floor of >= 0.2.0 (clause 4); the README documenting
+# the plugin.json version bump to at least 0.2.0 (clause 4); the README documenting
 # the caching/staleness model and its env knobs (clause 5); a fully cold
 # render staying within a generous legacy-cost bound (clause 6); and
 # per-session bundle isolation under a shared cache dir (clause 7).
@@ -243,17 +243,15 @@ check "clause2: warm render leaves the sentinel canary file's mtime untouched" \
   "$c2_canary_mtime_after" "$c2_canary_mtime_before"
 
 # ============================================================================
-# Clause 4 -- plugin.json version floor. The exact version isn't the point:
-# the caching change must ship WITH a version bump (so version-keyed plugin
-# caches surface it), so this checks the version is a well-formed semver
-# no lower than 0.2.0 rather than pinning to that exact string -- a later
-# bump for unrelated reasons must not make this clause regress.
+# Clause 4 -- plugin.json version bump.
 # ============================================================================
-plugin_version="$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)"
-check "clause4: plugin.json version is >= 0.2.0 (caching bump landed)" \
-  "$([[ "$plugin_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-     && [[ "$(printf '0.2.0\n%s\n' "$plugin_version" | sort -V | head -n1)" == "0.2.0" ]] \
-     && echo yes || echo no)" "yes"
+# bash 3.2-safe, no `sort -V`: parse MAJOR.MINOR.PATCH with a regex and
+# compare (MAJOR, MINOR) numerically against (0, 2) so later contracted
+# bumps (0.2.1, 0.3.0, 1.0.0, ...) stay green instead of re-breaking this
+# clause on every release; a malformed or missing version fails, not passes.
+check "clause4: plugin.json version is bumped to at least 0.2.0" \
+  "$(v="$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)"; [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]] && { (( BASH_REMATCH[1] > 0 || (BASH_REMATCH[1] == 0 && BASH_REMATCH[2] >= 2) )) && echo yes || echo no; } || echo no)" \
+  "yes"
 
 # ============================================================================
 # Clause 5 -- README documents the caching/staleness model (segment bundle

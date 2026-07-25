@@ -96,25 +96,19 @@ run_ccost session "$transcript_deleted" >/dev/null
 rm -f "$transcript_deleted"
 check "transcript deleted while cache warm: prints 0, not the warm cache" "$(run_ccost session "$transcript_deleted")" "0"
 
-# NOTE (escalated to orchestrator, see test-wave report): the B02 contract
-# also claims an *unreadable* (permission-denied, but existing) transcript
-# prints "0" "exactly as today." Empirically it does not: ccost.sh's
-# `[[ ! -f "$transcript_path" ]]` guard only tests file type/existence, not
-# readability, so a chmod-000 existing transcript falls through to
-# `sum_cost 0 < "$transcript_path"`, whose failed open aborts the script
-# under `set -e` instead of printing "0". That contradicts the contract text
-# for observed current behavior, so it is intentionally left untested here
-# pending a decision rather than guessed at.
+# The B02 docblock's Inputs clause promises "missing OR unreadable ->
+# 0" for $2, but the unreadable half is explicitly B04
+# ccost-unreadable-guard's to keep, not tested here. See the
+# "--- B04 ccost-unreadable-guard ---" section near the end of this file,
+# which pins today's actual unreadable-transcript behavior (exit 1, empty
+# stdout — not "0") against the still-unimplemented contract, including the
+# case where a warm session cache already exists for that transcript.
 
 # --- B02 ccost-session-window ------------------------------------------
 
 # Window holds (default TTL=30s): the just-written cache must be served
 # verbatim even though the transcript is appended to and made unambiguously
-# newer, and no jq process may be spawned to do it. Kept as its own call
-# (transcript stays readable) so a crash from the *next* check's chmod 000
-# can never masquerade as "zero jq calls" — a script that dies trying to
-# open the transcript would also show zero jq invocations for the wrong
-# reason, which would silently pass this assertion no matter what.
+# newer, and no jq process may be spawned to do it.
 record r2 1000000 >> "$transcript"
 futuredate "$transcript" 120
 before_jq=$(jq_call_count)
@@ -123,16 +117,17 @@ after_jq=$(jq_call_count)
 check "warm window: stale cache served despite append + newer mtime" "$out" "$c1"
 check "warm window: zero jq invocations while window holds" "$(( after_jq - before_jq ))" "0"
 
-# Same guarantee, proven a second, independent way: make the transcript
-# unreadable. If the window fails to hold, the code path that would consult
-# the transcript (`sum_cost 0 < "$transcript_path"`) fails to open it and the
-# script aborts — a clearly distinguishable failure from "window held".
-chmod 000 "$transcript"
-out_unreadable=$(run_ccost session "$transcript" 2>/dev/null)
-rc=$?
-chmod 644 "$transcript"
-check "warm window: cache served even though transcript is chmod 000" "$out_unreadable" "$c1"
-check "warm window: exit 0 despite transcript being unreadable" "$rc" "0"
+# NOTE: this block used to chmod-000 the transcript here as a second,
+# independent proof that the window holds without ever touching the
+# transcript (a crash on open would be distinguishable from "window
+# served"). B04 ccost-unreadable-guard makes that proof invalid: its entry
+# guard intercepts an unreadable transcript BEFORE the window is even
+# consulted, so the contracted result is now "0" unconditionally —
+# including against this exact warm cache — not "the window holds so the
+# cache is served". That is now covered as "entry guard wins over a warm
+# session cache" in the B04 section near the end of this file. The
+# window-holds-without-touching-the-transcript guarantee itself remains
+# fully covered above by the jq-invocation-count assertion.
 
 # Future-dated cache after a clock step: cache is dated further into the
 # future than "now" (so age is negative, well inside the window) but the
@@ -346,6 +341,136 @@ if [[ "$nopy_ready" == "1" ]]; then
   check "no-python3 degrade is silent on stderr" "$(cat "$nopy_err")" ""
 else
   echo "SKIP  no-python3 degrade test: could not resolve bash/mkdir/jq/dirname to shim"
+fi
+
+# --- B04 ccost-unreadable-guard ---------------------------------------
+# No mode may emit empty stdout with a nonzero exit because a transcript is
+# unreadable. session treats an existing-but-unreadable transcript exactly
+# like a missing one ("0", exit 0), decided at the entry guard BEFORE any
+# cache logic — even when a fresh session cache already exists for it.
+# day/week skip unreadable files during the period scan and print the sum
+# over the readable ones, exit 0, and still write that (partial) result to
+# the period cache. Unreadability is produced with chmod 000; under root,
+# permission bits don't deny reads, so every such test is vacuous there and
+# is guarded with a SKIP instead of asserted. stderr is unconstrained by
+# the contract (may carry or suppress the permission diagnostic), so these
+# tests only assert stdout and exit code, redirecting stderr away rather
+# than asserting on it. Each test pins its own CCOST_CACHE_DIR /
+# CLAUDE_PROJECTS_DIR so the 300s period cache and single-flight lock from
+# other sections (and from other B04 tests) can never leak in.
+
+b4_is_root() { [[ "$(id -u)" == "0" ]]; }
+
+# Session, no cache at all: today, opening an unreadable transcript for the
+# sum aborts the script under set -e instead of printing "0".
+if b4_is_root; then
+  echo "SKIP  B04 session: unreadable transcript prints 0 (running as root; chmod 000 does not deny reads)"
+else
+  b4_t1="$TMPROOT/b4-transcript1.jsonl"
+  record b4a 1000000 > "$b4_t1"
+  chmod 000 "$b4_t1"
+  b4_out1=$(CCOST_CACHE_DIR="$TMPROOT/b4-cache1" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects1" bash "$CCOST" session "$b4_t1" 2>/dev/null)
+  b4_rc1=$?
+  chmod 644 "$b4_t1"
+  check "B04 session: unreadable transcript prints 0" "$b4_out1" "0"
+  check "B04 session: unreadable transcript exits 0" "$b4_rc1" "0"
+fi
+
+# Edge case: entry guard wins over a warm session cache. Seed a real cache
+# (default TTL=30s, so it is unambiguously warm), then make the transcript
+# unreadable. The contract requires "0" here, symmetric with the
+# missing-transcript path — NOT the cached value, even though the B02
+# window would otherwise serve it untouched.
+if b4_is_root; then
+  echo "SKIP  B04 session: unreadable wins over warm cache (running as root; chmod 000 does not deny reads)"
+else
+  b4_t2="$TMPROOT/b4-transcript2.jsonl"
+  b4_cache2="$TMPROOT/b4-cache2"
+  record b4b 1000000 > "$b4_t2"
+  b4_warm=$(CCOST_CACHE_DIR="$b4_cache2" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects2" bash "$CCOST" session "$b4_t2")
+  check "B04 session: warm-cache setup produced a non-zero cost" "$([[ "$b4_warm" != "0" && -n "$b4_warm" ]] && echo nonzero || echo zero)" "nonzero"
+  chmod 000 "$b4_t2"
+  b4_out2=$(CCOST_CACHE_DIR="$b4_cache2" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects2" bash "$CCOST" session "$b4_t2" 2>/dev/null)
+  b4_rc2=$?
+  chmod 644 "$b4_t2"
+  check "B04 session: unreadable transcript prints 0 even with a fresh warm cache (entry guard wins)" "$b4_out2" "0"
+  check "B04 session: unreadable-with-warm-cache exits 0" "$b4_rc2" "0"
+fi
+
+# Edge case: a readable file behind an untraversable parent directory is
+# indistinguishable from unreadable -> "0". This is a regression anchor,
+# not proof of new behavior: `[[ -f path ]]` already reports false (not an
+# error) when an intermediate directory lacks search permission, so this
+# may already pass against the unimplemented script.
+if b4_is_root; then
+  echo "SKIP  B04 session: file behind untraversable parent dir prints 0 (running as root; chmod 000 does not deny traversal)"
+else
+  b4_dir3="$TMPROOT/b4-locked-dir"
+  mkdir -p "$b4_dir3"
+  b4_t3="$b4_dir3/transcript.jsonl"
+  record b4c 1000000 > "$b4_t3"
+  chmod 000 "$b4_dir3"
+  b4_out3=$(CCOST_CACHE_DIR="$TMPROOT/b4-cache3" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects3" bash "$CCOST" session "$b4_t3" 2>/dev/null)
+  b4_rc3=$?
+  chmod 755 "$b4_dir3"
+  check "B04 session: file behind untraversable parent dir prints 0 (regression anchor)" "$b4_out3" "0"
+  check "B04 session: file behind untraversable parent dir exits 0" "$b4_rc3" "0"
+fi
+
+# day: a readable and an unreadable in-period file coexist. The sum must be
+# over the readable one only ("5"), and that partial result must land in
+# the period cache exactly as a full scan's result would. Today, xargs cat
+# hitting the unreadable file makes the whole pipeline exit 123 under
+# pipefail before `result=...` is ever assigned, so the script dies under
+# set -e with empty stdout and no cache write at all.
+if b4_is_root; then
+  echo "SKIP  B04 day: unreadable file skipped, readable-sum cached (running as root; chmod 000 does not deny reads)"
+else
+  b4_proj4="$TMPROOT/b4-projects4/proj"
+  b4_cache4="$TMPROOT/b4-cache4"
+  mkdir -p "$b4_proj4"
+  day_record b4d1 1000000 > "$b4_proj4/readable.jsonl"   # 1M input tokens at $5/MTok -> "5"
+  day_record b4d2 1000000 > "$b4_proj4/unreadable.jsonl" # would also be "5" if wrongly counted
+  chmod 000 "$b4_proj4/unreadable.jsonl"
+  b4_out4=$(CCOST_CACHE_DIR="$b4_cache4" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects4" bash "$CCOST" day 2>/dev/null)
+  b4_rc4=$?
+  chmod 644 "$b4_proj4/unreadable.jsonl"
+  check "B04 day: sum over readable files only, unreadable file skipped" "$b4_out4" "5"
+  check "B04 day: mixed readability exits 0" "$b4_rc4" "0"
+  check "B04 day: partial readable-sum written to period cache" "$(cat "$b4_cache4/day.cache" 2>/dev/null)" "5"
+fi
+
+# week: same mixed-readability guarantee, distinct mode. day_record's "now"
+# timestamp always falls inside the current week too.
+if b4_is_root; then
+  echo "SKIP  B04 week: unreadable file skipped, readable-sum cached (running as root; chmod 000 does not deny reads)"
+else
+  b4_proj7="$TMPROOT/b4-projects7/proj"
+  b4_cache7="$TMPROOT/b4-cache7"
+  mkdir -p "$b4_proj7"
+  day_record b4g1 1000000 > "$b4_proj7/readable.jsonl"
+  day_record b4g2 1000000 > "$b4_proj7/unreadable.jsonl"
+  chmod 000 "$b4_proj7/unreadable.jsonl"
+  b4_out7=$(CCOST_CACHE_DIR="$b4_cache7" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects7" bash "$CCOST" week 2>/dev/null)
+  b4_rc7=$?
+  chmod 644 "$b4_proj7/unreadable.jsonl"
+  check "B04 week: sum over readable files only, unreadable file skipped" "$b4_out7" "5"
+  check "B04 week: mixed readability exits 0" "$b4_rc7" "0"
+fi
+
+# day: every in-period file unreadable -> "0", exit 0 (not empty/123).
+if b4_is_root; then
+  echo "SKIP  B04 day: every period file unreadable prints 0 (running as root; chmod 000 does not deny reads)"
+else
+  b4_proj5="$TMPROOT/b4-projects5/proj"
+  mkdir -p "$b4_proj5"
+  day_record b4e1 1000000 > "$b4_proj5/only.jsonl"
+  chmod 000 "$b4_proj5/only.jsonl"
+  b4_out5=$(CCOST_CACHE_DIR="$TMPROOT/b4-cache5" CLAUDE_PROJECTS_DIR="$TMPROOT/b4-projects5" bash "$CCOST" day 2>/dev/null)
+  b4_rc5=$?
+  chmod 644 "$b4_proj5/only.jsonl"
+  check "B04 day: every period file unreadable prints 0" "$b4_out5" "0"
+  check "B04 day: every period file unreadable exits 0" "$b4_rc5" "0"
 fi
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

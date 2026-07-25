@@ -36,10 +36,9 @@ LOCK_STALE_SECONDS=120
 #   CCOST_SESSION_TTL_SECONDS: integer seconds, default 30. Values <= 0
 #     disable the window (pure legacy behavior); a non-integer value
 #     falls back to the default. $2: transcript path, semantics unchanged
-#     (missing transcript still prints "0" before any cache logic,
-#     exactly as today; an existing-but-unreadable transcript keeps the
-#     legacy failure mode — known pre-existing defect, out of scope
-#     here, logged for a separate fix).
+#     (a missing OR unreadable transcript prints "0" before any cache
+#     logic — the unreadable half is promised by B04
+#     ccost-unreadable-guard below).
 # Outputs:
 #   A single decimal number on stdout, format unchanged. The printed
 #   value is never staler than TTL seconds beyond what legacy behavior
@@ -56,6 +55,44 @@ LOCK_STALE_SECONDS=120
 #   cache after a clock step: negative age reads fresh. Transcript
 #   deleted while the cache is warm: "0" via the existing -f guard (the
 #   window is never consulted for a missing transcript).
+
+# Contract: B04 ccost-unreadable-guard
+# Behavior:
+#   No mode ever emits empty stdout with a nonzero exit because a
+#   transcript file is unreadable. Session mode treats an
+#   existing-but-unreadable transcript exactly like a missing one: "0" on
+#   stdout, exit 0, decided at the entry guard BEFORE any cache logic.
+#   Day and week modes skip unreadable transcripts during the period scan
+#   and print the sum over the readable ones, exit 0.
+# Inputs:
+#   session: $2 = transcript path. "Unreadable" means the file exists but
+#   the invoking user lacks read permission (e.g. chmod 000).
+#   day|week: *.jsonl files under $PROJECTS_DIR; any subset of them may
+#   be unreadable.
+# Outputs:
+#   session with an unreadable transcript: exactly "0" (plus newline),
+#   exit 0 — even when a fresh session cache exists for that transcript,
+#   symmetric with the missing-transcript path, which already bypasses
+#   all cache logic.
+#   day|week: a single decimal number equal to the sum over the readable
+#   transcripts in the period; an unreadable file contributes 0; exit 0.
+#   The result is written to the period cache as usual (a partial sum is
+#   a valid cache value for its 300s TTL).
+# Errors:
+#   This block removes failure modes and adds none. stdout and exit code
+#   are the contract; stderr may carry (or suppress) the underlying
+#   permission diagnostics.
+# Invariants:
+#   Readable-path behavior is byte-identical to before this block: B02's
+#   session window, the legacy mtime logic, the day/week 300s cache and
+#   single-flight lock are untouched. set -euo pipefail stays in force.
+# Edge cases:
+#   Unreadable transcript while a fresh session cache exists: "0" (entry
+#   guard wins; see Outputs). A readable file behind an untraversable
+#   parent directory is indistinguishable from unreadable: "0". Every
+#   period file unreadable: day/week print "0". Running as root,
+#   permission bits rarely deny reads, so the unreadable branch is
+#   effectively unreachable (tests must account for this).
 
 # --- B02 ccost-session-window ---------------------------------------------
 # Public env knob of the session freshness window.
@@ -243,9 +280,17 @@ period_cost() {
   cutoff_ref=$(mktemp)
   touch -t "$(date -r "$cutoff" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$cutoff" +%Y%m%d%H%M.%S)" "$cutoff_ref"
 
+  # B04: cat exits nonzero (and xargs relays that as 123) when any one file
+  # in the batch is unreadable, but cat still writes every readable file's
+  # content to stdout before/around the failure — POSIX cat continues past
+  # a per-operand open failure rather than aborting. So the sum piped into
+  # sum_cost is already correct; only the pipeline's exit status is wrong.
+  # `|| true` absorbs that single expected failure mode locally, without
+  # disabling pipefail script-wide (sum_cost's own jq failures already
+  # degrade to a printed "0" with exit 0, so this can't mask a real crash).
   result=$(find "$PROJECTS_DIR" -name '*.jsonl' -type f -newer "$cutoff_ref" -print0 \
     | xargs -0 cat 2>/dev/null \
-    | sum_cost "$cutoff")
+    | sum_cost "$cutoff") || true
   rm -f "$cutoff_ref"
 
   echo "$result" > "$cache_file" 2>/dev/null || true
@@ -258,7 +303,10 @@ mode="${1:-}"
 case "$mode" in
   session)
     transcript_path="${2:-}"
-    if [[ -z "$transcript_path" || ! -f "$transcript_path" ]]; then
+    # B04: an unreadable transcript is treated exactly like a missing one —
+    # decided here, before session_cache is even computed, so a warm cache
+    # for this same path can never be consulted.
+    if [[ -z "$transcript_path" || ! -f "$transcript_path" || ! -r "$transcript_path" ]]; then
       echo "0"
       exit 0
     fi

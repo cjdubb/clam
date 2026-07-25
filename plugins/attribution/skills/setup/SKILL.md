@@ -7,6 +7,29 @@ disable-model-invocation: true
 # Attribution Setup
 
 <!--
+Contract: B05 setup-version-stamp — attribution (plan 001-update-flow-for-users)
+Behavior (extension, to be added): after a successful install write (the
+  verify step passes), record a setup stamp
+  {plugin: "attribution", version, scope, target, at} in the stamp file per
+  plugins/updates/docs/setup-stamps.md; on `/attribution:setup remove`,
+  delete this plugin's stamp for the same target.
+Inputs: version is read from the plugin.json at this installation's
+  installPath (from its installed_plugins.json entry) — never from the
+  entry's version field. target = the settings file written; scope = the
+  configured scope.
+Outputs: stamp record created/replaced (keyed plugin+target); the final
+  confirmation message also names the stamp that was written.
+Errors: a stamp write failure is reported but never fails the setup; a
+  corrupt stamp file is moved aside (.corrupt-<date>) and recreated, per
+  the format doc.
+Invariants: setup behaves identically whether or not the updates plugin is
+  installed; stamp writes are temp-file + mv; no stamp records other than
+  this plugin+target are touched.
+Edge cases: absent stamp file → created; remove with no stamp → silent
+  success (stamp-wise). Plugin version bumps 0.1.0 → 0.2.0 with this change.
+-->
+
+<!--
 Contract: B01 attribution
 Behavior:   Writes `attribution: {"commit":"","pr":""}` to the Claude Code
              settings file matching the plugin's installation scope, suppressing
@@ -94,6 +117,36 @@ itself; only running this skill writes anything.
 5. **Verify.** Run `jq empty <target>` to confirm the result is still valid
    JSON. Then tell the user exactly what was written, to which settings
    file, and at which scope (user, project, or local).
+6. **Record the setup stamp.** After the verify step succeeds, record this
+   setup in the shared stamp file so the update flow can tell this plugin's
+   setup is current with the installed version:
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
+   in `plugins/updates/docs/setup-stamps.md`.
+   - Read the plugin's version from the `plugin.json` at this
+     installation's `installPath` (from its `installed_plugins.json`
+     entry) — never from the entry's own `version` field, which can go
+     stale.
+   - If the stamp file does not exist yet, create it first as
+     `{"version": 1, "stamps": []}`.
+   - If the existing stamp file is corrupt (not valid JSON), move it aside
+     to `clam-setup-stamps.json.corrupt-<date>`, report the move to the
+     user, and recreate it fresh.
+   - Replace this plugin's record, keyed by `plugin` and `target`; touch
+     no other records. Write via jq to a temp file, then `mv` it into
+     place — the same atomic pattern as the settings write above:
+
+     ```json
+     {
+       "plugin": "attribution",
+       "version": "<from plugin.json>",
+       "scope": "<user | project | local>",
+       "target": "<target settings file>",
+       "at": "<ISO-8601 UTC timestamp>"
+     }
+     ```
+
+   - If the stamp write fails, report the failure but never fail the
+     setup — the settings write above already succeeded.
 
 ## `/attribution:setup remove`
 
@@ -112,6 +165,9 @@ Reverse the change, at the same scope-detection flow as above (steps 1-2):
 
 4. Verify with `jq empty <target>`, then report what was removed, from
    which settings file, and at which scope.
+5. Delete this plugin's stamp for the same target from the shared stamp
+   file (`plugins/updates/docs/setup-stamps.md`); if there is no stamp for
+   this target, that's already fine — nothing to do.
 
 ## Notes
 

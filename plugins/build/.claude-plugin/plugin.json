@@ -1,0 +1,9 @@
+{
+  "name": "build",
+  "description": "NotImplemented: B01 — update description to replace all references to 'deliver' with 'build', reflecting the plugin's role as the high-level lifecycle composite over landing, lego, and tracking. Skill namespace becomes build:sync-pr.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

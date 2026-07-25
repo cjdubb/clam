@@ -1,5 +1,5 @@
 #!/bin/bash
-# Functional test for deliver-context.sh: SessionStart injection of delivery
+# Functional test for build-context.sh: SessionStart injection of delivery
 # framework context, adapting to which companion plugins (landing, lego,
 # tracking) are present under <cwd>/plugins/. Covers: all-companions-present
 # (all three per-companion markers + the standing sync-pr instruction),
@@ -11,8 +11,27 @@
 # that would leave a side-effect marker if executed/sourced must never run),
 # and the fail-open paths (no jq, no cwd, malformed JSON input).
 # Hermetic: each case renders against a fresh temp cwd.
-# Run: bash plugins/deliver/scripts/b03-deliver-context.test.sh (exits
+# Run: bash plugins/build/scripts/b03-build-context.test.sh (exits
 # non-zero on failure)
+#
+# Contract: B02 test-rename
+#
+# Behavior:
+#   All test assertions reference "/build:sync-pr" (the renamed skill
+#   namespace) and "build-context.sh" (the renamed script). The HOOK
+#   variable points to build-context.sh. Test labels use the new names.
+#   Test logic and coverage are unchanged from the deliver-context.test.sh
+#   original — this is a rename of references, not a test rewrite.
+#
+# Invariants:
+#   - No remaining references to "deliver" as a plugin name, script name,
+#     or skill namespace in test labels or assertions
+#   - All existing test cases preserved (no coverage regression)
+#   - The HOOK variable points at build-context.sh, not deliver-context.sh
+
+# NotImplemented: B02 — update HOOK variable to point at build-context.sh,
+# update all assertion strings from "/deliver:sync-pr" to "/build:sync-pr",
+# and update test labels from "deliver" to "build" references.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/deliver-context.sh"

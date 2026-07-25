@@ -50,8 +50,9 @@ Invariants:
   - Never lands red (failing verify is not a judgment call).
   - Never guesses a missing policy.
   - github-pr + user: orchestrator never merges the PR.
-  - Delegation seam: if a deliver plugin providing a create-pr skill is
+  - Delegation seam: if a build plugin providing a create-pr skill is
     installed, invoke that for the github-pr path instead of the built-in.
+    <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
 
 Edge cases:
   - Legacy .md profile with no .jsonc: stop, offer migration via /landing:init.
@@ -125,10 +126,11 @@ land red — a failing gate is not a judgment call.
 
 ### github-pr
 
-1. Delegation seam: if a `deliver` plugin providing a create-pr skill is
+1. Delegation seam: if a `build` plugin providing a create-pr skill is
    installed, invoke that skill for steps 3–4 below instead of the
    built-in path (it owns richer PR conventions). Step 5's tracking
    handoff still applies either way.
+   <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
 2. Preflight: `git remote get-url origin` resolves to a GitHub remote and
    `gh auth status` succeeds. Either failing → tracking state `Blocked`
    with the exact remediation (e.g. `gh auth login`).

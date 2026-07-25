@@ -209,7 +209,7 @@ plan reaches its landing step.
    non-zero exit stops, keeps tracking state `In Progress`, and must be
    fixed before retrying — landing never lands red.
 3. **Dispatch on strategy:**
-   - **`github-pr`** — if a `deliver` plugin providing a create-pr skill is
+   - **`github-pr`** — if a `build` plugin providing a create-pr skill is
      installed, delegates this step (and the record step) to it instead of
      the built-in path; otherwise checks that `git remote get-url origin`
      resolves to a GitHub remote and `gh auth status` succeeds (`Blocked`
@@ -283,12 +283,13 @@ profile knob, so a contradictory combination cannot be declared.
   `git merge` into `merge.target` under `github-pr` and `gh pr create`
   under `local-merge`. v0.1 ships awareness (SessionStart injection), not
   enforcement.
-- **deliver plugin delegation:** the `deliver` plugin's create-pr skill is
+- **build plugin delegation:** the `build` plugin's create-pr skill is
   the delegation target for `/landing:land`'s github-pr path (the seam is
   already in the skill) — this replaces the earlier standalone
-  `pr-workflow` plugin plan. `deliver` does not ship a create-pr skill yet
+  `pr-workflow` plugin plan. `build` does not ship a create-pr skill yet
   (only `sync-pr`, which updates an existing PR's description), so the
   delegation seam is currently dormant.
+  <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
 
 ## Tests
 
@@ -304,11 +305,12 @@ bash plugins/landing/scripts/landing-docs.test.sh
   committed `.claude/clam-profile.jsonc` before `/landing:land` has
   anything to act on.
 - **Soft integrations:**
-  - `deliver` — detects landing's presence and adds merge-policy context
+  - `build` — detects landing's presence and adds merge-policy context
     to its own delivery-framework summary; `/landing:land` in turn
-    documents a delegation seam to a `deliver` create-pr skill for the
-    github-pr path (see Roadmap — not yet implemented on the `deliver`
+    documents a delegation seam to a `build` create-pr skill for the
+    github-pr path (see Roadmap — not yet implemented on the `build`
     side).
+    <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
   - `tracking` — landing reads and writes `.local/TODO.md`: the pre-land
     checklist gates Step 1 of `/landing:land`, and Step 4 records the
     terminal state (`Awaiting User Review`, `Complete`, `Blocked`, `In

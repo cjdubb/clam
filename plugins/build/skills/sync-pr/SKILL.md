@@ -9,7 +9,7 @@ Contract: B04 pr-description-sync-skill
 Behavior:
   Detects the current branch's open PR, composes an updated description
   reflecting the current state of the branch, and applies it. Works for
-  PRs created by any path (lego deliver, /landing:land, manual gh pr create).
+  PRs created by any path (lego delivery, /landing:land, manual gh pr create).
 
   Steps:
   1. Detect PR: query for an open PR on the current branch using

@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# readme-lint.test.sh — contract tests for scripts/readme-lint.sh (B01
-# readme-conformance-lint, plan 002-readme-conformance).
+# readme-lint.test.sh — contract tests for scripts/readme-lint.sh:
+#   - B01 readme-conformance-lint (plan 002-readme-conformance)
+#   - B06 root-readme-version-lint (plan 001-update-flow-for-users), the
+#     root README.md Plugins-table-vs-marketplace-vs-plugin.json check
+#     appended after the B01 checks.
 #
 # Black-box only: builds fixture trees under mktemp -d (plugins/<name>/
-# README.md) and invokes scripts/readme-lint.sh by absolute path with the
-# fixture directory as cwd, asserting on exit code and stdout/stderr —
-# never on the script's internals. Report-line assertions look for the
-# plugin name plus PASS/FAIL plus (for FAIL) the violated heading's plain
-# text co-occurring on one line, without pinning down the exact sentence,
-# since the contract specifies content, not wording.
+# README.md, plus for B06: root README.md, .claude-plugin/marketplace.json,
+# plugins/<name>/.claude-plugin/plugin.json) and invokes
+# scripts/readme-lint.sh by absolute path with the fixture directory as cwd,
+# asserting on exit code and stdout/stderr — never on the script's
+# internals. Report-line assertions look for the plugin name plus PASS/FAIL
+# plus (for FAIL) the violated heading's plain text co-occurring on one
+# line, without pinning down the exact sentence, since the contract
+# specifies content, not wording.
 #
 # Mirrors the PASS/FAIL harness style of
 # plugins/landing/scripts/landing-docs.test.sh.
@@ -393,6 +398,308 @@ run_lint "$f"; out1="$RUN_OUT"; exit1="$RUN_EXIT"
 run_lint "$f"; out2="$RUN_OUT"; exit2="$RUN_EXIT"
 check "determinism: same exit code across runs" "$exit2" "$exit1"
 check "determinism: same stdout across runs" "$out2" "$out1"
+
+# ===========================================================================
+# B06 root-readme-version-lint (plan 001-update-flow-for-users): extension
+# fixtures and helpers. Every marketplace plugin must have exactly one root
+# README.md table row with status "✅ vX.Y.Z" matching that plugin's
+# plugin.json version; "planned" rows are exempt; a non-planned row for a
+# plugin absent from the marketplace is a stale-row FAIL. Report lines:
+# "PASS  root-table <plugin>" / "FAIL  root-table <plugin> -> <reason>",
+# appended after the existing per-plugin README lines above.
+# ===========================================================================
+
+write_marketplace() { # <fixture_root> <plugin_name>... -> writes
+                       # .claude-plugin/marketplace.json listing each name
+  local root="$1"; shift
+  mkdir -p "$root/.claude-plugin"
+  {
+    printf '{\n'
+    printf '  "name": "test",\n'
+    printf '  "description": "test marketplace",\n'
+    printf '  "owner": {"name": "Test", "email": "test@example.com"},\n'
+    printf '  "plugins": [\n'
+    local first=1 name
+    for name in "$@"; do
+      if [ "$first" -eq 1 ]; then first=0; else printf ',\n'; fi
+      printf '    {"name": "%s", "source": "./plugins/%s", "description": "test plugin"}' "$name" "$name"
+    done
+    printf '\n  ]\n'
+    printf '}\n'
+  } > "$root/.claude-plugin/marketplace.json"
+}
+
+write_plugin_json() { # <fixture_root> <name> <version>
+  local root="$1" name="$2" version="$3"
+  mkdir -p "$root/plugins/$name/.claude-plugin"
+  {
+    printf '{\n'
+    printf '  "name": "%s",\n' "$name"
+    printf '  "description": "test plugin",\n'
+    printf '  "version": "%s",\n' "$version"
+    printf '  "author": {"name": "Test", "email": "test@example.com"}\n'
+    printf '}\n'
+  } > "$root/plugins/$name/.claude-plugin/plugin.json"
+}
+
+write_root_readme() { # <fixture_root> <rows_text> -> single-table README.md
+  local root="$1" rows="$2"
+  {
+    printf '# Test Marketplace\n\n## Plugins\n\n'
+    printf '| Plugin | Status | What it does |\n'
+    printf '|--------|--------|--------------|\n'
+    printf '%s\n' "$rows"
+  } > "$root/README.md"
+}
+
+gen_table_row() { # <name> <status> -> one linked-name row line
+  printf '| [%s](plugins/%s/) | %s | test plugin |\n' "$1" "$1" "$2"
+}
+
+gen_table_row_bare() { # <name> <status> -> one bare-name row line
+  printf '| %s | %s | test plugin |\n' "$1" "$2"
+}
+
+write_plugin_readme_conformant() { # <fixture_root> <name> -> keeps the
+                                    # existing per-plugin check green so
+                                    # root-table assertions aren't confounded
+  write_readme "$1" "$2" "$VALID_README"
+}
+
+first_line_index() { # text needle... -> 1-based index of first line
+                      # containing every needle, or 0 if none does
+  local text="$1"; shift
+  local i=0 line ok n
+  while IFS= read -r line; do
+    i=$((i + 1))
+    ok=1
+    for n in "$@"; do
+      case "$line" in *"$n"*) ;; *) ok=0; break ;; esac
+    done
+    [ "$ok" -eq 1 ] && { echo "$i"; return; }
+  done <<< "$text"
+  echo 0
+}
+
+root_table_trailing() { # text -> yes/no: at least one "root-table" line
+                         # exists, preceded by >=1 non-"root-table" line, and
+                         # every line from the first "root-table" line to the
+                         # end also contains "root-table" (contiguous tail)
+  local text="$1" first_rt i=0 line
+  first_rt="$(first_line_index "$text" "root-table")"
+  if [ "$first_rt" -le 1 ]; then echo no; return; fi
+  while IFS= read -r line; do
+    i=$((i + 1))
+    if [ "$i" -ge "$first_rt" ]; then
+      case "$line" in *"root-table"*) ;; *) echo no; return ;; esac
+    fi
+  done <<< "$text"
+  echo yes
+}
+
+# ===========================================================================
+# 24. All plugins agree (root table, marketplace, plugin.json all in sync):
+#     exit 0, one PASS root-table line per plugin, appended after the
+#     existing per-plugin PASS lines.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "alpha1"
+write_plugin_readme_conformant "$f" "alpha2"
+write_plugin_readme_conformant "$f" "alpha3"
+write_plugin_json "$f" "alpha1" "1.0.0"
+write_plugin_json "$f" "alpha2" "2.3.4"
+write_plugin_json "$f" "alpha3" "0.0.1"
+write_marketplace "$f" "alpha1" "alpha2" "alpha3"
+rows="$(gen_table_row "alpha1" "✅ v1.0.0"
+gen_table_row "alpha2" "✅ v2.3.4"
+gen_table_row "alpha3" "✅ v0.0.1")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table all-agreeing: exit 0" "$RUN_EXIT" "0"
+check "root-table all-agreeing: PASS root-table alpha1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "alpha1" "PASS")" "yes"
+check "root-table all-agreeing: PASS root-table alpha2" \
+  "$(line_has_all "$RUN_OUT" "root-table" "alpha2" "PASS")" "yes"
+check "root-table all-agreeing: PASS root-table alpha3" \
+  "$(line_has_all "$RUN_OUT" "root-table" "alpha3" "PASS")" "yes"
+check "root-table all-agreeing: root-table lines appended after per-plugin lines" \
+  "$(root_table_trailing "$RUN_OUT")" "yes"
+
+# ===========================================================================
+# 25. Marketplace plugin missing its root table row entirely: FAIL naming it
+#     (other agreeing plugins still PASS).
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "beta1"
+write_plugin_readme_conformant "$f" "beta2"
+write_plugin_json "$f" "beta1" "1.0.0"
+write_plugin_json "$f" "beta2" "1.0.0"
+write_marketplace "$f" "beta1" "beta2"
+rows="$(gen_table_row "beta1" "✅ v1.0.0")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table missing row: exit 1" "$RUN_EXIT" "1"
+check "root-table missing row: FAIL root-table beta2" \
+  "$(line_has_all "$RUN_OUT" "root-table" "beta2" "FAIL")" "yes"
+check "root-table missing row: beta1 still PASS root-table" \
+  "$(line_has_all "$RUN_OUT" "root-table" "beta1" "PASS")" "yes"
+
+# ===========================================================================
+# 26. Duplicate root table row for the same plugin: FAIL.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "gamma1"
+write_plugin_json "$f" "gamma1" "1.0.0"
+write_marketplace "$f" "gamma1"
+rows="$(gen_table_row "gamma1" "✅ v1.0.0"
+gen_table_row "gamma1" "✅ v1.0.0")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table duplicate row: exit 1" "$RUN_EXIT" "1"
+check "root-table duplicate row: FAIL root-table gamma1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "gamma1" "FAIL")" "yes"
+
+# ===========================================================================
+# 27. Version mismatch between plugin.json and the row's status cell: FAIL
+#     naming both the expected and found versions.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "delta1"
+write_plugin_json "$f" "delta1" "1.2.3"
+write_marketplace "$f" "delta1"
+rows="$(gen_table_row "delta1" "✅ v1.2.4")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table version mismatch: exit 1" "$RUN_EXIT" "1"
+check "root-table version mismatch: FAIL root-table delta1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "delta1" "FAIL")" "yes"
+check "root-table version mismatch: names expected version 1.2.3" \
+  "$(line_has_all "$RUN_OUT" "root-table" "delta1" "1.2.3")" "yes"
+check "root-table version mismatch: names found version 1.2.4" \
+  "$(line_has_all "$RUN_OUT" "root-table" "delta1" "1.2.4")" "yes"
+
+# ===========================================================================
+# 28. Malformed status cell (missing the "v" prefix): FAIL.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "zeta1"
+write_plugin_json "$f" "zeta1" "0.1.0"
+write_marketplace "$f" "zeta1"
+rows="$(gen_table_row "zeta1" "✅ 0.1.0")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table malformed status cell: exit 1" "$RUN_EXIT" "1"
+check "root-table malformed status cell: FAIL root-table zeta1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "zeta1" "FAIL")" "yes"
+
+# ===========================================================================
+# 29. Whitespace-padded status cell still passes once trimmed.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "eta1"
+write_plugin_json "$f" "eta1" "1.0.0"
+write_marketplace "$f" "eta1"
+rows="$(gen_table_row "eta1" "   ✅ v1.0.0   ")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table whitespace-padded cell: exit 0" "$RUN_EXIT" "0"
+check "root-table whitespace-padded cell: PASS root-table eta1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "eta1" "PASS")" "yes"
+
+# ===========================================================================
+# 30. "planned" row for a plugin absent from the marketplace is exempt: no
+#     FAIL for it, and the agreeing marketplace plugin still PASSes.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "iota1"
+write_plugin_json "$f" "iota1" "1.0.0"
+write_marketplace "$f" "iota1"
+rows="$(gen_table_row "iota1" "✅ v1.0.0"
+gen_table_row_bare "planned-only-plugin" "planned")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table planned row exempt: exit 0" "$RUN_EXIT" "0"
+check "root-table planned row exempt: no FAIL for planned-only-plugin" \
+  "$(line_has_all "$RUN_OUT" "planned-only-plugin" "FAIL")" "no"
+check "root-table planned row exempt: iota1 PASS root-table" \
+  "$(line_has_all "$RUN_OUT" "root-table" "iota1" "PASS")" "yes"
+
+# ===========================================================================
+# 31. Stale row: a non-planned row names a plugin absent from the
+#     marketplace -> FAIL for it (agreeing marketplace plugin still PASSes).
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "kappa1"
+write_plugin_json "$f" "kappa1" "1.0.0"
+write_marketplace "$f" "kappa1"
+rows="$(gen_table_row "kappa1" "✅ v1.0.0"
+gen_table_row "stalezap" "✅ v1.0.0")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table stale row: exit 1" "$RUN_EXIT" "1"
+check "root-table stale row: FAIL for stalezap" \
+  "$(line_has_all "$RUN_OUT" "stalezap" "FAIL")" "yes"
+check "root-table stale row: kappa1 still PASS root-table" \
+  "$(line_has_all "$RUN_OUT" "root-table" "kappa1" "PASS")" "yes"
+
+# ===========================================================================
+# 32. A second GFM table further down the README is ignored: a row that
+#     exists only in the second table does not rescue a plugin missing from
+#     the first (and only inspected) table.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "lambda1"
+write_plugin_json "$f" "lambda1" "1.0.0"
+write_marketplace "$f" "lambda1"
+{
+  printf '# Test\n\n## Plugins\n\n'
+  printf '| Plugin | Status | What it does |\n'
+  printf '|--------|--------|--------------|\n'
+  printf '| other-planned | planned | x |\n'
+  printf '\n## Second Table (must be ignored)\n\n'
+  printf '| Plugin | Status | What it does |\n'
+  printf '|--------|--------|--------------|\n'
+  gen_table_row "lambda1" "✅ v1.0.0"
+} > "$f/README.md"
+run_lint "$f"
+check "root-table second table ignored: exit 1" "$RUN_EXIT" "1"
+check "root-table second table ignored: FAIL root-table lambda1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "lambda1" "FAIL")" "yes"
+
+# ===========================================================================
+# 33. Marketplace plugin whose directory lacks plugin.json: FAIL (unreadable
+#     expected version), independent of what the row's status cell says.
+# ===========================================================================
+f="$(new_fixture)"
+write_plugin_readme_conformant "$f" "mu1"
+write_marketplace "$f" "mu1"
+rows="$(gen_table_row "mu1" "✅ v9.9.9")"
+write_root_readme "$f" "$rows"
+run_lint "$f"
+check "root-table missing plugin.json: exit 1" "$RUN_EXIT" "1"
+check "root-table missing plugin.json: FAIL root-table mu1" \
+  "$(line_has_all "$RUN_OUT" "root-table" "mu1" "FAIL")" "yes"
+
+# ===========================================================================
+# 34. Real-repo smoke check: running readme-lint.sh against the actual repo
+#     root must, once the extension exists, report a PASS root-table line
+#     for every real marketplace plugin (read live via jq, not hardcoded)
+#     and keep exiting 0, with the root-table block appended after the
+#     existing per-plugin lines. Today, before the extension is
+#     implemented, the script prints no root-table lines at all, so every
+#     "PASS root-table <plugin>" and the trailing-block check below are RED
+#     — the extension simply doesn't exist yet, not a repo-data problem.
+# ===========================================================================
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+run_lint "$REPO_ROOT"
+check "root-table real repo: exit 0" "$RUN_EXIT" "0"
+mapfile -t real_plugin_names < <(jq -r '.plugins[].name' "$REPO_ROOT/.claude-plugin/marketplace.json" | sort)
+for name in "${real_plugin_names[@]}"; do
+  check "root-table real repo: PASS root-table $name" \
+    "$(line_has_all "$RUN_OUT" "root-table" "$name" "PASS")" "yes"
+done
+check "root-table real repo: root-table lines appended after per-plugin lines" \
+  "$(root_table_trailing "$RUN_OUT")" "yes"
 
 # ===========================================================================
 echo "----"

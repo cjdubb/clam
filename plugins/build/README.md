@@ -38,3 +38,27 @@ NotImplemented: B01 — replace all "deliver" plugin-name references with
 "build" throughout this README. Preserve the six required template H2
 sections, all factual content, and the distinction between "deliver" as a
 plugin name (rename) vs "delivery" as a workflow concept (keep).
+
+## Getting started
+
+NotImplemented: B01
+
+## What to expect
+
+NotImplemented: B01
+
+## Common workflows
+
+NotImplemented: B01
+
+## Commands
+
+NotImplemented: B01
+
+## Relationships to other plugins
+
+NotImplemented: B01
+
+## Uninstalling
+
+NotImplemented: B01

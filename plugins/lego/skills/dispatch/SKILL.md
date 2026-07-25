@@ -167,30 +167,26 @@ checklist before accepting:
    the unit worktree. Failures must be assertion or NotImplemented failures;
    import/compile/collection errors reject the wave.
 
-<!-- Contract: B01 — exit-code-pipe-safety (step 2.3)
-Behavior:
-  Append a pipe-safety warning here explaining that piping a test command
-  (e.g. `bash "$t" 2>&1 | tail -10`) causes `$?` to reflect the exit code
-  of the last pipeline stage (e.g. `tail`, always 0), not the test command.
-  Include a canonical snippet showing the safe pattern: run the test command
-  without a pipe, capture the exit code, then inspect output separately.
-Inputs:
-  The existing step 2.3 text above.
-Outputs:
-  Expanded step 2.3 with warning and canonical snippet.
-Errors:
-  N/A.
-Invariants:
-  - The canonical snippet must use semicolons or separate commands, never a
-    pipe, when the exit code matters.
-  - The warning must name `$?` and explain it captures the last pipeline
-    stage's exit code.
-  - Output redirection (`>/dev/null 2>&1`) is safe and must not be prohibited.
-  - Must not rely on `pipefail` as the fix (not guaranteed in ad-hoc commands).
-Edge cases:
-  - If `PIPESTATUS` is mentioned, note it is bash-specific and not preferred.
--->
-4. **Realm purity, mechanical.** Inside the unit worktree, run
+4. **Pipe safety.** Piping a test command (e.g. `bash "$t" 2>&1 | tail -10`)
+   replaces `$?` with the exit code of the last pipeline stage (e.g. `tail`,
+   always 0), masking the test command's real exit code.
+
+   Never pipe when the exit code matters — run the command on its own,
+   capture `$?` immediately, then inspect output separately if needed:
+
+   ```bash
+   bash "$t" >/tmp/out.log 2>&1
+   status=$?
+   tail -10 /tmp/out.log
+   ```
+
+   Output redirection (`>/dev/null 2>&1` or to a file) does not create a
+   pipe and does not affect `$?` — it is safe and unrestricted.
+
+   Do not rely on `pipefail` as the fix, since it is not guaranteed to be
+   set in ad-hoc bash commands. (`PIPESTATUS` is bash-specific and not the
+   preferred pattern here.)
+5. **Realm purity, mechanical.** Inside the unit worktree, run
    `${CLAUDE_PLUGIN_ROOT}/scripts/realm-check.sh test` (uncommitted-changes
    mode — the worktree holds only this unit's changes, so there's no other
    diff it could mean). Any violation rejects the wave; this also catches
@@ -225,30 +221,24 @@ orchestrator, inside the unit worktree:
 1. Repo test command green (run it yourself; also typecheck/lint if
    configured).
 
-<!-- Contract: B01 — exit-code-pipe-safety (step 3.1)
-Behavior:
-  Append the same pipe-safety warning here (inline or cross-reference to
-  step 2.3). The green run is even more critical — a masked exit code here
-  means a false acceptance of broken implementation.
-Inputs:
-  The existing step 3.1 text above.
-Outputs:
-  Expanded step 3.1 with pipe-safety warning or cross-reference.
-Invariants:
-  Same as step 2.3 — no pipe when exit code matters; name `$?`; do not
-  prohibit redirection; do not rely on `pipefail`.
--->
-2. `${CLAUDE_PLUGIN_ROOT}/scripts/realm-check.sh impl`, run over this wave's
+2. **Pipe safety (same hazard as step 2.3).** Re-run the repo test command
+   without piping it through anything (e.g. no `| tail`) before trusting
+   `$?` — a masked exit code on this green run is worse than on the red
+   run, since it produces a false acceptance of a broken implementation.
+   Follow the same pipe-safety pattern as step 2.3: never pipe when the
+   exit code matters; capture `$?` from the bare command, redirect output
+   to a file or `/dev/null` if you need it out of the way.
+3. `${CLAUDE_PLUGIN_ROOT}/scripts/realm-check.sh impl`, run over this wave's
    diff range — zero test-family diffs, mechanically proven. Uncommitted-
    changes mode covers the common case; if an agent left committed WIP on
    the unit branch, pass the diff-range argument explicitly from the branch
    point instead.
-3. **Contracts unchanged.** Diff the stub files against the scaffold commit
+4. **Contracts unchanged.** Diff the stub files against the scaffold commit
    (an ancestor of every unit branch) and confirm signatures and contract
    docblocks are untouched — bodies change, surfaces do not. By-eye in v0;
    treat any surface change as a defect unless it went through the
    escalation loop.
-4. Spot-review the diff for quality: contract clauses the tests undercover
+5. Spot-review the diff for quality: contract clauses the tests undercover
    are still binding (workers are told this; verify it on anything security-
    or correctness-critical).
 

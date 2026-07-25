@@ -93,6 +93,11 @@
       "name": "ask-in-text",
       "source": "./plugins/ask-in-text",
       "description": "Kills the AskUserQuestion picker UI: a PreToolUse deny blocks the tool outright, and SessionStart context redirects Claude to ask the engineer in plain text — numbered questions, one decision per number, a recommended default each, bare-go semantics."
+    },
+    {
+      "name": "updates",
+      "source": "./plugins/updates",
+      "description": "Guided plugin update flow: /updates:run refreshes the clam catalog, diffs installed vs latest versions, applies per-plugin updates on confirmation, and surfaces which setup skills need re-running via setup version stamps."
     }
   ]
 }

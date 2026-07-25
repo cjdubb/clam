@@ -84,7 +84,7 @@ Outputs:
   | [notifications](plugins/notifications/) | ✅ v<plugin.json> | <summoning stack per its marketplace description> |
   | [skill-tracker](plugins/skill-tracker/) | ✅ v<plugin.json> | <skill telemetry, naming /skill-tracker:stats> |
   | [session-data](plugins/session-data/) | ✅ v<plugin.json> | <session data file location, naming /session-data:paths> |
-- Existing drifted rows corrected: lego → v0.5.0, tracking → v0.5.1.
+- Existing drifted rows corrected: lego → v0.5.1, tracking → v0.6.1.
 - The five B05-bumped plugins' rows updated to v0.2.0 (attribution,
   privacy, settings, statusline, landing) — B05 is a dependency; use the
   plugin.json values as they stand when this block is implemented.

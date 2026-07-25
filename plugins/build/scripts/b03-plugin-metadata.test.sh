@@ -99,7 +99,7 @@ check "plugin.json is valid JSON" \
   "$(jq -e . "$PLUGIN_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 name=$(jq -r '.name' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .name is 'deliver'" "$name" "deliver"
+check "plugin.json .name is 'build'" "$name" "build"
 
 version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .version is present and non-empty" \
@@ -124,27 +124,27 @@ check "hooks.json is valid JSON" \
   "$(jq -e . "$HOOKS_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS_JSON" 2>/dev/null)
-check "hooks.json wires SessionStart to deliver-context.sh via CLAUDE_PLUGIN_ROOT" \
-  "$hook_command" '${CLAUDE_PLUGIN_ROOT}/scripts/deliver-context.sh'
+check "hooks.json wires SessionStart to build-context.sh via CLAUDE_PLUGIN_ROOT" \
+  "$hook_command" '${CLAUDE_PLUGIN_ROOT}/scripts/build-context.sh'
 
 hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$HOOKS_JSON" 2>/dev/null)
 check "hooks.json SessionStart hook has a positive numeric timeout" \
   "$([[ "$hook_timeout" =~ ^[0-9]+$ ]] && [[ "$hook_timeout" -gt 0 ]] && echo yes || echo no)" "yes"
 
-check "deliver-context.sh exists" "$([ -f "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
-check "deliver-context.sh is executable" "$([ -x "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
+check "build-context.sh exists" "$([ -f "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
+check "build-context.sh is executable" "$([ -x "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # README.md — intro paragraph
 # ---------------------------------------------------------------------------
 
 intro=$(awk '
-  $0 == "# deliver" {found=1; next}
+  $0 == "# build" {found=1; next}
   found && /^## / {exit}
   found {print}
 ' "$README")
 
-check "README has a non-empty intro paragraph under the # deliver heading" \
+check "README has a non-empty intro paragraph under the # build heading" \
   "$(nonblank "$intro")" "yes"
 check "README intro paragraph has no TODO/NotImplemented placeholder" \
   "$(printf '%s' "$intro" | grep -qiE 'TODO|NotImplemented' && echo present || echo absent)" "absent"
@@ -186,10 +186,10 @@ check "README's six required template H2 sections appear, in template order" \
 
 readme_body_facts=$(sed '/<!--/,/-->/d' "$README")
 
-check "README names /deliver:sync-pr" \
-  "$(has "$readme_body_facts" '/deliver:sync-pr')" "yes"
-check "README names deliver-context.sh" \
-  "$(has "$readme_body_facts" 'deliver-context.sh')" "yes"
+check "README names /build:sync-pr" \
+  "$(has "$readme_body_facts" '/build:sync-pr')" "yes"
+check "README names build-context.sh" \
+  "$(has "$readme_body_facts" 'build-context.sh')" "yes"
 check "README names the SessionStart event" \
   "$(has "$readme_body_facts" 'SessionStart')" "yes"
 

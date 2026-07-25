@@ -86,7 +86,7 @@ check "all-companions context includes the lego dispatch marker" \
 check "all-companions context includes the tracking state-lifecycle marker" \
   "$(has "$out" 'state lifecycle')" "yes"
 check "all-companions context includes the /deliver:sync-pr standing instruction" \
-  "$(has "$out" '/deliver:sync-pr')" "yes"
+  "$(has "$out" '/build:sync-pr')" "yes"
 
 # ---------------------------------------------------------------------------
 # 2. No companions: plugins/ absent entirely (contract edge case: "repo with
@@ -98,7 +98,7 @@ mkdir -p "$WD2"
 out=$(ctx "$(payload "$WD2")")
 
 check "no-companions context still includes the /deliver:sync-pr standing instruction" \
-  "$(has "$out" '/deliver:sync-pr')" "yes"
+  "$(has "$out" '/build:sync-pr')" "yes"
 check "no-companions context has no landing merge-policy marker" \
   "$(has "$out" 'merge policy')" "no"
 check "no-companions context has no lego dispatch marker" \

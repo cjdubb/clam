@@ -22,6 +22,12 @@ Enable per repo (or per machine) — take only the clusters you want.
 
 ## Update
 
+The [updates](plugins/updates/) plugin wraps this in a guided flow:
+`/updates:run` refreshes the catalog, shows which installed plugins are
+behind, updates each on confirmation, and offers to re-run a plugin's setup
+when the update calls for it. Install it once with
+`/plugin install updates@clam`. Manually:
+
 ```
 /plugin marketplace update clam        # re-fetch this repo, refresh the catalog
 claude plugin update <plugin>@clam     # update one installed plugin (CLI only — no /plugin update)

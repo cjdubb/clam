@@ -82,7 +82,7 @@
     {
       "name": "build",
       "source": "./plugins/build",
-      "description": "NotImplemented: B03 — update description to replace 'deliver' with 'build', reflecting the plugin's role as the high-level lifecycle composite."
+      "description": "High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context."
     },
     {
       "name": "session-data",

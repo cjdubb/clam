@@ -289,7 +289,6 @@ profile knob, so a contradictory combination cannot be declared.
   `pr-workflow` plugin plan. `build` does not ship a create-pr skill yet
   (only `sync-pr`, which updates an existing PR's description), so the
   delegation seam is currently dormant.
-  <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
 
 ## Tests
 
@@ -310,7 +309,6 @@ bash plugins/landing/scripts/landing-docs.test.sh
     documents a delegation seam to a `build` create-pr skill for the
     github-pr path (see Roadmap — not yet implemented on the `build`
     side).
-    <!-- NotImplemented: B03 cross-plugin-refs — "deliver" → "build" rename -->
   - `tracking` — landing reads and writes `.local/TODO.md`: the pre-land
     checklist gates Step 1 of `/landing:land`, and Step 4 records the
     terminal state (`Awaiting User Review`, `Complete`, `Blocked`, `In

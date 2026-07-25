@@ -72,25 +72,6 @@ own words. Nothing else is a source for it:
   engineer explicitly confirms. That confirmed restatement is what the plan
   document opens with.
 
-<!-- Contract: B02 skill-gate-reinforcement (plan Step 0)
-Behavior:   Adds a reinforcement paragraph after the "close the gate" bullet
-            and before the general-rule paragraph, requiring the orchestrator
-            to verify that every clarifying question asked during Step 0 has
-            received an explicit answer before closing the gate. References the
-            standing rule from B01.
-Inputs:     None (static markdown instruction text).
-Outputs:    One paragraph (1-3 sentences) inserted at this location.
-Errors:     None.
-Invariants: - Does not restate the full standing rule; references it.
-            - Covers the specific Step 0 failure mode: asking multiple
-              deliverable-scoping questions and proceeding after receiving an
-              answer to only some of them.
-            - Explicitly names the prohibited behavior: launching exploration,
-              starting discovery, or closing the gate while questions are open.
-Edge cases: - Engineer declines a question ("skip that") = answered.
-            - Bare "go" accepting defaults = all questions answered.
--->
-
 Before closing this gate, apply the standing rule: verify that every question
 asked during deliverable scoping has received an explicit answer. Do not
 launch exploration agents, begin discovery, or proceed to Step 1 while any
@@ -212,23 +193,6 @@ For every block, agree with the engineer on:
   then dispatched to the same agents sequentially.
 - **PR group** (`PR group: G<NN>`): default one unit per group; small units
   may be grouped to share one PR to master/main.
-
-<!-- Contract: B02 skill-gate-reinforcement (plan Step 3)
-Behavior:   Adds a reinforcement paragraph at the end of Step 3, after the
-            decomposition checklist and before Step 4, requiring the
-            orchestrator to verify every decomposition question (block name,
-            deps, owner, paths, units, PR groups) has been answered before
-            writing artifacts.
-Inputs:     None (static markdown instruction text).
-Outputs:    One paragraph (1-3 sentences) inserted at this location.
-Errors:     None.
-Invariants: - References the standing rule rather than restating it.
-            - Covers the specific Step 3 failure mode: asking the engineer
-              about block ownership or paths and proceeding to Step 4 without
-              all answers.
-Edge cases: - Multi-turn decomposition where answers arrive incrementally is
-              fine as long as all are resolved before Step 4.
--->
 
 Before moving to Step 4, apply the standing rule: confirm every decomposition
 question — block name, dependencies, owner, paths, unit assignment, and PR

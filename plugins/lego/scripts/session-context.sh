@@ -59,28 +59,6 @@ system never sees. Blocks are recursive; compositions are themselves blocks
 - Repo specifics (verify commands, model tiers) come ONLY from the layered
   config: committed `.claude/lego.json` merged with an optional gitignored
   `.local/config.json` override (see the plugin's docs/config-schema.md).
-# Contract: B01 standing-rule-question-gate
-# Behavior:   Adds a standing rule to the lego workflow session context
-#             requiring that every question the orchestrator asks must receive
-#             an explicit answer before proceeding past a gate or to the next
-#             step. Partial responses are not sufficient — unanswered questions
-#             must be restated and waited on.
-# Inputs:     None (static heredoc content).
-# Outputs:    A new bullet in the "Standing rules" section of the session-context
-#             heredoc, emitted to stdout on every SessionStart.
-# Errors:     None — this is static text injection.
-# Invariants: - The rule is a single bullet point, consistent in style with
-#               existing standing rules.
-#             - The rule is self-contained: a reader seeing only the standing
-#               rules (no skill file) understands the requirement.
-#             - The rule covers: (1) all questions must be answered, (2) partial
-#               answers are insufficient, (3) unanswered questions must be
-#               restated, (4) no background work or next-step progression while
-#               questions remain open.
-# Edge cases: - Questions the engineer deliberately declines to answer ("skip
-#               that one") count as answered — the engineer has responded.
-#             - A bare "go" accepting recommended defaults counts as answering
-#               all questions.
 - **Every question must be explicitly answered before proceeding.** When the
   orchestrator poses a question to the engineer, no background agents,
   exploration, or next-step progression may proceed until every question

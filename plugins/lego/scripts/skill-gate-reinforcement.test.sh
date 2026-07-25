@@ -64,18 +64,14 @@ has_any() { # content literal...
   echo no
 }
 
-# Isolates the text inserted at one reinforcement location: everything
-# strictly after the "-->" line that closes the "<!-- Contract: B02 ... -->"
-# docblock uniquely identified by `start` (a literal substring found on the
-# docblock's opening line), up to (not including) the first later line
-# containing the literal substring `end` (a stable anchor that must survive
-# the edit unchanged). Excludes the docblock itself, so the docblock's own
-# prose can never satisfy a zone token check.
+# Isolates text between two stable anchors: everything strictly after the
+# first line containing `start` up to (not including) the first later line
+# containing `end`. Both anchors are pre-existing text that must survive
+# the edit unchanged.
 zone() { # file start end
   awk -v s="$2" -v e="$3" '
-    seen == 0 { if (index($0, s) > 0) seen = 1; next }
-    seen == 1 && past == 0 { if ($0 == "-->") { past = 1 }; next }
-    past == 1 { if (index($0, e) > 0) exit; print; next }
+    past == 0 { if (index($0, s) > 0) { past = 1 }; next }
+    past == 1 { if (index($0, e) > 0) exit; print }
   ' "$1"
 }
 
@@ -91,17 +87,20 @@ SCAFFOLD_RAW=$(cat "$SCAFFOLD")
 DISPATCH_RAW=$(cat "$DISPATCH")
 
 # --- Zone isolation --------------------------------------------------------
+# Each zone is bounded by the stable text immediately before and after the
+# reinforcement paragraph. Start anchors are the last line of the preceding
+# block; end anchors are the first line of the following block.
 PLAN_STEP0_ZONE="$(zone "$PLAN" \
-  'Contract: B02 skill-gate-reinforcement (plan Step 0)' \
+  'document opens with.' \
   "This gate is an instance of the workflow's central rule")"
 PLAN_STEP3_ZONE="$(zone "$PLAN" \
-  'Contract: B02 skill-gate-reinforcement (plan Step 3)' \
+  'may be grouped to share one PR to master/main.' \
   'Decomposition happens HERE and only here.')"
 SCAFFOLD_STEP3_ZONE="$(zone "$SCAFFOLD" \
-  'Contract: B02 skill-gate-reinforcement (scaffold Step 3)' \
+  'as a decomposition defect rather than being resolved silently here.' \
   "Commit the scaffold (with the engineer's consent) as a phase boundary.")"
 DISPATCH_ESCALATION_ZONE="$(zone "$DISPATCH" \
-  'Contract: B02 skill-gate-reinforcement (dispatch escalation)' \
+  're-verified.' \
   '**A test is wrong**')"
 
 # --- 1/2/3. plan/SKILL.md Step 0 ------------------------------------------

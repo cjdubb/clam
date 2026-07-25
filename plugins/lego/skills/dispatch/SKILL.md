@@ -390,22 +390,6 @@ Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
   then re-dispatch (again, a fresh-`NN` brief). Affected dependents get
   re-verified.
 
-<!-- Contract: B02 skill-gate-reinforcement (dispatch escalation)
-Behavior:   Adds a reinforcement sentence after the "contract is wrong"
-            escalation path, requiring the orchestrator to wait for the
-            engineer's full decision before re-scaffolding or re-dispatching.
-Inputs:     None (static markdown instruction text).
-Outputs:    One sentence inserted at this location.
-Errors:     None.
-Invariants: - References the standing rule rather than restating it.
-            - Covers the specific dispatch failure mode: presenting the
-              engineer with an escalation recommendation and re-dispatching
-              before receiving their decision.
-Edge cases: - If the engineer's decision is partial (e.g., answers the
-              contract question but not the re-scope question), restate the
-              unanswered part before proceeding.
--->
-
   Apply the standing rule here too: wait for the engineer's full decision
   before re-scaffolding or re-dispatching. If their response only answers
   part of the escalation, restate the unanswered part rather than proceeding

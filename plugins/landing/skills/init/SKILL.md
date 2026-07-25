@@ -137,6 +137,43 @@ prefer the `.jsonc` file — it is the one every other seam reads.
 
 Remind the user to commit the file: it is repo policy, not local state.
 
+## Step 5 — stamp
+
+After `.claude/clam-profile.jsonc` is written and confirmed, record this
+init in the shared stamp file so the update flow can tell this repo's
+landing setup is current with the installed version:
+`${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
+in `plugins/updates/docs/setup-stamps.md`.
+
+- Read the plugin's version from the `plugin.json` at this installation's
+  `installPath` (from its `installed_plugins.json` entry) — never from the
+  entry's own `version` field, which can go stale. Scope is always
+  `"project"`; target is this repo's `.claude/clam-profile.jsonc` — one
+  stamp per repo, so initializing several repos yields several records.
+- If the stamp file does not exist yet, create it first as
+  `{"version": 1, "stamps": []}`.
+- If the existing stamp file is corrupt (not valid JSON), move it aside to
+  `clam-setup-stamps.json.corrupt-<date>`, report the move to the user, and
+  recreate it fresh.
+- Replace this plugin's record, keyed by `plugin` and `target`; touch no
+  other records. Write via jq to a temp file, then `mv` it into place:
+
+  ```json
+  {
+    "plugin": "landing",
+    "version": "<from plugin.json>",
+    "scope": "project",
+    "target": "<absolute path to this repo's .claude/clam-profile.jsonc>",
+    "at": "<ISO-8601 UTC timestamp>"
+  }
+  ```
+
+- If the stamp write fails, report the failure but never fail the init —
+  the profile write above already succeeded.
+- This skill has no `remove` subcommand: deleting a repo's profile is
+  manual, so a stale landing stamp left behind after a profile is removed
+  by hand is acceptable and harmless.
+
 ## Template
 
 ````jsonc

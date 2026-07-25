@@ -76,11 +76,45 @@ keeping the marketplace's install-changes-nothing constraint intact.
 4. **Verify.** `jq empty ~/.claude/settings.json`, then tell the user the
    statusline appears on the next session (or immediately in current sessions
    on the next render).
+5. **Record the setup stamp.** After the verify step succeeds, record this
+   setup in the shared stamp file so the update flow can tell this plugin's
+   setup is current with the installed version:
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
+   in `plugins/updates/docs/setup-stamps.md`.
+   - Read the plugin's version from the `plugin.json` at this
+     installation's `installPath` (from its `installed_plugins.json`
+     entry) — never from the entry's own `version` field, which can go
+     stale. The statusline scope is always `"user"`; the target is always
+     `~/.claude/settings.json`.
+   - If the stamp file does not exist yet, create it first as
+     `{"version": 1, "stamps": []}`.
+   - If the existing stamp file is corrupt (not valid JSON), move it aside
+     to `clam-setup-stamps.json.corrupt-<date>`, report the move to the
+     user, and recreate it fresh.
+   - Replace this plugin's record, keyed by `plugin` and `target`; touch
+     no other records. Write via jq to a temp file, then `mv` it into
+     place — the same atomic pattern as the settings write above:
+
+     ```json
+     {
+       "plugin": "statusline",
+       "version": "<from plugin.json>",
+       "scope": "user",
+       "target": "~/.claude/settings.json",
+       "at": "<ISO-8601 UTC timestamp>"
+     }
+     ```
+
+   - If the stamp write fails, report the failure but never fail the
+     setup — the settings write above already succeeded.
 
 ## `/statusline:setup remove`
 
 Restore the pre-setup state: delete the `statusLine` key (or restore the
-backup if the user prefers), preserving all other settings.
+backup if the user prefers), preserving all other settings. Also delete
+this plugin's stamp record for `~/.claude/settings.json` from the shared
+stamp file; if there is no stamp for this target, that's already fine —
+nothing to do.
 
 ## Notes
 

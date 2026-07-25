@@ -151,6 +151,36 @@ this skill writes anything.
 5. **Verify.** Run `jq empty <target>` to confirm the result is still valid
    JSON. Then tell the user exactly what was written, to which settings
    file, and at which scope (user, project, or local).
+6. **Record the setup stamp.** After the verify step succeeds, record this
+   setup in the shared stamp file so the update flow can tell this plugin's
+   setup is current with the installed version:
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
+   in `plugins/updates/docs/setup-stamps.md`.
+   - Read the plugin's version from the `plugin.json` at this
+     installation's `installPath` (from its `installed_plugins.json`
+     entry) — never from the entry's own `version` field, which can go
+     stale.
+   - If the stamp file does not exist yet, create it first as
+     `{"version": 1, "stamps": []}`.
+   - If the existing stamp file is corrupt (not valid JSON), move it aside
+     to `clam-setup-stamps.json.corrupt-<date>`, report the move to the
+     user, and recreate it fresh.
+   - Replace this plugin's record, keyed by `plugin` and `target`; touch
+     no other records. Write via jq to a temp file, then `mv` it into
+     place — the same atomic pattern as the settings write above:
+
+     ```json
+     {
+       "plugin": "privacy",
+       "version": "<from plugin.json>",
+       "scope": "<user | project | local>",
+       "target": "<target settings file>",
+       "at": "<ISO-8601 UTC timestamp>"
+     }
+     ```
+
+   - If the stamp write fails, report the failure but never fail the
+     setup — the settings write above already succeeded.
 
 ## `/privacy:setup remove`
 
@@ -177,6 +207,9 @@ Reverse the change, at the same scope-detection flow as above (steps 1-2):
 
 4. Verify with `jq empty <target>`, then report what was removed, from
    which settings file, and at which scope.
+5. Delete this plugin's stamp for the same target from the shared stamp
+   file (`plugins/updates/docs/setup-stamps.md`); if there is no stamp for
+   this target, that's already fine — nothing to do.
 
 ## Notes
 

@@ -65,7 +65,7 @@ auto-update doesn't refresh the recorded install path
 | [privacy](plugins/privacy/) | ✅ v0.2.0 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
-| [build](plugins/build/) | ✅ v0.2.0 | NotImplemented: B03 — update description for the renamed build plugin. |
+| [build](plugins/build/) | ✅ v0.2.0 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync (`/build:sync-pr`) and delivery workflow context. |
 | [render-doc](plugins/render-doc/) | ✅ v0.1.1 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.1 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [notifications](plugins/notifications/) | ✅ v0.1.1 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |

@@ -1,27 +1,215 @@
 #!/bin/bash
 
-# Read JSON input from stdin
-input=$(cat)
+# Contract: B01 context-cheap-render
+# Behavior:
+#   context.sh renders the statusline from the statusLine JSON on stdin.
+#   Rendering splits into a LIVE path computed on every invocation and an
+#   EXPENSIVE segment bundle served from a per-session cache with a short
+#   TTL. Live on every render: the cwd path (from stdin), the model+effort
+#   portion of the mode line, the Ctx-usage line (stdin token counts +
+#   transcript idle age + compaction budget), and the atomic
+#   .local/.ctx-status.json publish. Cached as ONE bundle, rebuilt at most
+#   once per TTL: git branch, PR badge, git-sync segment, TODO State
+#   segment, clam mode, and the Cost line. The background refresh-engine
+#   kicks (pr-status / git-sync staleness checks) are evaluated only when
+#   the bundle is rebuilt, never on the warm path.
+# Inputs:
+#   stdin: statusLine JSON (context_window, transcript_path, workspace,
+#     model, effort) — parsed with EXACTLY ONE jq invocation per render.
+#   CLAM_STATUSLINE_CACHE_DIR: segment-cache directory (default
+#     ~/.claude/.statusline-cache; created on demand).
+#   CLAM_STATUSLINE_SEGMENT_TTL_SECONDS: bundle TTL in integer seconds
+#     (default 5). Values <= 0 disable cache serving (every render
+#     rebuilds); a non-integer value falls back to the default.
+#   Cache key: derived from transcript_path (fallback: cwd) so two
+#     sessions never share a bundle, even in the same worktree.
+# Outputs:
+#   Identical statusline text semantics and segment order as the
+#   pre-cache renderer: for the same inputs, a cold render is
+#   byte-identical to the legacy output; a warm render differs from the
+#   bundle-write-time output at most in the live parts reflecting newer
+#   stdin values. .local/.ctx-status.json keeps its schema and is
+#   atomically replaced on every render inside a git worktree with .local/.
+# Errors:
+#   Cache dir uncreatable or unwritable: fall back to a full (cold)
+#   render every time; the statusline never breaks and never prints cache
+#   errors to stdout. A corrupt or partially-written bundle is treated as
+#   absent; bundle writes are atomic (temp file + rename) so a reader
+#   never sees a partial bundle.
+# Invariants:
+#   A WARM render (bundle younger than TTL):
+#     - invokes at most 10 external commands in total, children included
+#       (bash builtins are free; every non-builtin process counts);
+#     - runs exactly one jq over the stdin payload, plus at most one jq
+#       for the settings.json compaction-budget fallback;
+#     - does not invoke ccost.sh, does not invoke git, and opens no file
+#       under CLAUDE_PROJECTS_DIR (~/.claude/projects).
+#   A COLD render does at most the legacy renderer's work plus one atomic
+#   bundle write, and leaves the bundle fresh so an immediately following
+#   render is warm. Cache entries are only ever replaced whole.
+# Edge cases:
+#   Missing/empty transcript_path: key falls back to cwd; cost renders as
+#     today; the bundle is still cached. TTL boundary: age < TTL is
+#     fresh, age >= TTL is stale; a negative age (future-dated bundle
+#     after a clock step) reads fresh. No git worktree / no .local/:
+#     segments degrade exactly as today and the ctx-status publish is
+#     skipped as today. First-ever render: cold, creates dir + bundle.
+
+# --- B01 scaffold surface --------------------------------------------------
+# Public env knobs of the cheap-render path.
+SL_CACHE_DIR="${CLAM_STATUSLINE_CACHE_DIR:-$HOME/.claude/.statusline-cache}"
+SL_SEGMENT_TTL_SECONDS="${CLAM_STATUSLINE_SEGMENT_TTL_SECONDS:-5}"
+
+# sl_parse_input: parse the ENTIRE stdin payload (window size, total input
+# tokens, transcript path, cwd, model display name, effort level) with one
+# single jq invocation, populating the same variables the legacy per-field
+# jq calls populate today.
+sl_parse_input() {
+  # Joined on \x01 rather than @tsv's tab: bash's `read` treats tab as "IFS
+  # whitespace" even when IFS is set to only a tab, so runs of the delimiter
+  # collapse and an empty field (e.g. an absent transcript_path) silently
+  # swallows the next column, misaligning every field after it. \x01 is not
+  # whitespace, so empty fields between delimiters are preserved.
+  IFS=$'\x01' read -r window_size total_input transcript_path cwd model_name effort <<< "$(
+    printf '%s' "$input" | jq -r '[
+        (.context_window.context_window_size // ""),
+        (.context_window.total_input_tokens // ""),
+        (.transcript_path // ""),
+        (.workspace.current_dir // .cwd // ""),
+        (.model.display_name // ""),
+        (.effort.level // "")
+      ] | join("")'
+  )"
+  [ -z "$effort" ] && effort="${CLAUDE_EFFORT:-}"
+}
+
+# sl_bundle_read: emit the cached expensive-segment bundle for the current
+# session key iff it is fresh (age < SL_SEGMENT_TTL_SECONDS); non-zero exit
+# when stale, absent, corrupt, or caching is disabled (TTL <= 0).
+#
+# Reads its cache key from transcript_path/cwd (populated by sl_parse_input)
+# and the shared "now" epoch ($_sl_now) so it never forks its own `date`.
+# On success it populates branch, pr_badge, git_sync_segment, state_segment,
+# clam_mode, cost_line from the bundle. The bundle is a plain key=value-per-
+# line file (no JSON) so a warm read never spends the render's one jq
+# invocation on cache bookkeeping. A line whose value happens to contain
+# "=" is still read correctly (only the FIRST "=" on the line separates
+# key from value); a bundle missing any of the six expected keys — e.g.
+# corrupted content that matches none of them — is treated as absent.
+sl_bundle_read() {
+  local ttl key_src key file mtime age line got
+  ttl="$SL_SEGMENT_TTL_SECONDS"
+  [[ "$ttl" =~ ^-?[0-9]+$ ]] || ttl=5
+  [ "$ttl" -le 0 ] && return 1
+
+  key_src="$transcript_path"
+  [ -z "$key_src" ] && key_src="$cwd"
+  key="${key_src//\//_}"
+  file="$SL_CACHE_DIR/$key.bundle"
+  [ -f "$file" ] || return 1
+
+  mtime=$(_sl_mtime_epoch "$file")
+  age=$(( _sl_now - mtime ))
+  [ "$age" -ge "$ttl" ] && return 1
+
+  got=0
+  branch=""; pr_badge=""; git_sync_segment=""; state_segment=""; clam_mode=""; cost_line=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      branch=*)    branch="${line#branch=}";            got=$((got | 1)) ;;
+      pr_badge=*)  pr_badge="${line#pr_badge=}";         got=$((got | 2)) ;;
+      git_sync=*)  git_sync_segment="${line#git_sync=}"; got=$((got | 4)) ;;
+      state_seg=*) state_segment="${line#state_seg=}";   got=$((got | 8)) ;;
+      clam_mode=*) clam_mode="${line#clam_mode=}";       got=$((got | 16)) ;;
+      cost_line=*) cost_line="${line#cost_line=}";       got=$((got | 32)) ;;
+    esac
+  done < "$file"
+  [ "$got" -eq 63 ] || return 1
+}
+
+# sl_bundle_write: atomically (temp + rename) persist the freshly rendered
+# expensive-segment bundle for the current session key; best-effort — a
+# write failure leaves rendering unaffected.
+sl_bundle_write() {
+  local key_src key tmp
+  key_src="$transcript_path"
+  [ -z "$key_src" ] && key_src="$cwd"
+  key="${key_src//\//_}"
+  mkdir -p "$SL_CACHE_DIR" 2>/dev/null || return 0
+  tmp=$(mktemp "$SL_CACHE_DIR/.bundle.XXXXXX" 2>/dev/null) || return 0
+  {
+    printf 'branch=%s\n' "$branch"
+    printf 'pr_badge=%s\n' "$pr_badge"
+    printf 'git_sync=%s\n' "$git_sync_segment"
+    printf 'state_seg=%s\n' "$state_segment"
+    printf 'clam_mode=%s\n' "$clam_mode"
+    printf 'cost_line=%s\n' "$cost_line"
+  } > "$tmp" 2>/dev/null
+  mv -f "$tmp" "$SL_CACHE_DIR/$key.bundle" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+# ------------------------------------------------------------------------
+
+# Read JSON input from stdin. `read -d ''` (bash 3.2-safe) slurps the whole
+# payload into $input via the builtin instead of forking `cat` for it: NUL is
+# the delimiter, and none appears in a JSON payload, so read runs to EOF and
+# returns non-zero -- expected here, not an error -- while $input still gets
+# the full payload, including a final line with no trailing newline.
+IFS= read -r -d '' input || true
+
+# Portable dirname via parameter expansion (dirname forks a process; the
+# $(...) below is a subshell, not an exec, so it's free per the budget).
+# Mirrors dirname(1) for our one use case (a BASH_SOURCE path): strip the
+# last path component; a slash-free path (e.g. invoked as `bash context.sh`
+# from its own directory) has nothing to strip, so ${var%/*} would leave it
+# unchanged -- guard that case to "." like dirname does.
+_sl_dirname() {
+  local p="$1" d="${1%/*}"
+  [ "$d" = "$p" ] && d="."
+  printf '%s' "$d"
+}
 
 # Shared lib dir: session-State metadata plus the cache-refresh engines.
-_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
+_LIB_DIR="$(cd "$(_sl_dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
 _STATES_LIB="$_LIB_DIR/states.sh"
 [ -f "$_STATES_LIB" ] && . "$_STATES_LIB"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(_sl_dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/platform.sh"
 
-# Extract context window data
-window_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
-total_input=$(echo "$input" | jq -r '.context_window.total_input_tokens // empty')
+# Resolve the OS ONCE for the whole render (clam_os forks `uname`); the two
+# warm-path mtime reads below (bundle freshness in sl_bundle_read, transcript
+# idle age further down) reuse $_sl_os via _sl_mtime_epoch instead of each
+# re-deriving it through clam_mtime_epoch's own clam_os call. Cold-path-only
+# mtime reads (file_age, used solely by the refresh-engine kicks) keep
+# calling clam_mtime_epoch/platform.sh directly -- that path isn't in the
+# warm-render budget.
+_sl_os="$(clam_os)"
 
-# Path to the transcript JSONL for the current session, used by ccost.sh.
-transcript_path=$(echo "$input" | jq -r '.transcript_path // empty')
+# Call-site-local mtime reader for the two warm-path reads: same semantics as
+# platform.sh's clam_mtime_epoch (missing/unstatable -> 0, silent) but
+# branches on the already-memoized $_sl_os instead of re-forking `uname` per
+# call. Pre-branched, never a chained `stat -f ... || stat -c ...`, for the
+# same reason clam_mtime_epoch is: on GNU coreutils `-f` means "filesystem
+# status" (df-like), not a format flag, so a BSD-style `stat -f` call there
+# doesn't just fail, it prints a filesystem dump that would corrupt anything
+# capturing the combined output before the `||` fallback fires.
+_sl_mtime_epoch() {
+  if [ "$_sl_os" = "darwin" ]; then
+    stat -f %m "$1" 2>/dev/null || echo 0
+  else
+    stat -c %Y "$1" 2>/dev/null || echo 0
+  fi
+}
+
+sl_parse_input
 
 # Format number with commas
 fmt() { printf "%'d" "$1" 2>/dev/null || echo "$1"; }
 
-# Age of a file in seconds (missing file reads as very old).
+# Age of a file in seconds (missing file reads as very old). Only used by
+# the refresh-engine kicks below, which are cold-path-only; the live parts
+# of the render (idle age, bundle freshness) share $_sl_now instead so they
+# never fork their own `date`.
 file_age() {
   local m
   m=$(clam_mtime_epoch "$1")
@@ -37,50 +225,6 @@ fmt_usd() {
   fi
   printf "%'.2f" "$n" 2>/dev/null || printf "%.2f" "$n"
 }
-
-# Extract other data
-cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd')
-model_name=$(echo "$input" | jq -r '.model.display_name // empty')
-
-# Reasoning effort level. Primary source is the live statusLine JSON field
-# (.effort.level reflects mid-session /effort changes); fall back to the
-# launch-time CLAUDE_EFFORT env var; empty when neither is present (e.g. plain
-# `claude` on a model without effort support), which drops the segment.
-effort=$(echo "$input" | jq -r '.effort.level // empty')
-[ -z "$effort" ] && effort="${CLAUDE_EFFORT:-}"
-
-# Get git branch
-branch=$(cd "$cwd" && git branch --show-current 2>/dev/null)
-
-# Resolve the PR status file at the worktree root, if any.
-pr_status_file=""
-toplevel=$(cd "$cwd" && git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$toplevel" ] && [ -f "$toplevel/.local/.pr-status.json" ]; then
-  pr_status_file="$toplevel/.local/.pr-status.json"
-fi
-
-# Keep the .local caches warm. The Stop hooks only refresh at turn end, so a
-# parked session's badges would freeze; this render-time trigger kicks the
-# shared engines in a fully detached background process whenever a cache is
-# stale (or missing) and renders whatever is on disk now. Claude Code re-runs
-# this script on conversation events and on the settings.json statusLine
-# refreshInterval heartbeat, so the next render picks up the result. All fds
-# are detached from the spawn so the render never waits on it.
-# A young engine lock means a refresh is already in flight, so skip the fork;
-# the 120s cutoff mirrors the engines' stale-break threshold so a crashed
-# refresher's leftover lock cannot suppress spawns for good.
-if [ -n "$toplevel" ] && [ -d "$toplevel/.local" ] && [ -n "$_LIB_DIR" ]; then
-  if [ -x "$_LIB_DIR/pr-status-refresh.sh" ] \
-    && [ "$(file_age "$toplevel/.local/.pr-status.json")" -ge 300 ] \
-    && [ "$(file_age "$toplevel/.local/.pr-status-refresh.lock")" -ge 120 ]; then
-    ( nohup "$_LIB_DIR/pr-status-refresh.sh" "$toplevel" 300 </dev/null >/dev/null 2>&1 & ) 2>/dev/null
-  fi
-  if [ -x "$_LIB_DIR/git-sync-refresh.sh" ] \
-    && [ "$(file_age "$toplevel/.local/.git-sync.json")" -ge 600 ] \
-    && [ "$(file_age "$toplevel/.local/.git-sync-refresh.lock")" -ge 120 ]; then
-    ( nohup "$_LIB_DIR/git-sync-refresh.sh" "$toplevel" 600 </dev/null >/dev/null 2>&1 & ) 2>/dev/null
-  fi
-fi
 
 # Classify a PR into its statusline emoji. Same rules as the /pr-status skill.
 # Args: $1=state $2=reviews $3=ci $4=comments
@@ -124,112 +268,225 @@ osc8_link() {
   fi
 }
 
-# Compute the PR badge per the /pr-status skill's color rules.
-# Every worktree emits a `prs` array (0, 1, or N entries) via pr-status-refresh.
-# Render actionable PRs (🔴/🟡) individually and collapse green/merged to counts.
-pr_badge=""
-if [ -n "$pr_status_file" ]; then
-  prs_count=$(jq -r '(.prs // []) | length' "$pr_status_file" 2>/dev/null)
-  if [ "${prs_count:-0}" -gt 0 ] 2>/dev/null; then
-    green_count=0
-    queued_count=0
-    merged_count=0
-    actionable=""
-    while IFS=$'\t' read -r number state reviews ci comments url; do
-      [ -z "$number" ] && continue
-      # CLOSED PRs are abandoned, not actionable — skip entirely so they
-      # neither badge nor count toward the totals.
-      [ "$state" = "CLOSED" ] && continue
-      emoji=$(classify_pr_emoji "$state" "$reviews" "$ci" "$comments")
-      case "$emoji" in
-        "✅") merged_count=$((merged_count + 1)) ;;
-        "🚂") queued_count=$((queued_count + 1)) ;;
-        "🟢") green_count=$((green_count + 1)) ;;
-        *)    actionable="$actionable $emoji $(osc8_link "$url" "#$number")" ;;
-      esac
-    done < <(jq -r '.prs[] | [.number, .state, .reviews, .ci, (.comments // 0), (.url // "")] | @tsv' "$pr_status_file" 2>/dev/null)
+# Single shared "now" (epoch + RFC3339 UTC), from ONE `date` call for the
+# whole render: the bundle-freshness check below, the Ctx line's idle-age
+# calc, and the .ctx-status.json fetched_at field all read off the same
+# instant instead of each forking their own `date` — part of what keeps a
+# warm render's process count inside the ≤10-command budget.
+_sl_now_pair=$(date -u +'%s %Y-%m-%dT%H:%M:%SZ')
+_sl_now="${_sl_now_pair%% *}"
+_sl_now_iso="${_sl_now_pair#* }"
+unset _sl_now_pair
 
-    pr_badge="$actionable"
-    [ "$green_count" -gt 0 ]  && pr_badge="$pr_badge 🟢$green_count"
-    [ "$queued_count" -gt 0 ] && pr_badge="$pr_badge 🚂$queued_count"
-    [ "$merged_count" -gt 0 ] && pr_badge="$pr_badge ✅$merged_count"
+# Resolve the git worktree root by walking up from $cwd looking for a .git
+# entry (a directory in a normal clone, a file in a worktree) instead of
+# shelling out to `git rev-parse --show-toplevel`. The LIVE .ctx-status.json
+# publish below needs to know, on EVERY render including warm ones, whether
+# $cwd sits in a worktree with .local — and the warm path may not invoke
+# git — so this walk stays pure bash (builtins only, no fork).
+toplevel=""
+if [ -n "$cwd" ]; then
+  _sl_dir="$cwd"
+  while [ -n "$_sl_dir" ]; do
+    if [ -e "$_sl_dir/.git" ]; then
+      toplevel="$_sl_dir"
+      break
+    fi
+    [ "$_sl_dir" = "/" ] && break
+    _sl_dir="${_sl_dir%/*}"
+    [ -z "$_sl_dir" ] && _sl_dir="/"
+  done
+  unset _sl_dir
+fi
+
+# --- LIVE vs CACHED split ---------------------------------------------------
+# Populates branch, pr_badge, git_sync_segment, state_segment, clam_mode,
+# cost_line. On a WARM render (sl_bundle_read succeeds) these come straight
+# from the last-built bundle: no git, no ccost.sh, nothing under
+# CLAUDE_PROJECTS_DIR touched. On a COLD render they're computed exactly as
+# the pre-cache renderer did, then persisted for the next render — including
+# the background refresh-engine kicks, which per contract only ever fire
+# here, never on the warm path.
+if ! sl_bundle_read; then
+  # Get git branch
+  branch=$(cd "$cwd" && git branch --show-current 2>/dev/null)
+
+  # Resolve the PR status file at the worktree root, if any.
+  pr_status_file=""
+  if [ -n "$toplevel" ] && [ -f "$toplevel/.local/.pr-status.json" ]; then
+    pr_status_file="$toplevel/.local/.pr-status.json"
   fi
-fi
 
-# Compute the git-sync segment (↓N ↑M) per PLAN-git-sync.md colour rules.
-git_sync_file=""
-if [ -n "$toplevel" ] && [ -f "$toplevel/.local/.git-sync.json" ]; then
-  git_sync_file="$toplevel/.local/.git-sync.json"
-fi
-
-git_sync_segment=""
-if [ -n "$git_sync_file" ]; then
-  behind=$(jq -r '.behind_count // 0' "$git_sync_file" 2>/dev/null)
-  ahead=$(jq -r '.ahead_count // 0' "$git_sync_file" 2>/dev/null)
-  # jq's `//` treats `false` as falsey, so we can't use `.fetch_ok // true` —
-  # an explicit fetch_ok=false would be coerced to true. Check for null/missing
-  # explicitly so a real `false` survives.
-  fetch_ok=$(jq -r 'if .fetch_ok == null then "true" else .fetch_ok | tostring end' "$git_sync_file" 2>/dev/null)
-
-  parts=""
-  color=""
-  if [ "${behind:-0}" -gt 0 ]; then
-    parts="↓$behind"
-    if [ "$behind" -ge 6 ]; then
-      color=$'\033[38;5;196m'  # red
-    else
-      color=$'\033[38;5;214m'  # yellow
+  # Keep the .local caches warm. The Stop hooks only refresh at turn end, so a
+  # parked session's badges would freeze; this render-time trigger kicks the
+  # shared engines in a fully detached background process whenever a cache is
+  # stale (or missing) and renders whatever is on disk now. Claude Code re-runs
+  # this script on conversation events and on the settings.json statusLine
+  # refreshInterval heartbeat, so the next render picks up the result. All fds
+  # are detached from the spawn so the render never waits on it. Only reached
+  # on a bundle rebuild (see contract Invariants): a warm render never gets
+  # here, so these staleness checks never run on the warm path.
+  # A young engine lock means a refresh is already in flight, so skip the fork;
+  # the 120s cutoff mirrors the engines' stale-break threshold so a crashed
+  # refresher's leftover lock cannot suppress spawns for good.
+  if [ -n "$toplevel" ] && [ -d "$toplevel/.local" ] && [ -n "$_LIB_DIR" ]; then
+    if [ -x "$_LIB_DIR/pr-status-refresh.sh" ] \
+      && [ "$(file_age "$toplevel/.local/.pr-status.json")" -ge 300 ] \
+      && [ "$(file_age "$toplevel/.local/.pr-status-refresh.lock")" -ge 120 ]; then
+      ( nohup "$_LIB_DIR/pr-status-refresh.sh" "$toplevel" 300 </dev/null >/dev/null 2>&1 & ) 2>/dev/null
+    fi
+    if [ -x "$_LIB_DIR/git-sync-refresh.sh" ] \
+      && [ "$(file_age "$toplevel/.local/.git-sync.json")" -ge 600 ] \
+      && [ "$(file_age "$toplevel/.local/.git-sync-refresh.lock")" -ge 120 ]; then
+      ( nohup "$_LIB_DIR/git-sync-refresh.sh" "$toplevel" 600 </dev/null >/dev/null 2>&1 & ) 2>/dev/null
     fi
   fi
-  if [ "${ahead:-0}" -gt 0 ]; then
+
+  # Compute the PR badge per the /pr-status skill's color rules.
+  # Every worktree emits a `prs` array (0, 1, or N entries) via pr-status-refresh.
+  # Render actionable PRs (🔴/🟡) individually and collapse green/merged to counts.
+  pr_badge=""
+  if [ -n "$pr_status_file" ]; then
+    prs_count=$(jq -r '(.prs // []) | length' "$pr_status_file" 2>/dev/null)
+    if [ "${prs_count:-0}" -gt 0 ] 2>/dev/null; then
+      green_count=0
+      queued_count=0
+      merged_count=0
+      actionable=""
+      while IFS=$'\t' read -r number state reviews ci comments url; do
+        [ -z "$number" ] && continue
+        # CLOSED PRs are abandoned, not actionable — skip entirely so they
+        # neither badge nor count toward the totals.
+        [ "$state" = "CLOSED" ] && continue
+        emoji=$(classify_pr_emoji "$state" "$reviews" "$ci" "$comments")
+        case "$emoji" in
+          "✅") merged_count=$((merged_count + 1)) ;;
+          "🚂") queued_count=$((queued_count + 1)) ;;
+          "🟢") green_count=$((green_count + 1)) ;;
+          *)    actionable="$actionable $emoji $(osc8_link "$url" "#$number")" ;;
+        esac
+      done < <(jq -r '.prs[] | [.number, .state, .reviews, .ci, (.comments // 0), (.url // "")] | @tsv' "$pr_status_file" 2>/dev/null)
+
+      pr_badge="$actionable"
+      [ "$green_count" -gt 0 ]  && pr_badge="$pr_badge 🟢$green_count"
+      [ "$queued_count" -gt 0 ] && pr_badge="$pr_badge 🚂$queued_count"
+      [ "$merged_count" -gt 0 ] && pr_badge="$pr_badge ✅$merged_count"
+    fi
+  fi
+
+  # Compute the git-sync segment (↓N ↑M) per PLAN-git-sync.md colour rules.
+  git_sync_file=""
+  if [ -n "$toplevel" ] && [ -f "$toplevel/.local/.git-sync.json" ]; then
+    git_sync_file="$toplevel/.local/.git-sync.json"
+  fi
+
+  git_sync_segment=""
+  if [ -n "$git_sync_file" ]; then
+    behind=$(jq -r '.behind_count // 0' "$git_sync_file" 2>/dev/null)
+    ahead=$(jq -r '.ahead_count // 0' "$git_sync_file" 2>/dev/null)
+    # jq's `//` treats `false` as falsey, so we can't use `.fetch_ok // true` —
+    # an explicit fetch_ok=false would be coerced to true. Check for null/missing
+    # explicitly so a real `false` survives.
+    fetch_ok=$(jq -r 'if .fetch_ok == null then "true" else .fetch_ok | tostring end' "$git_sync_file" 2>/dev/null)
+
+    parts=""
+    color=""
+    if [ "${behind:-0}" -gt 0 ]; then
+      parts="↓$behind"
+      if [ "$behind" -ge 6 ]; then
+        color=$'\033[38;5;196m'  # red
+      else
+        color=$'\033[38;5;214m'  # yellow
+      fi
+    fi
+    if [ "${ahead:-0}" -gt 0 ]; then
+      if [ -n "$parts" ]; then
+        parts="$parts ↑$ahead"
+      else
+        parts="↑$ahead"
+        color=$'\033[38;5;245m'  # dim — ahead-only is not actionable
+      fi
+    fi
     if [ -n "$parts" ]; then
-      parts="$parts ↑$ahead"
-    else
-      parts="↑$ahead"
-      color=$'\033[38;5;245m'  # dim — ahead-only is not actionable
+      suffix=""
+      if [ "$fetch_ok" != "true" ]; then
+        suffix="?"
+      fi
+      git_sync_segment=" ${color}${parts}${suffix}"$'\033[0m'
     fi
   fi
-  if [ -n "$parts" ]; then
-    suffix=""
-    if [ "$fetch_ok" != "true" ]; then
-      suffix="?"
+
+  # Compute the worktree State segment from .local/TODO.md. The State: field is
+  # the single axis the clam workflow uses to decide whether a session needs the
+  # user, so surfacing it makes the current state glanceable from the statusline.
+  # Colour mirrors the urgency classes in system-prompt.md (red 196: summons the
+  # user; yellow 214: parked but fine; green 40/34: active or done; dim 245:
+  # neutral). Same $toplevel resolution as the PR-status and git-sync segments.
+  state_segment=""
+  if [ -n "$toplevel" ] && [ -f "$toplevel/.local/TODO.md" ]; then
+    state=$(todo_field "$toplevel/.local/TODO.md" State)
+    if [ -n "$state" ] && command -v state_emoji >/dev/null 2>&1; then
+      glyph=$(state_emoji "$state")
+      color_seq=$(printf '\033[38;5;%sm' "$(state_color "$state")")
+      state_segment="  ${glyph} ${color_seq}${state}"$'\033[0m'
     fi
-    git_sync_segment=" ${color}${parts}${suffix}"$'\033[0m'
   fi
-fi
 
-# Compute the worktree State segment from .local/TODO.md. The State: field is
-# the single axis the clam workflow uses to decide whether a session needs the
-# user, so surfacing it makes the current state glanceable from the statusline.
-# Colour mirrors the urgency classes in system-prompt.md (red 196: summons the
-# user; yellow 214: parked but fine; green 40/34: active or done; dim 245:
-# neutral). Same $toplevel resolution as the PR-status and git-sync segments.
-state_segment=""
-if [ -n "$toplevel" ] && [ -f "$toplevel/.local/TODO.md" ]; then
-  state=$(todo_field "$toplevel/.local/TODO.md" State)
-  if [ -n "$state" ] && command -v state_emoji >/dev/null 2>&1; then
-    glyph=$(state_emoji "$state")
-    color_seq=$(printf '\033[38;5;%sm' "$(state_color "$state")")
-    state_segment="  ${glyph} ${color_seq}${state}"$'\033[0m'
+  # Clam session mode from .local/MODE (written once per worktree by /start).
+  # Rendered without a whitelist: /start owns the mode roster, so new modes need
+  # no lockstep edit here, and a corrupted file fails visible (odd text on the
+  # line) rather than silent (vanished segment). Sanitization is defensive, not
+  # semantic — first line only, non-printables stripped, capped at 24 chars — so
+  # a crafted MODE file in a cloned repo cannot inject terminal escapes or flood
+  # the line. [:print:] keeps spaces ("Go Commando" needs its internal one); the
+  # trim then drops only leading/trailing whitespace. Same $toplevel gating as
+  # the segments above.
+  clam_mode=""
+  if [ -n "$toplevel" ] && [ -f "$toplevel/.local/MODE" ]; then
+    clam_mode=$(head -n 1 "$toplevel/.local/MODE" 2>/dev/null | tr -cd '[:print:]')
+    clam_mode="${clam_mode#"${clam_mode%%[![:space:]]*}"}"
+    clam_mode="${clam_mode%"${clam_mode##*[![:space:]]}"}"
+    clam_mode="${clam_mode:0:24}"
   fi
-fi
 
-# Clam session mode from .local/MODE (written once per worktree by /start).
-# Rendered without a whitelist: /start owns the mode roster, so new modes need
-# no lockstep edit here, and a corrupted file fails visible (odd text on the
-# line) rather than silent (vanished segment). Sanitization is defensive, not
-# semantic — first line only, non-printables stripped, capped at 24 chars — so
-# a crafted MODE file in a cloned repo cannot inject terminal escapes or flood
-# the line. [:print:] keeps spaces ("Go Commando" needs its internal one); the
-# trim then drops only leading/trailing whitespace. Same $toplevel gating as
-# the segments above.
-clam_mode=""
-if [ -n "$toplevel" ] && [ -f "$toplevel/.local/MODE" ]; then
-  clam_mode=$(head -n 1 "$toplevel/.local/MODE" 2>/dev/null | tr -cd '[:print:]')
-  clam_mode="${clam_mode#"${clam_mode%%[![:space:]]*}"}"
-  clam_mode="${clam_mode%"${clam_mode##*[![:space:]]}"}"
-  clam_mode="${clam_mode:0:24}"
+  # Cost summary line — list-price equivalent (counterfactual to the Max plan).
+  # Computed by sibling ccost.sh against ~/.claude/projects JSONL transcripts.
+  # Rendered into a single string (rather than printed directly) so it can be
+  # cached verbatim and replayed on warm renders without re-invoking ccost.sh.
+  cost_line=""
+  ccost_script="$(dirname "$0")/ccost.sh"
+  if [ -x "$ccost_script" ]; then
+    session_cost=""
+    if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+      session_cost=$("$ccost_script" session "$transcript_path" 2>/dev/null)
+    fi
+    day_cost=$("$ccost_script" day 2>/dev/null)
+    week_cost=$("$ccost_script" week 2>/dev/null)
+
+    if [ -n "$session_cost" ] || [ -n "$day_cost" ] || [ -n "$week_cost" ]; then
+      cost_line=$(
+        printf '\033[38;5;245mCost:\033[0m '
+        need_sep=false
+        if [ -n "$session_cost" ]; then
+          printf 'Session: \033[38;5;220m$%s\033[0m' "$(fmt_usd "$session_cost")"
+          need_sep=true
+        fi
+        if [ -n "$day_cost" ]; then
+          if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
+          printf 'Today (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$day_cost")"
+          need_sep=true
+        fi
+        if [ -n "$week_cost" ]; then
+          if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
+          printf 'Week (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$week_cost")"
+        fi
+      )
+    fi
+  fi
+
+  sl_bundle_write
 fi
+# ------------------------------------------------------------------------
 
 # Format the status line. Render $HOME as ~ so the path segment stays short
 # (~ is kept literal; when $HOME is empty or $cwd is outside it, the full path
@@ -313,12 +570,14 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   # appends to the transcript, so its mtime marks the last real turn. Guard the
   # empty/missing case explicitly: file_age() would return a huge now-minus-0
   # value for a missing path and read as "infinitely cold", so only measure a
-  # transcript that actually exists. Same stat helper as file_age() above.
+  # transcript that actually exists. Reuses the render's shared $_sl_now
+  # rather than forking its own `date`, and $_sl_os (via _sl_mtime_epoch)
+  # rather than forking its own `uname`.
   last_activity_epoch=0
   idle_seconds=0
   if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-    last_activity_epoch=$(clam_mtime_epoch "$transcript_path")
-    idle_seconds=$(( $(date +%s) - last_activity_epoch ))
+    last_activity_epoch=$(_sl_mtime_epoch "$transcript_path")
+    idle_seconds=$(( _sl_now - last_activity_epoch ))
     # Clamp a negative idle (possible after an NTP backward step) to 0 so the
     # published idle_seconds is never negative for the agent-dash consumer.
     [ "$idle_seconds" -lt 0 ] && idle_seconds=0
@@ -354,7 +613,7 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
     _ctx_tmp=$(mktemp "$toplevel/.local/.ctx-status.json.XXXXXX" 2>/dev/null)
     if [ -n "$_ctx_tmp" ]; then
       if printf '{"context_tokens":%s,"budget":%s,"used_percentage":%s,"last_activity_epoch":%s,"idle_seconds":%s,"level":"%s","fetched_at":"%s"}\n' \
-           "$used_tokens" "$ctx_budget" "$pct" "$last_activity_epoch" "$idle_seconds" "$level" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_ctx_tmp" 2>/dev/null; then
+           "$used_tokens" "$ctx_budget" "$pct" "$last_activity_epoch" "$idle_seconds" "$level" "$_sl_now_iso" > "$_ctx_tmp" 2>/dev/null; then
         mv -f "$_ctx_tmp" "$toplevel/.local/.ctx-status.json" 2>/dev/null || rm -f "$_ctx_tmp" 2>/dev/null
       else
         rm -f "$_ctx_tmp" 2>/dev/null
@@ -363,33 +622,10 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   fi
 fi
 
-# Cost summary line — list-price equivalent (counterfactual to the Max plan).
-# Computed by sibling ccost.sh against ~/.claude/projects JSONL transcripts.
-ccost_script="$(dirname "$0")/ccost.sh"
-if [ -x "$ccost_script" ]; then
-  session_cost=""
-  if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-    session_cost=$("$ccost_script" session "$transcript_path" 2>/dev/null)
-  fi
-  day_cost=$("$ccost_script" day 2>/dev/null)
-  week_cost=$("$ccost_script" week 2>/dev/null)
-
-  if [ -n "$session_cost" ] || [ -n "$day_cost" ] || [ -n "$week_cost" ]; then
-    printf '\n'
-    printf '\033[38;5;245mCost:\033[0m '
-    need_sep=false
-    if [ -n "$session_cost" ]; then
-      printf 'Session: \033[38;5;220m$%s\033[0m' "$(fmt_usd "$session_cost")"
-      need_sep=true
-    fi
-    if [ -n "$day_cost" ]; then
-      if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
-      printf 'Today (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$day_cost")"
-      need_sep=true
-    fi
-    if [ -n "$week_cost" ]; then
-      if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
-      printf 'Week (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$week_cost")"
-    fi
-  fi
+# Cost summary line. CACHED (see the LIVE/CACHED split above): cost_line is
+# the fully rendered "Cost: ..." text with no leading/trailing newline,
+# computed on a cold render and replayed verbatim on a warm one.
+if [ -n "$cost_line" ]; then
+  printf '\n'
+  printf '%s' "$cost_line"
 fi

@@ -1,7 +1,7 @@
 {
   "name": "statusline",
   "description": "Cam's Claude Code statusline: context-window usage, session cost (list-price equivalent from local transcripts), reasoning effort, and the tracking plugin's session State at a glance. Wired explicitly via /statusline:setup — installing changes nothing.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

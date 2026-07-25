@@ -44,7 +44,7 @@ body:
         - attribution
         - debugging
         - decision-log
-        - deliver
+        - build
         - landing
         - lego
         - notifications

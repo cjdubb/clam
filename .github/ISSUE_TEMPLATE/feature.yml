@@ -7,7 +7,7 @@
 #   1. dropdown  id=plugin        "Affected plugin"          required
 #      Options: "repo-wide / other" first, then every plugins/* directory
 #      name in alphabetical order (currently 17: ask-in-text, attribution,
-#      debugging, decision-log, deliver, landing, lego, notifications,
+#      debugging, decision-log, build, landing, lego, notifications,
 #      orchestrator-handover, privacy, render-doc, session-data, settings,
 #      skill-tracker, statusline, tracking, worktrees).
 #   2. textarea  id=problem       "Problem / motivation"     required
@@ -44,7 +44,7 @@ body:
         - attribution
         - debugging
         - decision-log
-        - deliver
+        - build
         - landing
         - lego
         - notifications

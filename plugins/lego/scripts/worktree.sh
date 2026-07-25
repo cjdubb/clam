@@ -860,8 +860,38 @@ validate_manifest_required_fields() {
 #             merge-base is the same as base tip (base hasn't moved): no
 #             paths can be stale, returns 0 immediately.
 validate_no_stale_base_paths() {
-  # NotImplemented: B03 deliver-stale-base-check
-  return 0
+  local base_branch="$1" unit_branch="$2"
+  shift 2
+  local -a paths=("$@")
+
+  local merge_base
+  if ! merge_base="$(git -C "$REPO_ROOT" merge-base "$unit_branch" "$base_branch" 2>/dev/null)"; then
+    local p
+    for p in "${paths[@]}"; do
+      echo "  stale: $p (changed by: unresolvable merge-base between $unit_branch and $base_branch)" >&2
+    done
+    return 1
+  fi
+
+  local base_tip
+  base_tip="$(git -C "$REPO_ROOT" rev-parse "$base_branch")"
+  if [ "$merge_base" = "$base_tip" ]; then
+    return 0
+  fi
+
+  local found_stale=0
+  local p changed shas
+  for p in "${paths[@]}"; do
+    changed="$(git -C "$REPO_ROOT" diff --name-only "$merge_base" "$base_branch" -- "$p")"
+    if [ -n "$changed" ]; then
+      found_stale=1
+      shas="$(git -C "$REPO_ROOT" log --format='%h' "$merge_base..$base_branch" -- "$p" | tr '\n' ' ')"
+      shas="${shas% }"
+      echo "  stale: $p (changed by: $shas)" >&2
+    fi
+  done
+
+  [ "$found_stale" -eq 0 ]
 }
 
 deliver_cleanup() {

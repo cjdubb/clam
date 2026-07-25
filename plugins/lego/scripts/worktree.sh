@@ -1197,9 +1197,7 @@ cmd_clean() {
   # ---- Parse mode: <plan-slug> or --all ----
   local mode="" plan_slug=""
   if [ "$#" -eq 0 ]; then
-    # TODO(B02): bare clean should be exit 2 after implementation.
-    # Kept as --all fallback during scaffold for test isolation.
-    mode="all"
+    usage_die
   elif [ "$#" -eq 1 ]; then
     case "$1" in
       --all) mode="all" ;;
@@ -1218,12 +1216,7 @@ cmd_clean() {
 
   require_repo_root
 
-  if [ "$mode" = "scoped" ]; then
-    # NotImplemented: B02 clean-plan-scoped
-    die 4 "NotImplemented: B02 clean-plan-scoped"
-  fi
-
-  # ---- Global mode (--all or bare-clean scaffold fallback) ----
+  # ---- Superset: every lego branch, regardless of scope ----
   local -a candidates=()
   mapfile -t candidates < <(
     git -C "$REPO_ROOT" branch --list --format='%(refname:short)' \
@@ -1239,6 +1232,17 @@ cmd_clean() {
   local b
   for b in "${candidates[@]}"; do
     [ -n "$b" ] || continue
+
+    if [ "$mode" = "scoped" ]; then
+      local in_scope=0
+      case "$b" in
+        "lego/$plan_slug/"* | "lego/deliver/$plan_slug/"*) in_scope=1 ;;
+      esac
+      if [ "$in_scope" -ne 1 ]; then
+        err "skipped (foreign): $b"
+        continue
+      fi
+    fi
 
     local is_merged=0
     local m

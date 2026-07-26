@@ -42,9 +42,9 @@ body:
         - "repo-wide / other"
         - ask-in-text
         - attribution
+        - build
         - debugging
         - decision-log
-        - deliver
         - landing
         - lego
         - notifications

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Functional test for deliver-context.sh: SessionStart injection of delivery
+# Functional test for build-context.sh: SessionStart injection of delivery
 # framework context, adapting to which companion plugins (landing, lego,
 # tracking) are present under <cwd>/plugins/. Covers: all-companions-present
 # (all three per-companion markers + the standing sync-pr instruction),
@@ -11,11 +11,26 @@
 # that would leave a side-effect marker if executed/sourced must never run),
 # and the fail-open paths (no jq, no cwd, malformed JSON input).
 # Hermetic: each case renders against a fresh temp cwd.
-# Run: bash plugins/deliver/scripts/b03-deliver-context.test.sh (exits
+# Run: bash plugins/build/scripts/b03-build-context.test.sh (exits
 # non-zero on failure)
+#
+# Contract: B02 test-rename
+#
+# Behavior:
+#   All test assertions reference "/build:sync-pr" (the renamed skill
+#   namespace) and "build-context.sh" (the renamed script). The HOOK
+#   variable points to build-context.sh. Test labels use the new names.
+#   Test logic and coverage are unchanged from the deliver-context.test.sh
+#   original — this is a rename of references, not a test rewrite.
+#
+# Invariants:
+#   - No remaining references to "deliver" as a plugin name, script name,
+#     or skill namespace in test labels or assertions
+#   - All existing test cases preserved (no coverage regression)
+#   - The HOOK variable points at build-context.sh, not deliver-context.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK="$SCRIPT_DIR/deliver-context.sh"
+HOOK="$SCRIPT_DIR/build-context.sh"
 
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
@@ -66,8 +81,8 @@ check "all-companions context includes the lego dispatch marker" \
   "$(has "$out" 'dispatch')" "yes"
 check "all-companions context includes the tracking state-lifecycle marker" \
   "$(has "$out" 'state lifecycle')" "yes"
-check "all-companions context includes the /deliver:sync-pr standing instruction" \
-  "$(has "$out" '/deliver:sync-pr')" "yes"
+check "all-companions context includes the /build:sync-pr standing instruction" \
+  "$(has "$out" '/build:sync-pr')" "yes"
 
 # ---------------------------------------------------------------------------
 # 2. No companions: plugins/ absent entirely (contract edge case: "repo with
@@ -78,8 +93,8 @@ WD2="$TMPROOT/none"
 mkdir -p "$WD2"
 out=$(ctx "$(payload "$WD2")")
 
-check "no-companions context still includes the /deliver:sync-pr standing instruction" \
-  "$(has "$out" '/deliver:sync-pr')" "yes"
+check "no-companions context still includes the /build:sync-pr standing instruction" \
+  "$(has "$out" '/build:sync-pr')" "yes"
 check "no-companions context has no landing merge-policy marker" \
   "$(has "$out" 'merge policy')" "no"
 check "no-companions context has no lego dispatch marker" \

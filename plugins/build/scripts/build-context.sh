@@ -1,10 +1,10 @@
 #!/bin/bash
-# SessionStart hook for the deliver plugin. Detects which companion plugins
+# SessionStart hook for the build plugin. Detects which companion plugins
 # are installed and injects the delivery framework context — the lifecycle
 # stages, how plugins compose, and standing instructions for PR description
 # sync.
 #
-# Contract: B03 deliver-plugin-skeleton
+# Contract: B01 plugin-rename-core
 #
 # Behavior:
 #   Checks for companion plugins (landing, lego, tracking) by testing for
@@ -15,11 +15,11 @@
 #     - landing present: includes merge policy context, PR creation guidance.
 #     - lego present: includes dispatch/delivery context.
 #     - tracking present: includes state lifecycle context.
-#     - none present: injects a minimal context explaining the deliver
+#     - none present: injects a minimal context explaining the build
 #       plugin's purpose and suggesting companion plugins.
 #
 #   Always includes the standing instruction: "After every push to a branch
-#   with an open PR, sync the PR description using /deliver:sync-pr."
+#   with an open PR, sync the PR description using /build:sync-pr."
 #
 # Inputs:
 #   stdin — JSON object with at least { "cwd": "<path>" }.
@@ -40,6 +40,8 @@
 #     not import-based (never sources companion scripts).
 #   - The PR description sync instruction is always injected regardless
 #     of which companions are present.
+#   - All user-visible text references "build" (the plugin name) and
+#     "/build:sync-pr" (the skill namespace), never "deliver".
 #
 # Edge cases:
 #   - Repo with no plugins/ directory: all companions absent, minimal context.
@@ -97,8 +99,8 @@ fi
 
 if ! $landing_present && ! $lego_present && ! $tracking_present; then
   sections="
-No companion plugins (landing, lego, tracking) were detected. The deliver
-plugin still works standalone for PR description sync via /deliver:sync-pr,
+No companion plugins (landing, lego, tracking) were detected. The build
+plugin still works standalone for PR description sync via /build:sync-pr,
 as long as the gh CLI is installed and authenticated. Installing the
 companion plugins under plugins/ unlocks richer session context: how
 merges and pull requests are handled, how work gets planned and carried
@@ -109,7 +111,7 @@ fi
 standing="
 Standing instruction: after every push to a branch with an open PR, sync
 the PR description to reflect the current state of the branch using
-/deliver:sync-pr.
+/build:sync-pr.
 "
 
 context="# Delivery framework

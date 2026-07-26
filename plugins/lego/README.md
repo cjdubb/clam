@@ -303,9 +303,9 @@ it's installed:
   when present, as one of its progress signals — recognizing dispatchable
   blocks (e.g. Scaffolded blocks ready for a test wave) and recommending
   `/lego:dispatch`.
-- **deliver** detects the `plugins/lego` directory at session start and,
+- **build** detects the `plugins/lego` directory at session start and,
   when present, adds plan/scaffold/dispatch context to its briefing; its
-  `/deliver:sync-pr` skill treats PRs opened via lego's own delivery step
+  `/build:sync-pr` skill treats PRs opened via lego's own delivery step
   as one of the paths whose description it keeps in sync, alongside
   `/landing:land` and manual `gh pr create`.
 

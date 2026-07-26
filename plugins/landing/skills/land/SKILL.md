@@ -50,7 +50,7 @@ Invariants:
   - Never lands red (failing verify is not a judgment call).
   - Never guesses a missing policy.
   - github-pr + user: orchestrator never merges the PR.
-  - Delegation seam: if a deliver plugin providing a create-pr skill is
+  - Delegation seam: if a build plugin providing a create-pr skill is
     installed, invoke that for the github-pr path instead of the built-in.
 
 Edge cases:
@@ -125,7 +125,7 @@ land red — a failing gate is not a judgment call.
 
 ### github-pr
 
-1. Delegation seam: if a `deliver` plugin providing a create-pr skill is
+1. Delegation seam: if a `build` plugin providing a create-pr skill is
    installed, invoke that skill for steps 3–4 below instead of the
    built-in path (it owns richer PR conventions). Step 5's tracking
    handoff still applies either way.

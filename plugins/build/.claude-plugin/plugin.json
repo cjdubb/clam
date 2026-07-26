@@ -1,0 +1,9 @@
+{
+  "name": "build",
+  "description": "High-level software delivery framework composing landing, lego, and tracking into a single lifecycle, and keeping PR descriptions in sync via build:sync-pr.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

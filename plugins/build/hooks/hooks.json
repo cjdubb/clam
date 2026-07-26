@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deliver-context.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/build-context.sh",
             "timeout": 10
           }
         ]

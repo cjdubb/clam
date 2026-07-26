@@ -1,34 +1,7 @@
 #!/bin/bash
-# Structural/anchor test for Contract: B02 skill-gate-reinforcement, which
-# inserts one reinforcement paragraph/sentence at each of 4 locations across
-# 3 skill files (plan/SKILL.md Step 0 and Step 3, scaffold/SKILL.md Step 3,
-# dispatch/SKILL.md's escalation loop), each replacing a
-# "NotImplemented: B02 ..." placeholder that currently sits directly after
-# that location's own "<!-- Contract: B02 ... -->" docblock.
-#
-# These are documentation files, not executable code, so the tests here are:
-#   - "Marker gone": each location's exact NotImplemented placeholder string
-#     no longer appears anywhere in its file; no "NotImplemented: B02" token
-#     survives in any of the 3 files (cross-cutting).
-#   - "Zone content": a `zone` helper isolates exactly the text inserted at
-#     each location — everything after that location's own docblock (the
-#     "-->" line that closes the "Contract: B02 ..." comment unique to that
-#     location) up to (not including) the next stable anchor line/phrase
-#     that must survive the edit unchanged. This deliberately excludes the
-#     docblock's own prose, which already contains much of the contract's
-#     vocabulary, so a check against the docblock itself can never make a
-#     zone check pass by accident.
-#   - "Required tokens": literal (fixed-string) tokens that a genuine
-#     reinforcement satisfying the contract's Invariants must contain,
-#     checked only within the relevant zone.
-#   - "Invariants": pre-existing headings/frontmatter survive unchanged.
-# This file does not test prose semantics beyond tokens/zones/headings —
-# meaning (e.g. "references rather than restates") is verified by the
-# orchestrator at acceptance.
-#
-# These tests MUST fail against the current stubs (which have NotImplemented
-# markers and therefore empty zones). They should pass once the implementer
-# replaces each placeholder with a reinforcement that covers its contract.
+# Verifies per-gate reinforcement paragraphs in the plan, scaffold, and
+# dispatch skill files — each transition point requires confirming all
+# questions are answered before proceeding.
 #
 # Run: bash plugins/lego/scripts/skill-gate-reinforcement.test.sh
 #      (exits non-zero on failure)

@@ -1,21 +1,6 @@
 #!/bin/bash
-# Tests for Contract: B01 standing-rule-question-gate (the docblock
-# immediately above the "NotImplemented: B01" placeholder line inside
-# session-context.sh's heredoc). Verifies the hook's stdout gains a new
-# standing rule requiring every orchestrator question to be explicitly
-# answered before proceeding, covering all 4 invariant sub-points and both
-# contract edge cases, without disturbing the existing standing rules.
-#
-# Hermetic: runs the hook with CLAUDE_PROJECT_DIR pointed at an empty temp
-# dir (no .local/blocks.md), so stdout is exactly the static heredoc
-# content — no block-map section is appended.
-#
-# Token checks use word-boundary regex stems (not the contract's exact
-# phrasing) since the contract text itself is, pre-implementation, embedded
-# verbatim in the stub's heredoc output — matching it verbatim would pass
-# against the stub and could reject a correctly-worded but differently
-# phrased implementation. The "NotImplemented" removal check is what MUST
-# (and does) fail against the current stub.
+# Verifies the session-context hook emits a standing rule requiring every
+# orchestrator question to be explicitly answered before proceeding.
 #
 # Run: bash plugins/lego/scripts/session-context-question-gate.test.sh
 #      (exits non-zero on failure)

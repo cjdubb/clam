@@ -59,6 +59,14 @@ system never sees. Blocks are recursive; compositions are themselves blocks
 - Repo specifics (verify commands, model tiers) come ONLY from the layered
   config: committed `.claude/lego.json` merged with an optional gitignored
   `.local/config.json` override (see the plugin's docs/config-schema.md).
+- **Every question must be explicitly answered before proceeding.** When the
+  orchestrator poses a question to the engineer, no background agents,
+  exploration, or next-step progression may proceed until every question
+  receives an explicit answer — partial responses do not count as
+  sufficient, and any question left unanswered must be restated to the
+  engineer. A question the engineer explicitly declines or skips counts as
+  answered; a bare "go" accepting the recommended defaults counts as
+  answering all open questions.
 EOF
 
 if [ -f "$root/.local/blocks.md" ]; then

@@ -417,6 +417,10 @@ Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
   plan Changelog, re-scaffold the affected blocks, re-run their test wave,
   then re-dispatch (again, a fresh-`NN` brief). Affected dependents get
   re-verified.
+
+  Wait for the engineer's full decision before re-scaffolding or
+  re-dispatching. If their response only answers part of the escalation,
+  restate the unanswered part rather than proceeding as if it doesn't matter.
 - **A test is wrong** (implementer escalation): arbitrate against the
   contract. Test wrong → back to a test-writer, contract clause cited.
   Contract wrong → engineer, as above. Never let an implementer's claim

@@ -65,8 +65,8 @@ injection.
 
 Port change: the policy file moved from `.claude/clam-profile.md` (flat
 frontmatter keys) to `.claude/clam-profile.jsonc` (JSON with `//` comments)
-alongside the **deliver** plugin's introduction (plan 001) — see
-**deliver** below.
+alongside the **build** plugin's introduction (plan 001) — see
+**build** below.
 
 Couplings to honor at later ports:
 
@@ -78,27 +78,30 @@ Couplings to honor at later ports:
   is the natural second resident of the profile file — namespaced keys in
   `.claude/clam-profile.jsonc`, not a new file.
 
-## deliver — new (not a port)
+## build — new (not a port)
 
 No clam-code ancestor; born 2026-07-22 from issue #56 (PR description
-sync). Composition layer above **landing**, **lego**, and **tracking**:
-a SessionStart hook (`deliver-context.sh`) that detects which companion
-plugins are installed and explains how they compose into a delivery
-lifecycle, plus the `/deliver:sync-pr` skill that keeps an open PR's
-description current with the branch behind it regardless of which
-companion (or manual `gh pr create`) opened it. Degrades gracefully when
-none of its companions are installed.
+sync) as **deliver**, renamed to **build** 2026-07-26 (PR #137, plan
+001-github-issue-13) — a filesystem rename, not a replacement: same
+directory history, same contract, only the name and its `/deliver:` skill
+namespace changed (now `/build:`). Composition layer above **landing**,
+**lego**, and **tracking**: a SessionStart hook (`build-context.sh`) that
+detects which companion plugins are installed and explains how they
+compose into a delivery lifecycle, plus the `/build:sync-pr` skill that
+keeps an open PR's description current with the branch behind it
+regardless of which companion (or manual `gh pr create`) opened it.
+Degrades gracefully when none of its companions are installed.
 
 Absorbs the composition/orchestration slice of the **pr-workflow** plugin
 planned above: `pr-workflow`'s reviewer-side skills (`pr-review`,
 `pr-review-perfect`, `find-reviewer`, `get-pr-comments`,
 `address-pr-feedback`, etc.) remain planned there unchanged, but the
 PR-description-freshness concern that would otherwise have landed in
-`pr-workflow` belongs to deliver instead.
+`pr-workflow` belongs to build instead.
 
 Shipped alongside the `.claude/clam-profile.md` → `.claude/clam-profile.jsonc`
-profile format change (see **landing**), since deliver's session-start
-context and `/deliver:sync-pr` both read repo-declared policy.
+profile format change (see **landing**), since build's session-start
+context and `/build:sync-pr` both read repo-declared policy.
 
 ## tracking — ported (from clam-code)
 

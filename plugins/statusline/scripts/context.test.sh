@@ -103,11 +103,33 @@ mk_wt() { # dir
   touch "$1/.local/.pr-status-refresh.lock" "$1/.local/.git-sync-refresh.lock"
 }
 
+# Block until the wall clock has just ticked over into a new second.
+#
+# Both sides of every freshness comparison are whole seconds: backdate_all
+# stamps an mtime via `touch -t` (one-second granularity) and the renderer
+# reads its own clock with `date +%s`, going stale at age >= TTL. Those two
+# reads happen a few tens of milliseconds apart, so if the clock crosses an
+# integer-second boundary in between, the computed age lands one second
+# higher than the test asked for -- turning a deliberately-just-fresh bundle
+# (age TTL-1) stale and failing the assertion. Starting each backdate at the
+# top of a second leaves ~1s of headroom before that can happen. Only the
+# "still warm" direction is at risk: an extra second can never make an
+# already-stale bundle (age TTL) look fresh, since clocks do not run backward.
+settle_to_second() {
+  local t0
+  t0=$(date +%s)
+  while [ "$(date +%s)" = "$t0" ]; do
+    sleep 0.02
+  done
+}
+
 # Backdate (or, with a negative seconds_ago, future-date) every regular file
-# under a directory. Used to age a cache bundle without sleeping in
-# wall-clock time and without needing to know the bundle's internal filename.
+# under a directory. Used to age a cache bundle without sleeping out the full
+# age in wall-clock time and without needing to know the bundle's internal
+# filename. Waits for a second boundary first -- see settle_to_second.
 backdate_all() { # dir seconds_ago
   local dir="$1" secs="$2" epoch stamp
+  settle_to_second
   epoch=$(( $(date +%s) - secs ))
   stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null)
   find "$dir" -type f -exec touch -t "$stamp" {} + 2>/dev/null

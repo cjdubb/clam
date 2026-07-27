@@ -5,15 +5,34 @@ Tracks where every element of the previous iterations lands. Statuses:
 plugin, not yet ported), **out of scope** (deliberately left behind),
 **dropped** (superseded).
 
-Hook assignments are best-effort from clam-code's `general/hooks/README.md`;
-confirm each hook's wiring and dependencies at port time.
+Hook-to-plugin assignments, and every other status claim in this file
+predating plan 001-github-issue-13, were verified on 2026-07-27 against
+clam-code (origin `clipboard-app/clam-code`) and clam-generic (origin
+`cjdubb/clam-generic`) — **both are source surfaces this map tracks, not
+clam-code alone** — and against this repo's shipped `plugins/` and
+`.claude-plugin/marketplace.json`. Claims that did not survive checking were
+corrected in place, with the evidence noted inline; a status of
+`unverified — <reason>` marks a claim that could not be checked at all.
 
 ## lego — ported (from clam-v2)
 
 Skills renamed to drop the redundant prefix: `lego-plan` → `/lego:plan`,
 `lego-scaffold` → `/lego:scaffold`, `lego-dispatch` → `/lego:dispatch`.
 Agents (`lego-test-writer`, `lego-implementer`), realm scripts, hooks,
-templates, and docs ported unchanged. clam-v2's repo and marketplace retire;
+templates, and docs ported from clam-v2. "Unchanged" no longer holds, though
+— diffed against clam-v2's working tree (2026-07-27): `hooks/hooks.json` and
+`scripts/realm-check.sh` remain byte-identical, but `scripts/realm-gate.sh`
+has since gained the `.local/`-read-only deny, `scripts/realm.sh` and
+`docs/config-schema.md` gained the layered `.claude/lego.json` +
+`.local/config.json` config with multi-variant test commands,
+`scripts/session-context.sh`, `agents/lego-implementer.md`, and
+`agents/lego-test-writer.md` were rewritten for the worktree-per-unit
+dispatch model (each worker gets its own dedicated worktree and a seeded
+`.local/` brief, rather than sharing one checkout), and `templates/blocks.md`
+/ `templates/lego.json` (renamed from clam-v2's `config.json`) gained
+`Unit:`/`PR group:` and `delivery.mode` fields. The status stays **ported
+(from clam-v2)** — nothing here gained a clam-code ancestor instead — this
+corrects only the "unchanged" claim. clam-v2's repo and marketplace retire;
 this is the canonical home.
 
 The v1 lego agents in clam-code (`lego-builder`, `lego-stub-builder`,
@@ -94,6 +113,13 @@ record, the 13-state lifecycle, Stop-hook enforcement, and resume-after-/clear.
   UserPromptSubmit), new `session-context.sh` (SessionStart) carrying the
   system-prompt Work Management rules + resume pointer + epoch-marker resets
   (the marker-clearing duties of `session-track.sh`/`post-compact.sh`)
+- Also carries `flush-nudge.sh` (UserPromptSubmit), `post-compact-recovery.sh`
+  (SessionStart, `compact` matcher), and `precompact-snapshot.sh`
+  (PreCompact) — session-continuity hooks landed directly in tracking on
+  2026-07-22 (`b29758b`), separately from the make-progress absorption below.
+  Corrected 2026-07-27: this map previously still listed these three under
+  session-modes' still-to-port hooks; they are already shipped and wired
+  here (`plugins/tracking/hooks/hooks.json`).
 
 Port changes: the `CLAM_SESSION` alias gate became
 `CLAM_TRACKING_STOP_GATE` (default enabled; plugin enablement is the opt-in);
@@ -131,17 +157,22 @@ install-changes-nothing constraint holds.
 
 ## session-modes — planned
 
-- Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
-  `whats-cooking`, `planning`, `orchestrator-handover` (moved to
-  **orchestrator-handover**)
+- Skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`,
+  `planning`, `orchestrator-handover` (moved to **orchestrator-handover**)
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
-  injection, so session-modes must not duplicate it), `flush-nudge.sh`,
-  `capture-make-progress.sh`, `post-compact.sh`, `precompact-snapshot.sh`
+  injection, so session-modes must not duplicate it)
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
   `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
-  **notifications**, their consumers)
+  **notifications**, their consumers. Corrected 2026-07-27: the
+  `make-progress` skill, and hooks `flush-nudge.sh`, `capture-make-progress.sh`
+  (now `capture.sh`), `post-compact.sh` (now `post-compact-recovery.sh`), and
+  `precompact-snapshot.sh`, are also already ported — into **tracking**, not
+  session-modes (see the **tracking** section above) — verified via this
+  repo's own commit history (`5dd0145`, `b29758b`) and
+  `plugins/tracking/hooks/hooks.json`. This map previously still listed them
+  here as session-modes' to port.)
 
 ## orchestrator-handover — ported (from clam-code)
 
@@ -564,21 +595,40 @@ Edge cases:
     scope for verification.
 -->
 
-## ask-in-text — TBD
+## ask-in-text — new (not a port)
 
-_NotImplemented: B02 — populated by the audit._
+No clam-code/clam-generic ancestor. `AskUserQuestion` appears exactly once in
+either source repo's `general/` tree — `general/skills/start/SKILL.md`,
+telling that one skill not to use the tool because of its 4-option limit —
+not a generic picker-blocking mechanism. This plugin's PreToolUse deny
+(`scripts/block-question.sh`) plus SessionStart plain-text-question redirect
+(`scripts/questions-context.sh`) has no source-repo precedent.
 
-## debugging — TBD
+## debugging — new (not a port)
 
-_NotImplemented: B02 — populated by the audit._
+No clam-code/clam-generic ancestor. The only debugging-named skill in either
+source repo is `debug-playwright-tests` (tech-specific; already tracked in
+**Unassigned**), a narrow Playwright-test debugger, not a general root-cause
+methodology. This plugin's `root-cause` skill (reproduction, what-changed
+archaeology, differential diagnosis, binary-search isolation, log/database
+evidence gathering, class-level prevention) has no source-repo precedent.
 
-## session-data — TBD
+## session-data — new (not a port)
 
-_NotImplemented: B02 — populated by the audit._
+No clam-code/clam-generic ancestor. Neither source repo has a skill or hook
+that locates session transcript/data files; this plugin's
+`/session-data:paths` skill is new.
 
-## updates — TBD
+## updates — new (not a port)
 
-_NotImplemented: B02 — populated by the audit._
+No clam-code/clam-generic ancestor in the sense that matters here: clam-code
+ships an `update.sh` at its repo root, but that is a fast-forward `git pull`
+followed by re-running `setup.sh` over the whole dotfiles-style `general/`
+tree — a different mechanism entirely from this plugin's per-plugin
+marketplace version diff, which only makes sense once plugins exist as
+independently versioned units (clam-code predates the plugin architecture).
+`/updates:run`'s catalog refresh, per-plugin version diff and confirm-to-apply
+flow, and setup-version-stamp tracking (`docs/setup-stamps.md`) are new.
 
 <!--
 Contract: B03 MIGRATION.md bookkeeping
@@ -608,8 +658,12 @@ composition test (B05) excludes MIGRATION.md from stale-path checks.
 
 ## Unassigned — decide at port time
 
-- `support-fix`, `support-triage` (support cluster — own plugin or fold into
-  pr-workflow)
+- _(the former "support" cluster entries here — two skill names — were
+  retired before the plugin era and are not a migration candidate. Verified
+  2026-07-27: absent from both source repos' `general/` trees entirely;
+  every occurrence found in either repo is historical — confined to
+  `decision-logs/*.md`, 4 files, and one dated release note — matching the
+  plan-time hint exactly.)_
 - `writing-markdown`, `rtfm` (writing cluster)
 - `debug-playwright-tests` (tech-specific; maybe stays a repo-local skill)
 - `orient`-adjacent statusline data? (see statusline note below)

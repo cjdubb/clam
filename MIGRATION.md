@@ -799,4 +799,51 @@ Edge cases:
 
 ## Migration candidate register
 
-_NotImplemented: B03 — populated by the audit._
+Every row below traces to a B01 "## Audit:" section or a B02-reconciled
+pre-existing section. Elements B01/B02 marked **ported** or **dropped** are
+excluded — they are not candidates, the action already happened. Clusters
+(a whole "planned" plugin section) get one row each, named as a cluster, so
+the follow-up issue they become is sized right; individual elements get
+their own row when the map itself singles them out (the two `pre-pr-verify`
+findings, the two lib files the divergence audit surfaced but never
+assigned, the Unassigned bullets, the doc-referenced `fewer-permission-prompts`
+gap).
+
+| Element | Source surface | Current status | Recommendation | Rationale |
+| --- | --- | --- | --- | --- |
+| pr-workflow plugin cluster (12 skills incl. `create-pr`, `address-pr-feedback`, `get-pr-comments`, `find-reviewer`, `pr-author-checklist`, `pr-retrospective`, `pr-review`, `pr-review-perfect`, `pr-status`, `status-sync`, `issue-tracker`, `doc-sync`; `skills/PR-WORKFLOW.md`; `reviewer` agent; `pr-status.sh` hook) | clam-code general/skills+hooks (clam-generic preferred where a skill diverges — see the divergence audit) | planned | port | Whole plugin is assigned but not yet built; `pre-pr-verify` is disambiguated into its own row below rather than folded in here. |
+| `pre-pr-verify` skill (clam-generic's provider-agnostic copy) | clam-generic general/skills/pre-pr-verify | planned (pr-workflow) | port | The gate sequence pr-workflow is planned to absorb; generalized from repos/clipboard's Clipboard-hardcoded copy, listed separately (out of scope) below — same name, different surface. |
+| session-modes plugin cluster (skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`, `planning`; hook: `session-start.sh`; lib dependency: `worktree-naming.sh`) | clam-code general/skills/{start,orient,sitrep,role-check,whats-cooking,planning}, general/hooks/session-start.sh, general/lib/worktree-naming.sh | planned | port | Whole plugin assigned but not yet built; `session-start.sh` must absorb `system-prompt.md`'s workflow-rules content (the alias mechanism itself is out of scope, below), and `worktree-naming.sh` is `/start`'s un-shipped lib dependency, surfaced by the divergence audit. |
+| team-review plugin cluster (skills: `team-code-review`, `team-council`, `team-exploration`, `independent-review`, `independence-protocol`, `subagent-orchestration`; agents: `Explore`, `browser`) | clam-code general/skills/{...}, general/agents/{Explore,browser} | planned | port | Whole plugin assigned but not yet built; no hook (`orchestrator-guard.sh` is dropped, incompatible with the lego scaffold phase). |
+| permissions plugin cluster (hook: `permission-audit.sh`; skill: `analyze-permissions.sh` promoted to `/permissions:analyze`) | clam-code general/hooks/permission-audit.sh, general/analyze-permissions.sh (unwired CLI helper) | planned | port | Whole plugin assigned but not yet built; the doc-referenced `fewer-permission-prompts` gap is a separate open call, listed under needs decision below. |
+| git-guard plugin cluster (hook: `git-guard.sh` + `git-guard.test.sh`) | clam-code general/hooks/git-guard.sh | planned | port | Single guard assigned but not yet built; shares the `CLAM_AUTO_REVIEWER` knob with pr-workflow. |
+| cron-guard plugin cluster (hook: `cron-guard.sh` + `cron-guard.test.sh`) | clam-code general/hooks/cron-guard.sh | planned | port | Single guard assigned but not yet built. |
+| agent-dash plugin cluster (hooks: `agent-dash-permission.sh`, `session-track.sh`, `git-sync.sh`) | clam-code general/hooks/{agent-dash-permission.sh,session-track.sh,git-sync.sh}; clam-generic general/hooks/agent-dash-permission.test.sh | planned | port | Whole plugin assigned but not yet built; the coupling with session-modes' state files still needs untangling per the map's own note, and `session-guard.sh`'s ownership is a separate open decision, listed below. |
+| `absorb-package` skill | clam-code general/skills/absorb-package | out of scope | out of scope | NX-graph package-consolidation skill scoped to the Clipboard monorepo; the implementation layer repos/clipboard's `monorepo-consolidation` hands off to — not portable to a generic marketplace. |
+| `clipboard-helpers.sh` / `.fish` / `.test.sh` | clam-code general/lib/clipboard-helpers.* | out of scope | out of scope | Clipboard-repo-coupled (`CLIPBOARD_ENV_DIR`, `newcliptree`); orchestrator-handover already dropped the CLIP-* branching these files exist to serve. |
+| `trees-dir.sh` / `.fish` / `.test.sh` and `worktree-helpers.sh` / `.fish` / `.test.sh` | clam-code general/lib/trees-dir.*, general/lib/worktree-helpers.* | out of scope | out of scope | Implement `cdt`/`newtree`/`rmtree`; repo-agnostic but not shipped as files anywhere in `plugins/` — the worktrees plugin's skills document their usage without shipping them, same reasoning the map gives both. |
+| repos/clipboard overlay — skills `angular-dev`, `database`, `database-migrations`, `monorepo-consolidation`, `stricten`, `strictening`; `rules/backend.md`, `rules/tests.md`, `rules/typescript.md`; `git-hooks/pre-push`; `lib/overlay-claude-config.sh`/`.test.sh`; `API.md`, `CLAUDE.md` | repos/clipboard/ | out of scope | out of scope | Repo-specific-by-nature — bound to the Clipboard monorepo's own stack (NX, Angular, PostgreSQL, Husky) or its product context; would need a rewrite, not a port, to serve a generic marketplace. |
+| `pre-pr-verify` skill (repos/clipboard's Clipboard-hardcoded original) | repos/clipboard/skills/pre-pr-verify | out of scope | out of scope | Clipboard-hardcoded (NX targets, `npm run format-code`, Docker/.env preconditions); the provider-agnostic generalization it was rewritten into is clam-generic's copy, listed as a port candidate above — same name, different surface. |
+| `claude-alias.sh` + `claude-alias.fish` (the clam alias mechanism) | clam-code general/claude-alias.sh, general/claude-alias.fish | out of scope | out of scope | The alias mechanism itself dies with the `clam` alias; only its content (system-prompt.md's workflow-rules text) survives, already folded into the session-modes cluster above. |
+| `clam-settings.json` sidecar, `managed-settings-setup.sh`, `managed-version-lock.json` | clam-code general/clam-settings.json, general/managed-settings-setup.sh, general/managed-version-lock.json | out of scope | out of scope | Contents already redistributed piecemeal into other plugins (hooks, permissions, skill overrides); what remains is personal tuning, not a portable unit. |
+| `setup.sh`, `update.sh`, `cleanup.sh`, `cleanup-legacy.sh`, `setup-git-repo-with-trees.sh`, `claude-rules*.sh` | clam-code repo root | out of scope | out of scope | Dotfiles-style repo-bootstrap scripts, superseded by the plugin/marketplace install model (updates' per-plugin version diff replaces `update.sh`'s whole-tree `git pull`); not portable as marketplace plugins. |
+| `general/CLAUDE.md` | clam-code general/CLAUDE.md | out of scope | out of scope | Global, user-managed universal rules — not plugin-shaped content. |
+| `todo-worktree.sh` | clam-code general/todo-worktree.sh | deliberately not ported (revisit alongside tracking) | needs decision | Depends on clam-code session tooling this repo doesn't have yet — should it be revisited once the tracking plugin's session tooling matures, or dropped permanently? |
+| `session-guard.sh` | clam-code/clam-generic general/lib/session-guard.sh (one of the 65 files differing between the two) | unassigned | needs decision | Consumed by both `session-track.sh` (agent-dash, planned) and `claude-alias.sh` (out of scope) — should it follow agent-dash's port, or the alias mechanism's retirement? |
+| `writing-markdown`, `rtfm` (writing cluster) | clam-code general/ (exact skill paths not stated in the map's pre-existing Unassigned section) | unassigned | needs decision | Listed in Unassigned with no destination plugin named — should this become its own plugin, fold into an existing one, or move to out of scope? |
+| `debug-playwright-tests` | clam-code general/ (exact path not stated in the map) | unassigned | needs decision | Narrow, tech-specific Playwright-test debugger — should it ship as a marketplace plugin skill, or remain repo-local tooling outside the marketplace? |
+| orient-adjacent statusline data | clam-code general/ (Unassigned section bullet; its own cross-reference to a "statusline note below" does not resolve to any content elsewhere in this file) | unassigned | needs decision | What should happen to `/orient`'s statusline-adjacent data is unresolved, and the map's own pointer to a clarifying note is dangling — should this wait until that note is found or rewritten, or be decided without it? |
+| `fewer-permission-prompts` (doc-referenced, never built) | clam-code docs reference only — general/ (no skill file exists in either source repo) | gap — referenced in clam-code's docs, never built | needs decision | clam-code's docs reference a `fewer-permission-prompts` skill that was never built in either source repo — build it fresh here, or drop the dangling doc references? |
+
+port: 8 · drop: 0 · out of scope: 9 · needs decision: 6
+
+Excluded, and why: the seven clam-code-trees worktree branches B01 audited
+are not rows above. Five carry zero commits ahead of `origin/master` (no
+content to name). The two with commits — `integration/genericize` (76
+ahead) and `orchestrate/hook-errors` (1 ahead) — are both **redundant** per
+B01: the former's tip is byte-identical to clam-generic's current `master`,
+already covered by the divergence audit above; the latter's one commit
+already landed on `origin/master` under a different SHA. Neither contributes
+a distinct candidate beyond what the rows above already carry, so treating
+them as additional rows would restate the map rather than extend the action
+list.

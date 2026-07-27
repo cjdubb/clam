@@ -263,7 +263,7 @@ bash plugins/lego/scripts/agent-defs.test.sh
 bash plugins/lego/scripts/dispatch-skill.test.sh
 bash plugins/lego/scripts/plan-lifecycle.test.sh
 bash plugins/lego/scripts/realm-gate.test.sh
-bash plugins/lego/scripts/worktree_test.sh
+bash plugins/lego/scripts/worktree.test.sh
 ```
 
 ## Layout

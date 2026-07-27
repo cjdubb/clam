@@ -5,7 +5,7 @@
 #
 # New/changed clauses in plan 001-layered-config are marked (NEW, plan 001-lc)
 # or (CHANGED, plan 001-lc); every other clause is pre-existing behavior
-# already covered by worktree_test.sh.
+# already covered by worktree.test.sh.
 #
 # Behavior:
 #   Manages the git worktrees, branches, and delivery PRs for lego work

@@ -418,15 +418,66 @@ Edge cases:
 
 ## Audit: clam-generic divergence
 
-_NotImplemented: B01 — populated by the audit._
+A diff -rq run between clam-code's general/ tree (origin clipboard-app/clam-code) and clam-generic's general/ tree (origin cjdubb/clam-generic) reports 79 entries, confirming the plan-time count exactly: 3 present only in clam-generic, 11 present only in clam-code, and 65 present in both but differing in content.
+
+**Preferred migration source: clam-generic.** Where the two repos diverge on a shared file, clam-generic's version is consistently the already-genericized one, and in several cases it already matches decisions this map has made independently, which is stronger evidence than "the fork whose point is being generic, therefore prefer it" would be on its own. clam-generic's hooks/git-guard.sh exempts a configurable reviewer login instead of hardcoding CodeRabbit — the exact CLAM_AUTO_REVIEWER knob the **git-guard** section above already plans to carry. clam-generic's system-prompt.md replaces the Jira-only ticket gate with the issue-tracker skill's provider seam and drops the Clipboard-only "Strictening" mode entirely; lib/worktree-naming.sh drops that same Strictening mode from its legal-mode table. clam-code's clam-settings.json still carries clipboard-repo-only permission entries (Bash(newcliptree:*), Bash(cdt), Read(~/clipboard-repos/**)) that clam-generic has already stripped.
+
+Generic-only (present only in clam-generic; verified, matches the plan-time hint):
+
+- `general/skills/issue-tracker` — planned (pr-workflow)
+- `general/skills/pre-pr-verify` — planned (pr-workflow); this is the provider-agnostic gate sequence — disambiguated against repos/clipboard's own copy of `pre-pr-verify` in the next section
+- `general/hooks/agent-dash-permission.test.sh` — planned (agent-dash); the test suite for `agent-dash-permission.sh`, which the **agent-dash** section already lists
+
+Clam-code-only (present only in clam-code; verified, matches the plan-time hint):
+
+- `general/skills/absorb-package` — out of scope; an NX-graph-driven package-consolidation skill scoped to the Clipboard monorepo (`nx graph`, `libs/`, `apps/`); it is the implementation-layer skill that repos/clipboard's own `monorepo-consolidation` skill hands off to (see the next section) — not portable to a generic marketplace
+- `general/skills/create-jira-ticket` — dropped; its entire content (the Atlassian-MCP current-user lookup, the `createJiraIssue` call with Project/Summary/Assignee/Issue Type, and the documented `\n`-literal-text quirk) is folded verbatim into clam-generic's `issue-tracker` skill's `providers/jira.md` `create()` operation — genuinely superseded, not merely renamed
+- `general/lib/clipboard-helpers.sh`, `general/lib/clipboard-helpers.fish`, `general/lib/clipboard-helpers.test.sh` — out of scope; the file's own header calls it "Clipboard-repo-coupled" (reads `CLIPBOARD_ENV_DIR`, implements `newcliptree`); the **orchestrator-handover** port already dropped the `newcliptree`/CLIP-* branching these files exist to serve, always using `newtree` now
+- `general/lib/trees-dir.sh`, `general/lib/trees-dir.fish`, `general/lib/trees-dir.test.sh` — out of scope; implements the `cdt` derivation. Repo-agnostic per its own header, but not shipped as a file anywhere in this repo's `plugins/` — it is the actual implementation behind a shell function the **worktrees** plugin's skills document usage of without shipping, matching the "Out of scope" section's existing `general/lib/` shell-helpers line
+- `general/lib/worktree-helpers.sh`, `general/lib/worktree-helpers.fish`, `general/lib/worktree-helpers.test.sh` — out of scope, same reasoning; implements `cdt`/`newtree`/`rmtree`
+
+Two more files among the 65 that differ are worth flagging because neither is named anywhere in this map yet. `general/lib/worktree-naming.sh` is consumed only by `general/skills/start/SKILL.md` (the `/start` naming gate), which the **session-modes** section lists as planned — planned, by the same reasoning, though not itself named there. `general/lib/session-guard.sh` is consumed by both `general/hooks/session-track.sh` (agent-dash, planned) and `general/claude-alias.sh` (the out-of-scope `clam` alias mechanism) — unassigned, since its two consumers currently carry different statuses and nothing in the map picks one for it; this is a judgment call for whoever ports agent-dash, not one this audit can make for them.
+
+Several elements this map already marks ported also appear among the 65 differing files: render-doc's `assets/template.html` and `fixtures/plan.md`, decision-log's `SKILL.md` and `template.md`, orchestrator-handover's `SKILL.md` and `template.md`, skill-tracker's `skill-stats.sh`, and notifications' `push-notify.sh` and `lib/notify.sh` have all moved in clam-generic since those elements were ported into this repo's plugins/ tree. This audit does not re-diff each already-ported element against clam-generic's newer content — recorded here as an observed fact for whoever next touches those plugins, not a re-porting claim.
 
 ## Audit: repos/clipboard overlay
 
-_NotImplemented: B01 — populated by the audit._
+clam-code carries a repos/clipboard/ tree, wholly absent from this map. Verified absent from clam-generic entirely — repos/ does not exist there at all, not even a subset. This is clam-code's per-repo overlay for the Clipboard EMS monorepo (a school-software platform, per its own CLAUDE.md), layered onto a checked-out Clipboard worktree by the overlay-claude-config.sh script listed below.
+
+**Verdict: repo-specific-by-nature, and out of scope for a generic marketplace**, with one already-extracted exception (`pre-pr-verify`, below). This isn't personal tuning left behind for lack of time — every skill, rule, and hook here is bound to the Clipboard monorepo's own stack (NX, Angular, PostgreSQL DAOs) or its own CI (Husky), not portable material a generic plugin could carry.
+
+Skills (verified against the plan-time hint — all 7 present, nothing more):
+
+- `angular-dev` — out of scope; Angular/`cb-*` design-system, Material, signals, and RxJS conventions specific to the Clipboard monorepo's frontend
+- `database` — out of scope; PostgreSQL DAO conventions (Either-returning contracts, UPDATE/DELETE return checks, TIMESTAMPTZ rules) specific to Clipboard's repository layer
+- `database-migrations` — out of scope; wraps Clipboard's own `db-migrate` / `db:migration:create` tooling
+- `monorepo-consolidation` — out of scope; runs `nx graph` analysis over the Clipboard workspace and hands implementation off to `general/skills/absorb-package` (also out of scope — see the divergence section above)
+- `pre-pr-verify` — out of scope; this is the Clipboard-hardcoded original: NX targets (`nx affected -t lint`, `-t unit-test`, `-t integration-test-isolated`), `npm run format-code`, Docker/`.env` preconditions. This is a **different thing** from clam-generic's `general/skills/pre-pr-verify` (planned, mapped under **pr-workflow** above), which is the provider-agnostic gate sequence this overlay's copy was generalized into — same gate structure (format → lint → unit → doc-sync → integration → commit-structure), concrete commands resolved per-repo instead of hardcoded. The overlay's copy stays here, repo-bound; the generic copy is the migration source
+- `stricten` — out of scope; per-package TypeScript strictening for Clipboard, tests-first protocol tied to the monorepo's own NX/ESLint setup
+- `strictening` — out of scope; reads the Clipboard NX package inventory to pick the next `stricten` target, same repo-binding
+
+Also present, not skills (verified):
+
+- `rules/backend.md`, `rules/tests.md`, `rules/typescript.md` — out of scope; path-scoped code-style rules gated on Clipboard monorepo paths (`apps/*-api/**`, `libs/backend/**`, `libs/node/**`, `libs/lambda/**`, `**/*.sql`)
+- `git-hooks/pre-push` — out of scope; a shim delegating to the Clipboard repo's own checked-in `.husky/pre-push`
+- `lib/overlay-claude-config.sh`, `lib/overlay-claude-config.test.sh` — out of scope; the overlay mechanism itself, which lays this whole tree onto a checked-out Clipboard worktree's `.claude/` from `~/.claude/repo-configs/clipboard` — has no purpose once a repo consumes plugins from a marketplace instead of a filesystem overlay
+- `API.md`, `CLAUDE.md` — out of scope; Clipboard product-context (school-software framing) and REST API-style docs, not present in the plan-time hint but found during verification — repo-specific by content, not by omission
+
+No genuinely portable material was found beyond the already-extracted pre-pr-verify generalization; everything else here is bound to Clipboard's specific stack and would need a rewrite, not a port, to serve a generic marketplace.
 
 ## Audit: unmerged clam-code branches
 
-_NotImplemented: B01 — populated by the audit._
+clam-code-trees's bare repo has 7 worktrees besides `master`, each tracking one branch. Verified ahead/behind counts via `git rev-list --count origin/master..<branch>` against origin's `master` (`clipboard-app/clam-code`, currently at `0213ee4`), confirming the plan-time count exactly: `integration/genericize` 76 ahead, `orchestrate/hook-errors` 1 ahead, and the other five 0 ahead.
+
+- `integration/genericize` — 76 commits ahead of `origin/master`. Distinct-vs-redundant call: **redundant**, and more strongly so than the plan-time hint anticipated. This branch's current tip commit, `1712ebd`, is not merely similar to clam-generic's content — it is byte-identical in SHA to clam-generic's current `master` HEAD (verified: `git rev-parse HEAD` on both worktrees returns the same `1712ebd03ffa4b8b99852d58a7ca4d55aada6edd`). The two are, right now, the same commit graph. Nothing on this branch is unmigrated relative to clam-generic; the divergence section above, audited against clam-generic directly, already covers everything this branch would contribute
+- `orchestrate/hook-errors` — 1 commit ahead of `origin/master`. Distinct-vs-redundant call: **redundant**. Its one commit (`e97c612`, "fix(settings): remove ineffective Write() permission rules") is a stale fork: the branch's merge-base with `origin/master` is 15 commits behind current `origin/master`, and in the interim `origin/master` gained `b9bea11`, "fix(settings): remove ineffective Write() permission rules (#317)" — same message, and verified byte-identical diff content (`general/clam-settings.json` and `general/global-settings-bundle.json` match exactly between the two commits). The fix already landed on `origin/master` under a different commit hash; this worktree's branch was simply never fast-forwarded or removed afterward
+- `feat/enable-linux-worktree-helpers` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/lego-approach-not-working` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/linux-worktree-helpers` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/pluginize-config` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/remove-clipboard-trees-dir` — 0 commits ahead of `origin/master`: no unmerged work
+
+Every worktree in `/home/cwilliamson/github/clam-code-trees/` other than `master` is accounted for above; none contributes unmigrated content beyond what the clam-generic divergence audit already covers.
 
 <!--
 Contract: B02 audit-reconcile-claims (plan 001-github-issue-13)

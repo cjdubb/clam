@@ -286,18 +286,24 @@ fi
 # sections and nothing else.) Spot-check anchors captured from the
 # pre-B01-implementation state: total heading count is unchanged (B01's
 # three headings already exist as scaffolded stubs, so implementing B01
-# adds no new headings), and representative pre-existing content —
-# including the still-unimplemented B02/B03 stub sections, which are not
-# B01's to touch — survives byte-for-byte.
+# adds no new headings), and representative pre-existing content survives
+# byte-for-byte.
+#
+# Deliberately NOT pinned here: the B02 stub sections' NotImplemented
+# marker, the B03 register stub's NotImplemented marker, and the
+# Unassigned section's phantom entries. Those are sibling blocks' scaffold
+# state, which those blocks are contractually required to change — pinning
+# it here would make this standing suite fail the moment the plan's own
+# later work does its job. (Plan 001-github-issue-13 Amendment 1: a
+# block's test must never assert a sibling block's scaffold state.) The
+# no-clobber claim those checks used to stand in for was already verified
+# directly at B01's acceptance gate via a diff-scope check and a docblock
+# md5 comparison; the durable replacement for the phantom-entries half now
+# lives as B02's own Outputs (3) assertion in
+# scripts/migration-audit-reconcile.test.sh.
 check "total '## ' heading count in MIGRATION.md is unchanged by B01" \
   "$(grep -cE '^## ' <<<"$BODY")" "32"
-check "B02's four stub sections still carry their NotImplemented marker (untouched by B01)" \
-  "$(grep -cF 'NotImplemented: B02' <<<"$BODY")" "4"
-check "B03's register stub still carries its NotImplemented marker (untouched by B01)" \
-  "$(grep -cF 'NotImplemented: B03' <<<"$BODY")" "1"
 UNASSIGNED="$(section_body '## Unassigned — decide at port time')"
-check "pre-existing Unassigned section still lists the (not-yet-removed) phantom entries" \
-  "$([ "$(grep -qF 'support-fix' <<<"$UNASSIGNED" && echo 1)" = "1" ] && [ "$(grep -qF 'support-triage' <<<"$UNASSIGNED" && echo 1)" = "1" ] && echo yes || echo no)" "yes"
 check "pre-existing Unassigned writing-cluster line is unchanged by B01" \
   "$([ "$(grep -qF 'writing-markdown' <<<"$UNASSIGNED" && echo 1)" = "1" ] && [ "$(grep -qF 'rtfm' <<<"$UNASSIGNED" && echo 1)" = "1" ] && echo yes || echo no)" "yes"
 GUARD_SECTION="$(section_body '## Guard inventory')"

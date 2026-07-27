@@ -3,7 +3,7 @@
 # realm-gate-local-readonly).
 #
 # Self-contained bash test harness (no bats/shellcheck), mirroring the style
-# of worktree_test.sh. Black-box only: every test pipes hook-input JSON on
+# of worktree.test.sh. Black-box only: every test pipes hook-input JSON on
 # stdin to realm-gate.sh through its public CLI (stdin -> stdout/exit code)
 # and asserts on the observable result -- never on realm-gate.sh's internals.
 #
@@ -22,7 +22,7 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Cleanup registry (see worktree_test.sh for rationale: command substitution
+# Cleanup registry (see worktree.test.sh for rationale: command substitution
 # forks a subshell, so a file-based manifest is needed to survive it).
 # ---------------------------------------------------------------------------
 CLEANUP_MANIFEST="$(mktemp)"

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# worktree_test.sh — contract tests for worktree.sh (B01 worktree-lib).
+# worktree.test.sh — contract tests for worktree.sh (B01 worktree-lib).
 #
 # Self-contained bash test harness (no bats/shellcheck). Every test is a
 # shell function that builds its own throwaway git fixture(s) under
 # mktemp, invokes worktree.sh through its public CLI, and asserts on its
 # exit code / stdout / stderr / resulting git+filesystem state — never on
-# worktree.sh's internals. Run directly: `bash worktree_test.sh`.
+# worktree.sh's internals. Run directly: `bash worktree.test.sh`.
 #
 # Exits 0 when every test passes, 1 when any test fails.
 set -u

@@ -1327,6 +1327,173 @@ test_merge_cross_plan_isolation() {
   assert_eq "$shaB_before" "$shaB_after" "planB's branch ref is byte-for-byte unchanged (construct_unit_branch is a pure lookup: it never creates, deletes, or modifies any ref)"
 }
 
+# ---------------------------------------------------------------------------
+# merge: guard_merge_context (B01 merge-self-guard)
+# ---------------------------------------------------------------------------
+
+test_merge_guard_current_branch_is_unit_branch_refuses() {
+  local repo current_branch target_branch current_sha target_sha
+  repo="$(new_git_repo)"
+  target_branch="lego/planB/U05-target"
+  current_branch="lego/plan1/U02-current"
+
+  git -C "$repo" checkout -q -b "$target_branch"
+  commit_file "$repo" "target-feature.txt" "target feature" "unit work"
+  git -C "$repo" checkout -q master
+  git -C "$repo" checkout -q -b "$current_branch"
+
+  current_sha="$(git -C "$repo" rev-parse HEAD)"
+  target_sha="$(git -C "$repo" rev-parse "$target_branch")"
+
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "current branch matches unit-branch pattern: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "current branch matches unit-branch pattern"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "unit-worktree guard error message"
+
+  # Invariant: pure read -- no refs, files, or worktrees modified on refusal.
+  assert_eq "$current_sha" "$(git -C "$repo" rev-parse HEAD)" "current branch HEAD unchanged after refused merge"
+  assert_eq "$target_sha" "$(git -C "$repo" rev-parse "$target_branch")" "target branch ref unchanged after refused merge"
+  assert_eq "$current_branch" "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || echo "")" "still checked out on current branch (no branch switch, no detach)"
+  if [ -e "$repo/.git/MERGE_HEAD" ]; then
+    record_fail "no merge should have been attempted (MERGE_HEAD present)"
+  fi
+
+  # Invariant: deterministic -- rerunning against unchanged repo state gives
+  # the identical result.
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "second run: expected exit 4, got $RUN_EXIT"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "second run: identical error message (deterministic)"
+}
+
+test_merge_guard_self_merge_refuses() {
+  local repo branch sha
+  repo="$(new_git_repo)"
+  # "foo" does not start with "U", so this branch does NOT match the
+  # lego/*/U*-* unit-branch pattern -- isolates check (2) from check (1).
+  branch="lego/plan1/foo-bar"
+
+  git -C "$repo" checkout -q -b "$branch"
+  sha="$(git -C "$repo" rev-parse HEAD)"
+
+  run_in "$repo" merge plan1 foo bar
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "self-merge (target == current, current not a unit branch): expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "self-merge"
+  assert_eq "ERROR: cannot merge a branch into itself (branch: $branch)" "$RUN_ERR" "self-merge guard error message"
+
+  # Invariant: pure read -- no refs, files, or worktrees modified on refusal.
+  assert_eq "$sha" "$(git -C "$repo" rev-parse HEAD)" "branch HEAD unchanged after refused self-merge"
+  assert_eq "$branch" "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || echo "")" "still checked out on same branch"
+  if [ -e "$repo/.git/MERGE_HEAD" ]; then
+    record_fail "no merge should have been attempted (MERGE_HEAD present)"
+  fi
+}
+
+test_merge_guard_non_unit_lego_branch_as_current_succeeds() {
+  local repo current branch head_before
+  repo="$(new_git_repo)"
+  # "foo-bar" has no U*-* trailing segment, so this current branch does NOT
+  # match lego/*/U*-* even though it lives under "lego/" like a unit branch.
+  current="lego/plan1/foo-bar"
+  branch="lego/plan2/U01-feature"
+
+  git -C "$repo" checkout -q -b "$current"
+  head_before="$(git -C "$repo" rev-parse HEAD)"
+
+  git -C "$repo" checkout -q -b "$branch" master
+  printf 'feature content\n' > "$repo/feature.txt"
+  git -C "$repo" add feature.txt
+  git -C "$repo" commit -q -m "unit work"
+  git -C "$repo" checkout -q "$current"
+
+  run_in "$repo" merge plan2 U01 feature
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "non-unit lego/* current branch: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "" "$RUN_ERR" "guard passes silently: no stderr on success"
+
+  local head_after
+  head_after="$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo "")"
+  if [ -z "$head_after" ] || [ "$head_after" = "$head_before" ]; then
+    record_fail "expected HEAD to advance via a merge commit"
+  else
+    local subject parents
+    subject="$(git -C "$repo" log -1 --format=%s HEAD 2>/dev/null || echo "")"
+    assert_eq "lego: merge $branch" "$subject" "merge commit subject"
+    parents="$(git -C "$repo" log -1 --format=%P HEAD 2>/dev/null | wc -w | tr -d ' ')"
+    assert_eq "2" "$parents" "merge commit has two parents (--no-ff)"
+    if [ ! -f "$repo/feature.txt" ]; then
+      record_fail "expected feature.txt introduced by unit branch to be present after merge"
+    fi
+  fi
+}
+
+test_merge_guard_detached_head_succeeds() {
+  local repo branch base_sha
+  repo="$(new_git_repo)"
+  branch="lego/plan1/U01-greetstuff"
+  base_sha="$(git -C "$repo" rev-parse HEAD)"
+
+  git -C "$repo" checkout -q -b "$branch"
+  printf 'feature content\n' > "$repo/feature.txt"
+  git -C "$repo" add feature.txt
+  git -C "$repo" commit -q -m "unit work"
+  git -C "$repo" checkout -q --detach "$base_sha"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "detached HEAD as current branch: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "" "$RUN_ERR" "guard passes silently: no stderr on success"
+
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected feature.txt introduced by unit branch to be present after merge"
+  fi
+
+  local head_after
+  head_after="$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo "")"
+  if [ -z "$head_after" ] || [ "$head_after" = "$base_sha" ]; then
+    record_fail "expected HEAD to advance via a merge commit"
+  fi
+  if git -C "$repo" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    record_fail "expected HEAD to remain detached after merging from a detached HEAD (no branch was ever current)"
+  fi
+}
+
+test_merge_guard_runs_before_dirty_tree_check() {
+  local repo current_branch target_branch
+  repo="$(new_git_repo)"
+  target_branch="lego/planB/U05-target"
+  current_branch="lego/plan1/U02-current"
+
+  git -C "$repo" checkout -q -b "$target_branch"
+  commit_file "$repo" "target-feature.txt" "target feature" "unit work"
+  git -C "$repo" checkout -q master
+  git -C "$repo" checkout -q -b "$current_branch"
+
+  # Dirty tracked tree AND current branch matches the unit-branch pattern:
+  # per the contract, guard_merge_context runs before the dirty-tree check,
+  # so the unit-worktree error must win, not the dirty-tree error.
+  printf 'uncommitted change\n' >> "$repo/README.md"
+
+  run_in "$repo" merge planB U05 target
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "guard should fire before the dirty-tree check"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $current_branch)" "$RUN_ERR" "unit-worktree guard message wins over the dirty-tree message when both conditions hold"
+}
+
+test_merge_guard_check_order_unit_branch_before_self_merge() {
+  local repo branch
+  repo="$(new_git_repo)"
+  branch="lego/plan1/U01-greetstuff"
+
+  git -C "$repo" checkout -q -b "$branch"
+
+  # Current branch matches the unit-branch pattern AND target == current:
+  # both check (1) and check (2) conditions hold simultaneously. Per the
+  # contract's enumeration order ("(1) ... (2) ..."), check (1) must be
+  # evaluated first.
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "check ordering"
+  assert_eq "ERROR: merge must run from the integration worktree, not a unit worktree (current branch: $branch)" "$RUN_ERR" "check (1) unit-worktree guard fires before check (2) self-merge guard when both apply"
+}
+
 # ===========================================================================
 # deliver
 #
@@ -2318,6 +2485,329 @@ test_deliver_manifest_empty_string_field_treated_as_absent() {
   assert_single_error_line "$RUN_ERR" "empty-string commits.U01.impl treated as absent"
 }
 
+# ---------------------------------------------------------------------------
+# deliver: stale-base check (B03 deliver-stale-base-check)
+# ---------------------------------------------------------------------------
+
+# Base branch (master) modifies a unit's Code path (src/solo.sh, B03/U02's
+# only Code path) after the unit branched. Without --force, deliver must
+# refuse: exit 4, with an error mentioning both "Code paths" and "--force"
+# (the exact die message documented in cmd_deliver's integration of B03).
+test_deliver_stale_base_check_blocks_without_force() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  # Base moves under U02's only Code path after the unit branched.
+  commit_file "$repo" "src/solo.sh" "solo v0 patched on base" "fix: patch solo directly on base"
+
+  # A working gh shim is deliberately used here even though a correct
+  # implementation never reaches it (the stale check dies before Pass 2):
+  # this makes an unimplemented stale check unambiguously observable as
+  # exit 0 (deliver sails through to a fake successful PR) rather than
+  # risking a coincidental exit 4 from the real system gh failing for an
+  # unrelated reason (no auth/network), which would mask the missing
+  # behavior.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: stale base blocks deliver" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "base moved under a Code path: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  case "$RUN_ERR" in
+    *"Code paths"*) : ;;
+    *) record_fail "expected stderr to mention 'Code paths' (got: $RUN_ERR)" ;;
+  esac
+  case "$RUN_ERR" in
+    *"--force"*) : ;;
+    *) record_fail "expected stderr to mention '--force' (got: $RUN_ERR)" ;;
+  esac
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
+    record_fail "expected no delivery branch to be created when the stale-base check fails"
+  fi
+}
+
+# Identical stale-base fixture to the test above, but with --force: the
+# check must be skipped entirely and delivery must succeed normally.
+test_deliver_stale_base_check_force_bypasses() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  commit_file "$repo" "src/solo.sh" "solo v0 patched on base" "fix: patch solo directly on base"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: force bypasses stale check" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo" "$newpath" deliver --force --manifest "$manifest" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--force must bypass the stale-base check: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
+    record_fail "expected delivery branch lego/deliver/plan1/U02 to exist under --force"
+  fi
+}
+
+# Base (master) is never touched after the unit branched: merge-base equals
+# base tip, so no Code path can be stale (EC: base hasn't moved). deliver
+# must succeed without --force.
+test_deliver_stale_base_check_base_not_moved_succeeds() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: base not moved" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "base unchanged since branch point: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+}
+
+# A Code path introduced entirely by the unit branch itself: it never
+# existed on base, neither at the merge-base nor at base's current tip.
+# "Modified" per the contract means git diff reports a change between
+# merge-base and base tip for that path; a path absent on both sides
+# produces no diff output, so it must not be reported stale (EC: path not
+# in either tree).
+test_deliver_stale_base_check_path_not_in_either_tree_not_stale() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  cat >> "$repo/.local/blocks.md" <<'BLOCKSMD'
+
+## B07 — ghost
+- Status: Scaffolded
+- Owner: agent
+- Kind: leaf
+- Deps: none
+- Unit: U06
+- Code: src/ghost.sh
+- Contract: exercises a Code path absent from base in either direction
+- Plan: plans/001-test.md
+BLOCKSMD
+
+  git -C "$repo" checkout -q -b "lego/plan1/U06-ghostslug" master
+  commit_file "$repo" "src/ghost.sh" "ghost v1" "lego(U06): implementation"
+  git -C "$repo" checkout -q master
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: path absent from base entirely" "lego/deliver/plan1/U06" U06)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U06 ghostslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "Code path absent from base tree entirely must not be stale: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+}
+
+# Two units delivered together; only one (U04) has a stale Code path. The
+# whole deliver must fail exit 4, even though U02's own Code path
+# (src/solo.sh) was never touched on base.
+test_deliver_stale_base_check_multi_unit_one_stale_fails_whole_deliver() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  git -C "$repo" checkout -q -b "lego/plan1/U04-needsimplslug" master
+  commit_file "$repo" "src/needsimpl.sh" "needsimpl v1" "lego(U04): implementation"
+  git -C "$repo" checkout -q master
+
+  # Base moves under U04's Code path only; U02's Code path is untouched.
+  commit_file "$repo" "src/needsimpl.sh" "needsimpl v0 patched on base" "fix: patch needsimpl directly on base"
+
+  # See test_deliver_stale_base_check_blocks_without_force for why a
+  # working gh shim (not the real system gh) is used for an exit-4
+  # expectation: it keeps an unimplemented stale check unambiguously
+  # observable as exit 0, instead of a coincidental exit 4 from real gh
+  # failing for an unrelated reason.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: multi-unit one stale" "lego/deliver/plan1/multi" U02 U04)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug U04 needsimplslug
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "one stale unit among many must fail the whole deliver: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/multi"; then
+    record_fail "expected no delivery branch to be created when any unit is stale"
+  fi
+}
+
+# Verifies the documented stderr report line shape: "  stale: <path>
+# (changed by: <sha1-short> <sha2-short> ...)" -- two commits touch the
+# same stale path on base after the unit branched, and both their short
+# shas must appear in the report line for that path.
+test_deliver_stale_base_check_stderr_report_format() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  commit_file "$repo" "src/solo.sh" "solo v0 patched1" "patch1: touch solo on base"
+  local sha1 sha1_prefix
+  sha1="$(git -C "$repo" rev-parse master)"
+  sha1_prefix="${sha1:0:7}"
+
+  commit_file "$repo" "src/solo.sh" "solo v0 patched2" "patch2: touch solo on base again"
+  local sha2 sha2_prefix
+  sha2="$(git -C "$repo" rev-parse master)"
+  sha2_prefix="${sha2:0:7}"
+
+  # See test_deliver_stale_base_check_blocks_without_force for why a
+  # working gh shim (not the real system gh) is used for an exit-4
+  # expectation.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: stderr report format" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4 for the stale-report fixture, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  local stale_line
+  stale_line="$(printf '%s\n' "$RUN_ERR" | grep -E '^  stale: src/solo\.sh \(changed by: ' || true)"
+  if [ -z "$stale_line" ]; then
+    record_fail "expected a '  stale: src/solo.sh (changed by: ...)' line on stderr (got: $RUN_ERR)"
+  else
+    case "$stale_line" in
+      *"$sha1_prefix"*) : ;;
+      *) record_fail "expected the stale report to mention commit $sha1_prefix (got: $stale_line)" ;;
+    esac
+    case "$stale_line" in
+      *"$sha2_prefix"*) : ;;
+      *) record_fail "expected the stale report to mention commit $sha2_prefix (got: $stale_line)" ;;
+    esac
+  fi
+}
+
+# --force is parsed alongside --manifest regardless of their relative
+# order on the command line; both orderings must bypass an otherwise-fatal
+# stale-base condition.
+test_deliver_stale_base_check_force_flag_order_independent() {
+  local repo1 repo2
+
+  repo1="$(build_deliver_base)"
+  git -C "$repo1" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo1" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo1" checkout -q master
+  commit_file "$repo1" "src/solo.sh" "solo v0 patched on base" "fix: patch solo on base"
+
+  make_gh_shim
+  local newpath1="$GH_SHIM_BIN:$PATH"
+  local manifest1
+  manifest1="$(write_valid_manifest "$repo1" "test: force before manifest" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo1" "$newpath1" deliver --force --manifest "$manifest1" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--force before --manifest: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  repo2="$(build_deliver_base)"
+  git -C "$repo2" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo2" "src/solo.sh" "solo v1" "lego(U02): implementation"
+  git -C "$repo2" checkout -q master
+  commit_file "$repo2" "src/solo.sh" "solo v0 patched on base" "fix: patch solo on base"
+
+  make_gh_shim
+  local newpath2="$GH_SHIM_BIN:$PATH"
+  local manifest2
+  manifest2="$(write_valid_manifest "$repo2" "test: manifest before force" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo2" "$newpath2" deliver --manifest "$manifest2" --force plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--manifest before --force: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+}
+
+# The unit branch shares no history with base at all (an orphan branch), so
+# `git merge-base <base> <unit-branch>` itself fails -- the documented
+# Errors clause requires this to be treated as "all paths stale" and
+# reported, never as an uncaught git failure that crashes or misbehaves.
+test_deliver_stale_base_check_unresolvable_merge_base_treated_as_all_stale() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q --orphan "lego/plan1/U02-soloslug"
+  commit_file "$repo" "src/solo.sh" "solo v1 orphan" "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+
+  # See test_deliver_stale_base_check_blocks_without_force for why a
+  # working gh shim (not the real system gh) is used for an exit-4
+  # expectation.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: unresolvable merge-base" "lego/deliver/plan1/U02" U02)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "unresolvable merge-base must be treated as all-paths-stale, not silently ignored or crashed: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  case "$RUN_ERR" in
+    *"stale: src/solo.sh"*) : ;;
+    *) record_fail "expected stderr to report src/solo.sh as stale when merge-base is unresolvable (got: $RUN_ERR)" ;;
+  esac
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
+    record_fail "expected no delivery branch to be created when merge-base is unresolvable"
+  fi
+}
+
+# A unit with two Code paths (B01/U01: src/greet.sh, src/greet_test.sh),
+# both modified on base after the unit branched. Per the documented edge
+# case "All paths stale: all are listed in the report", both must appear
+# as separate "  stale: ..." lines, not just the first one found.
+test_deliver_stale_base_check_all_paths_stale_all_listed() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_files "$repo" "lego(U01): implementation" \
+    "src/greet.sh" $'greet NEW\n' \
+    "src/greet_test.sh" $'greet test NEW\n'
+  git -C "$repo" checkout -q master
+
+  commit_files "$repo" "fix: patch both greet paths on base" \
+    "src/greet.sh" $'greet v0 patched\n' \
+    "src/greet_test.sh" $'greet test v0 patched\n'
+
+  # See test_deliver_stale_base_check_blocks_without_force for why a
+  # working gh shim (not the real system gh) is used for an exit-4
+  # expectation.
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: all paths stale" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "both Code paths stale: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  case "$RUN_ERR" in
+    *"stale: src/greet.sh"*) : ;;
+    *) record_fail "expected stderr to report src/greet.sh as stale (got: $RUN_ERR)" ;;
+  esac
+  case "$RUN_ERR" in
+    *"stale: src/greet_test.sh"*) : ;;
+    *) record_fail "expected stderr to report src/greet_test.sh as stale too, not just the first path found (got: $RUN_ERR)" ;;
+  esac
+}
+
 # ===========================================================================
 # remove
 # ===========================================================================
@@ -2627,9 +3117,20 @@ test_clean_usage_unexpected_args() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" clean extra-arg
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "unexpected argument: expected exit 2, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "clean with unexpected argument"
+  # Bare "clean" (no args) is a usage error under B02 (previously fell back
+  # to global mode during scaffold).
+  run_in "$repo" clean
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "bare clean (no args): expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean with no arguments"
+
+  # Extra arguments are a usage error in both scoped and --all mode.
+  run_in "$repo" clean plan1 extra-arg
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "clean <slug> extra: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean <slug> extra"
+
+  run_in "$repo" clean --all extra-arg
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "clean --all extra: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean --all extra"
 }
 
 test_clean_requires_git_work_tree() {
@@ -2637,18 +3138,18 @@ test_clean_requires_git_work_tree() {
   dir="$(mktemp -d)"
   track_tmp "$dir"
 
-  run_in "$dir" clean
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "clean outside git worktree: expected exit 3, got $RUN_EXIT"
+  run_in "$dir" clean --all
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "clean --all outside git worktree: expected exit 3, got $RUN_EXIT"
 }
 
 test_clean_no_lego_branches() {
   local repo
   repo="$(new_git_repo)"
 
-  run_in "$repo" clean
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "clean with no lego branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  run_in "$repo" clean --all
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "clean --all with no lego branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (count), got $RUN_OUT_LINES (stdout: $RUN_OUT)"
-  assert_eq "0" "$RUN_OUT_LAST" "clean with no lego branches prints count 0 as last stdout line"
+  assert_eq "0" "$RUN_OUT_LAST" "clean --all with no lego branches prints count 0 as last stdout line"
 }
 
 test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
@@ -2686,7 +3187,7 @@ test_clean_removes_merged_lego_and_delivery_branches_and_worktrees() {
   # HEAD) -- must be left untouched since it does not match a lego pattern.
   git -C "$repo" branch "$other_branch"
 
-  run_in "$repo" clean
+  run_in "$repo" clean --all
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "2" "$RUN_OUT_LAST" "count of removed branches (branch1 + branch2) as last stdout line"
 
@@ -2737,7 +3238,7 @@ test_clean_prunes_stale_worktree_entries() {
     return
   fi
 
-  run_in "$repo" clean
+  run_in "$repo" clean --all
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "0" "$RUN_OUT_LAST" "no lego branches removed; only a stale worktree entry pruned"
 
@@ -2747,6 +3248,160 @@ test_clean_prunes_stale_worktree_entries() {
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     record_fail "expected the non-lego branch $branch itself to remain untouched by prune"
   fi
+}
+
+# ===========================================================================
+# clean: plan-scoped (B02 clean-plan-scoped)
+# ===========================================================================
+
+test_clean_plan_scoped_removes_only_in_scope_and_reports_foreign() {
+  local repo container p1a p1deliver p2 p1unmerged other wt1 wt2
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  p1a="lego/plan1/U01-greetstuff"
+  p1deliver="lego/deliver/plan1/U02"
+  p2="lego/plan2/U01-otherstuff"
+  p1unmerged="lego/plan1/U03-unmergedslug"
+  other="feature/other"
+  wt1="$container/manual-wt-p1a"
+  wt2="$container/manual-wt-p1deliver"
+
+  # p1a: in-scope for plan1, merged, has its own worktree.
+  git -C "$repo" branch "$p1a"
+  git -C "$repo" worktree add -q "$wt1" "$p1a"
+  commit_file "$wt1" "feature1.txt" "feature1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $p1a" "$p1a"
+
+  # p1deliver: in-scope delivery branch for plan1, merged, has its own
+  # worktree.
+  git -C "$repo" branch "$p1deliver"
+  git -C "$repo" worktree add -q "$wt2" "$p1deliver"
+  commit_file "$wt2" "feature2.txt" "feature2" "unit work 2"
+  git -C "$repo" merge -q --no-ff -m "merge $p1deliver" "$p1deliver"
+
+  # p2: a merged branch belonging to a DIFFERENT plan -- out of scope for a
+  # plan1-scoped clean; must be reported as foreign and left untouched.
+  git -C "$repo" branch "$p2"
+  git -C "$repo" merge -q --no-ff -m "merge $p2" "$p2"
+
+  # p1unmerged: in-scope for plan1 but unmerged -- must be skipped with the
+  # "skipping unmerged" message, never reported as foreign.
+  git -C "$repo" checkout -q -b "$p1unmerged"
+  commit_file "$repo" "unmerged.txt" "content" "unit work 3"
+  git -C "$repo" checkout -q master
+
+  # other: non-lego branch, left untouched regardless of scope.
+  git -C "$repo" branch "$other"
+
+  run_in "$repo" clean plan1
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "2" "$RUN_OUT_LAST" "count of removed branches scoped to plan1 (p1a + p1deliver)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$p1a"; then
+    record_fail "expected in-scope merged branch $p1a to be deleted"
+  fi
+  if [ -d "$wt1" ] || git -C "$repo" worktree list | grep -qF "$wt1"; then
+    record_fail "expected the worktree for $p1a to be removed"
+  fi
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$p1deliver"; then
+    record_fail "expected in-scope merged delivery branch $p1deliver to be deleted"
+  fi
+  if [ -d "$wt2" ] || git -C "$repo" worktree list | grep -qF "$wt2"; then
+    record_fail "expected the worktree for $p1deliver to be removed"
+  fi
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$p2"; then
+    record_fail "expected out-of-scope (foreign) branch $p2 to be left untouched by a plan1-scoped clean"
+  fi
+  case "$RUN_ERR" in
+    *"skipped (foreign): $p2"*) : ;;
+    *) record_fail "expected stderr to report the foreign branch $p2 (stderr: $RUN_ERR)" ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$p1unmerged"; then
+    record_fail "expected unmerged in-scope branch $p1unmerged to be skipped, not deleted"
+  fi
+  case "$RUN_ERR" in
+    *"skipping unmerged lego branch $p1unmerged"*) : ;;
+    *) record_fail "expected stderr to report the unmerged in-scope branch $p1unmerged (stderr: $RUN_ERR)" ;;
+  esac
+  case "$RUN_ERR" in
+    *"foreign): $p1unmerged"*)
+      record_fail "unmerged in-scope branch must never be reported as foreign (stderr: $RUN_ERR)" ;;
+    *) : ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$other"; then
+    record_fail "expected non-lego branch $other to be left untouched"
+  fi
+}
+
+test_clean_plan_scoped_matches_no_branches() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean noexistplan
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "plan slug matching no branches: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "0" "$RUN_OUT_LAST" "plan slug matching no branches prints count 0"
+  [ -z "$RUN_ERR" ] || record_fail "expected no stderr output when no lego branches exist at all, got: $RUN_ERR"
+}
+
+test_clean_all_mode_spans_all_plans_with_no_foreign_messages() {
+  local repo container p1 p2 pdeliver wt b
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  p1="lego/plan1/U01-a"
+  p2="lego/plan2/U01-b"
+  pdeliver="lego/deliver/plan1/U02"
+  wt="$container/manual-wt-p1"
+
+  git -C "$repo" branch "$p1"
+  git -C "$repo" worktree add -q "$wt" "$p1"
+  commit_file "$wt" "f1.txt" "f1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $p1" "$p1"
+
+  git -C "$repo" branch "$p2"
+  git -C "$repo" merge -q --no-ff -m "merge $p2" "$p2"
+
+  git -C "$repo" branch "$pdeliver"
+  git -C "$repo" merge -q --no-ff -m "merge $pdeliver" "$pdeliver"
+
+  run_in "$repo" clean --all
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "3" "$RUN_OUT_LAST" "count of removed branches spanning multiple plans in --all mode"
+
+  for b in "$p1" "$p2" "$pdeliver"; do
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$b"; then
+      record_fail "expected branch $b to be deleted by clean --all"
+    fi
+  done
+  if [ -d "$wt" ] || git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected the worktree for $p1 to be removed"
+  fi
+
+  case "$RUN_ERR" in
+    *"foreign"*) record_fail "expected no foreign-skip messages in --all mode (stderr: $RUN_ERR)" ;;
+    *) : ;;
+  esac
+}
+
+test_clean_invalid_plan_slug_token_is_usage_error() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" clean "plan slug"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "clean with space in plan-slug"
+
+  run_in "$repo" clean "plan/slug"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "slash in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" clean 'slug;rm'
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "semicolon in plan-slug: expected exit 2, got $RUN_EXIT"
+
+  run_in "$repo" clean ""
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "empty-string plan-slug: expected exit 2, got $RUN_EXIT"
 }
 
 # ===========================================================================
@@ -2838,6 +3493,13 @@ run_test "merge: untracked-only changes do not block merge" test_merge_untracked
 run_test "merge: success (--no-ff, commit message, file introduced)" test_merge_success
 run_test "merge: cross-plan isolation (same unit-id under a different plan is untouched)" test_merge_cross_plan_isolation
 
+run_test "merge: guard refuses when current branch matches the unit-branch pattern (B01 merge-self-guard)" test_merge_guard_current_branch_is_unit_branch_refuses
+run_test "merge: guard refuses self-merge when target branch equals current branch (B01 merge-self-guard)" test_merge_guard_self_merge_refuses
+run_test "merge: guard passes for a lego/* current branch with no U*-* segment (B01 merge-self-guard)" test_merge_guard_non_unit_lego_branch_as_current_succeeds
+run_test "merge: guard passes for a detached HEAD current branch (B01 merge-self-guard)" test_merge_guard_detached_head_succeeds
+run_test "merge: guard runs before the dirty-tree check (B01 merge-self-guard)" test_merge_guard_runs_before_dirty_tree_check
+run_test "merge: guard check (1) unit-worktree fires before check (2) self-merge when both apply (B01 merge-self-guard)" test_merge_guard_check_order_unit_branch_before_self_merge
+
 run_test "deliver: usage error on wrong argument count (plan-scoped, --manifest present)" test_deliver_usage
 run_test "deliver: usage error on odd unit-id/unit-slug pair count (--manifest present)" test_deliver_odd_paired_args
 run_test "deliver: usage error on invalid characters in plan-slug/base-branch/unit-id/unit-slug (--manifest present)" test_deliver_invalid_chars
@@ -2873,6 +3535,16 @@ run_test "deliver --manifest: manifest branch already exists exits 4 (B01 delive
 run_test "deliver --manifest: empty object manifest is rejected for missing required fields, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_object
 run_test "deliver --manifest: empty-string required field (title/branch/commits.impl) treated as absent, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_string_field_treated_as_absent
 
+run_test "deliver: base moved under a Code path without --force fails exit 4, mentions Code paths and --force (B03 deliver-stale-base-check)" test_deliver_stale_base_check_blocks_without_force
+run_test "deliver: --force bypasses the stale-base check (B03 deliver-stale-base-check)" test_deliver_stale_base_check_force_bypasses
+run_test "deliver: base hasn't moved since unit branched -- no stale paths, deliver succeeds (B03 deliver-stale-base-check)" test_deliver_stale_base_check_base_not_moved_succeeds
+run_test "deliver: Code path absent from base in either direction is not stale (B03 deliver-stale-base-check)" test_deliver_stale_base_check_path_not_in_either_tree_not_stale
+run_test "deliver: multi-unit delivery fails whole deliver when any one unit has a stale Code path (B03 deliver-stale-base-check)" test_deliver_stale_base_check_multi_unit_one_stale_fails_whole_deliver
+run_test "deliver: stale-base stderr report line format includes short shas of the modifying commits (B03 deliver-stale-base-check)" test_deliver_stale_base_check_stderr_report_format
+run_test "deliver: --force works with --manifest in either flag order (B03 deliver-stale-base-check)" test_deliver_stale_base_check_force_flag_order_independent
+run_test "deliver: unresolvable merge-base is treated as all-paths-stale, not an uncaught git failure (B03 deliver-stale-base-check)" test_deliver_stale_base_check_unresolvable_merge_base_treated_as_all_stale
+run_test "deliver: all Code paths stale are each listed in the report, not just the first found (B03 deliver-stale-base-check)" test_deliver_stale_base_check_all_paths_stale_all_listed
+
 run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
 run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars
 run_test "remove: constructed branch does not exist" test_remove_zero_branch_match
@@ -2889,11 +3561,16 @@ run_test "merge: unit-worktree cleanup failure does not change exit code (B01)" 
 run_test "deliver: cleanup removes unit branch and worktree, keeps delivery branch and PR URL (B01)" test_deliver_cleanup_removes_unit_branch_and_worktree
 run_test "deliver: branch-cleanup failure does not change exit code or suppress PR URL (B01)" test_deliver_cleanup_branch_deletion_failure_still_exits_0
 
-run_test "clean: usage error on unexpected arguments (B01)" test_clean_usage_unexpected_args
-run_test "clean: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
-run_test "clean: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
-run_test "clean: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
-run_test "clean: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
+run_test "clean: bare clean and extra arguments are usage errors (B02 clean-plan-scoped)" test_clean_usage_unexpected_args
+run_test "clean --all: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
+run_test "clean --all: no lego branches exits 0 and prints count 0 (B01)" test_clean_no_lego_branches
+run_test "clean --all: removes merged lego/*/* and lego/deliver/*/* branches+worktrees; skips unmerged; leaves non-lego untouched (B01 worktree-plan-scoping)" test_clean_removes_merged_lego_and_delivery_branches_and_worktrees
+run_test "clean --all: runs git worktree prune to clean up stale worktree entries (B01)" test_clean_prunes_stale_worktree_entries
+
+run_test "clean <plan-slug>: removes only in-scope merged branches; reports foreign; unmerged in-scope wins over foreign (B02 clean-plan-scoped)" test_clean_plan_scoped_removes_only_in_scope_and_reports_foreign
+run_test "clean <plan-slug>: plan slug matching no branches exits 0, prints 0, no messages (B02 clean-plan-scoped)" test_clean_plan_scoped_matches_no_branches
+run_test "clean --all: spans all plans, no foreign-skip messages (B02 clean-plan-scoped)" test_clean_all_mode_spans_all_plans_with_no_foreign_messages
+run_test "clean <plan-slug>: invalid token as plan-slug is a usage error (B02 clean-plan-scoped)" test_clean_invalid_plan_slug_token_is_usage_error
 
 run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
 run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present

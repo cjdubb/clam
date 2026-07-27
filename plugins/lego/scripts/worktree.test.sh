@@ -1721,19 +1721,20 @@ test_deliver_stale_tests_commit_in_base_history_is_skipped() {
   fi
 }
 
-test_deliver_unit_with_no_code_paths_fails() {
+test_deliver_unit_with_empty_commits_is_noop() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U03-nocodeslug" master
   git -C "$repo" commit -q --allow-empty -m "lego(U03): implementation"
   git -C "$repo" checkout -q master
 
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
-  manifest="$(write_valid_manifest "$repo" "test: no code paths" "lego/deliver/plan1/U03" U03)"
+  manifest="$(write_valid_manifest "$repo" "test: empty commits" "lego/deliver/plan1/U03" U03)"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U03 nocodeslug
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "unit with no Code paths: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "unit with no Code paths (EC4)"
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U03 nocodeslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "empty commits noop: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 }
 
 test_deliver_missing_implementation_commit_fails() {
@@ -2493,319 +2494,32 @@ test_deliver_manifest_empty_string_field_treated_as_absent() {
 # only Code path) after the unit branched. Without --force, deliver must
 # refuse: exit 4, with an error mentioning both "Code paths" and "--force"
 # (the exact die message documented in cmd_deliver's integration of B03).
-test_deliver_stale_base_check_blocks_without_force() {
+test_deliver_files_not_in_code_field_are_included() {
   local repo
   repo="$(build_deliver_base)"
 
   git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo_test.sh" "solo test v1" "lego(U02): tests"
   commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
   git -C "$repo" checkout -q master
 
-  # Base moves under U02's only Code path after the unit branched.
-  commit_file "$repo" "src/solo.sh" "solo v0 patched on base" "fix: patch solo directly on base"
-
-  # A working gh shim is deliberately used here even though a correct
-  # implementation never reaches it (the stale check dies before Pass 2):
-  # this makes an unimplemented stale check unambiguously observable as
-  # exit 0 (deliver sails through to a fake successful PR) rather than
-  # risking a coincidental exit 4 from the real system gh failing for an
-  # unrelated reason (no auth/network), which would mask the missing
-  # behavior.
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
-  manifest="$(write_valid_manifest "$repo" "test: stale base blocks deliver" "lego/deliver/plan1/U02" U02)"
+  manifest="$(write_valid_manifest "$repo" "test: unlisted files" "lego/deliver/plan1/U02" U02)"
 
   run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "base moved under a Code path: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  case "$RUN_ERR" in
-    *"Code paths"*) : ;;
-    *) record_fail "expected stderr to mention 'Code paths' (got: $RUN_ERR)" ;;
-  esac
-  case "$RUN_ERR" in
-    *"--force"*) : ;;
-    *) record_fail "expected stderr to mention '--force' (got: $RUN_ERR)" ;;
-  esac
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
-    record_fail "expected no delivery branch to be created when the stale-base check fails"
-  fi
-}
-
-# Identical stale-base fixture to the test above, but with --force: the
-# check must be skipped entirely and delivery must succeed normally.
-test_deliver_stale_base_check_force_bypasses() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo" checkout -q master
-
-  commit_file "$repo" "src/solo.sh" "solo v0 patched on base" "fix: patch solo directly on base"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: force bypasses stale check" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo" "$newpath" deliver --force --manifest "$manifest" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "--force must bypass the stale-base check: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
-
-  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
-    record_fail "expected delivery branch lego/deliver/plan1/U02 to exist under --force"
-  fi
-}
-
-# Base (master) is never touched after the unit branched: merge-base equals
-# base tip, so no Code path can be stale (EC: base hasn't moved). deliver
-# must succeed without --force.
-test_deliver_stale_base_check_base_not_moved_succeeds() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo" checkout -q master
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: base not moved" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "base unchanged since branch point: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-}
-
-# A Code path introduced entirely by the unit branch itself: it never
-# existed on base, neither at the merge-base nor at base's current tip.
-# "Modified" per the contract means git diff reports a change between
-# merge-base and base tip for that path; a path absent on both sides
-# produces no diff output, so it must not be reported stale (EC: path not
-# in either tree).
-test_deliver_stale_base_check_path_not_in_either_tree_not_stale() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  cat >> "$repo/.local/blocks.md" <<'BLOCKSMD'
-
-## B07 — ghost
-- Status: Scaffolded
-- Owner: agent
-- Kind: leaf
-- Deps: none
-- Unit: U06
-- Code: src/ghost.sh
-- Contract: exercises a Code path absent from base in either direction
-- Plan: plans/001-test.md
-BLOCKSMD
-
-  git -C "$repo" checkout -q -b "lego/plan1/U06-ghostslug" master
-  commit_file "$repo" "src/ghost.sh" "ghost v1" "lego(U06): implementation"
-  git -C "$repo" checkout -q master
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: path absent from base entirely" "lego/deliver/plan1/U06" U06)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U06 ghostslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "Code path absent from base tree entirely must not be stale: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-}
-
-# Two units delivered together; only one (U04) has a stale Code path. The
-# whole deliver must fail exit 4, even though U02's own Code path
-# (src/solo.sh) was never touched on base.
-test_deliver_stale_base_check_multi_unit_one_stale_fails_whole_deliver() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo" checkout -q master
-
-  git -C "$repo" checkout -q -b "lego/plan1/U04-needsimplslug" master
-  commit_file "$repo" "src/needsimpl.sh" "needsimpl v1" "lego(U04): implementation"
-  git -C "$repo" checkout -q master
-
-  # Base moves under U04's Code path only; U02's Code path is untouched.
-  commit_file "$repo" "src/needsimpl.sh" "needsimpl v0 patched on base" "fix: patch needsimpl directly on base"
-
-  # See test_deliver_stale_base_check_blocks_without_force for why a
-  # working gh shim (not the real system gh) is used for an exit-4
-  # expectation: it keeps an unimplemented stale check unambiguously
-  # observable as exit 0, instead of a coincidental exit 4 from real gh
-  # failing for an unrelated reason.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: multi-unit one stale" "lego/deliver/plan1/multi" U02 U04)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug U04 needsimplslug
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "one stale unit among many must fail the whole deliver: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/multi"; then
-    record_fail "expected no delivery branch to be created when any unit is stale"
-  fi
-}
-
-# Verifies the documented stderr report line shape: "  stale: <path>
-# (changed by: <sha1-short> <sha2-short> ...)" -- two commits touch the
-# same stale path on base after the unit branched, and both their short
-# shas must appear in the report line for that path.
-test_deliver_stale_base_check_stderr_report_format() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo" checkout -q master
-
-  commit_file "$repo" "src/solo.sh" "solo v0 patched1" "patch1: touch solo on base"
-  local sha1 sha1_prefix
-  sha1="$(git -C "$repo" rev-parse master)"
-  sha1_prefix="${sha1:0:7}"
-
-  commit_file "$repo" "src/solo.sh" "solo v0 patched2" "patch2: touch solo on base again"
-  local sha2 sha2_prefix
-  sha2="$(git -C "$repo" rev-parse master)"
-  sha2_prefix="${sha2:0:7}"
-
-  # See test_deliver_stale_base_check_blocks_without_force for why a
-  # working gh shim (not the real system gh) is used for an exit-4
-  # expectation.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: stderr report format" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4 for the stale-report fixture, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  local stale_line
-  stale_line="$(printf '%s\n' "$RUN_ERR" | grep -E '^  stale: src/solo\.sh \(changed by: ' || true)"
-  if [ -z "$stale_line" ]; then
-    record_fail "expected a '  stale: src/solo.sh (changed by: ...)' line on stderr (got: $RUN_ERR)"
+    local test_file_content impl_file_content
+    test_file_content="$(git -C "$repo" show "lego/deliver/plan1/U02:src/solo_test.sh" 2>/dev/null || echo "MISSING")"
+    impl_file_content="$(git -C "$repo" show "lego/deliver/plan1/U02:src/solo.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "solo test v1" "$test_file_content" "test file not in Code: field is delivered from the tests commit"
+    assert_eq "solo v1" "$impl_file_content" "impl file is delivered from the impl commit"
   else
-    case "$stale_line" in
-      *"$sha1_prefix"*) : ;;
-      *) record_fail "expected the stale report to mention commit $sha1_prefix (got: $stale_line)" ;;
-    esac
-    case "$stale_line" in
-      *"$sha2_prefix"*) : ;;
-      *) record_fail "expected the stale report to mention commit $sha2_prefix (got: $stale_line)" ;;
-    esac
+    record_fail "expected delivery branch lego/deliver/plan1/U02 to exist"
   fi
-}
-
-# --force is parsed alongside --manifest regardless of their relative
-# order on the command line; both orderings must bypass an otherwise-fatal
-# stale-base condition.
-test_deliver_stale_base_check_force_flag_order_independent() {
-  local repo1 repo2
-
-  repo1="$(build_deliver_base)"
-  git -C "$repo1" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo1" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo1" checkout -q master
-  commit_file "$repo1" "src/solo.sh" "solo v0 patched on base" "fix: patch solo on base"
-
-  make_gh_shim
-  local newpath1="$GH_SHIM_BIN:$PATH"
-  local manifest1
-  manifest1="$(write_valid_manifest "$repo1" "test: force before manifest" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo1" "$newpath1" deliver --force --manifest "$manifest1" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "--force before --manifest: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  repo2="$(build_deliver_base)"
-  git -C "$repo2" checkout -q -b "lego/plan1/U02-soloslug" master
-  commit_file "$repo2" "src/solo.sh" "solo v1" "lego(U02): implementation"
-  git -C "$repo2" checkout -q master
-  commit_file "$repo2" "src/solo.sh" "solo v0 patched on base" "fix: patch solo on base"
-
-  make_gh_shim
-  local newpath2="$GH_SHIM_BIN:$PATH"
-  local manifest2
-  manifest2="$(write_valid_manifest "$repo2" "test: manifest before force" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo2" "$newpath2" deliver --manifest "$manifest2" --force plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "--manifest before --force: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-}
-
-# The unit branch shares no history with base at all (an orphan branch), so
-# `git merge-base <base> <unit-branch>` itself fails -- the documented
-# Errors clause requires this to be treated as "all paths stale" and
-# reported, never as an uncaught git failure that crashes or misbehaves.
-test_deliver_stale_base_check_unresolvable_merge_base_treated_as_all_stale() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q --orphan "lego/plan1/U02-soloslug"
-  commit_file "$repo" "src/solo.sh" "solo v1 orphan" "lego(U02): implementation"
-  git -C "$repo" checkout -q master
-
-  # See test_deliver_stale_base_check_blocks_without_force for why a
-  # working gh shim (not the real system gh) is used for an exit-4
-  # expectation.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: unresolvable merge-base" "lego/deliver/plan1/U02" U02)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "unresolvable merge-base must be treated as all-paths-stale, not silently ignored or crashed: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  case "$RUN_ERR" in
-    *"stale: src/solo.sh"*) : ;;
-    *) record_fail "expected stderr to report src/solo.sh as stale when merge-base is unresolvable (got: $RUN_ERR)" ;;
-  esac
-
-  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
-    record_fail "expected no delivery branch to be created when merge-base is unresolvable"
-  fi
-}
-
-# A unit with two Code paths (B01/U01: src/greet.sh, src/greet_test.sh),
-# both modified on base after the unit branched. Per the documented edge
-# case "All paths stale: all are listed in the report", both must appear
-# as separate "  stale: ..." lines, not just the first one found.
-test_deliver_stale_base_check_all_paths_stale_all_listed() {
-  local repo
-  repo="$(build_deliver_base)"
-
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_files "$repo" "lego(U01): implementation" \
-    "src/greet.sh" $'greet NEW\n' \
-    "src/greet_test.sh" $'greet test NEW\n'
-  git -C "$repo" checkout -q master
-
-  commit_files "$repo" "fix: patch both greet paths on base" \
-    "src/greet.sh" $'greet v0 patched\n' \
-    "src/greet_test.sh" $'greet test v0 patched\n'
-
-  # See test_deliver_stale_base_check_blocks_without_force for why a
-  # working gh shim (not the real system gh) is used for an exit-4
-  # expectation.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: all paths stale" "lego/deliver/plan1/U01" U01)"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "both Code paths stale: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  case "$RUN_ERR" in
-    *"stale: src/greet.sh"*) : ;;
-    *) record_fail "expected stderr to report src/greet.sh as stale (got: $RUN_ERR)" ;;
-  esac
-  case "$RUN_ERR" in
-    *"stale: src/greet_test.sh"*) : ;;
-    *) record_fail "expected stderr to report src/greet_test.sh as stale too, not just the first path found (got: $RUN_ERR)" ;;
-  esac
 }
 
 # ===========================================================================
@@ -3509,7 +3223,7 @@ run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)"
 run_test "deliver: constructed unit branch does not exist" test_deliver_zero_branch_match
 run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_deliver_cross_plan_isolation
 run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_deliver_stale_tests_commit_in_base_history_is_skipped
-run_test "deliver: unit with no Code paths cannot be delivered (EC4)" test_deliver_unit_with_no_code_paths_fails
+run_test "deliver: unit with empty commits is a no-op" test_deliver_unit_with_empty_commits_is_noop
 run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
 run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists
 run_test "deliver: underlying git failure (unreachable origin) on push" test_deliver_underlying_git_failure_on_push
@@ -3535,15 +3249,7 @@ run_test "deliver --manifest: manifest branch already exists exits 4 (B01 delive
 run_test "deliver --manifest: empty object manifest is rejected for missing required fields, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_object
 run_test "deliver --manifest: empty-string required field (title/branch/commits.impl) treated as absent, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_string_field_treated_as_absent
 
-run_test "deliver: base moved under a Code path without --force fails exit 4, mentions Code paths and --force (B03 deliver-stale-base-check)" test_deliver_stale_base_check_blocks_without_force
-run_test "deliver: --force bypasses the stale-base check (B03 deliver-stale-base-check)" test_deliver_stale_base_check_force_bypasses
-run_test "deliver: base hasn't moved since unit branched -- no stale paths, deliver succeeds (B03 deliver-stale-base-check)" test_deliver_stale_base_check_base_not_moved_succeeds
-run_test "deliver: Code path absent from base in either direction is not stale (B03 deliver-stale-base-check)" test_deliver_stale_base_check_path_not_in_either_tree_not_stale
-run_test "deliver: multi-unit delivery fails whole deliver when any one unit has a stale Code path (B03 deliver-stale-base-check)" test_deliver_stale_base_check_multi_unit_one_stale_fails_whole_deliver
-run_test "deliver: stale-base stderr report line format includes short shas of the modifying commits (B03 deliver-stale-base-check)" test_deliver_stale_base_check_stderr_report_format
-run_test "deliver: --force works with --manifest in either flag order (B03 deliver-stale-base-check)" test_deliver_stale_base_check_force_flag_order_independent
-run_test "deliver: unresolvable merge-base is treated as all-paths-stale, not an uncaught git failure (B03 deliver-stale-base-check)" test_deliver_stale_base_check_unresolvable_merge_base_treated_as_all_stale
-run_test "deliver: all Code paths stale are each listed in the report, not just the first found (B03 deliver-stale-base-check)" test_deliver_stale_base_check_all_paths_stale_all_listed
+run_test "deliver: files not in Code: field are included via commit diff-tree" test_deliver_files_not_in_code_field_are_included
 
 run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
 run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars

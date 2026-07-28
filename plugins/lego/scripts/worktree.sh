@@ -87,16 +87,8 @@
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters.
 #
-#   deliver [--force] --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 #     Builds a delivery branch from <base-branch> in a temporary worktree.
-#
-#     (B03 deliver-stale-base-check) Before building the delivery branch,
-#     validates that <base-branch> has not modified any of the units' Code
-#     paths since each unit branched. For each unit, computes the merge-base
-#     of its branch and <base-branch> and diffs each Code path between that
-#     merge-base and the current <base-branch> tip. If any path changed,
-#     fails exit 4 with a report naming the stale paths and the base-branch
-#     commits that touched them. --force bypasses this check.
 #
 #     --manifest <path> is required. <path> must be a readable JSON file
 #     (validated with jq). The manifest provides PR content and branch naming.
@@ -120,17 +112,18 @@
 #
 #     For each unit, in argument order:
 #       - constructs the exact unit branch name
-#         "lego/<plan-slug>/<unit-id>-<unit-slug>" and verifies it exists;
-#         reads the unit's block paths: the comma-separated "- Code:" entries of
-#         every blocks.md section whose "- Unit:" equals the unit id, each
-#         path trimmed of surrounding spaces
+#         "lego/<plan-slug>/<unit-id>-<unit-slug>" and verifies it exists
 #       - finds on the unit branch the newest commit with subject exactly
 #         "lego(<unit-id>): tests" and the newest with subject exactly
 #         "lego(<unit-id>): implementation"; the implementation commit is
 #         required, the tests commit is optional (untested prose units)
-#       - when the tests commit exists: restores the block paths from it and
+#       - derives the file list from each commit's own diff (git diff-tree),
+#         not from blocks.md's "- Code:" field — this ensures test files,
+#         version bumps, and any other files committed on the unit branch
+#         are included automatically
+#       - when the tests commit exists: restores its changed files and
 #         commits with subject "lego(<unit-id>): contract + tests"; then
-#         restores the block paths from the implementation commit and commits
+#         restores the implementation commit's changed files and commits
 #         with the impl subject (from the manifest, required). A restore that
 #         produces no changes creates no commit.
 #     Pushes the delivery branch to the "origin" remote and opens a PR
@@ -175,8 +168,9 @@
 #   config per "Config resolution": .claude/lego.json and/or
 #   .local/config.json (jq-parsed and merged; commands.test required and
 #   resolvable; delivery.worktreeDir optional). .local/blocks.md
-#   with "- Unit:" and "- Code:" fields per block section. Must run inside a
-#   git work tree, at the repo root.
+#   with "- Unit:" fields per block section. Must run inside a git work tree,
+#   at the repo root. deliver derives its file list from each commit's diff,
+#   not from "- Code:" fields.
 #
 # Outputs:
 #   Human-readable progress on stderr only. Machine-consumable result — the
@@ -203,9 +197,8 @@
 #            tree (merge); (B01) current branch is a unit branch or equals
 #            the target branch (merge); baseline test failure (add); required
 #            implementation commit missing (deliver); delivery branch already
-#            exists (deliver); (B03) base-branch has modified Code paths
-#            since the unit branched and --force not set (deliver); unmerged
-#            branch (remove); underlying git/gh failure.
+#            exists (deliver); unmerged branch (remove); underlying git/gh
+#            failure.
 #   Every error prints exactly one line starting "ERROR: " to stderr.
 #
 # Invariants:
@@ -240,10 +233,8 @@
 #     (no override present in the integration worktree) still resolves its
 #     config from the checked-out .claude/lego.json.
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
-#     deliver restores the union of their Code paths;
+#     deliver restores the union of files changed by each commit;
 #     status.md carries one "## Blocks" line per section, in file order.
-#   - Code paths containing spaces are preserved verbatim (comma is the only
-#     separator in a "- Code:" list).
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
 #     artifacts are never silently reused.
 #   - "body" and per-unit "commits.<id>.tests" remain individually optional,
@@ -251,18 +242,12 @@
 #     per-unit "commits.<id>.impl" are required (exit 3 when missing).
 #   - A manifest "branch" that already exists as a local branch triggers
 #     exit 4.
-#   - A unit whose blocks have no "- Code:" paths cannot be delivered
-#     (treated as unit-id matching no deliverable content, exit 4).
 #   - (B01) Detached HEAD is not a unit branch — merge guards pass.
 #     Current branch "lego/foo/bar" without a U* segment also passes.
 #   - (B02) Plan slug matching no branches: exits 0, prints "0", no
 #     foreign-skip messages. Foreign messages only for out-of-scope lego
 #     branches that exist. A branch that is in-scope but unmerged gets the
 #     "skipping unmerged" message, not "foreign".
-#   - (B03) --force skips only the stale-base check, not any other
-#     validation. A path that does not exist in either tree is not stale.
-#     When merge-base equals base tip (base hasn't moved), no paths can be
-#     stale.
 #   - merge cleanup failure (dirty unit worktree, already removed, etc.)
 #     is warned on stderr and does not affect the merge exit code.
 #   - deliver cleanup failure (unmerged branch, dirty worktree, etc.)
@@ -274,7 +259,7 @@ set -uo pipefail
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver [--force] --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -747,12 +732,21 @@ cmd_merge() {
 # deliver
 # ---------------------------------------------------------------------------
 
-# restore_and_commit <worktree> <sha> <subject> <path>... -- restores <path>s
-# from <sha> and commits with <subject> if that produced a diff. Returns 1 on
-# an underlying git failure, 0 otherwise (including the no-op case).
+# commit_changed_files <sha> -- lists paths changed by <sha> (one per line).
+commit_changed_files() {
+  git -C "$REPO_ROOT" diff-tree --no-commit-id --name-only -r "$1" 2>/dev/null
+}
+
+# restore_and_commit <worktree> <sha> <subject> [<path>...] -- restores paths
+# from <sha> and commits with <subject> if that produced a diff. When no paths
+# are passed, derives the file list from the commit's own diff (git diff-tree).
+# Returns 1 on an underlying git failure, 0 otherwise (including the no-op case).
 restore_and_commit() {
   local wt="$1" sha="$2" subject="$3"; shift 3
   local -a paths=("$@")
+  if [ "${#paths[@]}" -eq 0 ]; then
+    mapfile -t paths < <(commit_changed_files "$sha")
+  fi
   [ "${#paths[@]}" -gt 0 ] || return 0
 
   if ! git -C "$wt" checkout -q "$sha" -- "${paths[@]}" >/dev/null 2>&1; then
@@ -825,75 +819,6 @@ validate_manifest_required_fields() {
   return 0
 }
 
-# validate_no_stale_base_paths <base-branch> <unit-branch> <path>...
-# Checks that <base-branch> has not modified any of the given paths since
-# the merge-base of <unit-branch> and <base-branch>.
-#
-# Contract: B03 deliver-stale-base-check
-# Behavior:   For each <path>, checks whether it was modified on
-#             <base-branch> between the merge-base of <unit-branch> and
-#             <base-branch>, and the current tip of <base-branch>. "Modified"
-#             means `git diff --name-only <merge-base> <base-branch> --
-#             <path>` produces output. Collects all stale paths and, when
-#             any exist, prints a human-readable report to stderr and
-#             returns 1. Returns 0 when no paths are stale.
-# Inputs:     $1 = base-branch ref (must be resolvable).
-#             $2 = unit-branch ref (must be resolvable).
-#             $3... = paths to check (at least one).
-#             Uses REPO_ROOT global.
-# Outputs:    Returns 0 (no stale paths) or 1 (stale paths found).
-#             On return 1, stderr contains the report: for each stale path,
-#             "  stale: <path> (changed by: <sha1-short> <sha2-short> ...)"
-# Errors:     Returns 1 on stale detection (not an exit — caller decides
-#             whether to die or continue with --force).
-#             Does not die on git failures (merge-base not found, etc.);
-#             treats an unresolvable merge-base as "all paths stale" and
-#             reports it.
-# Invariants: Pure read — no refs, files, or worktrees are modified.
-#             Deterministic: same repo state produces the same result.
-# Edge cases: Unit branch already merged into base (merge-base == unit tip):
-#             base may still have moved beyond, so paths are still checked
-#             between merge-base and base tip.
-#             A path that does not exist in either tree: git diff reports no
-#             change, so it passes (not stale).
-#             All paths stale: all are listed in the report.
-#             merge-base is the same as base tip (base hasn't moved): no
-#             paths can be stale, returns 0 immediately.
-validate_no_stale_base_paths() {
-  local base_branch="$1" unit_branch="$2"
-  shift 2
-  local -a paths=("$@")
-
-  local merge_base
-  if ! merge_base="$(git -C "$REPO_ROOT" merge-base "$unit_branch" "$base_branch" 2>/dev/null)"; then
-    local p
-    for p in "${paths[@]}"; do
-      echo "  stale: $p (changed by: unresolvable merge-base between $unit_branch and $base_branch)" >&2
-    done
-    return 1
-  fi
-
-  local base_tip
-  base_tip="$(git -C "$REPO_ROOT" rev-parse "$base_branch")"
-  if [ "$merge_base" = "$base_tip" ]; then
-    return 0
-  fi
-
-  local found_stale=0
-  local p changed shas
-  for p in "${paths[@]}"; do
-    changed="$(git -C "$REPO_ROOT" diff --name-only "$merge_base" "$base_branch" -- "$p")"
-    if [ -n "$changed" ]; then
-      found_stale=1
-      shas="$(git -C "$REPO_ROOT" log --format='%h' "$merge_base..$base_branch" -- "$p" | tr '\n' ' ')"
-      shas="${shas% }"
-      echo "  stale: $p (changed by: $shas)" >&2
-    fi
-  done
-
-  [ "$found_stale" -eq 0 ]
-}
-
 deliver_cleanup() {
   local tmp_wt="$1" tmp_parent="$2" branch="$3"
   if [ -n "$tmp_wt" ]; then
@@ -908,11 +833,10 @@ deliver_cleanup() {
 }
 
 cmd_deliver() {
-  # ---- Parse flags (--force, --manifest) before positional args ----
-  local manifest_path="" force=0
+  # ---- Parse flags (--manifest) before positional args ----
+  local manifest_path=""
   while [ "$#" -ge 1 ]; do
     case "$1" in
-      --force) force=1; shift ;;
       --manifest)
         [ "$#" -ge 2 ] || die 3 "--manifest requires a path argument"
         manifest_path="$2"; shift 2
@@ -970,7 +894,7 @@ cmd_deliver() {
   git -C "$REPO_ROOT" rev-parse --verify --quiet "$base_branch^{commit}" >/dev/null 2>&1 || die 4 "base branch not found: $base_branch"
 
   # ---- Pass 1: resolve and validate everything, read-only ----
-  local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=() UNIT_PATHS_JOINED=()
+  local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=()
   local -a ALL_HEADINGS=() ALL_CONTRACTS=()
 
   local idx_resolve=0
@@ -987,25 +911,11 @@ cmd_deliver() {
       die 4 "no blocks.md section found for unit $u"
     fi
 
-    local -a unit_paths=()
-    local i code_val part
-    for i in "${!MATCHED_CODE[@]}"; do
+    local i
+    for i in "${!MATCHED_HEADINGS[@]}"; do
       ALL_HEADINGS+=("${MATCHED_HEADINGS[$i]}")
       ALL_CONTRACTS+=("${MATCHED_CONTRACT[$i]}")
-      code_val="${MATCHED_CODE[$i]}"
-      if [ -n "$code_val" ]; then
-        local -a parts=()
-        IFS=',' read -ra parts <<< "$code_val"
-        for part in "${parts[@]}"; do
-          unit_paths+=("$(trim "$part")")
-        done
-      fi
     done
-
-    if [ "${#unit_paths[@]}" -eq 0 ]; then
-      die 4 "unit $u has no Code paths to deliver"
-    fi
-    UNIT_PATHS_JOINED+=("$(printf '%s\n' "${unit_paths[@]}")")
 
     local tests_sha impl_sha
     tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests" "$base_branch")"
@@ -1017,24 +927,6 @@ cmd_deliver() {
     UNIT_IMPL_SHA+=("$impl_sha")
     idx_resolve=$((idx_resolve + 1))
   done
-
-  # ---- Stale-base check (B03): fail if base moved under Code paths ----
-  if [ "$force" -eq 0 ]; then
-    local stale_found=0 idx_stale=0
-    for u in "${unit_ids[@]}"; do
-      local ubranch
-      ubranch="$(construct_unit_branch "$plan_slug" "$u" "${unit_slugs[$idx_stale]}")"
-      local -a stale_paths=()
-      mapfile -t stale_paths <<< "${UNIT_PATHS_JOINED[$idx_stale]}"
-      if ! validate_no_stale_base_paths "$base_branch" "$ubranch" "${stale_paths[@]}"; then
-        stale_found=1
-      fi
-      idx_stale=$((idx_stale + 1))
-    done
-    if [ "$stale_found" -eq 1 ]; then
-      die 4 "base branch $base_branch has modified Code paths since units branched (use --force to override)"
-    fi
-  fi
 
   # ---- Pass 2: build the delivery branch in a temporary worktree ----
   local tmp_parent tmp_wt
@@ -1048,8 +940,6 @@ cmd_deliver() {
 
   local idx=0 build_failed=0
   for u in "${unit_ids[@]}"; do
-    local -a unit_paths=()
-    mapfile -t unit_paths <<< "${UNIT_PATHS_JOINED[$idx]}"
     local tests_sha="${UNIT_TESTS_SHA[$idx]}"
     local impl_sha="${UNIT_IMPL_SHA[$idx]}"
 
@@ -1065,14 +955,14 @@ cmd_deliver() {
     impl_subject="$mi"
 
     if [ -n "$tests_sha" ]; then
-      restore_and_commit "$tmp_wt" "$tests_sha" "$tests_subject" "${unit_paths[@]}"
+      restore_and_commit "$tmp_wt" "$tests_sha" "$tests_subject"
       if [ "$?" -ne 0 ]; then
         build_failed=1
         break
       fi
     fi
 
-    restore_and_commit "$tmp_wt" "$impl_sha" "$impl_subject" "${unit_paths[@]}"
+    restore_and_commit "$tmp_wt" "$impl_sha" "$impl_subject"
     if [ "$?" -ne 0 ]; then
       build_failed=1
       break

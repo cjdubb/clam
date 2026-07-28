@@ -50,7 +50,7 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.6.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.6.1 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.1.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
@@ -66,117 +66,20 @@ auto-update doesn't refresh the recorded install path
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 | [build](plugins/build/) | ✅ v0.2.0 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync (`/build:sync-pr`) and delivery workflow context. |
-| [render-doc](plugins/render-doc/) | ✅ v0.1.1 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
-| [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.1 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
+| [render-doc](plugins/render-doc/) | ✅ v0.1.2 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
+| [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.2 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [notifications](plugins/notifications/) | ✅ v0.1.1 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
 | [session-data](plugins/session-data/) | ✅ v0.1.1 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
-| [updates](plugins/updates/) | ✅ v0.1.0 | Guided plugin update flow: `/updates:run` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
+| [updates](plugins/updates/) | ✅ v0.1.1 | Guided plugin update flow: `/updates:run` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
 | [debugging](plugins/debugging/) | ✅ v0.2.1 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
-<!--
-Contract: B04 registration & root-README integrity (plan 001-update-flow-for-users)
-Behavior: register the updates plugin and restore the Plugins table to
-agreement with plugin.json versions (the single source of truth).
-Outputs:
-- .claude-plugin/marketplace.json: exactly one plugins[] entry — name
-  "updates", source "./plugins/updates", a non-empty description naming
-  /updates:run, and no version field. (Landed at scaffold because
-  marketplace-lint requires directory/entry parity from the moment the
-  plugin directory exists; content is contractual.)
-- The Plugins table above gains exactly four rows, each inserted BEFORE the
-  debugging row (which remains the last row — standing invariant):
-  | [updates](plugins/updates/) | ✅ v0.1.0 | <what it does, naming /updates:run> |
-  | [notifications](plugins/notifications/) | ✅ v<plugin.json> | <summoning stack per its marketplace description> |
-  | [skill-tracker](plugins/skill-tracker/) | ✅ v<plugin.json> | <skill telemetry, naming /skill-tracker:stats> |
-  | [session-data](plugins/session-data/) | ✅ v<plugin.json> | <session data file location, naming /session-data:paths> |
-- Existing drifted rows corrected: lego → v0.5.1, tracking → v0.6.1.
-- The five B05-bumped plugins' rows updated (attribution, privacy,
-  settings, landing → v0.2.0; statusline → v0.3.0 — #123's caching
-  release had consumed 0.2.0) — B05 is a dependency; use the plugin.json
-  values as they stand when this block is implemented.
-- The Update section prose above: corrected only if B02's empirical
-  auto-update verification contradicts it; otherwise untouched.
-Invariants: every marketplace plugin has exactly one table row whose
-  version agrees with its plugin.json at implementation time; planned rows
-  (pr-workflow, session-modes, team-review, guards, agent-dash) untouched;
-  debugging stays the last row; no duplicate entries or rows; the
-  marketplace entry reaches master only together with the working plugin
-  (single-PR delivery G01; integration-branch intermediate states are
-  internal).
-Errors: n/a — declarative edits; validity enforced by the jq lint,
-  scripts/marketplace-lint.sh, B06's root-table lint, and this block's
-  registration test.
-Edge cases: row placement beyond the before-debugging invariant mirrors
-  the existing ordering style and is not contractual; presence, uniqueness,
-  and version agreement are.
--->
-
-<!--
-Contract: B02 registration
-Behavior: register the render-doc plugin in the marketplace and this README.
-Outputs:
-- .claude-plugin/marketplace.json gains exactly one entry in its "plugins"
-  array: name "render-doc", source "./plugins/render-doc", a one-sentence
-  description covering both HTML rendering and annotation write-back, and
-  version "0.1.0". The file stays jq-valid.
-- The Plugins table above gains exactly one row:
-  | [render-doc](plugins/render-doc/) | ✅ v0.1.0 | <what it does, naming
-  /render-doc:render> |
-Invariants: version agrees with plugins/render-doc/.claude-plugin/plugin.json;
-no duplicate render-doc entries or rows; per the repo convention below
-("the marketplace never lists empty shells") the entry reaches master only
-together with the working plugin — satisfied by single-PR delivery (G01);
-integration-branch intermediate states are internal.
-Errors: n/a — declarative edits; validity enforced by the jq lint and the
-registration test.
-Edge cases: row and entry placement mirror the existing ordering style; the
-exact position is not contractual, presence and uniqueness are.
--->
-
-<!--
-Contract: B03 assembly & registration (ask-in-text)
-Behavior: assemble the ask-in-text plugin (manifest + hook wiring) and
-register it in the marketplace and this README. Composition block: its
-children are B01 (scripts/block-question.sh, the PreToolUse deny) and B02
-(scripts/questions-context.sh, the SessionStart convention); this block's
-promise is that both are wired so the plugin blocks AskUserQuestion and
-injects the numbered-text question convention in every session.
-Outputs:
-- plugins/ask-in-text/.claude-plugin/plugin.json: name "ask-in-text",
-  version "0.1.0", a one-sentence description naming AskUserQuestion and
-  the plain-text redirect, and an author object byte-identical (jq -Sc) to
-  .claude-plugin/marketplace.json's owner. Stays jq-valid.
-- plugins/ask-in-text/hooks/hooks.json: object form {"hooks": {...}}
-  registering exactly two hooks and nothing else: a PreToolUse group with
-  matcher "AskUserQuestion" running
-  ${CLAUDE_PLUGIN_ROOT}/scripts/block-question.sh (type "command",
-  timeout 10), and a SessionStart group (no matcher) running
-  ${CLAUDE_PLUGIN_ROOT}/scripts/questions-context.sh (type "command",
-  timeout 10). Stays jq-valid.
-- .claude-plugin/marketplace.json: exactly one plugins[] entry — name
-  "ask-in-text", source "./plugins/ask-in-text", a non-empty description
-  naming AskUserQuestion, and no version field.
-- The Plugins table above gains exactly one row:
-  | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.0 | <what it does, naming
-  AskUserQuestion and the numbered plain-text convention> |
-Invariants: version agrees between plugin.json and the README row; no
-duplicate ask-in-text entries or rows; hooks.json registers no events or
-commands beyond the two above; every .sh under plugins/ask-in-text/ is
-executable in the git index (scripts/executable-lint.sh); hooks-only
-plugin — no skills/ directory; per the repo convention below ("the
-marketplace never lists empty shells") the registration reaches master
-only together with the working plugin — satisfied by single-PR delivery
-(G01); integration-branch intermediate states are internal (the
-marketplace entry lands at scaffold because marketplace-lint requires
-directory/entry parity from the moment the plugin directory exists).
-Errors: n/a — declarative edits; validity enforced by the jq lint,
-scripts/marketplace-lint.sh, and this block's tests.
-Edge cases: reloading plugins mid-build is safe — the scaffolded
-hooks.json registers nothing until this block's implementation wires it;
-row and entry placement mirror the existing ordering style, presence and
-uniqueness are contractual, position is not.
--->
+<!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
+     has exactly one row here, and its status cell must read "✅ vX.Y.Z" matching
+     that plugin's .claude-plugin/plugin.json. The debugging row stays last —
+     insert new rows before it. Both rules are enforced: scripts/readme-lint.sh
+     (version agreement) and plugins/debugging/scripts/b10-registration.test.sh
+     (last-row invariant). -->
 
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.

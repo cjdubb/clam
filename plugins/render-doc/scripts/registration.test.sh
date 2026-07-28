@@ -1,8 +1,9 @@
 #!/bin/bash
-# Test for Block B02 (registration). Authoritative contract: the HTML-comment
-# docblock "Contract: B02 registration" in the root README.md, just under
-# the Plugins table. Asserts directly on the two shared repo files the
-# contract names as B02's outputs:
+# Test for Block B02 (registration). Authoritative contract: this file. The
+# block's contract docblock sat in the root README.md just under the Plugins
+# table and was removed once the block landed (recoverable from git history).
+# Asserts directly on the two shared repo files the contract named as B02's
+# outputs:
 #
 #   (1) .claude-plugin/marketplace.json — exactly one plugins[] entry named
 #       "render-doc": source "./plugins/render-doc", no version field

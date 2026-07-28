@@ -52,6 +52,11 @@ from both the brief and the seeded `.local/` remain escalations, as today.
 3. **Never change the public interface or the contract.** Stub signatures, type
    declarations, and contract docblocks are fixed. Fill in bodies; do not
    redesign. If the interface cannot support a correct implementation, escalate.
+   The sole exception is a **prose block** — one whose deliverable is a
+   document — carrying an HTML-comment contract marked `(remove at
+   acceptance)`: delete that comment as part of implementing the block, having
+   first moved anything in it that must outlive the block (a standing editing
+   rule, an invariant with no other home) into the document's own prose.
 4. **Stay within your assigned block(s).** Do not "improve" neighboring blocks,
    shared utilities, or config — config includes the committed
    `.claude/lego.json` and anything under `.claude/`. New third-party

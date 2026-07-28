@@ -1,7 +1,7 @@
 {
   "name": "ask-in-text",
   "description": "Blocks the AskUserQuestion picker UI via a PreToolUse deny and redirects Claude to ask numbered plain-text questions in the conversation instead.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

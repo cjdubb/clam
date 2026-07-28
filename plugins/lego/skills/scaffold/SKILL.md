@@ -56,6 +56,25 @@ principles:
    clauses and test each one. Ambiguity here becomes escalation traffic later;
    spend the effort now.
 
+   **Prose blocks are the exception to docblock permanence.** When a block's
+   deliverable is a document — a `SKILL.md`, a `README.md`, a template — its
+   "doc convention" is an HTML comment, and the prose written below it *is*
+   the implementation. A contract left in place there ships as a duplicate of
+   the text beneath it, and an HTML comment is invisible only to the markdown
+   renderer: every reader that loads the file, Claude included, still pays for
+   it. So mark these for removal when you write them:
+
+   ```
+   <!-- Contract: B<NN> <name> (remove at acceptance)
+   Behavior: ...
+   -->
+   ```
+
+   The implementation wave deletes the comment; acceptance confirms it is
+   gone. Anything the contract asserts that must outlive the block — a
+   standing editing rule, an invariant with no other home — is moved into the
+   document's own prose or a short editing note *before* the contract goes.
+
 Composition blocks are scaffolded too: their stub is the wiring surface (the
 function/module that composes children), and their contract describes the
 composed behavior.

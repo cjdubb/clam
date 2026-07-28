@@ -5,7 +5,9 @@
 # updates-plugin-manifest" at the top of plugins/updates/README.md.
 #
 # Covers plugins/updates/.claude-plugin/plugin.json:
-#   - valid JSON; .name "updates"; .version "0.1.0"
+#   - valid JSON; .name "updates"; .version well-formed semver and >= 0.1.0
+#     (a floor, not a pin: version-bump-lint requires a bump for ANY content
+#     change to the plugin, so an exact pin here would fail every such change)
 #   - .description non-empty, names /updates:run, and is a single sentence
 #     (exactly one period, trailing)
 #   - .author byte-identical (jq -Sc) to marketplace.json's .owner (single
@@ -136,7 +138,13 @@ name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'updates'" "$name" "updates"
 
 version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is '0.1.0'" "$version" "0.1.0"
+# A floor, not a pin — version-bump-lint requires a bump for any content
+# change to plugins/updates/, so a bump for unrelated reasons must not make
+# this clause regress. Same idiom as render-budget.test.sh's clause4.
+check "plugin.json .version is well-formed semver and >= 0.1.0" \
+  "$([[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+     && [[ "$(printf '0.1.0\n%s\n' "$version" | sort -V | head -n1)" == "0.1.0" ]] \
+     && echo yes || echo no)" "yes"
 
 description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \

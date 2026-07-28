@@ -238,6 +238,13 @@ orchestrator, inside the unit worktree:
    docblocks are untouched — bodies change, surfaces do not. By-eye in v0;
    treat any surface change as a defect unless it went through the
    escalation loop.
+
+   One exception: a **prose block**'s HTML-comment contract, marked
+   `(remove at acceptance)` at scaffold time, must be *gone* — the document's
+   prose is the implementation, so a surviving contract is a duplicate spec
+   every future reader of that file loads. Confirm it was deleted, and that
+   anything in it that must outlive the block was moved into the document's
+   prose first.
 5. Spot-review the diff for quality: contract clauses the tests undercover
    are still binding (workers are told this; verify it on anything security-
    or correctness-critical).

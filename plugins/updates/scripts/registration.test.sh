@@ -2,10 +2,11 @@
 # Structural/content tests for Block B04 (registration & root-README
 # integrity, plan 001-update-flow-for-users).
 #
-# Source of truth: the HTML-comment docblock "Contract: B04 registration &
-# root-README integrity (plan 001-update-flow-for-users)" in the root
-# README.md, directly below the Plugins table. Asserts on the two shared
-# repo surfaces the contract names as this block's outputs:
+# Source of truth: this file. The block's contract docblock sat in the root
+# README.md below the Plugins table and was removed once the block landed
+# (plan 001-update-flow-for-users; recoverable from git history). The clauses
+# it specified are the assertions below, on the two shared repo surfaces it
+# named as this block's outputs:
 #
 #   (1) .claude-plugin/marketplace.json — exactly one plugins[] entry named
 #       "updates": source "./plugins/updates", no version field

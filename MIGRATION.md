@@ -5,15 +5,34 @@ Tracks where every element of the previous iterations lands. Statuses:
 plugin, not yet ported), **out of scope** (deliberately left behind),
 **dropped** (superseded).
 
-Hook assignments are best-effort from clam-code's `general/hooks/README.md`;
-confirm each hook's wiring and dependencies at port time.
+Hook-to-plugin assignments, and every other status claim in this file
+predating plan 001-github-issue-13, were verified on 2026-07-27 against
+clam-code (origin `clipboard-app/clam-code`) and clam-generic (origin
+`cjdubb/clam-generic`) — **both are source surfaces this map tracks, not
+clam-code alone** — and against this repo's shipped `plugins/` and
+`.claude-plugin/marketplace.json`. Claims that did not survive checking were
+corrected in place, with the evidence noted inline; a status of
+`unverified — <reason>` marks a claim that could not be checked at all.
 
 ## lego — ported (from clam-v2)
 
 Skills renamed to drop the redundant prefix: `lego-plan` → `/lego:plan`,
 `lego-scaffold` → `/lego:scaffold`, `lego-dispatch` → `/lego:dispatch`.
 Agents (`lego-test-writer`, `lego-implementer`), realm scripts, hooks,
-templates, and docs ported unchanged. clam-v2's repo and marketplace retire;
+templates, and docs ported from clam-v2. "Unchanged" no longer holds, though
+— diffed against clam-v2's working tree (2026-07-27): `hooks/hooks.json` and
+`scripts/realm-check.sh` remain byte-identical, but `scripts/realm-gate.sh`
+has since gained the `.local/`-read-only deny, `scripts/realm.sh` and
+`docs/config-schema.md` gained the layered `.claude/lego.json` +
+`.local/config.json` config with multi-variant test commands,
+`scripts/session-context.sh`, `agents/lego-implementer.md`, and
+`agents/lego-test-writer.md` were rewritten for the worktree-per-unit
+dispatch model (each worker gets its own dedicated worktree and a seeded
+`.local/` brief, rather than sharing one checkout), and `templates/blocks.md`
+/ `templates/lego.json` (renamed from clam-v2's `config.json`) gained
+`Unit:`/`PR group:` and `delivery.mode` fields. The status stays **ported
+(from clam-v2)** — nothing here gained a clam-code ancestor instead — this
+corrects only the "unchanged" claim. clam-v2's repo and marketplace retire;
 this is the canonical home.
 
 The v1 lego agents in clam-code (`lego-builder`, `lego-stub-builder`,
@@ -46,8 +65,8 @@ injection.
 
 Port change: the policy file moved from `.claude/clam-profile.md` (flat
 frontmatter keys) to `.claude/clam-profile.jsonc` (JSON with `//` comments)
-alongside the **deliver** plugin's introduction (plan 001) — see
-**deliver** below.
+alongside the **build** plugin's introduction (plan 001) — see
+**build** below.
 
 Couplings to honor at later ports:
 
@@ -59,27 +78,30 @@ Couplings to honor at later ports:
   is the natural second resident of the profile file — namespaced keys in
   `.claude/clam-profile.jsonc`, not a new file.
 
-## deliver — new (not a port)
+## build — new (not a port)
 
 No clam-code ancestor; born 2026-07-22 from issue #56 (PR description
-sync). Composition layer above **landing**, **lego**, and **tracking**:
-a SessionStart hook (`deliver-context.sh`) that detects which companion
-plugins are installed and explains how they compose into a delivery
-lifecycle, plus the `/deliver:sync-pr` skill that keeps an open PR's
-description current with the branch behind it regardless of which
-companion (or manual `gh pr create`) opened it. Degrades gracefully when
-none of its companions are installed.
+sync) as **deliver**, renamed to **build** 2026-07-26 (PR #137, plan
+001-github-issue-13) — a filesystem rename, not a replacement: same
+directory history, same contract, only the name and its `/deliver:` skill
+namespace changed (now `/build:`). Composition layer above **landing**,
+**lego**, and **tracking**: a SessionStart hook (`build-context.sh`) that
+detects which companion plugins are installed and explains how they
+compose into a delivery lifecycle, plus the `/build:sync-pr` skill that
+keeps an open PR's description current with the branch behind it
+regardless of which companion (or manual `gh pr create`) opened it.
+Degrades gracefully when none of its companions are installed.
 
 Absorbs the composition/orchestration slice of the **pr-workflow** plugin
 planned above: `pr-workflow`'s reviewer-side skills (`pr-review`,
 `pr-review-perfect`, `find-reviewer`, `get-pr-comments`,
 `address-pr-feedback`, etc.) remain planned there unchanged, but the
 PR-description-freshness concern that would otherwise have landed in
-`pr-workflow` belongs to deliver instead.
+`pr-workflow` belongs to build instead.
 
 Shipped alongside the `.claude/clam-profile.md` → `.claude/clam-profile.jsonc`
-profile format change (see **landing**), since deliver's session-start
-context and `/deliver:sync-pr` both read repo-declared policy.
+profile format change (see **landing**), since build's session-start
+context and `/build:sync-pr` both read repo-declared policy.
 
 ## tracking — ported (from clam-code)
 
@@ -94,6 +116,13 @@ record, the 13-state lifecycle, Stop-hook enforcement, and resume-after-/clear.
   UserPromptSubmit), new `session-context.sh` (SessionStart) carrying the
   system-prompt Work Management rules + resume pointer + epoch-marker resets
   (the marker-clearing duties of `session-track.sh`/`post-compact.sh`)
+- Also carries `flush-nudge.sh` (UserPromptSubmit), `post-compact-recovery.sh`
+  (SessionStart, `compact` matcher), and `precompact-snapshot.sh`
+  (PreCompact) — session-continuity hooks landed directly in tracking on
+  2026-07-22 (`b29758b`), separately from the make-progress absorption below.
+  Corrected 2026-07-27: this map previously still listed these three under
+  session-modes' still-to-port hooks; they are already shipped and wired
+  here (`plugins/tracking/hooks/hooks.json`).
 
 Port changes: the `CLAM_SESSION` alias gate became
 `CLAM_TRACKING_STOP_GATE` (default enabled; plugin enablement is the opt-in);
@@ -131,17 +160,22 @@ install-changes-nothing constraint holds.
 
 ## session-modes — planned
 
-- Skills: `start`, `orient`, `sitrep`, `role-check`, `make-progress`,
-  `whats-cooking`, `planning`, `orchestrator-handover` (moved to
-  **orchestrator-handover**)
+- Skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`,
+  `planning`, `orchestrator-handover` (moved to **orchestrator-handover**)
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
-  injection, so session-modes must not duplicate it), `flush-nudge.sh`,
-  `capture-make-progress.sh`, `post-compact.sh`, `precompact-snapshot.sh`
+  injection, so session-modes must not duplicate it)
 - (`keep-working.sh` and `awaiting-user.sh` moved to **tracking**;
   `prompt-timestamp.sh` and `capture-permission-mode.sh` moved to
-  **notifications**, their consumers)
+  **notifications**, their consumers. Corrected 2026-07-27: the
+  `make-progress` skill, and hooks `flush-nudge.sh`, `capture-make-progress.sh`
+  (now `capture.sh`), `post-compact.sh` (now `post-compact-recovery.sh`), and
+  `precompact-snapshot.sh`, are also already ported — into **tracking**, not
+  session-modes (see the **tracking** section above) — verified via this
+  repo's own commit history (`5dd0145`, `b29758b`) and
+  `plugins/tracking/hooks/hooks.json`. This map previously still listed them
+  here as session-modes' to port.)
 
 ## orchestrator-handover — ported (from clam-code)
 
@@ -321,6 +355,285 @@ Integration with clam-agent-dashboard.
   untangle the coupling or accept a soft dependency between the two plugins)
 
 <!--
+Contract: B01 audit-unmapped-surfaces (plan 001-github-issue-13)
+
+Behavior:
+  Catalog the three source surfaces this map has never covered, as three new
+  sections, so that every element of each surface is named and carries a
+  status. The map's own header claims to track "where every element of the
+  previous iterations lands"; today it tracks two of five surfaces. This block
+  closes three of the three gaps. It records what EXISTS and what its status
+  IS; it does not recommend action (that is B03) and it does not touch any
+  pre-existing section (that is B02).
+
+  Read-only against the sources. This block writes ONLY MIGRATION.md inside
+  this repo. It must never write, commit, checkout, or otherwise mutate
+  anything under the source repo paths below.
+
+Inputs (all read-only, absolute paths):
+  - /home/cwilliamson/github/clam-code-trees/master
+      origin clipboard-app/clam-code — the original.
+  - /home/cwilliamson/github/clam-code-generic-trees/master
+      origin cjdubb/clam-generic — the genericized fork.
+  - /home/cwilliamson/github/clam-code-trees/<other worktrees>
+      sibling worktrees of the clam-code bare repo.
+  - This repo's plugins/ directory, to judge whether a surface element is
+    already represented here.
+
+Outputs — exactly three new "## " sections, each appearing exactly once:
+
+  (1) "## Audit: clam-generic divergence"
+      The delta between clam-code and clam-generic under general/. Names, at
+      minimum, every element present in one and absent from the other, split
+      into a generic-only list and a clam-code-only list, plus a count of
+      files that exist in both but differ. Known at plan time (verify, do not
+      trust): generic-only skills issue-tracker and pre-pr-verify, and
+      hooks/agent-dash-permission.test.sh; clam-code-only skills
+      absorb-package and create-jira-ticket, and libs clipboard-helpers.*,
+      trees-dir.*, worktree-helpers.*. `diff -rq` over the two general/ trees
+      reported 79 entries at plan time. Each named element carries one of the
+      four map statuses (ported / planned / out of scope / dropped) or an
+      explicit "unassigned" marker.
+      Must state which of the two repos is the preferred migration source and
+      why — the genericized fork is the likelier source for a repo whose
+      whole point is being generic, but that is a claim to verify, not assume.
+
+  (2) "## Audit: repos/clipboard overlay"
+      The clam-code-only repos/clipboard/ tree, absent from this map entirely.
+      Names its skills (angular-dev, database, database-migrations,
+      monorepo-consolidation, pre-pr-verify, stricten, strictening — verify
+      the list), plus its rules/, git-hooks/, and lib/ contents. Each element
+      carries a status. Must explicitly disambiguate the two distinct things
+      named pre-pr-verify: this overlay's copy and clam-generic's
+      general/skills/pre-pr-verify, which the pr-workflow section above maps.
+      Must state whether the overlay is repo-specific-by-nature (and so
+      out of scope for a generic marketplace) or contains genuinely portable
+      material.
+
+  (3) "## Audit: unmerged clam-code branches"
+      Work sitting in clam-code worktree branches but not in origin/master.
+      At plan time: integration-genericize was 76 commits ahead of
+      origin/master, orchestrate-hook-errors 1 ahead, and the other five
+      worktrees 0 ahead. Verify these counts rather than copying them. For
+      each branch that is ahead, state whether its content is already
+      represented in the clam-generic repo (making it redundant as a
+      migration source) or is a distinct body of unmigrated work — checking
+      is required; assuming is a contract violation.
+
+Errors:
+  - A source path that does not exist, or a git command that fails against
+    it: record the surface as "unauditable — <reason>" in its section rather
+    than omitting the section. A missing source is a finding, not a blocker.
+  - Evidence that contradicts a plan-time claim above (different diff counts,
+    different file lists): record what was actually observed and note the
+    discrepancy. The observed state wins; the plan is a starting hint.
+
+Invariants:
+  - No section that existed before this block runs is modified. B01 appends
+    only. (`git diff` on MIGRATION.md shows insertions in this block's three
+    sections and nothing else.)
+  - plugins/render-doc/scripts/migration.test.sh stays green.
+  - Every element named in the three sections carries a status.
+  - The scaffold marker is gone: after this block the string
+    "NotImplemented: B01" appears nowhere in MIGRATION.md outside a contract
+    docblock.
+  - No writes anywhere outside this repo.
+
+Edge cases:
+  - An element present in clam-code, clam-generic AND repos/clipboard under
+    the same name: name it in each section it appears in, and disambiguate.
+  - A branch 0 commits ahead of origin/master: still list it, as "no
+    unmerged work", so the audit is provably exhaustive over the worktrees.
+  - A surface element already fully ported into this repo's plugins/: status
+    is "ported", with the destination plugin named.
+  - Binary or generated files in a source tree: group them rather than
+    enumerating, and say so.
+-->
+
+## Audit: clam-generic divergence
+
+A diff -rq run between clam-code's general/ tree (origin clipboard-app/clam-code) and clam-generic's general/ tree (origin cjdubb/clam-generic) reports 79 entries, confirming the plan-time count exactly: 3 present only in clam-generic, 11 present only in clam-code, and 65 present in both but differing in content.
+
+**Preferred migration source: clam-generic.** Where the two repos diverge on a shared file, clam-generic's version is consistently the already-genericized one, and in several cases it already matches decisions this map has made independently, which is stronger evidence than "the fork whose point is being generic, therefore prefer it" would be on its own. clam-generic's hooks/git-guard.sh exempts a configurable reviewer login instead of hardcoding CodeRabbit — the exact CLAM_AUTO_REVIEWER knob the **git-guard** section above already plans to carry. clam-generic's system-prompt.md replaces the Jira-only ticket gate with the issue-tracker skill's provider seam and drops the Clipboard-only "Strictening" mode entirely; lib/worktree-naming.sh drops that same Strictening mode from its legal-mode table. clam-code's clam-settings.json still carries clipboard-repo-only permission entries (Bash(newcliptree:*), Bash(cdt), Read(~/clipboard-repos/**)) that clam-generic has already stripped.
+
+Generic-only (present only in clam-generic; verified, matches the plan-time hint):
+
+- `general/skills/issue-tracker` — planned (pr-workflow)
+- `general/skills/pre-pr-verify` — planned (pr-workflow); this is the provider-agnostic gate sequence — disambiguated against repos/clipboard's own copy of `pre-pr-verify` in the next section
+- `general/hooks/agent-dash-permission.test.sh` — planned (agent-dash); the test suite for `agent-dash-permission.sh`, which the **agent-dash** section already lists
+
+Clam-code-only (present only in clam-code; verified, matches the plan-time hint):
+
+- `general/skills/absorb-package` — out of scope; an NX-graph-driven package-consolidation skill scoped to the Clipboard monorepo (`nx graph`, `libs/`, `apps/`); it is the implementation-layer skill that repos/clipboard's own `monorepo-consolidation` skill hands off to (see the next section) — not portable to a generic marketplace
+- `general/skills/create-jira-ticket` — dropped; its entire content (the Atlassian-MCP current-user lookup, the `createJiraIssue` call with Project/Summary/Assignee/Issue Type, and the documented `\n`-literal-text quirk) is folded verbatim into clam-generic's `issue-tracker` skill's `providers/jira.md` `create()` operation — genuinely superseded, not merely renamed
+- `general/lib/clipboard-helpers.sh`, `general/lib/clipboard-helpers.fish`, `general/lib/clipboard-helpers.test.sh` — out of scope; the file's own header calls it "Clipboard-repo-coupled" (reads `CLIPBOARD_ENV_DIR`, implements `newcliptree`); the **orchestrator-handover** port already dropped the `newcliptree`/CLIP-* branching these files exist to serve, always using `newtree` now
+- `general/lib/trees-dir.sh`, `general/lib/trees-dir.fish`, `general/lib/trees-dir.test.sh` — out of scope; implements the `cdt` derivation. Repo-agnostic per its own header, but not shipped as a file anywhere in this repo's `plugins/` — it is the actual implementation behind a shell function the **worktrees** plugin's skills document usage of without shipping, matching the "Out of scope" section's existing `general/lib/` shell-helpers line
+- `general/lib/worktree-helpers.sh`, `general/lib/worktree-helpers.fish`, `general/lib/worktree-helpers.test.sh` — out of scope, same reasoning; implements `cdt`/`newtree`/`rmtree`
+
+Two more files among the 65 that differ are worth flagging because neither is named anywhere in this map yet. `general/lib/worktree-naming.sh` is consumed only by `general/skills/start/SKILL.md` (the `/start` naming gate), which the **session-modes** section lists as planned — planned, by the same reasoning, though not itself named there. `general/lib/session-guard.sh` is consumed by both `general/hooks/session-track.sh` (agent-dash, planned) and `general/claude-alias.sh` (the out-of-scope `clam` alias mechanism) — unassigned, since its two consumers currently carry different statuses and nothing in the map picks one for it; this is a judgment call for whoever ports agent-dash, not one this audit can make for them.
+
+Several elements this map already marks ported also appear among the 65 differing files: render-doc's `assets/template.html` and `fixtures/plan.md`, decision-log's `SKILL.md` and `template.md`, orchestrator-handover's `SKILL.md` and `template.md`, skill-tracker's `skill-stats.sh`, and notifications' `push-notify.sh` and `lib/notify.sh` have all moved in clam-generic since those elements were ported into this repo's plugins/ tree. This audit does not re-diff each already-ported element against clam-generic's newer content — recorded here as an observed fact for whoever next touches those plugins, not a re-porting claim.
+
+## Audit: repos/clipboard overlay
+
+clam-code carries a repos/clipboard/ tree, wholly absent from this map. Verified absent from clam-generic entirely — repos/ does not exist there at all, not even a subset. This is clam-code's per-repo overlay for the Clipboard EMS monorepo (a school-software platform, per its own CLAUDE.md), layered onto a checked-out Clipboard worktree by the overlay-claude-config.sh script listed below.
+
+**Verdict: repo-specific-by-nature, and out of scope for a generic marketplace**, with one already-extracted exception (`pre-pr-verify`, below). This isn't personal tuning left behind for lack of time — every skill, rule, and hook here is bound to the Clipboard monorepo's own stack (NX, Angular, PostgreSQL DAOs) or its own CI (Husky), not portable material a generic plugin could carry.
+
+Skills (verified against the plan-time hint — all 7 present, nothing more):
+
+- `angular-dev` — out of scope; Angular/`cb-*` design-system, Material, signals, and RxJS conventions specific to the Clipboard monorepo's frontend
+- `database` — out of scope; PostgreSQL DAO conventions (Either-returning contracts, UPDATE/DELETE return checks, TIMESTAMPTZ rules) specific to Clipboard's repository layer
+- `database-migrations` — out of scope; wraps Clipboard's own `db-migrate` / `db:migration:create` tooling
+- `monorepo-consolidation` — out of scope; runs `nx graph` analysis over the Clipboard workspace and hands implementation off to `general/skills/absorb-package` (also out of scope — see the divergence section above)
+- `pre-pr-verify` — out of scope; this is the Clipboard-hardcoded original: NX targets (`nx affected -t lint`, `-t unit-test`, `-t integration-test-isolated`), `npm run format-code`, Docker/`.env` preconditions. This is a **different thing** from clam-generic's `general/skills/pre-pr-verify` (planned, mapped under **pr-workflow** above), which is the provider-agnostic gate sequence this overlay's copy was generalized into — same gate structure (format → lint → unit → doc-sync → integration → commit-structure), concrete commands resolved per-repo instead of hardcoded. The overlay's copy stays here, repo-bound; the generic copy is the migration source
+- `stricten` — out of scope; per-package TypeScript strictening for Clipboard, tests-first protocol tied to the monorepo's own NX/ESLint setup
+- `strictening` — out of scope; reads the Clipboard NX package inventory to pick the next `stricten` target, same repo-binding
+
+Also present, not skills (verified):
+
+- `rules/backend.md`, `rules/tests.md`, `rules/typescript.md` — out of scope; path-scoped code-style rules gated on Clipboard monorepo paths (`apps/*-api/**`, `libs/backend/**`, `libs/node/**`, `libs/lambda/**`, `**/*.sql`)
+- `git-hooks/pre-push` — out of scope; a shim delegating to the Clipboard repo's own checked-in `.husky/pre-push`
+- `lib/overlay-claude-config.sh`, `lib/overlay-claude-config.test.sh` — out of scope; the overlay mechanism itself, which lays this whole tree onto a checked-out Clipboard worktree's `.claude/` from `~/.claude/repo-configs/clipboard` — has no purpose once a repo consumes plugins from a marketplace instead of a filesystem overlay
+- `API.md`, `CLAUDE.md` — out of scope; Clipboard product-context (school-software framing) and REST API-style docs, not present in the plan-time hint but found during verification — repo-specific by content, not by omission
+
+No genuinely portable material was found beyond the already-extracted pre-pr-verify generalization; everything else here is bound to Clipboard's specific stack and would need a rewrite, not a port, to serve a generic marketplace.
+
+## Audit: unmerged clam-code branches
+
+clam-code-trees's bare repo has 7 worktrees besides `master`, each tracking one branch. Verified ahead/behind counts via `git rev-list --count origin/master..<branch>` against origin's `master` (`clipboard-app/clam-code`, currently at `0213ee4`), confirming the plan-time count exactly: `integration/genericize` 76 ahead, `orchestrate/hook-errors` 1 ahead, and the other five 0 ahead.
+
+- `integration/genericize` — 76 commits ahead of `origin/master`. Distinct-vs-redundant call: **redundant**, and more strongly so than the plan-time hint anticipated. This branch's current tip commit, `1712ebd`, is not merely similar to clam-generic's content — it is byte-identical in SHA to clam-generic's current `master` HEAD (verified: `git rev-parse HEAD` on both worktrees returns the same `1712ebd03ffa4b8b99852d58a7ca4d55aada6edd`). The two are, right now, the same commit graph. Nothing on this branch is unmigrated relative to clam-generic; the divergence section above, audited against clam-generic directly, already covers everything this branch would contribute
+- `orchestrate/hook-errors` — 1 commit ahead of `origin/master`. Distinct-vs-redundant call: **redundant**. Its one commit (`e97c612`, "fix(settings): remove ineffective Write() permission rules") is a stale fork: the branch's merge-base with `origin/master` is 15 commits behind current `origin/master`, and in the interim `origin/master` gained `b9bea11`, "fix(settings): remove ineffective Write() permission rules (#317)" — same message, and verified byte-identical diff content (`general/clam-settings.json` and `general/global-settings-bundle.json` match exactly between the two commits). The fix already landed on `origin/master` under a different commit hash; this worktree's branch was simply never fast-forwarded or removed afterward
+- `feat/enable-linux-worktree-helpers` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/lego-approach-not-working` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/linux-worktree-helpers` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/pluginize-config` — 0 commits ahead of `origin/master`: no unmerged work
+- `orchestrate/remove-clipboard-trees-dir` — 0 commits ahead of `origin/master`: no unmerged work
+
+Every worktree in `/home/cwilliamson/github/clam-code-trees/` other than `master` is accounted for above; none contributes unmigrated content beyond what the clam-generic divergence audit already covers.
+
+<!--
+Contract: B02 audit-reconcile-claims (plan 001-github-issue-13)
+
+Behavior:
+  Make every pre-existing claim in this map true. The map was written
+  best-effort — its own header says so for the hook assignments — and has
+  never been checked against the sources or against this repo's shipped
+  plugins. This block verifies each claim and corrects what is wrong. It
+  works over the sections that existed BEFORE plan 001; B01's three new
+  sections are B01's, and the register is B03's.
+
+  Read-only against the sources, exactly as B01. Writes ONLY MIGRATION.md.
+
+Inputs:
+  - Every "## " section of MIGRATION.md that predates plan 001.
+  - The same read-only source paths B01 uses.
+  - This repo: plugins/*, .claude-plugin/marketplace.json.
+
+Outputs:
+
+  (1) Verified statuses. For every element the map claims is **ported**,
+      confirm it actually exists in the named plugin here; for every
+      **planned** element, confirm it still exists in a source repo; for
+      every **dropped** or **out of scope** element, confirm the rationale
+      still holds. Correct any status that does not survive checking, and
+      say what the evidence was.
+
+  (2) Four new plugin sections, each exactly once, for the plugins that ship
+      in this repo with no section at all — "## ask-in-text — ", "##
+      debugging — ", "## session-data — ", "## updates — ", each completed
+      with a status in the same style as the existing sections (e.g.
+      "— ported (from clam-code)" or "— new (not a port)"). Determine which
+      by checking whether a clam-code/clam-generic ancestor exists.
+
+  (3) The phantom entries removed. "support-fix" and "support-triage" appear
+      in the Unassigned section but exist in NEITHER source repo — at plan
+      time they were found only in decision-logs/*.md and
+      release-notes/2026-06-19.html. Verify this, then remove them from
+      Unassigned and record in their place (or in the section's prose) that
+      they were retired before the plugin era. After this block, the strings
+      "support-fix" and "support-triage" appear nowhere in MIGRATION.md
+      outside a contract docblock.
+
+  (4) An honest header. The file's opening paragraph currently disclaims the
+      hook assignments as "best-effort from clam-code's
+      general/hooks/README.md". Once those assignments have actually been
+      verified, update that disclaimer to say what is now true, including
+      the date of the audit and that clam-generic — not just clam-code — is
+      a source surface.
+
+Errors:
+  - A claim that cannot be checked (source gone, ambiguous naming): mark the
+    element "unverified — <reason>" rather than silently leaving a status
+    that has not been earned.
+  - A claim that is wrong in a way that suggests the plan's decomposition is
+    wrong (e.g. a whole planned plugin turns out to be already ported):
+    escalate to the orchestrator; do not redesign the map's structure.
+
+Invariants:
+  - plugins/render-doc/scripts/migration.test.sh stays green. Specifically:
+    exactly one "## render-doc — ported" heading survives; the Unassigned
+    writing-cluster line still contains BOTH "writing-markdown" and "rtfm";
+    the stale decision-log note stays absent. Removing the phantoms must not
+    disturb the writing-cluster line.
+  - B01's three "## Audit:" sections are not modified by this block.
+  - Every plugin directory under plugins/ has exactly one "## <name> — "
+    section after this block.
+  - The scaffold markers are gone: after this block no "## " heading ends in
+    "— TBD", and the string "NotImplemented: B02" appears nowhere in
+    MIGRATION.md outside a contract docblock.
+  - No writes anywhere outside this repo.
+
+Edge cases:
+  - A plugin here with no source ancestor at all (born in this repo): the
+    correct status is "new (not a port)", following the landing and deliver
+    sections' precedent — not "ported".
+  - An element the map lists once but which exists in both source repos in
+    differing form: keep one row, and cross-reference B01's divergence
+    section rather than duplicating its detail.
+  - A section whose every claim already checks out: leave it byte-identical.
+    Rewriting correct prose is churn and makes the diff unreviewable.
+  - The Guard inventory table: it is a claim set like any other and is in
+    scope for verification.
+-->
+
+## ask-in-text — new (not a port)
+
+No clam-code/clam-generic ancestor. `AskUserQuestion` appears exactly once in
+either source repo's `general/` tree — `general/skills/start/SKILL.md`,
+telling that one skill not to use the tool because of its 4-option limit —
+not a generic picker-blocking mechanism. This plugin's PreToolUse deny
+(`scripts/block-question.sh`) plus SessionStart plain-text-question redirect
+(`scripts/questions-context.sh`) has no source-repo precedent.
+
+## debugging — new (not a port)
+
+No clam-code/clam-generic ancestor. The only debugging-named skill in either
+source repo is `debug-playwright-tests` (tech-specific; already tracked in
+**Unassigned**), a narrow Playwright-test debugger, not a general root-cause
+methodology. This plugin's `root-cause` skill (reproduction, what-changed
+archaeology, differential diagnosis, binary-search isolation, log/database
+evidence gathering, class-level prevention) has no source-repo precedent.
+
+## session-data — new (not a port)
+
+No clam-code/clam-generic ancestor. Neither source repo has a skill or hook
+that locates session transcript/data files; this plugin's
+`/session-data:paths` skill is new.
+
+## updates — new (not a port)
+
+No clam-code/clam-generic ancestor in the sense that matters here: clam-code
+ships an `update.sh` at its repo root, but that is a fast-forward `git pull`
+followed by re-running `setup.sh` over the whole dotfiles-style `general/`
+tree — a different mechanism entirely from this plugin's per-plugin
+marketplace version diff, which only makes sense once plugins exist as
+independently versioned units (clam-code predates the plugin architecture).
+`/updates:run`'s catalog refresh, per-plugin version diff and confirm-to-apply
+flow, and setup-version-stamp tracking (`docs/setup-stamps.md`) are new.
+
+<!--
 Contract: B03 MIGRATION.md bookkeeping
 Behavior: record the render-doc port in this migration map.
 Outputs:
@@ -348,8 +661,12 @@ composition test (B05) excludes MIGRATION.md from stale-path checks.
 
 ## Unassigned — decide at port time
 
-- `support-fix`, `support-triage` (support cluster — own plugin or fold into
-  pr-workflow)
+- _(the former "support" cluster entries here — two skill names — were
+  retired before the plugin era and are not a migration candidate. Verified
+  2026-07-27: absent from both source repos' `general/` trees entirely;
+  every occurrence found in either repo is historical — confined to
+  `decision-logs/*.md`, 4 files, and one dated release note — matching the
+  plan-time hint exactly.)_
 - `writing-markdown`, `rtfm` (writing cluster)
 - `debug-playwright-tests` (tech-specific; maybe stays a repo-local skill)
 - `orient`-adjacent statusline data? (see statusline note below)
@@ -398,3 +715,138 @@ Elements plugins cannot express, or that remain personal tuning:
   `setup-git-repo-with-trees.sh`, `claude-rules*.sh`
 - `general/lib/` shell helpers (ported piecemeal only if a hook needs one)
 - `general/CLAUDE.md` universal rules (global, user-managed)
+
+<!--
+Contract: B03 audit-candidate-register (plan 001-github-issue-13)
+
+Behavior:
+  Compose B01's and B02's findings into ONE register: the list of things that
+  are genuine candidates for migration into this repo, each with a
+  recommendation and a rationale. This is the deliverable issue #13 asks for
+  ("a recommendation for what (if anything) should be brought over") and it is
+  the list the follow-up GitHub issues are filed from.
+
+  This is a composition block: it invents no findings of its own. Every row
+  traces to a section written by B01 or B02. If a row would need new research,
+  that is a signal B01 or B02 was incomplete — escalate to the orchestrator
+  rather than researching it here.
+
+  Writes ONLY MIGRATION.md. Files no GitHub issues — issue creation is an
+  outward-facing action the orchestrator performs after this block is
+  accepted and the engineer has confirmed the list.
+
+Inputs:
+  - The three "## Audit:" sections written by B01.
+  - The reconciled pre-existing sections and four new plugin sections written
+    by B02.
+  - No source-repo access is required; if it turns out to be, escalate.
+
+Outputs — exactly one new section, "## Migration candidate register",
+containing a markdown table with one row per candidate and these columns:
+
+  | Element | Source surface | Current status | Recommendation | Rationale |
+
+  - Element: the skill / hook / agent / script / doc, named as it is named at
+    the source.
+  - Source surface: which of the five surfaces it lives on (clam-v2,
+    clam-code general/, clam-generic general/, repos/clipboard, unmerged
+    branches), with the path.
+  - Current status: the status the map now carries for it, post-B02.
+  - Recommendation: exactly one of **port**, **drop**, **out of scope**, or
+    **needs decision**. "needs decision" is for elements where the call is
+    genuinely the engineer's, and must be accompanied by the question in the
+    Rationale cell.
+  - Rationale: one sentence. Why this recommendation.
+
+  Rows are ordered by recommendation, **port** first, so the actionable set
+  reads at the top.
+
+  Immediately below the table, a one-line count per recommendation value
+  (e.g. "port: 7 · drop: 3 · out of scope: 12 · needs decision: 2"), so a
+  reader can see the shape of the outcome without counting rows.
+
+Errors:
+  - A finding in B01/B02 that cannot be classified into one of the four
+    recommendation values: use "needs decision" with the question stated.
+    Never invent a fifth value.
+  - Contradictory statuses between B01's and B02's sections for the same
+    element: escalate to the orchestrator. Silently picking one is a
+    contract violation — the contradiction is itself an audit finding.
+
+Invariants:
+  - Every row traces to a B01 or B02 section; no row introduces a claim that
+    appears nowhere else in the file.
+  - Every element that B01 or B02 marked as anything other than "ported" or
+    "dropped" appears as a row. Elements already ported or already dropped
+    are not candidates and are excluded — the register is the action list,
+    not a repeat of the map.
+  - The recommendation column contains only the four permitted values.
+  - No pre-existing section, and no B01/B02 section, is modified.
+  - The scaffold marker is gone: after this block the string
+    "NotImplemented: B03" appears nowhere in MIGRATION.md outside a contract
+    docblock.
+  - plugins/render-doc/scripts/migration.test.sh stays green.
+
+Edge cases:
+  - Zero candidates: the section still exists, states "no migration
+    candidates" explicitly, and the count line reads all zeros. An empty
+    register is a valid, meaningful audit result — issue #13 asks "what (if
+    anything)".
+  - An element that is a candidate on one surface and out of scope on
+    another (same name, different tree): one row per surface, not one merged
+    row.
+  - A candidate that is really a cluster (e.g. all of pr-workflow): one row
+    for the cluster, with the rationale naming it as a cluster, so the
+    follow-up issue is appropriately sized.
+-->
+
+## Migration candidate register
+
+Every row below traces to a B01 "## Audit:" section or a B02-reconciled
+pre-existing section. Elements B01/B02 marked **ported** or **dropped** are
+excluded — they are not candidates, the action already happened. Clusters
+(a whole "planned" plugin section) get one row each, named as a cluster, so
+the follow-up issue they become is sized right; individual elements get
+their own row when the map itself singles them out (the two `pre-pr-verify`
+findings, the two lib files the divergence audit surfaced but never
+assigned, the Unassigned bullets, the doc-referenced `fewer-permission-prompts`
+gap).
+
+| Element | Source surface | Current status | Recommendation | Rationale |
+| --- | --- | --- | --- | --- |
+| pr-workflow plugin cluster (12 skills incl. `create-pr`, `address-pr-feedback`, `get-pr-comments`, `find-reviewer`, `pr-author-checklist`, `pr-retrospective`, `pr-review`, `pr-review-perfect`, `pr-status`, `status-sync`, `issue-tracker`, `doc-sync`; `skills/PR-WORKFLOW.md`; `reviewer` agent; `pr-status.sh` hook) | clam-code general/skills+hooks (clam-generic preferred where a skill diverges — see the divergence audit) | planned | port | Whole plugin is assigned but not yet built; `pre-pr-verify` is disambiguated into its own row below rather than folded in here. |
+| `pre-pr-verify` skill (clam-generic's provider-agnostic copy) | clam-generic general/skills/pre-pr-verify | planned (pr-workflow) | port | The gate sequence pr-workflow is planned to absorb; generalized from repos/clipboard's Clipboard-hardcoded copy, listed separately (out of scope) below — same name, different surface. |
+| session-modes plugin cluster (skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`, `planning`; hook: `session-start.sh`; lib dependency: `worktree-naming.sh`) | clam-code general/skills/{start,orient,sitrep,role-check,whats-cooking,planning}, general/hooks/session-start.sh, general/lib/worktree-naming.sh | planned | port | Whole plugin assigned but not yet built; `session-start.sh` must absorb `system-prompt.md`'s workflow-rules content (the alias mechanism itself is out of scope, below), and `worktree-naming.sh` is `/start`'s un-shipped lib dependency, surfaced by the divergence audit. |
+| team-review plugin cluster (skills: `team-code-review`, `team-council`, `team-exploration`, `independent-review`, `independence-protocol`, `subagent-orchestration`; agents: `Explore`, `browser`) | clam-code general/skills/{...}, general/agents/{Explore,browser} | planned | port | Whole plugin assigned but not yet built; no hook (`orchestrator-guard.sh` is dropped, incompatible with the lego scaffold phase). |
+| permissions plugin cluster (hook: `permission-audit.sh`; skill: `analyze-permissions.sh` promoted to `/permissions:analyze`) | clam-code general/hooks/permission-audit.sh, general/analyze-permissions.sh (unwired CLI helper) | planned | port | Whole plugin assigned but not yet built; the doc-referenced `fewer-permission-prompts` gap is a separate open call, listed under needs decision below. |
+| git-guard plugin cluster (hook: `git-guard.sh` + `git-guard.test.sh`) | clam-code general/hooks/git-guard.sh | planned | port | Single guard assigned but not yet built; shares the `CLAM_AUTO_REVIEWER` knob with pr-workflow. |
+| cron-guard plugin cluster (hook: `cron-guard.sh` + `cron-guard.test.sh`) | clam-code general/hooks/cron-guard.sh | planned | port | Single guard assigned but not yet built. |
+| agent-dash plugin cluster (hooks: `agent-dash-permission.sh`, `session-track.sh`, `git-sync.sh`) | clam-code general/hooks/{agent-dash-permission.sh,session-track.sh,git-sync.sh}; clam-generic general/hooks/agent-dash-permission.test.sh | planned | port | Whole plugin assigned but not yet built; the coupling with session-modes' state files still needs untangling per the map's own note, and `session-guard.sh`'s ownership is a separate open decision, listed below. |
+| `absorb-package` skill | clam-code general/skills/absorb-package | out of scope | out of scope | NX-graph package-consolidation skill scoped to the Clipboard monorepo; the implementation layer repos/clipboard's `monorepo-consolidation` hands off to — not portable to a generic marketplace. |
+| `clipboard-helpers.sh` / `.fish` / `.test.sh` | clam-code general/lib/clipboard-helpers.* | out of scope | out of scope | Clipboard-repo-coupled (`CLIPBOARD_ENV_DIR`, `newcliptree`); orchestrator-handover already dropped the CLIP-* branching these files exist to serve. |
+| `trees-dir.sh` / `.fish` / `.test.sh` and `worktree-helpers.sh` / `.fish` / `.test.sh` | clam-code general/lib/trees-dir.*, general/lib/worktree-helpers.* | out of scope | out of scope | Implement `cdt`/`newtree`/`rmtree`; repo-agnostic but not shipped as files anywhere in `plugins/` — the worktrees plugin's skills document their usage without shipping them, same reasoning the map gives both. |
+| repos/clipboard overlay — skills `angular-dev`, `database`, `database-migrations`, `monorepo-consolidation`, `stricten`, `strictening`; `rules/backend.md`, `rules/tests.md`, `rules/typescript.md`; `git-hooks/pre-push`; `lib/overlay-claude-config.sh`/`.test.sh`; `API.md`, `CLAUDE.md` | repos/clipboard/ | out of scope | out of scope | Repo-specific-by-nature — bound to the Clipboard monorepo's own stack (NX, Angular, PostgreSQL, Husky) or its product context; would need a rewrite, not a port, to serve a generic marketplace. |
+| `pre-pr-verify` skill (repos/clipboard's Clipboard-hardcoded original) | repos/clipboard/skills/pre-pr-verify | out of scope | out of scope | Clipboard-hardcoded (NX targets, `npm run format-code`, Docker/.env preconditions); the provider-agnostic generalization it was rewritten into is clam-generic's copy, listed as a port candidate above — same name, different surface. |
+| `claude-alias.sh` + `claude-alias.fish` (the clam alias mechanism) | clam-code general/claude-alias.sh, general/claude-alias.fish | out of scope | out of scope | The alias mechanism itself dies with the `clam` alias; only its content (system-prompt.md's workflow-rules text) survives, already folded into the session-modes cluster above. |
+| `clam-settings.json` sidecar, `managed-settings-setup.sh`, `managed-version-lock.json` | clam-code general/clam-settings.json, general/managed-settings-setup.sh, general/managed-version-lock.json | out of scope | out of scope | Contents already redistributed piecemeal into other plugins (hooks, permissions, skill overrides); what remains is personal tuning, not a portable unit. |
+| `setup.sh`, `update.sh`, `cleanup.sh`, `cleanup-legacy.sh`, `setup-git-repo-with-trees.sh`, `claude-rules*.sh` | clam-code repo root | out of scope | out of scope | Dotfiles-style repo-bootstrap scripts, superseded by the plugin/marketplace install model (updates' per-plugin version diff replaces `update.sh`'s whole-tree `git pull`); not portable as marketplace plugins. |
+| `general/CLAUDE.md` | clam-code general/CLAUDE.md | out of scope | out of scope | Global, user-managed universal rules — not plugin-shaped content. |
+| `todo-worktree.sh` | clam-code general/todo-worktree.sh | deliberately not ported (revisit alongside tracking) | needs decision | Depends on clam-code session tooling this repo doesn't have yet — should it be revisited once the tracking plugin's session tooling matures, or dropped permanently? |
+| `session-guard.sh` | clam-code/clam-generic general/lib/session-guard.sh (one of the 65 files differing between the two) | unassigned | needs decision | Consumed by both `session-track.sh` (agent-dash, planned) and `claude-alias.sh` (out of scope) — should it follow agent-dash's port, or the alias mechanism's retirement? |
+| `writing-markdown`, `rtfm` (writing cluster) | clam-code general/ (exact skill paths not stated in the map's pre-existing Unassigned section) | unassigned | needs decision | Listed in Unassigned with no destination plugin named — should this become its own plugin, fold into an existing one, or move to out of scope? |
+| `debug-playwright-tests` | clam-code general/ (exact path not stated in the map) | unassigned | needs decision | Narrow, tech-specific Playwright-test debugger — should it ship as a marketplace plugin skill, or remain repo-local tooling outside the marketplace? |
+| orient-adjacent statusline data | clam-code general/ (Unassigned section bullet; its own cross-reference to a "statusline note below" does not resolve to any content elsewhere in this file) | unassigned | needs decision | What should happen to `/orient`'s statusline-adjacent data is unresolved, and the map's own pointer to a clarifying note is dangling — should this wait until that note is found or rewritten, or be decided without it? |
+| `fewer-permission-prompts` (doc-referenced, never built) | clam-code docs reference only — general/ (no skill file exists in either source repo) | gap — referenced in clam-code's docs, never built | needs decision | clam-code's docs reference a `fewer-permission-prompts` skill that was never built in either source repo — build it fresh here, or drop the dangling doc references? |
+
+port: 8 · drop: 0 · out of scope: 9 · needs decision: 6
+
+Excluded, and why: the seven clam-code-trees worktree branches B01 audited
+are not rows above. Five carry zero commits ahead of `origin/master` (no
+content to name). The two with commits — `integration/genericize` (76
+ahead) and `orchestrate/hook-errors` (1 ahead) — are both **redundant** per
+B01: the former's tip is byte-identical to clam-generic's current `master`,
+already covered by the divergence audit above; the latter's one commit
+already landed on `origin/master` under a different SHA. Neither contributes
+a distinct candidate beyond what the rows above already carry, so treating
+them as additional rows would restate the map rather than extend the action
+list.

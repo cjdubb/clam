@@ -10,36 +10,6 @@ statusline plugin's State segment. It also absorbs the former make-progress
 plugin's stall-recovery: a capture hook plus the `/tracking:make-progress`
 skill for the user to manually get a stalled session moving again.
 
-<!--
-Contract: B05 — followups-docs-and-version
-
-Behavior:
-  Documents the follow-ups feature (v0.6.0) within this README's LOCKED
-  template sections (readme-lint: 6 required H2s, extra H2 only between
-  Commands and Relationships):
-  - What to expect: the `.local/FOLLOWUPS.md` artifact — lazy-created,
-    entry-per-follow-up with disposition Status; open entries surfaced at
-    session start; Complete-state close-out gate (once per epoch).
-  - Common workflows: a "### Capture and disposition follow-ups" walkthrough
-    (mention → entry appended → close-out gate → filed/resolved/dropped).
-  - Commands → Hooks: SessionStart and Stop hook rows updated to name the
-    new surfacing/gate behavior; templates list gains FOLLOWUPS.md.
-  - Commands → Env var summary: CLAM_FOLLOWUPS_GATE row (default enabled;
-    any other value disables the close-out gate).
-  Sibling obligations in this unit: plugin.json version 0.5.0 → 0.6.0
-  (single source of truth for version; marketplace.json entry carries no
-  version field and its description string MUST NOT change — it is
-  byte-pinned by the root README table and debugging's b10 fixture);
-  make-progress SKILL.md step-2 list gains an explicit FOLLOWUPS.md row.
-  Test-wave-only obligation: compaction-wiring.test.sh's version pin moves
-  0.5.0 → 0.6.0 (test-realm file; never touched by the implementer).
-Invariants:
-  - readme-lint stays green; existing section content is extended, not
-    restructured.
-  - No lib/states.tsv or marketplace description changes.
-Edge cases: none beyond the lint constraints above.
--->
-
 
 ## Getting started
 
@@ -186,6 +156,13 @@ gate blocks once per session epoch while any entry remains open. Disposition
 each one in place — edit its `Status:` line to `filed <issue-ref>`,
 `resolved`, or `dropped (<reason>)` — never delete an entry, even a dropped
 one.
+
+`- Status: open` is a machine-read marker, matched literally (modulo trailing
+whitespace) by `scripts/keep-working.sh`'s close-out gate and
+`scripts/session-context.sh`'s open-follow-ups surfacing. Reword it and both
+hooks stop seeing the entry — an open follow-up then silently reads as
+dispositioned. Every other `Status:` value is a disposition and ends the
+entry's open state.
 
 ## Commands
 

@@ -6,62 +6,6 @@ disable-model-invocation: true
 
 # Attribution Setup
 
-<!--
-Contract: B05 setup-version-stamp — attribution (plan 001-update-flow-for-users)
-Behavior (extension, to be added): after a successful install write (the
-  verify step passes), record a setup stamp
-  {plugin: "attribution", version, scope, target, at} in the stamp file per
-  plugins/updates/docs/setup-stamps.md; on `/attribution:setup remove`,
-  delete this plugin's stamp for the same target.
-Inputs: version is read from the plugin.json at this installation's
-  installPath (from its installed_plugins.json entry) — never from the
-  entry's version field. target = the settings file written; scope = the
-  configured scope.
-Outputs: stamp record created/replaced (keyed plugin+target); the final
-  confirmation message also names the stamp that was written.
-Errors: a stamp write failure is reported but never fails the setup; a
-  corrupt stamp file is moved aside (.corrupt-<date>) and recreated, per
-  the format doc.
-Invariants: setup behaves identically whether or not the updates plugin is
-  installed; stamp writes are temp-file + mv; no stamp records other than
-  this plugin+target are touched.
-Edge cases: absent stamp file → created; remove with no stamp → silent
-  success (stamp-wise). Plugin version bumps 0.1.0 → 0.2.0 with this change.
--->
-
-<!--
-Contract: B01 attribution
-Behavior:   Writes `attribution: {"commit":"","pr":""}` to the Claude Code
-             settings file matching the plugin's installation scope, suppressing
-             the co-author line on commits and the attribution block on PRs.
-             `/attribution:setup remove` reverses the change.
-Inputs:      Subcommand (none = install, "remove" = uninstall). No other args.
-Outputs:     A confirmation message stating what was written, to which file, and
-             at which scope. On remove: confirmation of what was deleted.
-Errors:
-  - Plugin not found in installed_plugins.json → report and stop; do not guess.
-  - Target settings file missing → treat as `{}` and create it.
-  - Target settings file is not valid JSON → report and stop; do not corrupt.
-  - `jq` not available → report and stop.
-  - `attribution` key already set to a different value → show current value,
-    ask before overwriting.
-  - On remove: `attribution` key absent → report "nothing to remove", succeed.
-Invariants:
-  - Never touches settings keys other than `attribution`.
-  - Always backs up the target file before writing (`<file>.bak-<date>`).
-  - Merge semantics: read → patch one key → write. Never full-overwrite.
-  - The written value is always exactly `{"commit":"","pr":""}` — no
-    partial writes, no other shapes.
-Edge cases:
-  - Plugin installed at multiple scopes → present the list, ask which to
-    configure; do not default silently.
-  - Target file does not exist yet → create with only the `attribution` key.
-  - Target file is empty (0 bytes) → treat as `{}`.
-  - settings.json vs settings.local.json: scope "project" targets
-    `.claude/settings.json`; scope "local" targets `.claude/settings.local.json`;
-    scope "user" targets `~/.claude/settings.json`.
--->
-
 This skill writes (or removes) the `attribution` setting —
 `{"commit":"","pr":""}` — in the Claude Code settings file that matches
 however this plugin was installed. Installing the plugin changes nothing by

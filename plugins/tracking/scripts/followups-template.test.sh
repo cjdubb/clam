@@ -205,12 +205,18 @@ assert_contains_re_i "Status enum's 'dropped' alternative placeholder uses [brac
 # document this block's Outputs promises) for a reader to number entry #2
 # correctly. Scope the check to strictly after the comment's closing '-->'
 # so it can't pass against the stub on the strength of the comment alone.
+#
+# Once the block has landed the scaffolding comment is removed outright (the
+# prose-block rule in lego's scaffold skill), leaving no '-->' at all. That
+# is the fully-implemented state, not an empty document: with no leading
+# comment the whole file IS the rendered body.
 # ===========================================================================
 
 comment_end_line=$(grep -n -- '-->' "$TEMPLATE" 2>/dev/null | head -n1 | cut -d: -f1)
-body_text=""
 if [[ -n "$comment_end_line" ]]; then
   body_text=$(sed -n "$((comment_end_line + 1)),\$p" "$TEMPLATE")
+else
+  body_text=$(cat "$TEMPLATE")
 fi
 
 assert_contains_re_i "rendered body documents F<NN> as a zero-padded sequence number" "$body_text" \

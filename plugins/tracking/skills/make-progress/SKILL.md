@@ -63,10 +63,6 @@ Gather the current work state, skipping sources that don't exist:
 
 1. `.local/TODO.md` — `State:`, current task, blocked/decision fields
 2. `.local/PLAN.md` and any plan files in `.local/plans/` — approved scope
-<!-- Contract: B05 (make-progress leg) — an explicit numbered row is added
-     here: `.local/FOLLOWUPS.md` — open follow-up entries (Status: open)
-     that may themselves be the dispatchable next action (file the issue /
-     disposition the entry). Subsequent items renumber accordingly. -->
 3. `.local/FOLLOWUPS.md` — open follow-up entries (`Status: open`) may themselves be the dispatchable next action (file the issue, or otherwise disposition the entry)
 4. Any other `.local/` state files present (list the directory and read
    what exists) — block maps, tracking state, or other plugin-written

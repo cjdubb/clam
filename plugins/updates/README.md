@@ -1,36 +1,5 @@
 # updates
 
-<!--
-Contract: B03 updates-plugin-manifest (plan 001-update-flow-for-users)
-Behavior: declarative block — the plugin manifest and this README.
-Outputs:
-- .claude-plugin/plugin.json: name "updates", version "0.1.0", a
-  one-sentence description naming /updates:run, and an author object
-  byte-identical (jq -Sc) to .claude-plugin/marketplace.json's owner.
-  Stays jq-valid. (Lands at scaffold for marketplace-lint parity; content
-  is contractual.)
-- This README filled per the locked template (plugins/PLUGIN_README_TEMPLATE.md):
-  intro paragraph stating the problem (no bulk update, silent staleness,
-  setups never re-run); Getting started (install commands; no configuration
-  required — inert until /updates:run); What to expect (no hooks, nothing
-  changes at install; what the skill reads and runs when invoked); Common
-  workflows (update everything; check-only report); Commands (/updates:run
-  incl. "check" mode and non-model-invocability, scripts/check-versions.sh
-  CLI usage, pointer to docs/setup-stamps.md; optional ## Tests section
-  listing check-versions.test.sh and sibling tests); Relationships (soft:
-  reads stamps written by attribution/privacy/settings/statusline/landing
-  setup skills, degrades gracefully without them; nothing depends on this
-  plugin); Uninstalling (uninstall command; note the stamp file
-  ~/.claude/clam-setup-stamps.json is not removed and why that is harmless).
-Invariants: readme-lint PASS (6 required H2s, exact order; extra sections
-  only between Commands and Relationships); no hooks/ directory in the
-  plugin; the skill stays disable-model-invocation.
-Errors: n/a — declarative; validity enforced by readme-lint and the unit's
-  structure tests.
-Edge cases: template comments removed in the filled version; code blocks
-  must not trigger readme-lint's fence handling edge cases.
--->
-
 Claude Code has no built-in way to update every installed clam plugin at
 once: each plugin has to be checked and updated one at a time, staleness is
 silent until you go looking for it, and even after an update lands, the

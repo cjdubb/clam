@@ -122,5 +122,232 @@
 #     nothing is not an error, the same way git treats it.
 # -->
 
-echo "NotImplemented: B01 pr-size-budget-check" >&2
-exit 70
+set -uo pipefail
+
+USAGE_MSG="usage: pr-size-check.sh [--budget <n>] [--justified] <diff-range> [-- <pathspec>...]"
+
+err() { printf 'ERROR: %s\n' "$1" >&2; }
+usage() { err "$USAGE_MSG"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# Parse arguments. Flags may appear before or after the positional; nothing
+# after "--" is ever parsed as a flag.
+# ---------------------------------------------------------------------------
+budget_flag=""
+justified=0
+positional=""
+have_positional=0
+have_dashdash=0
+pathspecs=()
+
+args=("$@")
+argc=${#args[@]}
+i=0
+while [ "$i" -lt "$argc" ]; do
+  a="${args[$i]}"
+  if [ "$have_dashdash" -eq 1 ]; then
+    pathspecs+=("$a")
+    i=$((i + 1))
+    continue
+  fi
+  case "$a" in
+    --)
+      have_dashdash=1
+      i=$((i + 1))
+      ;;
+    --budget)
+      i=$((i + 1))
+      [ "$i" -lt "$argc" ] || usage
+      budget_flag="${args[$i]}"
+      case "$budget_flag" in
+        ''|*[!0-9]*) usage ;;
+      esac
+      budget_flag="$((10#$budget_flag))"
+      [ "$budget_flag" -ne 0 ] || usage
+      i=$((i + 1))
+      ;;
+    --justified)
+      justified=1
+      i=$((i + 1))
+      ;;
+    --*)
+      usage
+      ;;
+    *)
+      [ "$have_positional" -eq 0 ] || usage
+      positional="$a"
+      have_positional=1
+      i=$((i + 1))
+      ;;
+  esac
+done
+
+[ "$have_positional" -eq 1 ] || usage
+if [ "$have_dashdash" -eq 1 ] && [ "${#pathspecs[@]}" -eq 0 ]; then
+  usage
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve the repo root; every git command below runs from there so the
+# result is cwd-independent.
+# ---------------------------------------------------------------------------
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$REPO_ROOT" ] || { err "not inside a git repository"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# Resolve the budget: --budget wins (config is never read, jq never
+# invoked); otherwise .delivery.prSizeBudget from the effective config
+# (jq recursive merge of the committed base and the gitignored override,
+# both optional); otherwise the 500 default.
+# ---------------------------------------------------------------------------
+BUDGET=500
+if [ -n "$budget_flag" ]; then
+  BUDGET="$budget_flag"
+else
+  base_config="$REPO_ROOT/.claude/lego.json"
+  override_rel="${LEGO_CONFIG:-.local/config.json}"
+  case "$override_rel" in
+    /*) override_config="$override_rel" ;;
+    *) override_config="$REPO_ROOT/$override_rel" ;;
+  esac
+
+  have_base=0
+  have_override=0
+  [ -f "$base_config" ] && have_base=1
+  [ -f "$override_config" ] && have_override=1
+
+  if [ "$have_base" -eq 1 ] || [ "$have_override" -eq 1 ]; then
+    if ! command -v jq >/dev/null 2>&1; then
+      err "jq is required to read delivery.prSizeBudget from config ($base_config and/or $override_config present); pass --budget to skip config entirely"
+      exit 2
+    fi
+
+    if [ "$have_base" -eq 1 ] && ! jq -e . "$base_config" >/dev/null 2>&1; then
+      err "invalid JSON in config file: $base_config"
+      exit 2
+    fi
+    if [ "$have_override" -eq 1 ] && ! jq -e . "$override_config" >/dev/null 2>&1; then
+      err "invalid JSON in config file: $override_config"
+      exit 2
+    fi
+
+    if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
+      effective_config="$(jq -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
+    elif [ "$have_base" -eq 1 ]; then
+      effective_config="$(cat "$base_config")"
+    else
+      effective_config="$(cat "$override_config")"
+    fi
+
+    resolved="$(jq -r '
+      (.delivery.prSizeBudget) as $b
+      | if $b == null then "absent"
+        elif ($b | type) == "number" and $b > 0 and ($b == ($b | floor)) then "valid:\($b | floor)"
+        else "invalid"
+        end
+    ' <<<"$effective_config" 2>/dev/null)"
+
+    case "$resolved" in
+      absent) BUDGET=500 ;;
+      valid:*) BUDGET="${resolved#valid:}" ;;
+      *)
+        err "delivery.prSizeBudget in the effective config is not a positive integer"
+        exit 2
+        ;;
+    esac
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Measure: git diff --numstat over the range, scoped to any pathspecs given
+# after "--". git's own stderr surfaces verbatim on failure, never rewritten.
+# ---------------------------------------------------------------------------
+diff_args=("$positional")
+if [ "$have_dashdash" -eq 1 ]; then
+  diff_args+=(--)
+  diff_args+=("${pathspecs[@]}")
+fi
+
+err_file="$(mktemp)"
+diff_out="$(git -C "$REPO_ROOT" diff --numstat "${diff_args[@]}" 2>"$err_file")"
+diff_status=$?
+diff_err="$(cat "$err_file")"
+rm -f "$err_file"
+
+if [ "$diff_status" -ne 0 ]; then
+  {
+    printf 'ERROR: git diff --numstat failed for range %s\n' "$positional"
+    printf '%s\n' "$diff_err"
+  } >&2
+  exit 2
+fi
+
+# Classify each numstat row: binary ("-"/"-") contributes 0 and is tracked
+# separately; text rows sum into the total. Emits "F\t<count>\t<path>",
+# "B\t<path>", and a final "TOTAL\t<n>" line.
+parsed="$(printf '%s\n' "$diff_out" | awk -F'\t' '
+  NF < 2 { next }
+  $1 == "-" || $2 == "-" { print "B\t" $3; next }
+  { total += $1 + $2; print "F\t" ($1 + $2) "\t" $3 }
+  END { print "TOTAL\t" total + 0 }
+')"
+
+TOTAL=0
+file_lines=()
+binary_lines=()
+while IFS=$'\t' read -r kind a b; do
+  case "$kind" in
+    TOTAL) TOTAL="$a" ;;
+    B) binary_lines+=("$a") ;;
+    F) file_lines+=("$a"$'\t'"$b") ;;
+  esac
+done <<< "$parsed"
+
+# ---------------------------------------------------------------------------
+# Compare and report.
+# ---------------------------------------------------------------------------
+over_budget=0
+[ "$TOTAL" -gt "$BUDGET" ] && over_budget=1
+
+status="PASS"
+delta=0
+if [ "$over_budget" -eq 1 ]; then
+  delta=$((TOTAL - BUDGET))
+  if [ "$justified" -eq 1 ]; then
+    status="WARN"
+  else
+    status="FAIL"
+  fi
+fi
+
+case "$status" in
+  PASS) printf 'PASS  %s lines changed (budget %s)\n' "$TOTAL" "$BUDGET" ;;
+  FAIL) printf 'FAIL  %s lines changed, over budget %s by %s\n' "$TOTAL" "$BUDGET" "$delta" ;;
+  WARN) printf 'WARN  %s lines changed, over budget %s by %s — justified\n' "$TOTAL" "$BUDGET" "$delta" ;;
+esac
+
+if [ "$over_budget" -eq 1 ] && [ "${#file_lines[@]}" -gt 0 ]; then
+  sorted_files="$(printf '%s\n' "${file_lines[@]}" | LC_ALL=C sort -t $'\t' -k1,1nr -k2,2)"
+  total_files=${#file_lines[@]}
+  shown=0
+  while IFS=$'\t' read -r count path; do
+    shown=$((shown + 1))
+    [ "$shown" -le 10 ] || continue
+    printf '  %s  %s\n' "$count" "$path"
+  done <<< "$sorted_files"
+  if [ "$total_files" -gt 10 ]; then
+    printf '  ... and %s more files\n' "$((total_files - 10))"
+  fi
+fi
+
+if [ "${#binary_lines[@]}" -gt 0 ]; then
+  sorted_binaries="$(printf '%s\n' "${binary_lines[@]}" | LC_ALL=C sort)"
+  while IFS= read -r path; do
+    printf '  binary  %s\n' "$path"
+  done <<< "$sorted_binaries"
+fi
+
+if [ "$over_budget" -eq 1 ] && [ "$justified" -eq 0 ]; then
+  exit 1
+fi
+exit 0

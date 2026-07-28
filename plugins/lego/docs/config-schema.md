@@ -49,7 +49,8 @@ briefs, and `scripts/worktree.sh`.
   },
   "testPatterns": [],
   "delivery": {
-    "mode": "main-prs"
+    "mode": "main-prs",
+    "prSizeBudget": 500
   }
 }
 ```
@@ -65,6 +66,7 @@ briefs, and `scripts/worktree.sh`.
 | `testPatterns` | no | Extra globs added to the test-file family, matched against basename and full path by `scripts/realm.sh` (requires `jq`; silently skipped without it). Unioned across both config files. Use for repo conventions the built-in family misses (e.g. `conftest.py`, `tests/*`). |
 | `delivery.mode` | no | Delivery mode: `"main-prs"` or `"local-only"`. Absent → behaves as `local-only`. See "Delivery" below. |
 | `delivery.worktreeDir` | no | Directory where unit worktrees are created. Missing/empty → the parent directory of the repo root. A relative value resolves against the repo root. Machine-specific — belongs in the `.local/config.json` override, not the committed base. |
+| `delivery.prSizeBudget` | no | Per-PR changed-line budget `scripts/pr-size-check.sh` measures against. Default `500`. A team decision — belongs in the committed base, not the local override. |
 
 ## Multiple test commands
 

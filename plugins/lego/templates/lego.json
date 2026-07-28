@@ -8,6 +8,7 @@
   },
   "testPatterns": [],
   "delivery": {
-    "mode": "local-only"
+    "mode": "local-only",
+    "prSizeBudget": 500
   }
 }

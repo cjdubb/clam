@@ -114,6 +114,11 @@ the committed range and runs as part of `ci.sh`'s lint stage.
 
 ## Repo conventions
 
+- [ARCHITECTURE.md](ARCHITECTURE.md) records what each workflow plugin is
+  responsible for and the layering rules governing how they may refer to each
+  other — references point downward only, leaf plugins work effectively
+  installed alone, and siblings like `lego` and `landing` have no knowledge
+  of each other. Read it before adding a cross-plugin reference.
 - Each plugin lives in `plugins/<name>/` with its own
   `.claude-plugin/plugin.json`, `skills/`, `agents/`, `hooks/`, `scripts/`.
 - Skill names avoid repeating the plugin name: the invocation is

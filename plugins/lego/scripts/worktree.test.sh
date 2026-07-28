@@ -3119,6 +3119,541 @@ test_clean_invalid_plan_slug_token_is_usage_error() {
 }
 
 # ===========================================================================
+# archive_unit_local: unit audit-trail archiving (B01 worktree-unit-archive,
+# plan 001-brief-report-archive)
+#
+# archive_unit_local is an internal helper with no CLI entry point of its
+# own -- every test here exercises it only through merge, deliver, remove,
+# and clean, exactly as the file-header docblock's call-site clauses
+# describe. A worktree with a real seeded .local/ (briefs/, reports/,
+# status.md) requires going through `worktree.sh add`, not a manual
+# `git worktree add`, so fixtures below use `add` whenever there is
+# something to archive.
+# ===========================================================================
+
+test_archive_merge_copies_three_components_only() {
+  local repo wt branch dest wt_status_content dest_entries
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+
+  printf 'brief one\n' > "$wt/.local/briefs/01-a.md"
+  printf 'report one\n' > "$wt/.local/reports/01-a.md"
+  wt_status_content="$(cat "$wt/.local/status.md" 2>/dev/null)"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  dest="$repo/.local/units/plan1/U01"
+  assert_eq "brief one" "$(cat "$dest/briefs/01-a.md" 2>/dev/null)" "archived briefs/01-a.md content intact"
+  assert_eq "report one" "$(cat "$dest/reports/01-a.md" 2>/dev/null)" "archived reports/01-a.md content intact"
+  assert_eq "$wt_status_content" "$(cat "$dest/status.md" 2>/dev/null)" "archived status.md content intact"
+
+  if [ -e "$dest/unit.md" ]; then
+    record_fail "unit.md must not be archived (only briefs/, reports/, status.md)"
+  fi
+  if [ -e "$dest/config.json" ]; then
+    record_fail "config.json must not be archived"
+  fi
+  if [ -e "$dest/contracts" ]; then
+    record_fail "contracts/ must not be archived"
+  fi
+  dest_entries="$(ls -A "$dest" 2>/dev/null | sort | tr '\n' ' ')"
+  assert_eq "briefs reports status.md " "$dest_entries" "archive destination contains exactly the three components, nothing else"
+
+  # Ordering: the archive exists BECAUSE it happens before removal -- assert
+  # both the archive contents (above) and the worktree's removal (below) in
+  # this same test.
+  if [ -d "$wt" ]; then
+    record_fail "expected the unit worktree to be removed after a successful merge+archive"
+  fi
+  if git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to no longer include the removed unit worktree"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to still exist after merge (merge never removes the branch)"
+  fi
+}
+
+test_archive_plan_scoping_isolates() {
+  local repo wtA wtB
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wtA="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add planA U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add planA failed: $RUN_ERR"; return; }
+  printf 'planA brief\n' > "$wtA/.local/briefs/01.md"
+  commit_file "$wtA" "featureA.txt" "featureA" "unit work A"
+
+  run_in "$repo" merge planA U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "planA merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  # planA's worktree is gone now (merge removed it), so the same path is
+  # free for planB's own U01 worktree.
+  wtB="$(dirname "$repo")/$(basename "$repo")-U01"
+  run_in "$repo" add planB U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add planB failed: $RUN_ERR"; return; }
+  printf 'planB brief\n' > "$wtB/.local/briefs/01.md"
+  commit_file "$wtB" "featureB.txt" "featureB" "unit work B"
+
+  run_in "$repo" merge planB U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "planB merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  assert_eq "planA brief" "$(cat "$repo/.local/units/planA/U01/briefs/01.md" 2>/dev/null)" "planA's archive is untouched by planB's later merge (plan-scoped, no clobber)"
+  assert_eq "planB brief" "$(cat "$repo/.local/units/planB/U01/briefs/01.md" 2>/dev/null)" "planB's archive has its own content, separate from planA"
+}
+
+test_archive_skips_absent_components_without_failing() {
+  local repo wt dest
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+
+  # briefs/ absent entirely (not merely empty); reports/ and status.md
+  # present.
+  rm -rf -- "$wt/.local/briefs"
+  printf 'report x\n' > "$wt/.local/reports/x.md"
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  dest="$repo/.local/units/plan1/U01"
+  if [ -e "$dest/briefs" ]; then
+    record_fail "briefs/ absent from the source must not appear at the destination at all"
+  fi
+  assert_eq "report x" "$(cat "$dest/reports/x.md" 2>/dev/null)" "reports/ still archived when briefs/ is absent"
+  if [ ! -f "$dest/status.md" ]; then
+    record_fail "status.md should still be archived when briefs/ is absent"
+  fi
+}
+
+test_archive_nothing_when_source_has_no_local_at_all() {
+  local repo container branch wt
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  # A worktree created by hand, not via `add` -- no .local/ at all (NEW,
+  # plan 001-bra edge case).
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -e "$repo/.local" ]; then
+    record_fail "expected no .local/ at all to be created in the invoking worktree when the source worktree has none"
+  fi
+}
+
+test_archive_nothing_when_local_has_none_of_the_three_components() {
+  local repo wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+
+  # .local/ is non-empty (unit.md, config.json, contracts/ are all seeded
+  # by add) but holds none of the three archived components.
+  rm -rf -- "$wt/.local/briefs" "$wt/.local/reports" "$wt/.local/status.md"
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if [ -e "$repo/.local/units" ]; then
+    record_fail "expected no .local/units/ to be created when the source .local/ holds none of the three archived components"
+  fi
+}
+
+test_archive_empty_seeded_dirs_are_archived_as_empty() {
+  local repo wt dest
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  # add seeds briefs/ and reports/ as empty directories; leave them empty --
+  # a unit that merged without a single test/report wave.
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  dest="$repo/.local/units/plan1/U01"
+  if [ ! -d "$dest/briefs" ]; then
+    record_fail "expected briefs/ to be archived as an (empty) directory -- 'archived and empty' is distinct from 'never archived'"
+  elif [ -n "$(ls -A "$dest/briefs" 2>/dev/null)" ]; then
+    record_fail "expected archived briefs/ to be empty"
+  fi
+  if [ ! -d "$dest/reports" ]; then
+    record_fail "expected reports/ to be archived as an (empty) directory"
+  elif [ -n "$(ls -A "$dest/reports" 2>/dev/null)" ]; then
+    record_fail "expected archived reports/ to be empty"
+  fi
+  if [ ! -f "$dest/status.md" ]; then
+    record_fail "expected status.md to be archived"
+  fi
+}
+
+test_archive_rearchive_overwrites_same_named_preserves_others() {
+  local repo wt branch dest
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+  dest="$repo/.local/units/plan1/U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief v1\n' > "$wt/.local/briefs/01.md"
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+  # Leave the unit worktree dirty (uncommitted tracked change) so merge's
+  # own best-effort worktree removal fails and the worktree survives for a
+  # second archive.
+  printf 'dirty\n' >> "$wt/README.md"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "first merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  if [ ! -d "$wt" ]; then
+    record_fail "test setup invalid: expected the dirty unit worktree to survive merge's best-effort cleanup so a second archive can be exercised"
+    return
+  fi
+  assert_eq "brief v1" "$(cat "$dest/briefs/01.md" 2>/dev/null)" "first archive has the first content"
+
+  # A destination-only file that a re-archive must never remove.
+  mkdir -p "$dest/briefs"
+  printf 'manual only\n' > "$dest/briefs/99-manual.md"
+
+  # Update the source: overwrite the existing file and add a new one; clean
+  # the tracked dirt so the next removal (via `remove`) can succeed.
+  printf 'brief v2\n' > "$wt/.local/briefs/01.md"
+  printf 'brief new\n' > "$wt/.local/briefs/02.md"
+  git -C "$wt" checkout -q -- README.md
+
+  run_in "$repo" remove plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "remove (second archive): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  assert_eq "brief v2" "$(cat "$dest/briefs/01.md" 2>/dev/null)" "re-archiving overwrites a same-named destination file with the new content"
+  assert_eq "brief new" "$(cat "$dest/briefs/02.md" 2>/dev/null)" "re-archiving adds a newly-appeared source file"
+  assert_eq "manual only" "$(cat "$dest/briefs/99-manual.md" 2>/dev/null)" "re-archiving leaves a destination-only file in place"
+
+  if [ -d "$wt" ]; then
+    record_fail "expected the unit worktree to be removed by remove's successful cleanup"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to be deleted by remove (it was already merged by the earlier merge)"
+  fi
+}
+
+test_archive_merge_failure_warns_and_keeps_worktree_exit0() {
+  local repo wt branch
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief\n' > "$wt/.local/briefs/01.md"
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+
+  # Make the archive destination uncreatable: a plain file sits where a
+  # directory needs to be created.
+  printf 'blocker\n' > "$repo/.local/units"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "archive failure must never change merge's exit code: expected exit 0, got $RUN_EXIT"
+  if [ -z "$RUN_ERR" ]; then
+    record_fail "expected a warning on stderr when the unit archive fails"
+  fi
+
+  if [ ! -d "$wt" ]; then
+    record_fail "expected the unit worktree to be KEPT when its archive fails (never destroy the only copy of the record)"
+  fi
+  if ! git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to still include the kept unit worktree"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to still exist"
+  fi
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected the merge itself to have succeeded despite the archive failure"
+  fi
+}
+
+test_archive_deliver_failure_warns_and_keeps_worktree_and_branch() {
+  local repo wt branch manifest newpath
+  repo="$(build_deliver_base)"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief\n' > "$wt/.local/briefs/01.md"
+  commit_file "$wt" "src/greet.sh" "greet v1" "lego(U01): implementation"
+
+  printf 'blocker\n' > "$repo/.local/units"
+
+  make_gh_shim
+  newpath="$GH_SHIM_BIN:$PATH"
+  manifest="$(write_valid_manifest "$repo" "test: archive failure on deliver" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "archive failure must never change deliver's exit code: expected exit 0, got $RUN_EXIT"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line despite the archive failure"
+  if [ -z "$RUN_ERR" ]; then
+    record_fail "expected a warning on stderr when the unit archive fails during deliver's cleanup"
+  fi
+
+  if [ ! -d "$wt" ]; then
+    record_fail "expected the unit worktree to be KEPT when its archive fails"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to be KEPT when its archive fails (a branch checked out in a surviving worktree cannot be deleted anyway)"
+  fi
+}
+
+test_archive_remove_failure_exit4_removes_nothing() {
+  local repo wt branch
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief\n' > "$wt/.local/briefs/01.md"
+
+  printf 'blocker\n' > "$repo/.local/units"
+
+  run_in "$repo" remove plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "expected exit 4 when the unit archive fails, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "archive failure"
+
+  if [ ! -d "$wt" ]; then
+    record_fail "expected remove to leave the worktree in place when the archive fails (removes nothing)"
+  fi
+  if ! git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to still include the unit worktree"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to still exist when the archive fails"
+  fi
+}
+
+test_archive_clean_does_not_archive() {
+  local repo container branch wt
+  repo="$(new_git_repo)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  mkdir -p "$wt/.local/briefs"
+  printf 'brief\n' > "$wt/.local/briefs/01.md"
+  commit_file "$wt" "feature1.txt" "feature1" "unit work 1"
+  git -C "$repo" merge -q --no-ff -m "merge $branch" "$branch"
+
+  run_in "$repo" clean --all
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "1" "$RUN_OUT_LAST" "count of removed branches"
+
+  if [ -d "$wt" ] || git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected the worktree to be removed by clean"
+  fi
+  if [ -e "$repo/.local/units" ]; then
+    record_fail "clean must never archive (by design -- a merged unit branch has already been through merge, which archived it): expected no .local/units/ to be created"
+  fi
+}
+
+test_archive_never_modifies_invoking_worktree_tracked_files() {
+  local repo wt readme_before readme_after tracked_dirty
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief\n' > "$wt/.local/briefs/01.md"
+  printf 'report\n' > "$wt/.local/reports/01.md"
+  commit_file "$wt" "feature.txt" "feature" "unit work"
+
+  readme_before="$(git -C "$repo" hash-object README.md)"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  readme_after="$(git -C "$repo" hash-object README.md)"
+  assert_eq "$readme_before" "$readme_after" "the archive never modifies a pre-existing tracked file"
+
+  tracked_dirty="$(git -C "$repo" status --porcelain --untracked-files=no)"
+  assert_eq "" "$tracked_dirty" "no tracked file is left modified by the archive"
+}
+
+test_archive_deterministic_across_identical_repo_state() {
+  local repoA repoB wtA wtB diffout
+  repoA="$(GIT_AUTHOR_DATE='1577836800 +0000' GIT_COMMITTER_DATE='1577836800 +0000' new_git_repo)"
+  write_config_json "$repoA" "true"
+  write_blocks_md "$repoA"
+  write_contracts "$repoA"
+  repoB="$(GIT_AUTHOR_DATE='1577836800 +0000' GIT_COMMITTER_DATE='1577836800 +0000' new_git_repo)"
+  write_config_json "$repoB" "true"
+  write_blocks_md "$repoB"
+  write_contracts "$repoB"
+
+  if [ "$(git -C "$repoA" rev-parse HEAD)" != "$(git -C "$repoB" rev-parse HEAD)" ]; then
+    record_fail "fixture bug: repoA and repoB HEAD shas differ despite pinned author/committer dates, cannot exercise determinism"
+    return
+  fi
+
+  wtA="$(dirname "$repoA")/$(basename "$repoA")-U01"
+  wtB="$(dirname "$repoB")/$(basename "$repoB")-U01"
+
+  run_in "$repoA" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add on repoA failed: $RUN_ERR"; return; }
+  run_in "$repoB" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add on repoB failed: $RUN_ERR"; return; }
+
+  printf 'same brief\n' > "$wtA/.local/briefs/01.md"
+  printf 'same brief\n' > "$wtB/.local/briefs/01.md"
+
+  run_in "$repoA" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "repoA merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  run_in "$repoB" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "repoB merge: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  diffout="$(diff -ru "$repoA/.local/units/plan1/U01" "$repoB/.local/units/plan1/U01" 2>&1)"
+  if [ -n "$diffout" ]; then
+    record_fail "archive is not byte-identical across two runs from identical repo state and arguments: $diffout"
+  fi
+}
+
+test_archive_deliver_success_archives_before_removing_worktree() {
+  local repo container branch wt manifest newpath dest
+  repo="$(build_deliver_base)"
+  container="$(dirname "$repo")"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$container/manual-wt-U01"
+
+  git -C "$repo" checkout -q -b "$branch" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  # Simulate the unit having already been merged into the integration branch
+  # (e.g. via `worktree.sh merge`) before delivery, so `git branch -d` in
+  # deliver's cleanup step can succeed -- same setup as
+  # test_deliver_cleanup_removes_unit_branch_and_worktree.
+  git -C "$repo" merge -q --no-ff -m "lego: merge $branch" "$branch"
+  # A worktree for the unit branch still lingers at deliver's cleanup step;
+  # seed its .local/ audit trail by hand since this worktree was not created
+  # via `add`.
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  mkdir -p "$wt/.local/briefs" "$wt/.local/reports"
+  printf 'deliver brief\n' > "$wt/.local/briefs/01.md"
+  printf 'deliver report\n' > "$wt/.local/reports/01.md"
+  printf 'deliver status\n' > "$wt/.local/status.md"
+
+  make_gh_shim
+  newpath="$GH_SHIM_BIN:$PATH"
+  manifest="$(write_valid_manifest "$repo" "test: deliver success archives before removing worktree" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line after a successful archive+cleanup"
+
+  dest="$repo/.local/units/plan1/U01"
+  assert_eq "deliver brief" "$(cat "$dest/briefs/01.md" 2>/dev/null)" "archived briefs/01.md content intact"
+  assert_eq "deliver report" "$(cat "$dest/reports/01.md" 2>/dev/null)" "archived reports/01.md content intact"
+  assert_eq "deliver status" "$(cat "$dest/status.md" 2>/dev/null)" "archived status.md content intact"
+
+  if [ -d "$wt" ]; then
+    record_fail "expected the unit worktree to be removed after a successful deliver (archive lands first, then removal)"
+  fi
+  if git -C "$repo" worktree list | grep -qF "$wt"; then
+    record_fail "expected git worktree list to no longer include the removed unit worktree"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected the unit branch to be deleted after a successful deliver"
+  fi
+}
+
+test_archive_merge_success_removal_failure_preserves_source_copy() {
+  local repo wt branch dest wt_status_before
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  branch="lego/plan1/U01-greetstuff"
+  dest="$repo/.local/units/plan1/U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
+  printf 'brief content\n' > "$wt/.local/briefs/01.md"
+  printf 'report content\n' > "$wt/.local/reports/01.md"
+  wt_status_before="$(cat "$wt/.local/status.md" 2>/dev/null)"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+  # Leave the unit worktree dirty (uncommitted tracked change) so `git
+  # worktree remove` refuses in merge's best-effort cleanup -- the archive
+  # itself, which runs first and unconditionally, must still succeed. Same
+  # lever as test_archive_rearchive_overwrites_same_named_preserves_others.
+  printf 'dirty\n' >> "$wt/README.md"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  # The archive (the copy) landed...
+  assert_eq "brief content" "$(cat "$dest/briefs/01.md" 2>/dev/null)" "archive exists with the expected content despite the later removal failure"
+  assert_eq "report content" "$(cat "$dest/reports/01.md" 2>/dev/null)" "archived reports content intact despite the later removal failure"
+
+  # ...and, because removal failed, the source must still be there too,
+  # byte-for-byte: this is what makes "copy, never move" an observable fact
+  # rather than a coincidence of every other test removing the worktree
+  # right after archiving it.
+  if [ ! -d "$wt" ]; then
+    record_fail "test setup invalid: expected the dirty unit worktree to survive merge's best-effort removal so both copies are observable at once"
+    return
+  fi
+  assert_eq "brief content" "$(cat "$wt/.local/briefs/01.md" 2>/dev/null)" "source briefs/01.md still present and unmodified after a successful archive"
+  assert_eq "report content" "$(cat "$wt/.local/reports/01.md" 2>/dev/null)" "source reports/01.md still present and unmodified after a successful archive"
+  assert_eq "$wt_status_before" "$(cat "$wt/.local/status.md" 2>/dev/null)" "source status.md still present and unmodified after a successful archive"
+}
+
+# ===========================================================================
 # realm.sh: testPatterns union across the layered config (NEW, plan 001-lc)
 #
 # realm.sh's extension point currently reads only .local/config.json
@@ -3277,6 +3812,22 @@ run_test "clean <plan-slug>: removes only in-scope merged branches; reports fore
 run_test "clean <plan-slug>: plan slug matching no branches exits 0, prints 0, no messages (B02 clean-plan-scoped)" test_clean_plan_scoped_matches_no_branches
 run_test "clean --all: spans all plans, no foreign-skip messages (B02 clean-plan-scoped)" test_clean_all_mode_spans_all_plans_with_no_foreign_messages
 run_test "clean <plan-slug>: invalid token as plan-slug is a usage error (B02 clean-plan-scoped)" test_clean_invalid_plan_slug_token_is_usage_error
+
+run_test "archive: merge copies exactly briefs/, reports/, status.md with content intact, then removes the worktree (B01 worktree-unit-archive)" test_archive_merge_copies_three_components_only
+run_test "archive: same unit id under two plan slugs produces two isolated archives, neither clobbering the other (B01 worktree-unit-archive)" test_archive_plan_scoping_isolates
+run_test "archive: a component absent from the source is skipped without failing (B01 worktree-unit-archive)" test_archive_skips_absent_components_without_failing
+run_test "archive: a hand-made unit worktree with no .local/ at all archives nothing (B01 worktree-unit-archive)" test_archive_nothing_when_source_has_no_local_at_all
+run_test "archive: a .local/ holding none of the three components archives nothing (B01 worktree-unit-archive)" test_archive_nothing_when_local_has_none_of_the_three_components
+run_test "archive: add's empty briefs/reports/ are archived as empty directories, distinguishing archived-empty from never-archived (B01 worktree-unit-archive)" test_archive_empty_seeded_dirs_are_archived_as_empty
+run_test "archive: re-archiving overwrites same-named destination files and leaves destination-only files in place (B01 worktree-unit-archive)" test_archive_rearchive_overwrites_same_named_preserves_others
+run_test "archive: merge warns and keeps the worktree on an archive failure, exit 0 (B01 worktree-unit-archive)" test_archive_merge_failure_warns_and_keeps_worktree_exit0
+run_test "archive: deliver warns and keeps both the worktree and branch on an archive failure, exit 0, PR URL still last stdout line (B01 worktree-unit-archive)" test_archive_deliver_failure_warns_and_keeps_worktree_and_branch
+run_test "archive: remove exits 4 and removes nothing on an archive failure (B01 worktree-unit-archive)" test_archive_remove_failure_exit4_removes_nothing
+run_test "archive: clean never archives, by design (B01 worktree-unit-archive)" test_archive_clean_does_not_archive
+run_test "archive: never modifies a tracked file in the invoking worktree (B01 worktree-unit-archive)" test_archive_never_modifies_invoking_worktree_tracked_files
+run_test "archive: deterministic across identical repo state and arguments (B01 worktree-unit-archive)" test_archive_deterministic_across_identical_repo_state
+run_test "archive: deliver's successful cleanup archives the worktree's audit trail before removing it, keeps branch deleted, PR URL still last stdout line (B01 worktree-unit-archive)" test_archive_deliver_success_archives_before_removing_worktree
+run_test "archive: a successful merge archive leaves the source worktree's .local/ untouched when the later removal fails, proving copy-not-move (B01 worktree-unit-archive)" test_archive_merge_success_removal_failure_preserves_source_copy
 
 run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
 run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present

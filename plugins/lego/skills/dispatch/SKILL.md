@@ -83,6 +83,12 @@ The dispatch prompt itself is only a pointer to that file: it names the unit
 worktree's absolute path and the brief file's path, and instructs the worker
 to read the brief file first — it never restates the brief's content inline.
 
+Every Agent dispatch also passes a teammate name, so the orchestrator can
+tear it down later: `<unit-id>-<wave>-<NN>` (e.g. `U04-test-03`), where
+`<wave>` is `test` or `impl` and `NN` is the brief this dispatch answers.
+This name is the only handle teardown has — matching the brief's `NN` keeps
+a release traceable to the brief/report pair it ends.
+
 Reports mirror briefs the other way: on receiving a worker's final report,
 archive it verbatim to `.local/reports/NN-<wave>-<blocks>.md` — the same
 `NN` as the brief it answers — before acting on the report in any way.
@@ -109,7 +115,8 @@ a stale status file is a defect.
 The Timeline records, as they happen: each brief written (its `NN`, wave,
 and blocks), each wave dispatched, each acceptance, each rejection (naming
 the specific deficiency and the brief/report `NN`s involved), each
-escalation and its resolution, and each phase commit.
+escalation and its resolution, each teammate release, and each phase
+commit.
 
 ## Dispatch order
 
@@ -207,6 +214,27 @@ the unit worktree, with subject exactly:
 lego(<unit-id>): tests
 ```
 
+On the accepted path only, release this unit's test-writer teammate(s) with
+`TaskStop`, passing the teammate name as `task_id` — a wave that dispatched
+several test-writers releases all of that unit's teammates for that wave,
+not just one. Release waits for acceptance rather than firing as soon as a
+worker's report arrives, because the escalation loop can still send the
+wave back to a worker after a rejection — a worker stays available until
+its wave is actually accepted. A rejected wave's re-dispatch gets its own
+name at a fresh `NN`, and only the accepted wave's teammates are released.
+Once accepted, a worker is never needed again: a re-dispatch is always a
+fresh agent on a fresh-`NN` brief, so worker identity is disposable, which
+is what makes releasing it here safe. Release is best-effort and
+non-fatal, in the same register as the worktree removal in step 4: a
+`TaskStop` failure — the teammate already gone, or its name unknown — is a
+warning, never a unit failure, and no step here depends on the release
+succeeding. This is a unilateral `TaskStop`, not the `SendMessage`
+`shutdown_request` handshake: that request is filed under "Protocol
+responses (legacy)" and its own tool description says not to originate it
+unless asked, and an approved shutdown has an open upstream failure mode
+where it does not actually terminate the teammate
+(anthropics/claude-code#60199) — `TaskStop` ends it unilaterally instead.
+
 ### 3. Implementation wave
 
 Dispatch `lego-implementer` agents in the same worktree, briefed with the
@@ -283,6 +311,17 @@ side effect (warns on failure, never changes the merge exit code). The unit
 branch is kept — under `main-prs`, `deliver` still needs it to resolve
 commits; under `local-only`, it is cleaned up by `clean` at dispatch
 completion (see "Done").
+
+Release this unit's implementer teammate(s) here too, alongside the
+worktree removal above — the same lifecycle moment, for the other resource
+the unit holds. Use `TaskStop`, passing the teammate name as `task_id`; a
+wave with several implementers releases all of them, not just one. This
+release is best-effort in the same register as the worktree removal: a
+failed `TaskStop` — the teammate already gone, or its name unknown — is a
+warning and never changes the unit's outcome, and no merge step depends on
+it succeeding. For an engineer-owned block there is no implementer
+teammate to release, so this step is vacuous there — not a precondition of
+the merge.
 
 ### 5. Delivery
 

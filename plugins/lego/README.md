@@ -154,6 +154,11 @@ described under Common workflows above. Notably:
 - Worker briefs are always written to
   `.local/briefs/NN-<wave>-<blocks>.md` before dispatch, and reports
   archived verbatim to `.local/reports/NN-<wave>-<blocks>.md`.
+- Delivery reads the branch name, PR title, and commit subjects from the
+  plan's recorded Landing strategy rather than deriving them fresh, and
+  gates every PR group on `scripts/pr-size-check.sh` before calling
+  `deliver` — an unjustified over-budget group is escalated to the
+  engineer, never opened as-is.
 - Escalations (`STATUS: ESCALATION`) come back to the orchestrator rather
   than being resolved by a worker; a wrong contract goes to the engineer, a
   wrong test goes back to a test-writer.

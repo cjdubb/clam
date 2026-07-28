@@ -338,16 +338,37 @@ with the conflicting paths and a recommendation.
 
 #### 5a. Compose PR content
 
-Before calling `deliver`, the orchestrator composes meaningful PR content.
+Before calling `deliver`, the orchestrator composes the PR content — but
+composing here means *reading*, not deriving. The branch name, PR title, and
+every commit subject come from this PR group's row in the plan document's
+Landing strategy section (`.local/plans/NNN-<slug>.md`), written by
+`/lego:plan` at plan time: branch name, PR title, member units,
+estimated changed lines, commit sequence (one subject per unit per phase),
+and — for a group deliberately left over budget — its written
+justification.
+Re-deriving any of these fresh at delivery time is exactly the behavior this
+replaces: it let a group's identity drift from what the engineer approved.
+Because the value is read rather than recomputed, the plan document and the
+opened PR always agree on branch and title.
+
 Nothing in the PR title, body, commit subjects, or branch name may reference
 internal workflow terminology — no `lego`, `B01`, `U01`, `G01`, plan slugs,
-block-map field syntax, or any other label a reviewer cannot look up.
+block-map field syntax, or any other label a reviewer cannot look up. This
+was already enforced when `/lego:plan` recorded the row; reading it verbatim
+keeps it enforced here.
 
-**PR title.** Conventional commit format: `type(scope): description`. The
-type is `feat`, `fix`, `refactor`, `chore`, `docs`, or `test`. The scope is
-optional and describes the area of the codebase. The description summarizes
-the change in imperative mood. Derive the title from the plan's goal, not
-from block names.
+**When the plan has no Landing strategy section** — a plan written before
+this was required, or a delivery that went off-plan — compose the content
+the old way, per the derivation rules below, and then write the resulting
+branch, title, and commit subjects back into the plan document, so it stays
+the single source of truth for what actually landed.
+
+**PR title.** Read verbatim from the group's Landing strategy row when one
+exists. Otherwise (the fallback above), derive it: conventional commit
+format `type(scope): description`. The type is `feat`, `fix`, `refactor`,
+`chore`, `docs`, or `test`. The scope is optional and describes the area of
+the codebase. The description summarizes the change in imperative mood,
+drawn from the plan's goal rather than block names.
 
 **PR body.** Fill in a PR template with content from the plan document and
 the delivered blocks' contracts. Template resolution order:
@@ -363,18 +384,71 @@ Fill every section of the resolved template. Write for a reviewer who has
 only the diff and this PR description — no access to `.local/`, the planning
 session, or the block map. If the plan references GitHub issues, link them.
 
-**Branch name.** Conventional format: `type/short-slug` (e.g.
-`feat/native-symlink-engine`, `fix/auth-token-refresh`). Derive from the
-plan's goal.
+**Branch name.** Read verbatim from the group's Landing strategy row when
+one exists. Otherwise (the fallback above), derive it: conventional format
+`type/short-slug` (e.g. `feat/native-symlink-engine`,
+`fix/auth-token-refresh`), from the plan's goal.
 
-**Commit subjects.** Each delivery commit gets a conventional subject
-describing its actual content (e.g. `feat(links): add symlink manifest
-engine`). The orchestrator composes one subject per unit per phase
-(tests and impl). Do not include phase labels like "tests" or
-"implementation" in the subject — each commit should read as a
-self-contained description of what it introduces.
+**Commit subjects.** Read each unit's tests/impl subjects verbatim from the
+group's recorded commit sequence when a Landing strategy row exists.
+Otherwise (the fallback above), compose one conventional subject per unit
+per phase describing its actual content (e.g. `feat(links): add symlink
+manifest engine`) — never a phase label like "tests" or "implementation" —
+each commit should read as a self-contained description of what it
+introduces.
+
+**Errors.** A Landing strategy row that names a branch which already exists
+locally, or a title that violates conventional-commit form, is a plan
+defect: fix it in the plan document — appending to its Changelog — rather
+than silently substituting a different value here.
+
+**Edge cases.** A row written before a mid-dispatch re-plan is superseded by
+that re-plan's Changelog entry, which the row must already reflect; if it
+doesn't, treat it as the same plan defect, not a value to trust as-is. Under
+`local-only` delivery mode, nothing is opened here — the recorded Landing
+strategy is simply what the engineer delivers by hand.
 
 #### 5b. Write manifest and deliver
+
+Before writing the manifest, measure this PR group against the size budget
+— `deliver` builds the branch, pushes, and opens the PR in one operation, so
+this is the last point a size check can still change the outcome:
+
+```
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-size-check.sh <base-branch>...<integration-branch> -- <the group's Code paths>
+```
+
+The range to measure is the base branch against the integration branch,
+scoped to this group's `Code:` paths from `.local/blocks.md` — step 5's sync
+(merge master into the integration branch before delivery) already made this
+equivalent to the diff `deliver` will actually produce. Act on the result:
+
+- **exit 0** (within budget): proceed to write the manifest and call
+  `deliver`.
+- **exit 1** (over budget): if the plan's Landing strategy row for this
+  group records a written justification, re-run with `--justified` to
+  record the overrun explicitly, then proceed — a justified overrun is what
+  the engineer already approved at plan time. Otherwise, escalate to the
+  engineer with the script's per-file breakdown and a concrete splitting
+  recommendation. The orchestrator never waives the budget on its own
+  authority; every over-budget group takes one of these two paths, never a
+  silent pass.
+- **exit 2** (usage or environment error, including `pr-size-check.sh`
+  being absent in an older plugin checkout): fix the invocation or the
+  environment and re-run. An unmeasured group is not delivered.
+
+An escalation here is a defined outcome, not a pipeline failure — record it
+in the plan Changelog and the unit status file's Timeline like any other
+escalation. The budget itself is `delivery.prSizeBudget` from the effective
+config, resolved by the script.
+
+If master moved between the check and `deliver` by enough to matter, the
+step-5 sync above is what keeps the two ranges equivalent — a large move
+re-runs the check. A group of one unit whose single block is inherently
+oversized still goes through the justified path above; the decision to
+accept that is made by the engineer at plan time, not here. Under
+`local-only` delivery mode, no PR is ever opened, so the size gate does not
+apply — nothing to measure, nothing to deliver.
 
 Write the composed content as a JSON manifest file at
 `.local/pr-manifest.json` with this schema:

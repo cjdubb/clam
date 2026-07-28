@@ -80,11 +80,13 @@ straight into planning.
 `/lego:plan` is a conversation, not a document you get alone: the engineer
 states the deliverable, the skill decomposes it into blocks (with
 dependencies, an owner — agent or engineer — and a unit/PR-group
-assignment) top-down until every leaf is one agent's worth of work, and
-stops for your approval. `/lego:scaffold` then turns the approved design
-into runtime-present stubs carrying full contract docblocks and proves the
-design composes with the strongest available check (typecheck > build >
-lint > the test wave's own red run).
+assignment) top-down until every leaf is one agent's worth of work, sizes
+each block in changed lines against the PR budget (splitting anything over
+it) and settles a landing strategy per PR group — branch name, PR title,
+and commit sequence — and stops for your approval. `/lego:scaffold` then
+turns the approved design into runtime-present stubs carrying full contract
+docblocks and proves the design composes with the strongest available check
+(typecheck > build > lint > the test wave's own red run).
 
 ### Dispatch, verify, and merge a work unit
 
@@ -127,8 +129,12 @@ archaeology. Bootstraps the repo interface on first use in a repo:
 - `.local/blocks.md` (seeded from `templates/blocks.md`) and
   `.local/plans/` are created alongside it.
 
-Writes the plan document and block map, and stops for engineer approval
-before any scaffolding begins.
+Sizes each block in changed lines against `delivery.prSizeBudget` (effective
+config, default 500), splitting anything over budget, and records the
+resulting landing strategy — branch name, PR title, member units, and
+commit sequence per PR group — in the plan document. Writes the plan
+document and block map, and stops for engineer approval before any
+scaffolding begins.
 
 **`/lego:scaffold`** (model-invocable) — Orchestrator-only; never
 delegated. Turns an approved plan's blocks into stubs — runtime-present,

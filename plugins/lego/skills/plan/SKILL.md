@@ -179,14 +179,73 @@ Decomposition happens HERE and only here. Workers never design; if
 implementation later reveals a mis-sized block, it comes back to this skill as a
 re-plan, with the engineer.
 
+## Step 3a: Size the blocks and decide the landing strategy
+
+Sizing happens once decomposition is agreed, and it happens before Step 4's
+artifacts are written — the plan document is never produced without a landing
+strategy behind it. Three things happen here, in order, with the engineer:
+
+1. **Estimate each block's size in changed lines** — implementation plus its
+   own tests. These are explicitly rough numbers, a basis for grouping, not a
+   promise the mechanical `pr-size-check.sh` gate at delivery time will later
+   hold you to.
+2. **Feed the estimates back into decomposition.** Compare each block against
+   the budget — `delivery.prSizeBudget` from the effective config, defaulting
+   to 500 changed lines when the config doesn't set one. A block estimated
+   over budget is a mis-sized block, and the first remedy is to split it:
+   return to Step 3 and break it into smaller blocks, never accept an
+   oversized PR by default. Splitting fails only for a genuinely indivisible
+   block — one file, a generated artifact — and even then it proceeds only
+   with a written justification recorded alongside the group it lands in; an
+   absent justification is a defect, not permission to proceed. If a block
+   can't be split under budget and has no justification, don't decide it
+   alone — that's an escalation to the engineer, not something to resolve by
+   picking a number and moving on.
+3. **Form PR groups** whose combined estimate fits the budget — default one
+   unit per group, small related units sharing one. For each group, fix its
+   landing details now rather than at delivery time: a branch name
+   (conventional `type/short-slug` form), a PR title (conventional commit
+   form), the member units it carries, its estimated changed lines, and its
+   commit sequence — every commit's final human-readable subject, so nothing
+   is improvised later. Order groups so a group's dependencies land before
+   it. Shared paths that force sequential delivery — a version file every PR
+   must bump, a lockfile — constrain grouping and are called out with the
+   group they affect.
+
+A deliverable small enough for a single PR still gets this treatment: one group,
+sized and recorded the same as any other.
+
+Estimates decide grouping, not acceptance — the mechanical check at delivery
+time is what actually gates a PR. Under `local-only` delivery mode, this
+section still records the intended grouping even though no PR is ever
+raised; the grouping is a design decision independent of whether it ships as
+a PR.
+
 ## Step 4: Write the artifacts
 
 1. **Plan document** at `.local/plans/NNN-<slug>.md` (NNN = next free number):
    goal, constraints, the block design (table of blocks with contract
    summaries, deps, owner, kind, unit, PR group), the dependency graph / wave
-   order derived from `Deps:` (which work units dispatch in parallel), risks
-   and open questions, and a Changelog section. Every contract change after
-   approval is appended to the Changelog.
+   order derived from `Deps:` (which work units dispatch in parallel), a
+   **Landing strategy** section, risks and open questions, and a Changelog
+   section. Every contract change after approval is appended to the
+   Changelog.
+
+   The Landing strategy section carries Step 3a's sizing decisions to disk so
+   `/lego:dispatch` delivers from a recorded plan instead of improvising
+   branch names, titles, and commit subjects at delivery time. It names the
+   budget the design was sized against, then one row per PR group: its
+   branch name, PR title, member units, and estimated changed lines, plus a
+   written justification for any group deliberately left over budget. Each
+   group's commit sequence is recorded alongside it — every commit in
+   delivery order, with its final human-readable subject. Write this section
+   for a reader with no access to the planning conversation: branch names and
+   titles are final here, not placeholders. A deliverable small enough for
+   one PR still gets the section, with one group in it; a block whose size
+   can't be meaningfully estimated (pure prose, config) still gets an `Est:`
+   figure, marked rough rather than omitted. If a mid-dispatch escalation
+   forces a re-plan, update this section in place and append the change to
+   the Changelog.
 2. **Block map entries** in `.local/blocks.md`, one per block:
 
    ```
@@ -197,10 +256,15 @@ re-plan, with the engineer.
    - Deps: B<NN>, ... | none
    - Unit: U<NN>
    - PR group: G<NN>
+   - Est: <estimated changed lines>
    - Code: <intended path(s)>
    - Contract: <one-line summary; authoritative contract is the docblock at Code>
    - Plan: plans/NNN-<slug>.md
    ```
+
+   `Est:` carries the block's estimated changed lines from Step 3a; the same
+   field is added to the example entry in `templates/blocks.md` so a fresh
+   repo inherits it.
 
    Status lifecycle: `Planned → Scaffolded → Tests Written → Tests Verified →
    Implemented → Accepted`, with `Escalated` as a side-state that returns to the

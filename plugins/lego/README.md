@@ -213,6 +213,14 @@ checks all uncommitted changes; with one, checks the files changed in that
 range. Exits 1 with one `VIOLATION:` line per offending file, 2 on a usage
 error.
 
+**`scripts/pr-size-check.sh [--budget <n>] [--justified] <diff-range> [--
+<pathspec>...]`** — measures a diff range's total changed lines against
+`delivery.prSizeBudget` (effective config, default 500) or an explicit
+`--budget`, and reports PASS/FAIL/WARN with a per-file breakdown when over
+budget. `--justified` turns an over-budget FAIL into a WARN and exits 0.
+Exit 0 within budget (or over but justified), 1 over budget, 2 on a usage
+or environment error.
+
 ### Agents
 
 **`lego-test-writer`** (default model `sonnet`, override with
@@ -262,6 +270,7 @@ implementer).
 bash plugins/lego/scripts/agent-defs.test.sh
 bash plugins/lego/scripts/dispatch-skill.test.sh
 bash plugins/lego/scripts/plan-lifecycle.test.sh
+bash plugins/lego/scripts/pr-size-check.test.sh
 bash plugins/lego/scripts/realm-gate.test.sh
 bash plugins/lego/scripts/worktree.test.sh
 ```

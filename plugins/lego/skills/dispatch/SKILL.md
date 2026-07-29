@@ -289,13 +289,31 @@ completion (see "Done").
 `main-prs` mode only. Once every unit in a PR group is `Accepted` and
 locally merged, compose the PR content and open the PR.
 
-Before composing the manifest,
+Before composing the manifest, run `git fetch origin`, then
 merge master into the integration branch before delivery.
-This surfaces concurrent changes as merge conflicts rather than silent
+The fetch comes first and is not optional: merging a stale `origin/master`
+reports "Already up to date" and changes nothing, which silently invalidates
+every base-relative check that follows — the size check, the version-bump
+lint, and the PR diff itself then all measure against a master that has
+already moved. The merge surfaces concurrent changes as merge conflicts
+rather than silent
 reverts. If conflicts arise in files the PR group delivers, apply the
 same escalation rule as the Conflicts section: resolve trivial,
 mechanical conflicts yourself; escalate anything else to the engineer
 with the conflicting paths and a recommendation.
+
+`deliver` builds the delivery branch from the **local** `<base-branch>` ref,
+not from `origin/master`, so fast-forward the base checkout as well — when
+its tree is clean:
+
+```
+git -C <base-worktree> merge --ff-only origin/master
+```
+
+A base checkout left behind produces a delivery branch built on a stale base;
+the PR's three-dot diff still reads as correct, so nothing downstream catches
+it. A refused fast-forward (dirty tree, or a base checkout that has diverged)
+is an escalation, not something to force.
 
 #### 5a. Compose PR content
 
@@ -440,6 +458,22 @@ that's also what keeps a brownfield "changing" block safe to deliver — and
 opens the PR. PRs target master/main only, never any other branch. Raise PR
 groups' PRs in dependency order: a group's PR waits until every group it
 depends on has its own PR merged.
+
+The delivery branch must match the integration branch exactly on the paths it
+delivers. This is a gate, not a suggestion — the check is:
+
+```
+git diff <integration-branch> <delivery-branch> -- <the delivered paths>
+```
+
+Empty output is the only pass. Anything else is a defect in the delivery, not
+a difference to reason away: it is how a stale base, a restore that reverted
+a file, and a unit that contributed nothing have each shipped before.
+`deliver` now enforces this mechanically: it compares the branch it built
+against the integration tip on every path it restored, and
+refuses to push on any divergence — so a `deliver` that exits 0 has already
+passed the gate. Run the diff by hand whenever the PR was produced any other
+way. An unverified delivery is not handed over.
 
 The deliver command automatically removes each delivered unit's branch and
 any remaining worktree as a best-effort side effect after the PR is opened

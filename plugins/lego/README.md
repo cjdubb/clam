@@ -199,13 +199,18 @@ integration worktree's repo root:
   afterward.
 - `deliver --manifest <path> <plan-slug> <base-branch> <unit-id>
   <unit-slug> [...]` — builds a delivery branch from `<base-branch>`,
-  restoring each unit's `- Code:` paths from its `lego(<unit-id>): tests`
-  and `lego(<unit-id>): implementation` commits, pushes it to `origin`, and
-  opens a PR with `gh pr create`. The manifest (written by the orchestrator
-  to `.local/pr-manifest.json`) supplies the title, branch name, and
-  commit subjects — required — plus an optional body (falling back to
-  `blocks.md` headings and contracts). Best-effort removes delivered
-  units' branches and worktrees afterward.
+  restoring the files each unit's `lego(<unit-id>): tests` and
+  `lego(<unit-id>): implementation` commits changed, derived from each
+  commit's own diff. Merge commits are never resolved as a unit's commit,
+  and a resolved commit that restores no files fails the build rather than
+  contributing nothing. Before pushing, the built branch must match the
+  integration tip byte for byte on every path it restored; any divergence
+  aborts the delivery with nothing pushed and no PR opened. Otherwise it
+  pushes to `origin` and opens a PR with `gh pr create`. The manifest
+  (written by the orchestrator to `.local/pr-manifest.json`) supplies the
+  title, branch name, and commit subjects — required — plus an optional
+  body (falling back to `blocks.md` headings and contracts). Best-effort
+  removes delivered units' branches and worktrees afterward.
 - `remove <plan-slug> <unit-id> <unit-slug>` — removes one unit's worktree
   and branch directly (fails on a dirty tree or an unmerged branch).
 - `clean` — best-effort removes every fully-merged `lego/*/*` and

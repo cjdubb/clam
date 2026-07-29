@@ -11,6 +11,9 @@
 #     heading) — not merely anywhere in the file.
 #   - "Isolation": neither new section references TODO.md (lego never
 #     touches tracking's files).
+#   - "Owner rationale": Step 3's owner bullet says WHY engineer ownership
+#     exists (design authorship), so orchestrators offer it as a first-class
+#     choice at plan time rather than an edge case.
 #   - "Invariants": the original Step 0-5 headings all survive unchanged.
 # This file does not test prose semantics beyond tokens/headings/order —
 # meaning is verified by the orchestrator at acceptance.
@@ -111,6 +114,17 @@ check "Step 0a section has no TODO.md reference" \
   "$(has_f "$STEP0A_SECTION" "TODO.md")" "no"
 check "Step 5a section has no TODO.md reference" \
   "$(has_f "$STEP5A_SECTION" "TODO.md")" "no"
+
+# --- 7a. Owner bullet rationale (within the Step 3 section only) -----------
+# "authorship" is the shortest word that distinguishes the reason engineer
+# ownership exists from the mechanical parity ("same contract, same tests")
+# the bullet already states; "first-class" pins the framing orchestrators
+# must use when offering the choice.
+STEP3_SECTION="$(section_text '## Step 3: Decompose with the engineer')"
+for tok in "Owner: agent or engineer" "authorship" "first-class"; do
+  check "Step 3 section token: $tok" \
+    "$(has_f "$STEP3_SECTION" "$tok")" "yes"
+done
 
 # --- 8. Original steps preserved (headings intact) --------------------------
 for h in "## Step 0: Establish the deliverable — a hard gate" \

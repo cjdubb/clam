@@ -126,19 +126,30 @@
 #     For each unit, in argument order:
 #       - constructs the exact unit branch name
 #         "lego/<plan-slug>/<unit-id>-<unit-slug>" and verifies it exists
-#       - finds on the unit branch the newest commit with subject exactly
-#         "lego(<unit-id>): tests" and the newest with subject exactly
-#         "lego(<unit-id>): implementation"; the implementation commit is
-#         required, the tests commit is optional (untested prose units)
+#       - finds on the unit branch the newest NON-MERGE commit with subject
+#         exactly "lego(<unit-id>): tests" and the newest non-merge commit
+#         with subject exactly "lego(<unit-id>): implementation"; the
+#         implementation commit is required, the tests commit is optional
+#         (untested prose units). Merge commits are never candidates, so a
+#         merge stamped with a unit subject is never resolved as that
+#         unit's commit.
 #       - derives the file list from each commit's own diff (git diff-tree),
 #         not from blocks.md's "- Code:" field — this ensures test files,
 #         version bumps, and any other files committed on the unit branch
-#         are included automatically
+#         are included automatically. An EMPTY derived file list fails the
+#         build (exit 4): a resolved commit that restores nothing would
+#         ship a PR silently missing that unit's content.
 #       - when the tests commit exists: restores its changed files and
 #         commits with subject "lego(<unit-id>): contract + tests"; then
 #         restores the implementation commit's changed files and commits
-#         with the impl subject (from the manifest, required). A restore that
-#         produces no changes creates no commit.
+#         with the impl subject (from the manifest, required). A restore of
+#         a non-empty file list that produces no changes creates no commit;
+#         that no-op is legitimate and is not a failure.
+#     Then, before anything is pushed, gates the built branch: it must match
+#     the invoking worktree's HEAD (the integration tip — deliver runs from
+#     the integration worktree) byte for byte on the union of every path
+#     restored above. Any difference aborts the delivery with exit 4,
+#     nothing pushed and no PR opened.
 #     Pushes the delivery branch to the "origin" remote and opens a PR
 #     against <base-branch> with `gh pr create` using the title (from the
 #     manifest, required) and body (from the manifest or default). Removes
@@ -220,11 +231,19 @@
 #            unit branch does not exist (merge/deliver/remove); dirty working
 #            tree (merge); (B01) current branch is a unit branch or equals
 #            the target branch (merge); baseline test failure (add); required
-#            implementation commit missing (deliver); delivery branch already
-#            exists (deliver); unmerged branch (remove); (NEW, plan 001-bra)
-#            the unit archive failed (remove only — merge and deliver warn
-#            instead and keep their exit codes); underlying git/gh failure.
-#   Every error prints exactly one line starting "ERROR: " to stderr.
+#            implementation commit missing (deliver); a resolved unit
+#            commit whose derived file list is empty — a merge commit, or a
+#            commit that touched no files (deliver); the built delivery
+#            branch diverges from the integration tip on a restored path
+#            (deliver); delivery branch already exists (deliver); unmerged
+#            branch (remove); (NEW, plan 001-bra) the unit archive failed
+#            (remove only — merge and deliver warn instead and keep their
+#            exit codes); underlying git/gh failure.
+#   Every error prints exactly one line starting "ERROR: " to stderr. Two
+#   deliver failures print additional plain (non-"ERROR: ") diagnostic lines
+#   before it, because the single error line cannot carry the detail: the
+#   empty-file-list failure names the offending commit and which of the two
+#   causes it was, and the divergence gate names each divergent path.
 #
 # Invariants:
 #   - (CHANGED, plan 001-bra) TRACKED files in the invoking worktree are
@@ -255,6 +274,11 @@
 #     effect; a removal failure never changes merge's exit code.
 #   - `deliver` may also remove unit branches and worktrees as a best-effort
 #     side effect; a removal failure never changes deliver's exit code.
+#   - `deliver` never pushes a delivery branch, nor opens a PR for one, that
+#     differs from the integration tip on any path it restored: the gate
+#     runs before the push, and a gate failure leaves origin and the PR list
+#     untouched (the local delivery branch and temporary worktree are torn
+#     down exactly as for any other build failure).
 #
 # Edge cases:
 #   - (NEW, plan 001-lc) Only one of the two config files exists: it alone
@@ -271,6 +295,19 @@
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
 #     deliver restores the union of files changed by each commit;
 #     status.md carries one "## Blocks" line per section, in file order.
+#   - A merge commit stamped with a unit's subject (e.g. refreshing a unit
+#     branch mid-flight with `git merge <integration-branch> -m
+#     "lego(U01): implementation"`) is never resolved as that unit's commit.
+#     When a plain commit with the same subject also exists, that one is
+#     used; when the stamped merge is the only candidate, deliver fails with
+#     the missing-implementation-commit error instead of contributing
+#     nothing.
+#   - An implementation commit that touches no files (e.g. created with
+#     `--allow-empty` for a prose unit) is exit 4, not a silent success:
+#     there is nothing to restore for that unit.
+#   - The divergence gate compares only the restored union. A path the
+#     integration tip changed but no delivered unit's commit touched is
+#     legitimately absent from the delivery branch and never trips the gate.
 #   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
 #     artifacts are never silently reused.
 #   - "body" and per-unit "commits.<id>.tests" remain individually optional,
@@ -571,6 +608,16 @@ archive_unit_local() {
 # (commits reachable from <branch> but not from <base>), which excludes the
 # inherited stray commits. Without <base>, the entire branch history is
 # scanned unconditionally, as before.
+#
+# Merge commits are never candidates in either range (`git log --no-merges`).
+# A unit's content is derived from its commit's own diff, and `git diff-tree`
+# prints nothing for a merge commit, so a merge stamped with a unit subject
+# (`git merge <integration-branch> -m "lego(U01): implementation"`, the way a
+# unit branch gets refreshed mid-flight) would otherwise resolve as the
+# unit's commit and restore an empty file list. Skipping merges leaves the
+# intended plain commit -- what the merge-then-stamp-a-separate-commit
+# workaround already assumes -- as the only resolvable candidate; when no
+# such commit exists the caller fails loudly instead of delivering nothing.
 newest_commit_with_subject() {
   local branch="$1" subject="$2" base="${3:-}"
   local sha subj
@@ -581,9 +628,9 @@ newest_commit_with_subject() {
     fi
   done < <(
     if [ -n "$base" ] && ! git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" "$base" 2>/dev/null; then
-      git -C "$REPO_ROOT" log --format='%H%x09%s' "$base..$branch" 2>/dev/null
+      git -C "$REPO_ROOT" log --no-merges --format='%H%x09%s' "$base..$branch" 2>/dev/null
     else
-      git -C "$REPO_ROOT" log --format='%H%x09%s' "$branch" 2>/dev/null
+      git -C "$REPO_ROOT" log --no-merges --format='%H%x09%s' "$branch" 2>/dev/null
     fi
   )
   return 0
@@ -891,17 +938,45 @@ commit_changed_files() {
   git -C "$REPO_ROOT" diff-tree --no-commit-id --name-only -r "$1" 2>/dev/null
 }
 
+# DELIVERED_PATHS accumulates every path restore_and_commit restored, across
+# every unit of one deliver invocation. cmd_deliver resets it and uses it as
+# the pathspec for the pre-push byte-identical gate.
+DELIVERED_PATHS=()
+
 # restore_and_commit <worktree> <sha> <subject> [<path>...] -- restores paths
 # from <sha> and commits with <subject> if that produced a diff. When no paths
 # are passed, derives the file list from the commit's own diff (git diff-tree).
-# Returns 1 on an underlying git failure, 0 otherwise (including the no-op case).
+# Every restored path is appended to DELIVERED_PATHS.
+#
+# Returns 1 on an underlying git failure, and 1 when the derived path list is
+# empty: a resolved unit commit that restores nothing contributes nothing to
+# the PR, which is a defect rather than a no-op, so it fails the build instead
+# of passing silently. The empty case first prints one plain (non-"ERROR: ")
+# stderr line distinguishing the two ways it happens -- the commit is a merge
+# commit (git diff-tree prints no paths for one) or the commit genuinely
+# touched no files -- and the caller then emits the single mandated "ERROR: "
+# line. The merge branch of that message is defensive: deliver's own resolver
+# skips merges, so it cannot resolve one today; it stays so that a caller
+# resolving a commit some other way gets an accurate reason instead of the
+# misleading "touched no files". Returns 0 otherwise, including the
+# legitimate no-op where a non-empty restore stages no diff and therefore
+# creates no commit.
 restore_and_commit() {
   local wt="$1" sha="$2" subject="$3"; shift 3
   local -a paths=("$@")
   if [ "${#paths[@]}" -eq 0 ]; then
     mapfile -t paths < <(commit_changed_files "$sha")
   fi
-  [ "${#paths[@]}" -gt 0 ] || return 0
+  if [ "${#paths[@]}" -eq 0 ]; then
+    if [ -n "$(git -C "$REPO_ROOT" rev-list --no-walk --merges "$sha" 2>/dev/null)" ]; then
+      printf 'deliver: commit %s ("%s") is a merge commit and cannot be restored from\n' "$sha" "$subject" >&2
+    else
+      printf 'deliver: commit %s ("%s") touched no files\n' "$sha" "$subject" >&2
+    fi
+    return 1
+  fi
+
+  DELIVERED_PATHS+=("${paths[@]}")
 
   if ! git -C "$wt" checkout -q "$sha" -- "${paths[@]}" >/dev/null 2>&1; then
     return 1
@@ -1093,6 +1168,7 @@ cmd_deliver() {
   fi
 
   local idx=0 build_failed=0
+  DELIVERED_PATHS=()
   for u in "${unit_ids[@]}"; do
     local tests_sha="${UNIT_TESTS_SHA[$idx]}"
     local impl_sha="${UNIT_IMPL_SHA[$idx]}"
@@ -1128,6 +1204,29 @@ cmd_deliver() {
   if [ "$build_failed" -eq 1 ]; then
     deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
     die 4 "failed to build delivery branch content"
+  fi
+
+  # ---- Gate: the delivery branch must equal the integration tip byte for
+  # byte on every path it restored, checked BEFORE anything is pushed.
+  # deliver runs from the integration worktree, so its HEAD is the gated
+  # tree the PR is supposed to carry; the delivery branch is that same tree
+  # replayed onto the base branch. Any difference on a restored path means
+  # the replay lost or altered content (a stale local base, a restore that
+  # reverted a file, a resolution that only exists on the integration
+  # branch) -- one mechanical detector for a whole class of silent
+  # corruption. Paths the delivery deliberately does not carry are out of
+  # scope: only the restored union is compared.
+  if [ "${#DELIVERED_PATHS[@]}" -gt 0 ]; then
+    local -a divergent=()
+    mapfile -t divergent < <(git -C "$REPO_ROOT" diff --name-only HEAD "$delivery_branch" -- "${DELIVERED_PATHS[@]}" 2>/dev/null)
+    if [ "${#divergent[@]}" -gt 0 ]; then
+      local dp
+      for dp in "${divergent[@]}"; do
+        printf 'deliver: diverges from the integration tip: %s\n' "$dp" >&2
+      done
+      deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
+      die 4 "delivered paths diverge from the integration tip; nothing was pushed"
+    fi
   fi
 
   if ! git -C "$REPO_ROOT" push -q origin "$delivery_branch" >/dev/null 2>&1; then

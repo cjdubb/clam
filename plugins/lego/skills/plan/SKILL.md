@@ -162,6 +162,9 @@ For every block, agree with the engineer on:
 - **Owner: agent or engineer.** Ask which blocks the engineer wants to build
   themselves. Engineer-owned blocks get the same contract and the same tests;
   siblings proceed against stubs, so an engineer block never stalls the wave.
+  Offer this as a first-class choice, not an edge case: it is how design
+  authorship stays with the engineer, hands-on in the code they care about
+  rather than reviewing an agent's output after the fact.
 - **Intended file paths**, pairwise disjoint across units. Disjointness is
   what makes parallel dispatch conflict-free by construction; a later merge
   conflict is treated as a planning defect.

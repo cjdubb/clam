@@ -1,6 +1,8 @@
 #!/bin/bash
 # Verifies the session-context hook emits a standing rule requiring every
-# orchestrator question to be explicitly answered before proceeding.
+# orchestrator question to be explicitly answered before proceeding, and
+# that the Owner: engineer rule states why engineer ownership exists
+# (design authorship) rather than only how it works.
 #
 # Run: bash plugins/lego/scripts/session-context-question-gate.test.sh
 #      (exits non-zero on failure)
@@ -55,6 +57,16 @@ standing_rules_section() { # content
   ' <<<"$1"
 }
 
+# Text of one standing-rules bullet: the line containing the given literal
+# through to (not including) the next top-level "- " bullet.
+bullet_text() { # content literal
+  awk -v pat="$2" '
+    capture == 0 && index($0, pat) > 0 { capture=1; print; next }
+    capture == 1 && index($0, "- ") == 1 { exit }
+    capture == 1 { print }
+  ' <<<"$1"
+}
+
 SECTION="$(standing_rules_section "$RAW")"
 
 check "## Standing rules heading found in hook output" \
@@ -98,6 +110,17 @@ check "Standing rules section token: go (accepting defaults)" \
 # --- 5. Existing standing rules survive unchanged --------------------------
 check "existing rule survives: Clarify and verify; never guess" \
   "$(has_f "$SECTION" 'Clarify and verify; never guess')" "yes"
+
+# --- 6. The Owner: engineer rule carries its rationale ----------------------
+# The mechanical parity ("same contract, same tests") is not the point of
+# engineer ownership; design authorship is, and the rule has to say so.
+OWNER_BULLET="$(bullet_text "$SECTION" '(Owner: engineer)')"
+check "Owner: engineer rule found in the standing rules" \
+  "$([[ -n "$OWNER_BULLET" ]] && echo yes || echo no)" "yes"
+check "Owner: engineer rule names design authorship" \
+  "$(has_re "$OWNER_BULLET" '\bauthorship\b')" "yes"
+check "Owner: engineer rule names the detached-reviewer failure mode" \
+  "$(has_re "$OWNER_BULLET" '\bdetached\b')" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

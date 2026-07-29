@@ -113,6 +113,21 @@ assert_single_error_line() {
   esac
 }
 
+# Two deliver failures print plain (non-"ERROR: ") diagnostic lines before
+# the single mandated error line, because that one line cannot carry the
+# detail: the empty-file-list failure names the offending commit and why it
+# restored nothing, and the divergence gate names every divergent path.
+# assert_single_error_line's "exactly one stderr line" is too strict for
+# those; what still holds there is exactly one line starting "ERROR: ".
+assert_one_error_line() {
+  local err="$1" label="$2"
+  local n
+  n="$(printf '%s\n' "$err" | grep -c '^ERROR: ')"
+  if [ "$n" -ne 1 ]; then
+    record_fail "$label: expected exactly 1 'ERROR: ' stderr line, got $n (stderr: $err)"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Invocation helpers.
 # ---------------------------------------------------------------------------
@@ -390,6 +405,28 @@ build_deliver_base() {
   git -C "$repo" push -q origin master >/dev/null 2>&1
 
   printf '%s' "$repo"
+}
+
+# integrate_units <repo> <unit-branch>... -- puts the fixture into the
+# production-shaped pre-delivery state: an "integration" branch forked from
+# master (created on first use), every given unit branch merged into it
+# --no-ff the way `worktree.sh merge` does, and that branch left checked
+# out. deliver runs from the integration worktree with master as its base
+# branch, and gates what it builds against the integration tip before
+# pushing -- so any fixture whose deliver is expected to reach the push
+# step must integrate its units first, exactly as the dispatch flow does.
+# Called as a plain statement (it mutates the repo, prints nothing).
+integrate_units() {
+  local repo="$1"
+  shift
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/integration"; then
+    git -C "$repo" branch integration master
+  fi
+  git -C "$repo" checkout -q integration
+  local b
+  for b in "$@"; do
+    git -C "$repo" merge -q --no-ff -m "lego: merge $b" "$b" >/dev/null
+  done
 }
 
 # make_gh_shim -- sets GH_SHIM_BIN (a dir to prepend to PATH) and
@@ -1634,6 +1671,7 @@ test_deliver_cross_plan_isolation() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1 (plan1)" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -1689,6 +1727,7 @@ test_deliver_stale_tests_commit_in_base_history_is_skipped() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -1721,12 +1760,19 @@ test_deliver_stale_tests_commit_in_base_history_is_skipped() {
   fi
 }
 
-test_deliver_unit_with_empty_commits_is_noop() {
+# An implementation commit that touches no files (a prose unit committed
+# with --allow-empty) derives an EMPTY file list: there is nothing to
+# restore, so the unit contributes nothing to the PR. That is a defect, not
+# a no-op -- deliver fails the build rather than opening a PR silently
+# missing the unit. The distinguishing diagnostic must say the commit
+# touched no files, not that it was a merge.
+test_deliver_unit_with_empty_commit_fails_loudly() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U03-nocodeslug" master
   git -C "$repo" commit -q --allow-empty -m "lego(U03): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U03-nocodeslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -1734,7 +1780,146 @@ test_deliver_unit_with_empty_commits_is_noop() {
   manifest="$(write_valid_manifest "$repo" "test: empty commits" "lego/deliver/plan1/U03" U03)"
 
   run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U03 nocodeslug
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "empty commits noop: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "empty implementation commit: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_one_error_line "$RUN_ERR" "empty implementation commit"
+  case "$RUN_ERR" in
+    *"touched no files"*) : ;;
+    *) record_fail "expected stderr to distinguish 'touched no files' from the merge-commit case: got [$RUN_ERR]" ;;
+  esac
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected no PR to be opened for a unit that restores nothing"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U03"; then
+    record_fail "expected no delivery branch to survive the failed build"
+  fi
+}
+
+# Regression tests for the "unit subject lands on a merge commit" defect.
+# Refreshing a unit branch mid-flight with
+# `git merge <integration-branch> -m "lego(U01): implementation"` puts the
+# unit's exact subject on a MERGE commit, and git diff-tree prints no paths
+# for a merge -- so resolving that merge as the unit's commit derives an
+# empty file list and the unit contributes nothing. The commit-subject scan
+# skips merges, so the plain same-subject commit (what the
+# merge-then-stamp-a-separate-commit workaround already assumes) is what
+# gets delivered.
+test_deliver_stamped_merge_commit_is_not_resolved() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  # Concurrent work folded into the unit branch with the unit's own subject
+  # stamped onto the merge itself. It is NEWER than the plain commit above,
+  # so a scan that considers merges picks it and restores nothing.
+  git -C "$repo" checkout -q -b concurrent-work master
+  commit_file "$repo" "src/other.sh" "other v1" "concurrent work"
+  git -C "$repo" checkout -q "lego/plan1/U01-greetstuff"
+  git -C "$repo" merge -q --no-ff -m "lego(U01): implementation" concurrent-work >/dev/null
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n '{title: "test: stamped merge is not resolved", branch: "lego/deliver/plan1/U01",
+          commits: {U01: {impl: "lego(U01): implementation"}}}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    local greet_content subjects
+    greet_content="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v1" "$greet_content" "the plain same-subject commit is delivered; the newer stamped merge (which restores nothing) is skipped"
+    subjects="$(git -C "$repo" log --format=%s master..lego/deliver/plan1/U01 2>/dev/null)"
+    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "expected the delivery branch to carry the implementation commit, not an empty delivery"
+    fi
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
+# Same defect, no plain commit to fall back on: the unit's exact subject
+# exists ONLY on a stamped merge. Skipping merges leaves nothing to
+# resolve, so deliver must fail loudly (missing required implementation
+# commit) rather than open a PR that silently omits the unit.
+test_deliver_only_a_stamped_merge_fails_loudly() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  # The unit's work is here, but under a subject deliver does not look for.
+  commit_file "$repo" "src/greet.sh" "greet v1" "wip: greeting"
+  git -C "$repo" checkout -q -b concurrent-work master
+  commit_file "$repo" "src/other.sh" "other v1" "concurrent work"
+  git -C "$repo" checkout -q "lego/plan1/U01-greetstuff"
+  # ...and the exact subject is carried only by the refresh merge.
+  git -C "$repo" merge -q --no-ff -m "lego(U01): implementation" concurrent-work >/dev/null
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n '{title: "test: only a stamped merge", branch: "lego/deliver/plan1/U01",
+          commits: {U01: {impl: "lego(U01): implementation"}}}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "a unit whose only same-subject commit is a merge must fail loudly: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_one_error_line "$RUN_ERR" "stamped merge is the only same-subject commit"
+
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected no PR to be opened when the unit resolves to nothing"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected no delivery branch to survive the failed deliver"
+  fi
+}
+
+# The pre-push byte-identical gate: whatever deliver builds must equal the
+# integration tip on every path it restored, or nothing is pushed and no PR
+# is opened. Here the integration branch carries a follow-up fix to a
+# delivered path that never reached the unit branch, so the restore replays
+# an older state -- the silent content-loss shape that has shipped before
+# (stale base, reverted restore, unit contributing nothing) and that this
+# one mechanical check detects regardless of cause.
+test_deliver_divergence_from_integration_tip_blocks_push() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1 (unit)" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/greet.sh" "greet v2 (fixed on the integration branch)" \
+    "fix: follow-up that never reached the unit branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: divergence gate" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "a delivery diverging from the integration tip must fail: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_one_error_line "$RUN_ERR" "divergence gate"
+  case "$RUN_ERR" in
+    *"src/greet.sh"*) : ;;
+    *) record_fail "expected the divergent path to be named on stderr: got [$RUN_ERR]" ;;
+  esac
+
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "lego/deliver/plan1/U01" 2>/dev/null)" ]; then
+    record_fail "expected nothing to be pushed to origin when the divergence gate fires"
+  fi
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected no PR to be opened when the divergence gate fires"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    record_fail "expected the local delivery branch to be cleaned up when the divergence gate fires"
+  fi
 }
 
 test_deliver_missing_implementation_commit_fails() {
@@ -1774,6 +1959,7 @@ test_deliver_underlying_git_failure_on_push() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
   git -C "$repo" remote set-url origin "/nonexistent/path/that/does/not/exist.git"
 
   local manifest
@@ -1790,6 +1976,7 @@ test_deliver_tests_commit_optional_success() {
   git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
   commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U02-soloslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -1844,6 +2031,7 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
     "src/greet.sh" $'greet NEW\n' \
     "src/dir with space/file.sh" $'spacey NEW\n'
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -1950,6 +2138,7 @@ test_deliver_multi_unit_branch_naming_and_pr_title_order() {
   git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
   commit_file "$repo" "src/solo.sh" "solo NEW" "lego(U02): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff" "lego/plan1/U02-soloslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -2007,6 +2196,7 @@ test_deliver_multi_unit_argument_order_is_not_sorted() {
   git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
   commit_file "$repo" "src/solo.sh" "solo NEW" "lego(U02): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff" "lego/plan1/U02-soloslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -2057,6 +2247,7 @@ test_deliver_noop_restore_creates_no_second_commit() {
   # only Code path); restoring it should therefore be a no-op.
   commit_file "$repo" "src/needsimpl.sh" "irrelevant change" "lego(U05): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U05-noopslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -2172,6 +2363,7 @@ test_deliver_manifest_body_optional_default() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # A full manifest (title, branch, commits.U01.impl) but no "body": PR
   # body must fall back to the auto-generated headings+contracts default.
@@ -2207,6 +2399,7 @@ test_deliver_manifest_tests_subject_optional_default() {
   commit_files "$repo" "lego(U01): tests" "src/greet_test.sh" "greet test v1"
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # A full manifest but no commits.U01.tests: when a tests commit exists on
   # the unit branch, its delivered subject must fall back to the default
@@ -2237,6 +2430,7 @@ test_deliver_manifest_title_override() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # branch and commits.U01.impl are also required now; fill them with
   # arbitrary valid values so this test isolates the title-override
@@ -2278,6 +2472,7 @@ test_deliver_manifest_body_override() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # title and branch and commits.U01.impl are also required now; fill them
   # with arbitrary valid values so this test isolates the body-override
@@ -2314,6 +2509,7 @@ test_deliver_manifest_branch_override() {
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # title and commits.U01.impl are also required now; fill them with
   # arbitrary valid values so this test isolates the branch-override
@@ -2343,6 +2539,7 @@ test_deliver_manifest_commit_subjects_override() {
   commit_files "$repo" "lego(U01): tests" "src/greet_test.sh" "greet test v1"
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
   # title and branch are also required now; fill them with arbitrary valid
   # values so this test isolates the commit-subject-override behavior it's
@@ -2502,6 +2699,7 @@ test_deliver_files_not_in_code_field_are_included() {
   commit_file "$repo" "src/solo_test.sh" "solo test v1" "lego(U02): tests"
   commit_file "$repo" "src/solo.sh" "solo v1" "lego(U02): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U02-soloslug"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -2764,7 +2962,7 @@ test_deliver_cleanup_removes_unit_branch_and_worktree() {
   # Simulate the unit having already been merged into the integration branch
   # (e.g. via `worktree.sh merge`) before delivery, so `git branch -d` in
   # deliver's cleanup step can succeed.
-  git -C "$repo" merge -q --no-ff -m "lego: merge $branch" "$branch"
+  integrate_units "$repo" "$branch"
   # A worktree for the unit branch still lingers (e.g. merge's own best-effort
   # cleanup did not run or did not succeed) -- deliver must remove it too.
   git -C "$repo" worktree add -q "$wt" "$branch"
@@ -2800,8 +2998,14 @@ test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
   git -C "$repo" checkout -q -b "$branch" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
-  # Deliberately do NOT merge the unit branch into master: it stays
-  # unmerged, so `git branch -d` in deliver's cleanup step will fail.
+  # Deliberately do NOT merge the unit branch anywhere: it stays unmerged,
+  # so `git branch -d` in deliver's cleanup step will fail. The integration
+  # branch still reaches the same delivered CONTENT by its own commit, so
+  # the pre-push divergence gate passes and deliver gets as far as the
+  # cleanup step this test is about -- which also pins the gate down as a
+  # content comparison, not an ancestry one.
+  git -C "$repo" checkout -q -b integration master
+  commit_file "$repo" "src/greet.sh" "greet v1" "same content, reached without merging the unit branch"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
@@ -3758,7 +3962,10 @@ run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)"
 run_test "deliver: constructed unit branch does not exist" test_deliver_zero_branch_match
 run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_deliver_cross_plan_isolation
 run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_deliver_stale_tests_commit_in_base_history_is_skipped
-run_test "deliver: unit with empty commits is a no-op" test_deliver_unit_with_empty_commits_is_noop
+run_test "deliver: unit whose implementation commit touches no files fails loudly, not silently" test_deliver_unit_with_empty_commit_fails_loudly
+run_test "deliver: a merge stamped with the unit subject is skipped; the plain same-subject commit wins" test_deliver_stamped_merge_commit_is_not_resolved
+run_test "deliver: a stamped merge as the ONLY same-subject commit fails loudly instead of contributing nothing" test_deliver_only_a_stamped_merge_fails_loudly
+run_test "deliver: delivered paths diverging from the integration tip abort before any push" test_deliver_divergence_from_integration_tip_blocks_push
 run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
 run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists
 run_test "deliver: underlying git failure (unreachable origin) on push" test_deliver_underlying_git_failure_on_push

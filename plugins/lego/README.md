@@ -10,7 +10,10 @@ test-writer and implementer agents per work unit, each in its own dedicated
 git worktree forked from the integration branch. Accepted units merge
 locally and, under `main-prs` delivery mode, deliver incrementally as PR
 groups raised to master/main; a living block map keeps the engineer's
-mental model of the system current at the contract level throughout.
+mental model of the system current at the contract level throughout. The
+division of labor is deliberate: the engineer designs the block graph in
+conversation before any code exists, so the shape of what ships is theirs,
+and the agents supply the labor inside it.
 
 ## Getting started
 
@@ -202,16 +205,21 @@ integration worktree's repo root:
   record.
 - `deliver --manifest <path> <plan-slug> <base-branch> <unit-id>
   <unit-slug> [...]` — builds a delivery branch from `<base-branch>`,
-  restoring each unit's `- Code:` paths from its `lego(<unit-id>): tests`
-  and `lego(<unit-id>): implementation` commits, pushes it to `origin`, and
-  opens a PR with `gh pr create`. The manifest (written by the orchestrator
-  to `.local/pr-manifest.json`) supplies the title, branch name, and
-  commit subjects — required — plus an optional body (falling back to
-  `blocks.md` headings and contracts). Afterward, best-effort removes each
-  delivered unit's branch and any remaining worktree — a worktree still
-  present at that point is archived first, the same as `merge`, to
-  `.local/units/<plan-slug>/<unit-id>/`; a failed archive skips removal of
-  both the worktree and the branch.
+  restoring the files each unit's `lego(<unit-id>): tests` and
+  `lego(<unit-id>): implementation` commits changed, derived from each
+  commit's own diff. Merge commits are never resolved as a unit's commit,
+  and a resolved commit that restores no files fails the build rather than
+  contributing nothing. Before pushing, the built branch must match the
+  integration tip byte for byte on every path it restored; any divergence
+  aborts the delivery with nothing pushed and no PR opened. Otherwise it
+  pushes to `origin` and opens a PR with `gh pr create`. The manifest
+  (written by the orchestrator to `.local/pr-manifest.json`) supplies the
+  title, branch name, and commit subjects — required — plus an optional
+  body (falling back to `blocks.md` headings and contracts). Afterward,
+  best-effort removes each delivered unit's branch and any remaining
+  worktree — a worktree still present at that point is archived first, the
+  same as `merge`, to `.local/units/<plan-slug>/<unit-id>/`; a failed
+  archive skips removal of both the worktree and the branch.
 - `remove <plan-slug> <unit-id> <unit-slug>` — archives the unit worktree's
   `briefs/`, `reports/`, and `status.md` to
   `.local/units/<plan-slug>/<unit-id>/`, then removes the worktree and
@@ -285,8 +293,17 @@ implementer).
 - **Workers never design.** Ambiguity, mis-sized blocks, and wrong-seeming
   tests are escalated to the orchestrator; contract changes go through the
   engineer, always.
+- **Design authorship stays with the engineer.** Interfaces, contracts,
+  and dependencies are settled in conversation before any code exists, so
+  the engineer's understanding of the system is formed at design time
+  rather than reverse-engineered at review time out of a diff an agent
+  produced. That is the answer to this era's failure mode: the engineer as
+  detached reviewer, approving code they never shaped.
 - **The engineer can take any block.** Same contract, same tests, same
   acceptance gate; stubs keep every sibling block unblocked meanwhile.
+  Marking a block `Owner: engineer` is how the engineer stays hands-on
+  where it matters, building the blocks they care about themselves without
+  holding up the parallel waves around them.
 
 ## Tests
 

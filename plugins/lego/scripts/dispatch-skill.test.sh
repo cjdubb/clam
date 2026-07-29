@@ -92,6 +92,34 @@ check "token: pr-body-template.md" \
 check "token: merge master into the integration branch before delivery" \
   "$(has_f "$RAW" 'merge master into the integration branch before delivery')" "yes"
 
+# --- Delivery freshness and the post-deliver gate ------------------------
+# Scoped per step, the same way the pipe-safety checks below are, so
+# "step 5 says fetch" and "step 5b states the gate" are verified where they
+# belong rather than anywhere in the file. Step 5 runs from its heading to
+# 5a's; step 5b from its heading to the next top-level section.
+SECTION_5=$(awk '/^### 5\. Delivery$/{flag=1; next} /^#### 5a\. Compose PR content$/{flag=0} flag' "$SKILL")
+SECTION_5B=$(awk '/^#### 5b\. Write manifest and deliver$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' "$SKILL")
+
+# Step 5: the pre-delivery master merge must start with a fetch (a merge
+# against a stale ref is a no-op that invalidates every base-relative
+# check), and the LOCAL base checkout deliver builds from must be
+# fast-forwarded before deliver runs.
+check "5: pre-delivery merge fetches origin first" \
+  "$(has_f "$SECTION_5" 'git fetch origin')" "yes"
+check "5: local base checkout is fast-forwarded before deliver" \
+  "$(has_f "$SECTION_5" 'merge --ff-only origin/master')" "yes"
+
+# Step 5b: the post-deliver comparison is a gate, stated as one, and
+# deliver enforces it mechanically rather than leaving it to diligence.
+check "5b: delivery must match the integration branch on delivered paths" \
+  "$(has_f "$SECTION_5B" 'must match the integration branch exactly on the paths it')" "yes"
+check "5b: stated as a gate, not a suggestion" \
+  "$(has_f "$SECTION_5B" 'This is a gate, not a suggestion')" "yes"
+check "5b: deliver refuses to push on divergence" \
+  "$(has_f "$SECTION_5B" 'refuses to push on any divergence')" "yes"
+check "5b: an unverified delivery is not handed over" \
+  "$(has_f "$SECTION_5B" 'An unverified delivery is not handed over')" "yes"
+
 # --- Pipe-safety guidance content (contract: B01 exit-code-pipe-safety) --
 # The contract's own scaffold docblocks are embedded as HTML comments at
 # both insertion points (search SKILL.md for "Contract: B01"); they

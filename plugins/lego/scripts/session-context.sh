@@ -46,7 +46,9 @@ system never sees. Blocks are recursive; compositions are themselves blocks
   Inputs, Outputs, Errors, Invariants, Edge cases). Tests verify contract
   clauses, never internals.
 - The engineer may claim any block (Owner: engineer). Same contract, same tests,
-  same acceptance gate; sibling blocks proceed against stubs meanwhile.
+  same acceptance gate; sibling blocks proceed against stubs meanwhile. This is
+  how design authorship stays with the engineer: hands-on in the blocks that
+  matter to them, never a detached reviewer of code they did not shape.
 - Every work unit (one block by default) is dispatched in a dedicated worktree
   forked from the integration branch; workers see only their own unit's tests
   and contract.

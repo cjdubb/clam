@@ -538,6 +538,24 @@ test_reports_carveout_dots_within_names_are_unaffected() {
   assert_allowed "a directory name merely starting with dots is not a dot segment"
 }
 
+# Carve-out clause 9: the carve-out is decided on the path string alone, so it
+# must hold identically on the sed-based no-jq path (same fallback simulation
+# as test_no_jq_sed_fallback_field_extraction) -- both the allow and the
+# dot-segment deny, since a carve-out that only worked when jq was installed
+# would silently strand a worker's report on hosts without it, and a
+# dot-segment hole that only opened without jq would be the worse half of the
+# same asymmetry.
+test_reports_carveout_through_no_jq_sed_fallback() {
+  local path_no_jq
+  path_no_jq="$(path_without jq)"
+
+  run_gate "$(json_ft lego-test-writer .local/reports/01-test-B01.md)" "$path_no_jq"
+  assert_allowed "no-jq: test-writer on its own report file"
+
+  run_gate "$(json_ft lego-implementer .local/reports/../status.md)" "$path_no_jq"
+  assert_denied "no-jq: .. escapes the carve-out back into .local/" "orchestrator-owned" "read-only"
+}
+
 # ===========================================================================
 # main
 # ===========================================================================
@@ -566,6 +584,7 @@ run_test "(#184) reports: the .local deny reason names the report path" test_loc
 run_test "(#184) reports: carve-out segment matching is exact" test_reports_carveout_segment_matching_is_exact
 run_test "(#184) reports: dot segments disqualify the carve-out" test_reports_carveout_rejects_dot_segments
 run_test "(#184) reports: dots within names are not dot segments" test_reports_carveout_dots_within_names_are_unaffected
+run_test "(#184) reports: the carve-out holds through the no-jq sed fallback" test_reports_carveout_through_no_jq_sed_fallback
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

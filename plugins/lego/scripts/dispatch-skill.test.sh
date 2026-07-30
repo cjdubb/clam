@@ -184,6 +184,134 @@ if grep -qF -- "PIPESTATUS" <<<"$SECTION_2_3$SECTION_3_1"; then
 fi
 check "PIPESTATUS, if mentioned, flagged bash-specific" "$PIPESTATUS_OK" "yes"
 
+# --- B02 archive documentation (contract: B02 dispatch-archive-docs, plan
+# 001-brief-report-archive) ------------------------------------------------
+# The contract's own HTML comment (search SKILL.md for "Contract: B02")
+# quotes nearly every phrase the finished prose needs, so matching against
+# $RAW would pass today for the wrong reason — the words are sitting in the
+# comment, not in real prose. Everything below matches $STRIPPED (defined
+# above, HTML comments already removed) instead, and is section-scoped so
+# "documented once, somewhere in the file" cannot satisfy a check the
+# contract ties to one specific location.
+
+SECTION_4_MERGE=$(awk '/^### 4\. Local merge$/{flag=1; next} /^### 5\. Delivery$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_WORKER_BRIEFS=$(awk '/^## Worker briefs$/{flag=1; next} /^## Unit status file$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_ESCALATION=$(awk '/^## Escalation loop$/{flag=1; next} /^## Done$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_ENGINEER_OWNED=$(awk '/^## Engineer-owned blocks$/{flag=1; next} /^## Conflicts$/{flag=0} flag' <<<"$STRIPPED")
+
+# Step 4 (Local merge): archive path, the three archived components, and
+# that a failed archive leaves the worktree in place instead of removing it.
+check "4: archive path .local/units/<plan-slug>/<unit-id>/ named" \
+  "$(has_f "$SECTION_4_MERGE" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+check "4: archived component briefs/ named" \
+  "$(has_f "$SECTION_4_MERGE" 'briefs/')" "yes"
+check "4: archived component reports/ named" \
+  "$(has_f "$SECTION_4_MERGE" 'reports/')" "yes"
+check "4: archived component status.md named" \
+  "$(has_f "$SECTION_4_MERGE" 'status.md')" "yes"
+check "4: failed archive leaves the worktree in place" \
+  "$(has_f "$SECTION_4_MERGE" 'leaves the worktree in place')" "yes"
+
+# Ordering: the archive must be described as happening before the worktree
+# is removed. Checked by character offset rather than line number, because
+# this file hard-wraps prose paragraphs across physical lines — a
+# line-based comparison could put two clauses of the same sentence on
+# either side of a wrap and report a false order that has nothing to do
+# with what the sentence actually says.
+offset_of() { # content literal -> byte offset of first match, or -1
+  local content="$1" needle="$2"
+  if [[ "$content" != *"$needle"* ]]; then echo -1; return; fi
+  local before="${content%%"$needle"*}"
+  echo "${#before}"
+}
+ARCHIVE_POS=$(offset_of "$SECTION_4_MERGE" '.local/units/<plan-slug>/<unit-id>/')
+REMOVE_POS=$(offset_of "$SECTION_4_MERGE" 'removes the unit worktree')
+ARCHIVE_BEFORE_REMOVE="no"
+if [[ "$ARCHIVE_POS" != "-1" && "$REMOVE_POS" != "-1" && "$ARCHIVE_POS" -lt "$REMOVE_POS" ]]; then
+  ARCHIVE_BEFORE_REMOVE="yes"
+fi
+check "4: archive described before worktree removal (textual order)" \
+  "$ARCHIVE_BEFORE_REMOVE" "yes"
+
+# Correction, not supplementation: the pre-B02 sentence describes removal
+# as an unconditional best-effort side effect ("automatically removes the
+# unit worktree..."). A document that keeps this sentence AND adds the new
+# conditional description contradicts itself, so the old phrasing must be
+# gone, not merely added-to.
+check "4: old unconditional-removal phrasing is gone" \
+  "$(has_f "$SECTION_4_MERGE" 'automatically removes the unit worktree')" "no"
+
+# Worker briefs: the reader who writes a brief learns it is not lost at
+# merge — the archive path, scoped to this section specifically.
+check "Worker briefs: names the archive as where briefs/reports end up" \
+  "$(has_f "$SECTION_WORKER_BRIEFS" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+
+# Escalation loop: "the rejected wave's brief and report files stay put"
+# points at the archive as the durable location that makes it true after
+# merge — scoped to this section specifically.
+check "Escalation loop: points at the archive as the durable location" \
+  "$(has_f "$SECTION_ESCALATION" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+
+# Engineer-owned blocks: must NOT be rewritten to point at the archive —
+# the worktree still exists at hand-off time, so the existing "read the
+# brief from the unit worktree" instruction stays correct as-is. Vacuously
+# true today; this guards against a future edit contaminating this section.
+check "Engineer-owned blocks: NOT rewritten to point at the archive" \
+  "$(has_f "$SECTION_ENGINEER_OWNED" '.local/units/<plan-slug>/<unit-id>/')" "no"
+
+# --- plugins/lego/README.md (contract clause 2) ---------------------------
+# Same suite (this is the plugin's doc-anchor test), read the same way
+# $RAW reads SKILL.md above.
+README="$SCRIPT_DIR/../README.md"
+if [[ ! -f "$README" ]]; then
+  echo "FAIL  README.md not found at $README"
+  exit 1
+fi
+README_RAW=$(cat "$README")
+
+# Bullet-scoped extraction: from a bullet's own start marker up to the next
+# bullet's start marker, matched by substring (not regex) so none of the
+# bullets' backticks or angle brackets need escaping.
+readme_section() { # content start_literal stop_literal
+  awk -v start="$2" -v stop="$3" '
+    index($0, start) { flag=1 }
+    flag && stop != "" && index($0, stop) { exit }
+    flag { print }
+  ' <<<"$1"
+}
+
+MERGE_BULLET=$(readme_section "$README_RAW" '- `merge <plan-slug>' '- `deliver --manifest')
+DELIVER_BULLET=$(readme_section "$README_RAW" '- `deliver --manifest' '- `remove <plan-slug>')
+REMOVE_BULLET=$(readme_section "$README_RAW" '- `remove <plan-slug>' '- `clean`')
+CLEAN_BULLET=$(readme_section "$README_RAW" '- `clean`' '**`scripts/realm.sh')
+WORKER_BRIEFS_BULLET=$(readme_section "$README_RAW" '- Worker briefs are always written to' '- Escalations (')
+
+check "README merge bullet: names the archive path" \
+  "$(has_f "$MERGE_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+check "README merge bullet: failed archive skips removal" \
+  "$(has_f "$MERGE_BULLET" 'skips removal')" "yes"
+
+check "README deliver bullet: names the archive path" \
+  "$(has_f "$DELIVER_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+check "README deliver bullet: failed archive skips removal" \
+  "$(has_f "$DELIVER_BULLET" 'skips removal')" "yes"
+
+check "README remove bullet: names the archive path" \
+  "$(has_f "$REMOVE_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+check "README remove bullet: failed archive exits nonzero" \
+  "$(has_f "$REMOVE_BULLET" 'exits nonzero')" "yes"
+
+check "README worker-briefs bullet: names where briefs/reports survive to" \
+  "$(has_f "$WORKER_BRIEFS_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+
+check "README clean bullet: still does not claim to archive" \
+  "$(has_f "$CLEAN_BULLET" '.local/units/')" "no"
+
+# Deliberately not tested here (owned mechanically by other linters):
+#   - plugins/lego/.claude-plugin/plugin.json version bump: enforced by
+#     scripts/version-bump-lint.sh.
+#   - README.md (repo root) version cell matching plugin.json: enforced by
+#     scripts/readme-lint.sh's root-table check.
 
 # --- Teammate teardown content (contract: B01 dispatch-teammate-teardown) --
 # The contract's own scaffold docblock is embedded as an HTML comment at four
@@ -281,8 +409,8 @@ check "invariant: H3 heading count unchanged (5, no new H3 added)" \
 # -- Invariants: existing content in the touched sections is not clobbered -
 check "Worker briefs: parallel-dispatch guidance still present" \
   "$(has_fn "$WORKER_BRIEFS" "dispatch a wave's agents in a single message")" "yes"
-check "4. Local merge: worktree-removal prose still present" \
-  "$(has_fn "$SECTION_4" 'automatically removes the unit worktree as a best-effort side effect')" "yes"
+check "4. Local merge: worktree-removal prose still present (post-archive phrasing)" \
+  "$(has_fn "$SECTION_4" 'removes the unit worktree')" "yes"
 check "Unit status file: phase-commit Timeline entry still present" \
   "$(has_fn "$UNIT_STATUS" 'each phase commit')" "yes"
 

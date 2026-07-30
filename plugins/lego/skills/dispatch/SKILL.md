@@ -91,7 +91,12 @@ a release traceable to the brief/report pair it ends.
 
 Reports mirror briefs the other way: on receiving a worker's final report,
 archive it verbatim to `.local/reports/NN-<wave>-<blocks>.md` — the same
-`NN` as the brief it answers — before acting on the report in any way.
+`NN` as the brief it answers — before acting on the report in any way. Both
+outlive the unit worktree itself: once the unit merges (step 4), `merge`
+copies `.local/briefs/`, `.local/reports/`, and `.local/status.md` into
+`.local/units/<plan-slug>/<unit-id>/` in the integration worktree before the
+unit worktree is removed, so this unit's brief and report history stays
+readable long after its worktree is gone.
 
 Workers must `cd` to their unit worktree once at session start, then run all
 subsequent Bash commands directly — e.g. `npm test`, not
@@ -306,10 +311,16 @@ Any unit whose `Deps:` this one satisfies can now have its own worktree
 created (step 1) — development is never gated on PR review, only on this
 local merge.
 
-The merge command automatically removes the unit worktree as a best-effort
-side effect (warns on failure, never changes the merge exit code). The unit
-branch is kept — under `main-prs`, `deliver` still needs it to resolve
-commits; under `local-only`, it is cleaned up by `clean` at dispatch
+Once the merge lands, the command archives the unit worktree's
+orchestrator-owned audit trail — `briefs/`, `reports/`, and `status.md` —
+into `.local/units/<plan-slug>/<unit-id>/` in the integration worktree, then
+removes the unit worktree as a best-effort side effect (warns on failure,
+never changes the merge exit code). When the archive itself fails, the
+command warns and leaves the worktree in place instead of removing it,
+since the worktree would otherwise be the only surviving copy of that
+record; the merge's own exit code is unaffected either way. The unit
+branch is kept regardless — under `main-prs`, `deliver` still needs it to
+resolve commits; under `local-only`, it is cleaned up by `clean` at dispatch
 completion (see "Done").
 
 Release this unit's implementer teammate(s) here too, alongside the
@@ -514,9 +525,17 @@ refuses to push on any divergence — so a `deliver` that exits 0 has already
 passed the gate. Run the diff by hand whenever the PR was produced any other
 way. An unverified delivery is not handed over.
 
-The deliver command automatically removes each delivered unit's branch and
-any remaining worktree as a best-effort side effect after the PR is opened
-(warns on failure, never changes the deliver exit code).
+After the PR is opened, the deliver command removes each delivered unit's
+branch and any remaining worktree as a best-effort side effect (warns on
+failure, never changes the deliver exit code). Under the normal flow, step
+4's `merge` already removed the worktree, so this is a fallback for the
+case where one lingered, not the usual path. When a worktree is still
+present at this point, the command archives it first — `briefs/`,
+`reports/`, and `status.md` into `.local/units/<plan-slug>/<unit-id>/` —
+exactly as `merge` does, before removing it. When that archive fails, the
+command warns and skips both the worktree removal and that unit's branch
+deletion, since a branch checked out in a surviving worktree cannot be
+deleted anyway; the deliver exit code is unaffected either way.
 
 Under `local-only`, or when `origin`/`gh` is unavailable under `main-prs`
 (warn and degrade), skip PR creation entirely and the engineer delivers
@@ -582,7 +601,10 @@ Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
 
 Whichever path it takes, the rejected wave's brief and report files stay put
 — never edited, never deleted — and the resolution is a new brief at the
-next `NN`.
+next `NN`. That promise outlives the unit worktree: once the unit merges,
+`.local/units/<plan-slug>/<unit-id>/` in the integration worktree is where
+those files actually live on, so they stay put even after `merge` removes
+the unit worktree they were written in.
 
 Log every escalation and its resolution in the plan's Changelog as it
 happens, and in the unit worktree's `.local/status.md` Timeline (see "Unit

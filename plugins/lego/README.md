@@ -156,7 +156,9 @@ described under Common workflows above. Notably:
   returning the worktree's path.
 - Worker briefs are always written to
   `.local/briefs/NN-<wave>-<blocks>.md` before dispatch, and reports
-  archived verbatim to `.local/reports/NN-<wave>-<blocks>.md`.
+  archived verbatim to `.local/reports/NN-<wave>-<blocks>.md`; once the unit
+  merges, both are carried forward to
+  `.local/units/<plan-slug>/<unit-id>/` in the integration worktree.
 - Delivery reads the branch name, PR title, and commit subjects from the
   plan's recorded Landing strategy rather than deriving them fresh, and
   gates every PR group on `scripts/pr-size-check.sh` before calling
@@ -195,8 +197,12 @@ integration worktree's repo root:
 - `merge <plan-slug> <unit-id> <unit-slug>` — merges the unit branch into
   the current branch with `--no-ff` (commit message
   `lego: merge <branch-name>`); refuses when the working tree has
-  uncommitted tracked changes; best-effort removes the unit worktree
-  afterward.
+  uncommitted tracked changes. Afterward it archives the unit worktree's
+  `briefs/`, `reports/`, and `status.md` to
+  `.local/units/<plan-slug>/<unit-id>/` in the invoking worktree, then
+  best-effort removes the unit worktree. A failed archive skips removal
+  instead, warning on stderr rather than destroying the only copy of that
+  record.
 - `deliver --manifest <path> <plan-slug> <base-branch> <unit-id>
   <unit-slug> [...]` — builds a delivery branch from `<base-branch>`,
   restoring the files each unit's `lego(<unit-id>): tests` and
@@ -209,10 +215,17 @@ integration worktree's repo root:
   pushes to `origin` and opens a PR with `gh pr create`. The manifest
   (written by the orchestrator to `.local/pr-manifest.json`) supplies the
   title, branch name, and commit subjects — required — plus an optional
-  body (falling back to `blocks.md` headings and contracts). Best-effort
-  removes delivered units' branches and worktrees afterward.
-- `remove <plan-slug> <unit-id> <unit-slug>` — removes one unit's worktree
-  and branch directly (fails on a dirty tree or an unmerged branch).
+  body (falling back to `blocks.md` headings and contracts). Afterward,
+  best-effort removes each delivered unit's branch and any remaining
+  worktree — a worktree still present at that point is archived first, the
+  same as `merge`, to `.local/units/<plan-slug>/<unit-id>/`; a failed
+  archive skips removal of both the worktree and the branch.
+- `remove <plan-slug> <unit-id> <unit-slug>` — archives the unit worktree's
+  `briefs/`, `reports/`, and `status.md` to
+  `.local/units/<plan-slug>/<unit-id>/`, then removes the worktree and
+  branch directly (fails on a dirty tree or an unmerged branch). Unlike
+  `merge` and `deliver`, this path is not best-effort: a failed archive
+  exits nonzero and removes nothing.
 - `clean` — best-effort removes every fully-merged `lego/*/*` and
   `lego/deliver/*/*` branch and its worktree; always exits 0.
 

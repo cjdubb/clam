@@ -7,6 +7,11 @@
 # or (CHANGED, plan 001-lc); every other clause is pre-existing behavior
 # already covered by worktree.test.sh.
 #
+# New/changed clauses in plan 001-brief-report-archive (B01
+# worktree-unit-archive) are marked (NEW, plan 001-bra) or (CHANGED, plan
+# 001-bra): the per-unit audit trail is copied out of a unit worktree before
+# anything removes it.
+#
 # Behavior:
 #   Manages the git worktrees, branches, and delivery PRs for lego work
 #   units. Run from the repo root of the integration worktree (the branch
@@ -81,11 +86,19 @@
 #       - Refuses when the constructed target branch equals the current
 #         branch (self-merge no-op).
 #     Refuses when the working tree has uncommitted tracked changes.
-#     After a successful merge, removes the unit's worktree as a best-effort
-#     cleanup (via find_worktree_for_branch + git worktree remove). The unit
+#     (CHANGED, plan 001-bra) After a successful merge, archives the unit
+#     worktree's orchestrator-owned audit trail — .local/briefs/,
+#     .local/reports/ and .local/status.md — into
+#     .local/units/<plan-slug>/<unit-id>/ in the invoking worktree (see
+#     archive_unit_local), and only then removes the unit's worktree as a
+#     best-effort cleanup (via find_worktree_for_branch + git worktree
+#     remove). When the archive fails, prints a warning to stderr and SKIPS
+#     the removal: the unit worktree is then the only copy of that record, so
+#     it is kept rather than destroyed. The unit
 #     branch is NOT removed — deliver may still need it. If worktree removal
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
-#     and still exits 0: the merge succeeded and that is what matters.
+#     and still exits 0: the merge succeeded and that is what matters. An
+#     archive failure likewise never changes the exit code.
 #
 #   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 #     Builds a delivery branch from <base-branch> in a temporary worktree.
@@ -146,15 +159,26 @@
 #     and any remaining worktree as a best-effort cleanup. For each unit-id:
 #     resolves the unit branch, finds its worktree (if any) and removes it
 #     via git worktree remove, then deletes the branch with git branch -d.
+#     (CHANGED, plan 001-bra) A worktree still present at this point is
+#     archived first, exactly as merge archives it (see archive_unit_local) —
+#     this is the path that runs when merge's own cleanup never happened or
+#     did not succeed, so the record has not necessarily been archived yet.
+#     When that archive fails, prints a warning and skips BOTH that unit's
+#     worktree removal AND its branch deletion (a branch checked out in a
+#     surviving worktree cannot be deleted anyway), leaving the record intact.
 #     Failures are warned on stderr but do not fail the deliver (the PR is
 #     already open). The local delivery branch (lego/deliver/...) is left
 #     intact.
 #
 #   remove <plan-slug> <unit-id> <unit-slug>
 #     Constructs the exact branch name
-#     "lego/<plan-slug>/<unit-id>-<unit-slug>", verifies it exists, then
+#     "lego/<plan-slug>/<unit-id>-<unit-slug>", verifies it exists,
+#     (CHANGED, plan 001-bra) archives the unit worktree's audit trail into
+#     .local/units/<plan-slug>/<unit-id>/ (see archive_unit_local), then
 #     removes the unit's worktree via `git worktree remove` (fails on a dirty
 #     tree) and deletes its branch with `git branch -d` (fails when unmerged).
+#     Unlike merge and deliver, remove is not a best-effort path: when the
+#     archive fails it exits 4 and removes nothing.
 #
 #   clean <plan-slug>
 #     (B02 clean-plan-scoped) Removes fully-merged lego branches and their
@@ -212,7 +236,9 @@
 #            commit that touched no files (deliver); the built delivery
 #            branch diverges from the integration tip on a restored path
 #            (deliver); delivery branch already exists (deliver); unmerged
-#            branch (remove); underlying git/gh failure.
+#            branch (remove); (NEW, plan 001-bra) the unit archive failed
+#            (remove only — merge and deliver warn instead and keep their
+#            exit codes); underlying git/gh failure.
 #   Every error prints exactly one line starting "ERROR: " to stderr. Two
 #   deliver failures print additional plain (non-"ERROR: ") diagnostic lines
 #   before it, because the single error line cannot carry the detail: the
@@ -220,8 +246,19 @@
 #   causes it was, and the divergence gate names each divergent path.
 #
 # Invariants:
-#   - Files in the invoking worktree are modified only by `merge`, and only
-#     through `git merge` itself; no subcommand edits files there directly.
+#   - (CHANGED, plan 001-bra) TRACKED files in the invoking worktree are
+#     modified only by `merge`, and only through `git merge` itself; no
+#     subcommand edits tracked files there directly. The sole untracked
+#     exception is the unit archive: `merge`, `deliver` and `remove` write
+#     .local/units/<plan-slug>/<unit-id>/ in the invoking worktree (see
+#     archive_unit_local). That is gitignored session state, never repo
+#     content, and `merge`'s dirty-tree check reads tracked changes only
+#     (--untracked-files=no), so an archive can never block a later merge.
+#   - (NEW, plan 001-bra) Wherever a unit worktree is removed, its audit
+#     trail is archived FIRST and a failed archive never results in the
+#     source being deleted: `merge` and `deliver` skip the removal with a
+#     warning, `remove` exits 4. The record can survive without the worktree;
+#     it cannot survive without either.
 #   - `add` cleans up everything it created in the same invocation on any
 #     failure: no half-created branch, worktree, or seed survives.
 #   - Only creates or deletes branches under "lego/" and worktrees it created
@@ -286,6 +323,13 @@
 #     "skipping unmerged" message, not "foreign".
 #   - merge cleanup failure (dirty unit worktree, already removed, etc.)
 #     is warned on stderr and does not affect the merge exit code.
+#   - (NEW, plan 001-bra) A unit worktree with no .local/ — one created by
+#     hand rather than by `add` — archives nothing, creates no
+#     .local/units/ entry in the invoking worktree, and is removed exactly as
+#     before.
+#   - (NEW, plan 001-bra) `clean` deliberately does not archive: it removes
+#     only branches already merged into HEAD, and a merged unit branch has by
+#     definition been through `merge`, which archived it.
 #   - deliver cleanup failure (unmerged branch, dirty worktree, etc.)
 #     is warned on stderr and does not affect the deliver exit code.
 #   - clean with no lego branches: exits 0 and prints "0".
@@ -438,6 +482,113 @@ find_worktree_for_branch() {
     /^worktree / { wt = substr($0, 10) }
     /^branch /   { if (substr($0, 8) == want) { print wt; exit } }
   '
+}
+
+# archive_unit_local <worktree-path> <plan-slug> <unit-id> -- copies a unit
+# worktree's orchestrator-owned .local/ audit trail into the invoking
+# (integration) worktree, so it outlives the worktree's removal. Never
+# calls die/exit.
+#
+# Contract: B01 worktree-unit-archive (plan 001-brief-report-archive)
+# Behavior:   Copies these three components from <worktree-path>/.local/ into
+#             "$REPO_ROOT/.local/units/<plan-slug>/<unit-id>/":
+#               briefs/    the whole directory, recursively
+#               reports/   the whole directory, recursively
+#               status.md  a single file
+#             Each component is copied only when it exists in the source; an
+#             absent component is skipped silently and is not a failure. The
+#             destination directory is created only when at least one of the
+#             three exists, so a source with none of them leaves the invoking
+#             worktree byte-for-byte untouched.
+#             This is what every unit-worktree removal site calls immediately
+#             before removing the worktree: merge, deliver and remove (never
+#             clean — see the file header's Edge cases).
+# Inputs:     $1 = path of the unit worktree to archive, as returned by
+#                  find_worktree_for_branch; may be empty or nonexistent.
+#             $2 = plan slug, $3 = unit id. Both are already validated as
+#                  tokens ([A-Za-z0-9._-]) by the calling subcommand and are
+#                  used verbatim as the two path segments under
+#                  .local/units/, which is what keeps one plan's U01 archive
+#                  from colliding with another plan's U01.
+#             Reads the global REPO_ROOT (the invoking worktree's root).
+# Outputs:    Nothing on stdout. Nothing on stderr — warning text and the
+#             decision about what to skip belong to the caller, whose
+#             best-effort/strict semantics differ. Return 0 when everything
+#             present was copied, including the vacuous case where nothing
+#             was; return 1 when any mkdir or copy failed.
+# Errors:     Returns 1 on a failed mkdir or copy. Never calls die or exit:
+#             `merge` invokes it after the merge commit has already landed,
+#             where the exit code must stay 0, and it must be safe inside
+#             $(...) like the other helpers here.
+# Invariants: Writes only under "$REPO_ROOT/.local/units/<plan-slug>/
+#             <unit-id>/". Never writes into the unit worktree, never deletes
+#             anything anywhere, never touches git refs, the index, or any
+#             tracked file.
+#             Re-archiving the same plan+unit overwrites same-named
+#             destination files with the source's content and leaves
+#             destination-only files in place: a later archive never shrinks
+#             an earlier one.
+#             Deterministic: the same source tree and arguments produce the
+#             same destination tree — no timestamps, no randomness, no
+#             wall-clock in any name.
+# Edge cases: - <worktree-path> empty, or a path that does not exist: nothing
+#               to copy; return 0 and create nothing.
+#             - <worktree-path>/.local/ exists but holds none of the three
+#               components: return 0 and create nothing.
+#             - briefs/ or reports/ exists but is empty — the state `add`
+#               seeds and a unit that merged without a single wave keeps:
+#               the directory is created at the destination, empty.
+#               "Archived, and it was empty" is a real distinction from
+#               "never archived", and this preserves it.
+#             - The destination already holds an earlier archive of the same
+#               plan+unit: merge into it per the overwrite invariant above;
+#               never wipe it first.
+#             - <worktree-path> resolves to "$REPO_ROOT" itself: archive
+#               nothing and return 0 — there is no impending removal to
+#               protect the record from, and copying a directory into itself
+#               is never correct.
+archive_unit_local() {
+  local wt_path="$1" plan_slug="$2" unit_id="$3"
+
+  [ -n "$wt_path" ] && [ -d "$wt_path" ] || return 0
+
+  # A <worktree-path> that resolves to the invoking worktree itself has
+  # nothing pending removal to protect, and copying a directory into itself
+  # is never correct -- resolve both to their canonical form before
+  # comparing so a relative or symlinked path is still caught.
+  local wt_real repo_real
+  wt_real="$(cd "$wt_path" 2>/dev/null && pwd -P)"
+  repo_real="$(cd "$REPO_ROOT" 2>/dev/null && pwd -P)"
+  [ -n "$wt_real" ] && [ "$wt_real" = "$repo_real" ] && return 0
+
+  local src="$wt_path/.local"
+  [ -d "$src" ] || return 0
+
+  local have_briefs=0 have_reports=0 have_status=0
+  [ -d "$src/briefs" ] && have_briefs=1
+  [ -d "$src/reports" ] && have_reports=1
+  [ -f "$src/status.md" ] && have_status=1
+
+  if [ "$have_briefs" -eq 0 ] && [ "$have_reports" -eq 0 ] && [ "$have_status" -eq 0 ]; then
+    return 0
+  fi
+
+  local dest="$REPO_ROOT/.local/units/$plan_slug/$unit_id"
+  mkdir -p -- "$dest" 2>/dev/null || return 1
+
+  if [ "$have_briefs" -eq 1 ]; then
+    mkdir -p -- "$dest/briefs" 2>/dev/null || return 1
+    cp -R -- "$src/briefs/." "$dest/briefs/" 2>/dev/null || return 1
+  fi
+  if [ "$have_reports" -eq 1 ]; then
+    mkdir -p -- "$dest/reports" 2>/dev/null || return 1
+    cp -R -- "$src/reports/." "$dest/reports/" 2>/dev/null || return 1
+  fi
+  if [ "$have_status" -eq 1 ]; then
+    cp -- "$src/status.md" "$dest/status.md" 2>/dev/null || return 1
+  fi
+
+  return 0
 }
 
 # newest_commit_with_subject <branch> <exact-subject> [base] -- prints
@@ -768,8 +919,12 @@ cmd_merge() {
   local wt_path
   wt_path="$(find_worktree_for_branch "$branch")"
   if [ -n "$wt_path" ]; then
-    if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then
-      err "failed to remove worktree for unit $unit_id after merge (dirty?)"
+    if archive_unit_local "$wt_path" "$plan_slug" "$unit_id"; then
+      if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then
+        err "failed to remove worktree for unit $unit_id after merge (dirty?)"
+      fi
+    else
+      err "failed to archive unit $unit_id audit trail after merge; keeping worktree"
     fi
   fi
 }
@@ -1126,6 +1281,11 @@ cmd_deliver() {
     local uwt
     uwt="$(find_worktree_for_branch "$ubranch")"
     if [ -n "$uwt" ]; then
+      if ! archive_unit_local "$uwt" "$plan_slug" "$u"; then
+        err "failed to archive unit $u audit trail after deliver; keeping worktree and branch"
+        idx_cleanup=$((idx_cleanup + 1))
+        continue
+      fi
       if ! git -C "$REPO_ROOT" worktree remove -- "$uwt" >/dev/null 2>&1; then
         err "failed to remove worktree for unit $u after deliver (dirty?)"
       fi
@@ -1160,6 +1320,10 @@ cmd_remove() {
 
   local wt_path
   wt_path="$(find_worktree_for_branch "$branch")"
+
+  if ! archive_unit_local "$wt_path" "$plan_slug" "$unit_id"; then
+    die 4 "failed to archive unit $unit_id audit trail"
+  fi
 
   if [ -n "$wt_path" ]; then
     if ! git -C "$REPO_ROOT" worktree remove -- "$wt_path" >/dev/null 2>&1; then

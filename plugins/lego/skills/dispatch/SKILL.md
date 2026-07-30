@@ -223,6 +223,23 @@ checklist before accepting:
    mode — the worktree holds only this unit's changes, so there's no other
    diff it could mean). Any violation rejects the wave; this also catches
    Bash-based writes the edit hook cannot see.
+6. **Never block on a report.** A worker that has gone idle without writing
+   its report file does not hold acceptance hostage: inspect the worktree
+   diff, run this whole checklist yourself, and accept or reject on your own
+   evidence. Archive a report that lands afterwards with a timing note
+   saying when it arrived relative to the decision. Reports have straggled
+   in after the PR merged; a session that waits for one stalls indefinitely.
+7. **Never verify concurrently with a resumed worker.** Pinging an idle
+   worker resumes it, and a resumed test-writer may re-run its own red-run
+   proof — including stash-based reverts of shared files — while your run is
+   in flight. Your suite then reads a mid-stash tree and reports a flake
+   that is really your own doing. If you ping, say exactly what you want:
+   report from memory, touch nothing. Then verify sequentially, so your run
+   and the worker's never overlap.
+8. **Re-run every count.** A number in a report is a claim, not evidence:
+   re-run the command and count the failures yourself. Mind the counting
+   trap while you are there — `grep -c '^FAIL'` also matches a trailing
+   `FAILURES` summary line, so counts drift by one even in an honest report.
 
 Because the whole diff in this worktree belongs to one unit, triage is
 unambiguous — there's no sibling block's changes to sort out first.
@@ -306,6 +323,21 @@ orchestrator, inside the unit worktree:
 5. Spot-review the diff for quality: contract clauses the tests undercover
    are still binding (workers are told this; verify it on anything security-
    or correctness-critical).
+6. **Never block on a report** (same rule as step 2.6). An implementer that
+   has gone idle without writing its report file does not hold acceptance
+   hostage: inspect the diff, run this whole gate yourself, and accept or
+   reject on your own evidence. Archive a report that lands afterwards with
+   a timing note.
+7. **Never verify concurrently with a resumed worker** (same hazard as step
+   2.7). Pinging an idle implementer resumes it, and a worker editing the
+   tree underneath your green run costs more than the test wave's phantom
+   flake — it is how a broken implementation gets accepted. If you ping, say
+   exactly what you want: report from memory, touch nothing. Then verify
+   sequentially.
+8. **Re-run every count** (same rule as step 2.8). A test count a report
+   hands you — before/after, green/red — is a claim, not evidence: re-run
+   and count yourself. The same counting trap applies here: `grep -c '^FAIL'`
+   also matches a trailing `FAILURES` summary line.
 
 Rejected work goes back to a lego-implementer, in the same worktree, via a
 fresh-`NN` brief naming the specific deficiency — same rule as the test

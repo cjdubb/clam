@@ -468,5 +468,47 @@ for pair in "2. Test wave|$SECTION_2_3" "3. Implementation wave|$SECTION_3_1"; d
     "$(has_fn "$body" 'not an absent message')" "yes"
 done
 
+# --- Acceptance hardening against unreliable reports (#156) ---------------
+# Three failure modes have each cost real time: reports that arrive late or
+# never, a pinged worker resuming and corrupting shared state under the
+# orchestrator's own verification run, and reported counts that were simply
+# wrong. Each rule belongs in BOTH verification checklists — the test wave
+# and the implementation wave have each hit all three — so every check below
+# runs against both sections. Concept anchors, not full sentences: the
+# wording may be tuned, the rule may not go missing.
+for pair in "2. Test wave|$SECTION_2_3" "3. Implementation wave|$SECTION_3_1"; do
+  label="${pair%%|*}"
+  body="${pair#*|}"
+
+  # Rule 1: never block on a report — accept or reject on your own evidence,
+  # and archive a late one with a timing note.
+  check "$label: rule - never block on a report" \
+    "$(has_fn "$body" 'Never block on a report')" "yes"
+  check "$label: rule 1 - accept or reject on your own evidence" \
+    "$(has_fn "$body" 'your own evidence')" "yes"
+  check "$label: rule 1 - a late report is archived with a timing note" \
+    "$(has_fn "$body" 'timing note')" "yes"
+
+  # Rule 2: never verify concurrently with a resumed worker — a ping resumes
+  # it, and the instruction that makes a ping safe is quoted exactly.
+  check "$label: rule 2 - pinging an idle worker resumes it" \
+    "$(has_fn "$body" 'resumes it')" "yes"
+  check "$label: rule 2 - the safe-ping instruction is stated verbatim" \
+    "$(has_fn "$body" 'report from memory, touch nothing')" "yes"
+  check "$label: rule 2 - verification runs sequentially, not concurrently" \
+    "$(has_fn "$body" 'sequentially')" "yes"
+
+  # Rule 3: re-run every count, and the off-by-one counting trap that makes
+  # even an honest report's numbers wrong.
+  check "$label: rule 3 - re-run every count" \
+    "$(has_fn "$body" 'Re-run every count')" "yes"
+  check "$label: rule 3 - a reported number is a claim, not evidence" \
+    "$(has_fn "$body" 'is a claim, not evidence')" "yes"
+  check "$label: rule 3 - the counting trap is named" \
+    "$(has_fn "$body" "grep -c '^FAIL'")" "yes"
+  check "$label: rule 3 - the trap's cause (trailing FAILURES line) is named" \
+    "$(has_fn "$body" 'FAILURES')" "yes"
+done
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

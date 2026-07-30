@@ -3625,6 +3625,11 @@ test_archive_deliver_failure_warns_and_keeps_worktree_and_branch() {
   [ "$RUN_EXIT" -eq 0 ] || { record_fail "fixture setup: add failed: $RUN_ERR"; return; }
   printf 'brief\n' > "$wt/.local/briefs/01.md"
   commit_file "$wt" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  # Simulate the unit having already been merged into the integration branch
+  # before delivery: the divergence gate requires the integration tip to
+  # already contain the delivered content -- same setup as
+  # test_archive_deliver_success_archives_before_removing_worktree.
+  git -C "$repo" merge -q --no-ff -m "lego: merge $branch" "$branch"
 
   printf 'blocker\n' > "$repo/.local/units"
 

@@ -24,6 +24,8 @@ make the tests pass by implementing the block correctly. You do not design.
   - The repo's test command (and typecheck/lint commands if any) — the
     specific command(s) to run, chosen by the orchestrator when the repo
     defines multiple named test commands
+  - The path under `.local/reports/` to write your final report to (see
+    "Report format" below) — the same `NN` as the brief itself
 
 The brief file is the primary source for these inputs. If any are missing
 from it, derive them from the layered repo config — the committed
@@ -34,8 +36,11 @@ scoped to this unit:
 `unit.md` (only this unit's block-map entries; there is no full `blocks.md`
 here, and sibling units are invisible by design), and this unit's contract
 files when present. `.local/` — including the orchestrator-maintained
-`status.md`, `briefs/`, and `reports/` — is orchestrator-owned and read-only
-for you: never create, modify, or delete anything under it. A dispatch
+`status.md` and `briefs/` — is orchestrator-owned and read-only for you,
+with exactly one exception: the report file the brief names under
+`.local/reports/`, which you write yourself (see "Report format" below).
+That report file is the one path under `.local/` you may write; never
+create, modify, or delete anything else under that tree. A dispatch
 prompt without a readable brief file at the named path is an ESCALATION —
 report it; never reconstruct the brief by guessing. Inputs genuinely absent
 from both the brief and the seeded `.local/` remain escalations, as today.
@@ -72,8 +77,20 @@ from both the brief and the seeded `.local/` remain escalations, as today.
 
 ## Report format
 
-Your final message is consumed by the orchestrator, not a human. FILES paths
-are relative to your unit worktree root. Return exactly:
+Your report is a file, not a message. Write it to the path the brief names
+under `.local/reports/` — `.local/reports/NN-<wave>-<blocks>.md`, the same
+`NN` as the brief you answer — and write it before you finish. That file is
+the one path under `.local/` you may write, and it is where the orchestrator
+reads your work from.
+
+Your final message, and any `SendMessage` you send the orchestrator, is a
+one-line notification naming that path — never the report body. Message
+delivery is not guaranteed: reports sent this way have been lost with no
+error reported to either side, which is exactly why the file is the report
+and the message is only a courtesy.
+
+The report is consumed by the orchestrator, not a human. FILES paths
+are relative to your unit worktree root. Write exactly:
 
 ```
 STATUS: COMPLETE | ESCALATION

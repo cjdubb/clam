@@ -16,11 +16,18 @@
 #   (NEW, plan 001) Additionally denies, for BOTH worker roles and evaluated
 #   before the realm-family rules above, any call whose target path contains
 #   a path segment exactly ".local": the unit worktree's .local/
-#   (config.json, unit.md, contracts/, status.md, briefs/, reports/) is
+#   (config.json, unit.md, contracts/, status.md, briefs/) is
 #   orchestrator-owned and read-only for workers. This deny fires even for
 #   paths the realm rules would allow (e.g. a lego-test-writer targeting
 #   .local/__tests__/x.test.js, or a lego-implementer targeting
 #   .local/status.md).
+#   (#184) One carve-out precedes the .local deny and every realm-family
+#   rule: a path containing the consecutive segment pair ".local/reports/"
+#   followed by at least one further segment is ALLOWED, for both roles.
+#   That file is the worker's own final report, which it writes itself; the
+#   exemption from the realm-family rules is what lets a lego-test-writer
+#   write its report at all (a report is a .md, which the test family would
+#   otherwise deny it).
 #   All other agents (including the main session) pass through untouched.
 #
 # Inputs:
@@ -33,8 +40,10 @@
 #   "deny" and a permissionDecisionReason naming the violated rule and
 #   directing the worker to STOP and return an ESCALATION report.
 #   (NEW, plan 001) The .local deny reason states that .local/ is
-#   orchestrator-owned and read-only for workers. On allow: no output.
-#   Always exit 0.
+#   orchestrator-owned and read-only for workers. (#184) It also names
+#   .local/reports/ as the one path under .local/ the worker may write, so a
+#   denied worker is pointed at its report file rather than left guessing.
+#   On allow: no output. Always exit 0.
 #
 # Errors:
 #   Never blocks on its own failure: without jq, falls back to sed-based
@@ -44,6 +53,9 @@
 #   - Only lego worker agent types are ever denied; any other agent_type
 #     (including none) always passes through.
 #   - Read-only: inspects stdin only; writes nothing to disk.
+#   - (#184) A worker's report file under .local/reports/ is the single
+#     writable path inside .local/, for both roles; every other path under
+#     .local/ is denied exactly as before.
 #
 # Edge cases:
 #   - (NEW, plan 001) ".local" must match a whole path segment: "a/.local/b"
@@ -51,6 +63,24 @@
 #     ".local"); "my.local/b", "xlocal/b", and "a/local/b" are not denied by
 #     this rule. Both relative and absolute paths match — the test is on the
 #     path string, not the filesystem.
+#   - (#184) The carve-out's segments are matched exactly too, and only as a
+#     consecutive pair: ".local/reports/x" and ".local/reports/a/b" are
+#     allowed; ".local/reports" and ".local/reports/" are denied (no further
+#     segment, so they name the directory, not a report);
+#     ".local/reportsx/y" is denied (it is under .local/, and "reportsx" is
+#     not "reports"); "my.local/reports/x" has no ".local" segment at all, so
+#     neither this rule nor the .local deny applies and the realm-family
+#     rules decide it.
+#   - (#184) A "." or ".." path segment anywhere in the path disqualifies
+#     the carve-out, and the path falls through to the rules above — so
+#     ".local/reports/../status.md" is denied by the .local rule rather than
+#     allowed as a report. The check is on the path string, never the
+#     filesystem, so it cannot resolve traversal; refusing it is the only
+#     safe reading. ".local/reports/./x.md" and ".local/reports/a/../b.md"
+#     are denied on the same rule even though they resolve harmlessly: the
+#     worker always has the clean literal path its brief names. "Segment"
+#     is exact, so dots inside a name — ".local/reports/01-test-B01.md",
+#     ".local/reports/..stray/x.md" — are not dot segments and stay allowed.
 #
 # This gate covers file tools only; Bash-based writes are caught post-hoc by
 # realm-check.sh, which the orchestrator runs at each wave boundary.
@@ -85,13 +115,43 @@ esac
 
 reason=""
 
+# (#184) Carve-out, evaluated before BOTH the .local deny and the
+# realm-family rules: a worker writes its own final report to
+# .local/reports/NN-<wave>-<blocks>.md. Requires the consecutive segment pair
+# ".local/reports/" plus at least one further segment, so the directory
+# itself (".local/reports", ".local/reports/") stays denied. The remainder is
+# taken after the LAST such pair and must be a real segment — neither empty
+# nor slash-led — which is what distinguishes a report file from the
+# directory that holds them.
+#
+# A "." or ".." path segment ANYWHERE in the path disqualifies the carve-out
+# outright, before the remainder is even considered: ".local/reports/../
+# status.md" reads as a report file but resolves to ".local/status.md", so
+# without this the carve-out would be a hole straight through the .local
+# deny it sits in front of. Disqualified paths simply fall through to the
+# rules below, where the .local deny catches them. Only whole segments
+# count, so dots inside a name (01-test-B01.md) are untouched.
+case "$file_path" in
+  .local/reports/*|*/.local/reports/*)
+    case "$file_path" in
+      .|..|./*|../*|*/.|*/..|*/./*|*/../*) : ;;
+      *)
+        case "${file_path##*.local/reports/}" in
+          ""|/*) : ;;
+          *) exit 0 ;;
+        esac
+        ;;
+    esac
+    ;;
+esac
+
 # (NEW, plan 001) .local/ is orchestrator-owned and read-only for workers.
 # Evaluated before the realm-family rules below; matches a whole path
 # segment exactly ".local" (first, middle, or final; relative or absolute).
 # Substring lookalikes (my.local/b, xlocal/b, a/local/b) must not match.
 case "$file_path" in
   .local|.local/*|*/.local|*/.local/*)
-    reason=".local/ is orchestrator-owned and read-only for workers. $file_path is under .local/. STOP and return an ESCALATION report to the orchestrator instead."
+    reason=".local/ is orchestrator-owned and read-only for workers, with one exception: your own report file under .local/reports/, which the brief names and you write yourself. $file_path is under .local/ and is not that file. STOP and return an ESCALATION report to the orchestrator instead."
     ;;
 esac
 

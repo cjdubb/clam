@@ -42,9 +42,10 @@ The scaffold gate has passed on the integration branch, every block sits at
 rest of dispatch. Its state transitions happen there, in real time, as they
 occur. A unit worktree's seeded `.local/` — `unit.md`, contracts, any
 `config.json` override copy (the committed `.claude/lego.json` base arrives
-via checkout), and (once the worktree is created) `status.md`, `briefs/`,
-and `reports/` — is a read-only reference copy scoped to that unit:
-orchestrator-owned throughout, never the thing a worker edits.
+via checkout), and (once the worktree is created) `status.md` and `briefs/`
+— is a read-only reference copy scoped to that unit: orchestrator-owned
+throughout, never the thing a worker edits. `.local/reports/` is the single
+exception, and only for the file a worker writes its own report to.
 
 ## Tier resolution
 
@@ -71,13 +72,16 @@ docblocks), the repo's commands from the effective config — when
 this wave runs, chosen for the unit's test type and scope (construct
 scope-specific monorepo commands like `nx run mylib:unit-test` here, at
 brief-writing time), never just "the test command" — where tests
-conventionally live (test wave) or the test paths (implementation wave), and
-the required report format (the agents' definitions specify it). State
-explicitly that `.local/` inside the worktree is a seeded copy scoped to
-this unit — a `unit.md` carrying only this unit's block-map sections, this
-unit's contracts, and any `config.json` override copy — not the live block
-map and not the full plan, and that the whole of it is orchestrator-owned
-and read-only for workers: they read it, they never write to it.
+conventionally live (test wave) or the test paths (implementation wave), the
+required report format (the agents' definitions specify it), and the report
+file the worker writes when it finishes —
+`.local/reports/NN-<wave>-<blocks>.md`, carrying this brief's own `NN`,
+`<wave>`, and `<blocks>`. State explicitly that `.local/` inside the
+worktree is a seeded copy scoped to this unit — a `unit.md` carrying only
+this unit's block-map sections, this unit's contracts, and any
+`config.json` override copy — not the live block map and not the full plan,
+and that it is orchestrator-owned and read-only for workers everywhere
+except that one report file: they read the rest, they never write to it.
 
 The dispatch prompt itself is only a pointer to that file: it names the unit
 worktree's absolute path and the brief file's path, and instructs the worker
@@ -89,14 +93,25 @@ tear it down later: `<unit-id>-<wave>-<NN>` (e.g. `U04-test-03`), where
 This name is the only handle teardown has — matching the brief's `NN` keeps
 a release traceable to the brief/report pair it ends.
 
-Reports mirror briefs the other way: on receiving a worker's final report,
-archive it verbatim to `.local/reports/NN-<wave>-<blocks>.md` — the same
-`NN` as the brief it answers — before acting on the report in any way. Both
-outlive the unit worktree itself: once the unit merges (step 4), `merge`
-copies `.local/briefs/`, `.local/reports/`, and `.local/status.md` into
-`.local/units/<plan-slug>/<unit-id>/` in the integration worktree before the
-unit worktree is removed, so this unit's brief and report history stays
-readable long after its worktree is gone.
+Reports mirror briefs the other way, and travel the same way: the worker
+writes its report file itself, so the orchestrator's receipt signal is the
+file appearing on disk, not a message arriving. A worker's final message is
+only a notification that the file is there — an optimisation, never a
+precondition, because a report sent as a message has been lost outright with
+the send reporting success on the worker's side and nothing arriving on
+yours. When a report reaches you only as a message — a legacy worker, or one
+that died before writing — archive that message verbatim to the same path
+yourself, with a note recording that the worker did not write it. A worker
+that finished and wrote nothing at all leaves one last resort: recover the
+report from its transcript at
+`~/.claude/projects/<project>/<session>/subagents/agent-a<name>-<hash>.jsonl`
+and archive it the same way. Never edit a report a worker wrote.
+
+Brief and report both outlive the unit worktree itself: once the unit merges
+(step 4), `merge` copies `.local/briefs/`, `.local/reports/`, and
+`.local/status.md` into `.local/units/<plan-slug>/<unit-id>/` in the
+integration worktree before the unit worktree is removed, so this unit's
+brief and report history stays readable long after its worktree is gone.
 
 Workers must `cd` to their unit worktree once at session start, then run all
 subsequent Bash commands directly — e.g. `npm test`, not
@@ -165,6 +180,11 @@ stdout — capture it; every worker brief for this unit names it.
 Dispatch `lego-test-writer` agents for every leaf block in the unit
 (engineer-owned blocks included; the engineer implements against the same
 tests), briefed per "Worker briefs" above.
+
+The wave's report is a file the worker wrote, not a message it sent: read
+`.local/reports/NN-<wave>-<blocks>.md` inside the unit worktree. An absent
+report file once the worker has gone idle — not an absent message — is what
+tells you to chase, then escalate.
 
 Then verify the returned work — inside the unit worktree — against this
 checklist before accepting:
@@ -245,6 +265,11 @@ where it does not actually terminate the teammate
 Dispatch `lego-implementer` agents in the same worktree, briefed with the
 same absolute path per "Worker briefs" above. Engineer-owned blocks are not
 dispatched to an agent at this step — see "Engineer-owned blocks" below.
+
+The wave's report is a file here too: read
+`.local/reports/NN-<wave>-<blocks>.md` inside the unit worktree rather than
+waiting on a message. An absent report file once the worker has gone idle —
+not an absent message — is what tells you to chase, then escalate.
 
 "Suite green" means green in this worktree specifically: sibling blocks
 outside this unit exist only as stubs with no tests of their own, so there

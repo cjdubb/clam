@@ -61,6 +61,9 @@ every session from install onward:
   (test-writers may touch only test-family files; implementers may never
   touch them) and, for both roles, denies any write under a `.local/` path
   segment, since that tree is orchestrator-owned and read-only for workers.
+  One path is carved out: a worker's own report file under
+  `.local/reports/`, which it writes itself and which the gate allows ahead
+  of every other rule, for both roles.
 
 Once `/lego:plan` runs, it writes the committed `.claude/lego.json` (with
 your consent) and gitignored session state under `.local/` (block map,
@@ -155,9 +158,10 @@ described under Common workflows above. Notably:
   runs the effective config's default test command as a baseline before
   returning the worktree's path.
 - Worker briefs are always written to
-  `.local/briefs/NN-<wave>-<blocks>.md` before dispatch, and reports
-  archived verbatim to `.local/reports/NN-<wave>-<blocks>.md`; once the unit
-  merges, both are carried forward to
+  `.local/briefs/NN-<wave>-<blocks>.md` before dispatch, and each worker
+  writes its own report to `.local/reports/NN-<wave>-<blocks>.md` — the
+  signal that a wave has reported is that file appearing, not a message
+  arriving. Once the unit merges, both are carried forward to
   `.local/units/<plan-slug>/<unit-id>/` in the integration worktree.
 - Delivery reads the branch name, PR title, and commit subjects from the
   plan's recorded Landing strategy rather than deriving them fresh, and
@@ -174,7 +178,8 @@ described under Common workflows above. Notably:
 
 **PreToolUse — `scripts/realm-gate.sh`** (matcher `Edit|Write|NotebookEdit`):
 see "What to expect." Denies file writes outside a lego worker's realm and
-any write under `.local/`; falls back to `sed`-based field extraction
+any write under `.local/` other than the worker's own report file under
+`.local/reports/`; falls back to `sed`-based field extraction
 without `jq`; always exits 0, communicating a denial through the hook's
 JSON output rather than a nonzero exit.
 
@@ -265,10 +270,12 @@ the verified tests pass; may never touch a test-family file or change a
 public interface or contract.
 
 Both read their brief from `.local/briefs/` inside their unit worktree
-first, before any other file, and each reports back in a fixed format —
-`STATUS`, `BLOCKS`, and `FILES` in common, plus role-specific fields
-(clause coverage and the red run for the test-writer, verification for the
-implementer).
+first, before any other file, and each writes its report to the
+`.local/reports/` path that brief names — the one place under `.local/` a
+worker may write — in a fixed format: `STATUS`, `BLOCKS`, and `FILES` in
+common, plus role-specific fields (clause coverage and the red run for the
+test-writer, verification for the implementer). A worker's final message is
+only a one-line notification of that path, never the report itself.
 
 ## Why it works
 

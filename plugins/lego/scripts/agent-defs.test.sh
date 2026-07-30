@@ -37,6 +37,17 @@ has_f() { # content literal
   if grep -qF -- "$2" <<<"$1"; then echo yes; else echo no; fi
 }
 
+# Wrap-tolerant variant of has_f (same technique as dispatch-skill.test.sh).
+# grep is line-oriented and these agent definitions hard-wrap prose at ~80
+# columns, so a multi-word literal can have its own words land on opposite
+# sides of a source line break. Collapse every whitespace run — newlines
+# included — to a single space before matching, so a token that reads
+# correctly to a human matches regardless of where the wrap falls.
+has_fn() { # content literal
+  local flat; flat=$(tr '\n' ' ' <<<"$1" | tr -s ' ')
+  if grep -qF -- "$2" <<<"$flat"; then echo yes; else echo no; fi
+}
+
 for f in "$TW" "$IMPL"; do
   if [[ ! -f "$f" ]]; then
     echo "FAIL  target agent definition not found: $f"
@@ -89,6 +100,37 @@ check "lego-test-writer.md has literal 'STATUS: COMPLETE | ESCALATION'" \
   "$(has_f "$TW_RAW" "STATUS: COMPLETE | ESCALATION")" "yes"
 check "lego-implementer.md has literal 'STATUS: COMPLETE | ESCALATION'" \
   "$(has_f "$IMPL_RAW" "STATUS: COMPLETE | ESCALATION")" "yes"
+
+# --- Report channel (#184) ------------------------------------------------
+# Both definitions previously specified the report's FORMAT and never its
+# CHANNEL, which is what let two workers independently guess SendMessage and
+# lose their reports silently. These tokens pin the three clauses that close
+# that gap, in BOTH files, wrap-tolerantly:
+#   1. the report is a FILE, at the path the brief names under .local/reports/
+#   2. the message is a one-line notification, never the report body
+#   3. that file is the single carved-out write surface under .local/
+CHANNEL_TOKENS=(
+  ".local/reports/NN-<wave>-<blocks>.md"
+  "one-line notification naming that path"
+  "never the report body"
+  "the one path under \`.local/\` you may write"
+)
+
+for tok in "${CHANNEL_TOKENS[@]}"; do
+  check "lego-test-writer.md contains report-channel token: $tok" \
+    "$(has_fn "$TW_RAW" "$tok")" "yes"
+  check "lego-implementer.md contains report-channel token: $tok" \
+    "$(has_fn "$IMPL_RAW" "$tok")" "yes"
+done
+
+# The pre-#184 prose declared the whole of `.local/` — `reports/` explicitly
+# included — read-only for workers. Keeping that sentence alongside the new
+# carve-out would leave each definition contradicting itself, so the old
+# enumeration must be GONE, not merely added to.
+check "lego-test-writer.md no longer lists reports/ among the read-only tree" \
+  "$(has_fn "$TW_RAW" "\`status.md\`, \`briefs/\`, and \`reports/\` — is orchestrator-owned and read-only")" "no"
+check "lego-implementer.md no longer lists reports/ among the read-only tree" \
+  "$(has_fn "$IMPL_RAW" "\`status.md\`, \`briefs/\`, and \`reports/\` — is orchestrator-owned and read-only")" "no"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

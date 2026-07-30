@@ -404,6 +404,141 @@ test_local_segment_matching_not_denied_cases() {
 }
 
 # ===========================================================================
+# NEW (#184): the .local/reports/ carve-out -- a worker's own report file is
+# the single writable path under .local/. Expected to fail against today's
+# script, which denies every .local path for both roles.
+# ===========================================================================
+
+# Carve-out clause 1: both roles may write a report file under
+# .local/reports/. The fixture basename is a plain `.md`, which realm.sh
+# classifies as impl-family -- so a test-writer being ALLOWED here also
+# proves the carve-out is evaluated before, and exempts the path from, the
+# realm-family rules.
+test_reports_carveout_allows_both_roles() {
+  run_gate "$(json_ft lego-test-writer .local/reports/01-test-B01.md)"
+  assert_allowed "test-writer on its own report file (.md exempted from realm family)"
+
+  run_gate "$(json_ft lego-implementer .local/reports/01-test-B01.md)"
+  assert_allowed "implementer on its own report file"
+}
+
+# Carve-out clause 2: at least one further segment after `reports` is all the
+# carve-out requires -- nesting is allowed, and the pair matches mid-path
+# (relative or absolute) exactly like the .local rule it overrides.
+test_reports_carveout_nested_and_mid_path() {
+  run_gate "$(json_ft lego-test-writer .local/reports/sub/02-impl-B02.md)"
+  assert_allowed "nested file under .local/reports/"
+
+  run_gate "$(json_ft lego-implementer a/.local/reports/03-impl-B03.md)"
+  assert_allowed ".local/reports as a middle segment pair"
+
+  run_gate "$(json_ft lego-implementer /abs/path/.local/reports/04-impl-B04.md)"
+  assert_allowed "absolute path report file"
+}
+
+# Carve-out clause 3: the directory path itself is not a report file -- with
+# no further segment after `reports`, the .local deny still fires, for both
+# roles.
+test_reports_directory_path_itself_still_denied() {
+  run_gate "$(json_ft lego-implementer .local/reports)"
+  assert_denied "implementer on the .local/reports directory path" "orchestrator-owned" "read-only"
+
+  run_gate "$(json_ft lego-test-writer .local/reports)"
+  assert_denied "test-writer on the .local/reports directory path" "orchestrator-owned" "read-only"
+
+  run_gate "$(json_ft lego-implementer .local/reports/)"
+  assert_denied "trailing slash with no file after reports" "orchestrator-owned" "read-only"
+
+  run_gate "$(json_ft lego-implementer .local)"
+  assert_denied "the .local directory path itself" "orchestrator-owned" "read-only"
+}
+
+# Carve-out clause 4: everything else under .local/ stays denied exactly as
+# before, for BOTH roles -- including the test-family path under .local/ that
+# the realm rules would otherwise allow a test-writer to touch.
+test_rest_of_local_still_denied_for_both_roles() {
+  local role
+  for role in lego-test-writer lego-implementer; do
+    run_gate "$(json_ft "$role" .local/briefs/01-test-B01.md)"
+    assert_denied "$role on .local/briefs/01-test-B01.md" "orchestrator-owned" "read-only" "ESCALATION"
+
+    run_gate "$(json_ft "$role" .local/status.md)"
+    assert_denied "$role on .local/status.md" "orchestrator-owned" "read-only" "ESCALATION"
+
+    run_gate "$(json_ft "$role" .local/__tests__/x.test.js)"
+    assert_denied "$role on .local/__tests__/x.test.js" "orchestrator-owned" "read-only" "ESCALATION"
+  done
+}
+
+# Carve-out clause 5 (Outputs): the .local deny reason now names the report
+# file as the one path under .local/ the worker may write, so a denied worker
+# is pointed at its writable surface rather than left guessing.
+test_local_deny_reason_names_the_report_path() {
+  run_gate "$(json_ft lego-implementer .local/status.md)"
+  assert_denied "implementer .local deny reason points at the report path" ".local/reports/"
+
+  run_gate "$(json_ft lego-test-writer .local/__tests__/x.test.js)"
+  assert_denied "test-writer .local deny reason points at the report path" ".local/reports/"
+}
+
+# Carve-out clause 6: segment matching stays exact. `.local/reportsx/y.md`
+# has a `.local` segment but no `reports` segment, so the .local deny still
+# fires; `my.local/reports/x.md` has no `.local` segment at all, so neither
+# the .local rule nor the carve-out applies and the realm-family rules decide
+# (allow for the implementer on a `.md`, deny for the test-writer).
+test_reports_carveout_segment_matching_is_exact() {
+  run_gate "$(json_ft lego-implementer .local/reportsx/y.md)"
+  assert_denied ".local/reportsx/y.md is not the carve-out" "orchestrator-owned" "read-only"
+
+  run_gate "$(json_ft lego-test-writer .local/reportsx/y.md)"
+  assert_denied ".local/reportsx/y.md is not the carve-out (test-writer)" "orchestrator-owned" "read-only"
+
+  run_gate "$(json_ft lego-implementer my.local/reports/x.md)"
+  assert_allowed "my.local/reports/x.md: no .local segment, realm family allows the implementer"
+
+  run_gate "$(json_ft lego-test-writer my.local/reports/x.md)"
+  assert_denied "my.local/reports/x.md: no .local segment, realm family denies the test-writer" "realm-restricted"
+}
+
+# Carve-out clause 7: a "." or ".." path segment anywhere in the path
+# disqualifies the carve-out entirely, so the path falls through to the rules
+# below it -- otherwise `.local/reports/../status.md` would be allowed as a
+# report file while actually resolving to `.local/status.md`, and the
+# carve-out would be a hole straight through the .local deny it sits in front
+# of. Denying technically-harmless forms (`./x.md`, `a/../b.md`) with it is
+# deliberate: a worker always has the clean literal path its brief names.
+test_reports_carveout_rejects_dot_segments() {
+  local role
+  for role in lego-test-writer lego-implementer; do
+    run_gate "$(json_ft "$role" .local/reports/../status.md)"
+    assert_denied "$role: .. escapes the carve-out back into .local/" "orchestrator-owned" "read-only"
+
+    run_gate "$(json_ft "$role" .local/reports/./x.md)"
+    assert_denied "$role: a . segment disqualifies the carve-out" "orchestrator-owned" "read-only"
+
+    run_gate "$(json_ft "$role" .local/reports/a/../b.md)"
+    assert_denied "$role: a .. segment mid-path disqualifies the carve-out" "orchestrator-owned" "read-only"
+
+    run_gate "$(json_ft "$role" ./.local/reports/x.md)"
+    assert_denied "$role: a leading . segment disqualifies the carve-out" "orchestrator-owned" "read-only"
+
+    run_gate "$(json_ft "$role" .local/reports/sub/..)"
+    assert_denied "$role: a trailing .. segment disqualifies the carve-out" "orchestrator-owned" "read-only"
+  done
+}
+
+# Carve-out clause 8: "segment" means an exact segment -- dots inside a
+# filename or directory name are not dot segments, so ordinary report names
+# keep working.
+test_reports_carveout_dots_within_names_are_unaffected() {
+  run_gate "$(json_ft lego-test-writer .local/reports/01-test-B01.v2.md)"
+  assert_allowed "dots inside the report filename are not dot segments"
+
+  run_gate "$(json_ft lego-implementer .local/reports/..stray/01-impl-B01.md)"
+  assert_allowed "a directory name merely starting with dots is not a dot segment"
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -422,6 +557,15 @@ run_test "(NEW) .local: implementer denied on .local/status.md" test_local_denie
 run_test "(NEW) .local: overrides realm-allow for test-writer" test_local_denies_test_writer_even_when_realm_would_allow
 run_test "(NEW) .local: whole-segment matches are denied (mid/first/final/absolute)" test_local_segment_matching_denied_cases
 run_test "(NEW) .local: substring-only matches are not denied" test_local_segment_matching_not_denied_cases
+
+run_test "(#184) reports: both roles may write their own report file" test_reports_carveout_allows_both_roles
+run_test "(#184) reports: nested and mid-path report files are allowed" test_reports_carveout_nested_and_mid_path
+run_test "(#184) reports: the directory path itself is still denied" test_reports_directory_path_itself_still_denied
+run_test "(#184) reports: the rest of .local/ stays denied for both roles" test_rest_of_local_still_denied_for_both_roles
+run_test "(#184) reports: the .local deny reason names the report path" test_local_deny_reason_names_the_report_path
+run_test "(#184) reports: carve-out segment matching is exact" test_reports_carveout_segment_matching_is_exact
+run_test "(#184) reports: dot segments disqualify the carve-out" test_reports_carveout_rejects_dot_segments
+run_test "(#184) reports: dots within names are not dot segments" test_reports_carveout_dots_within_names_are_unaffected
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

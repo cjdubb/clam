@@ -414,5 +414,59 @@ check "4. Local merge: worktree-removal prose still present (post-archive phrasi
 check "Unit status file: phase-commit Timeline entry still present" \
   "$(has_fn "$UNIT_STATUS" 'each phase commit')" "yes"
 
+# --- Filesystem report channel (#184) -------------------------------------
+# The report channel moves from "a message the orchestrator receives" to "a
+# file the worker writes". Matched against $STRIPPED and section-scoped, the
+# same way the B02 archive checks above are, so the rule has to live in the
+# section that actually governs the behavior.
+
+# Worker briefs: the brief names the report path, the receipt signal is the
+# file appearing, and a message-only report is archived by the orchestrator.
+check "Worker briefs: brief names the report file the worker writes" \
+  "$(has_fn "$WORKER_BRIEFS" 'the report file the worker writes')" "yes"
+check "Worker briefs: report path stated literally" \
+  "$(has_fn "$WORKER_BRIEFS" '.local/reports/NN-<wave>-<blocks>.md')" "yes"
+check "Worker briefs: receipt signal is the file appearing, not a message" \
+  "$(has_fn "$WORKER_BRIEFS" 'receipt signal is the file appearing')" "yes"
+check "Worker briefs: a message-only report is archived to the same path" \
+  "$(has_fn "$WORKER_BRIEFS" 'archive that message verbatim to the same path')" "yes"
+check "Worker briefs: the orchestrator's archive carries a note" \
+  "$(has_fn "$WORKER_BRIEFS" 'with a note')" "yes"
+
+# Correction, not supplementation: the pre-#184 sentence gated the archive on
+# a message the orchestrator may never get ("on receiving a worker's final
+# report, archive it verbatim to ..."), and declared the whole of `.local/`
+# unwritable by workers ("they read it, they never write to it"). A document
+# that keeps either sentence AND adds the new flow contradicts itself, so
+# both must be gone.
+check "Worker briefs: message-gated archive phrasing is gone" \
+  "$(has_fn "$WORKER_BRIEFS" "on receiving a worker's final report")" "no"
+check "Worker briefs: blanket never-write phrasing is gone" \
+  "$(has_fn "$WORKER_BRIEFS" 'they read it, they never write to it')" "no"
+
+# Transcript recovery: the documented last resort for a worker that finished
+# but wrote nothing. Path pinned literally — it is the whole value of the
+# clause.
+check "Worker briefs: transcript recovery named as the last resort" \
+  "$(has_fn "$WORKER_BRIEFS" 'last resort')" "yes"
+check "Worker briefs: transcript path stated literally" \
+  "$(has_fn "$WORKER_BRIEFS" '~/.claude/projects/<project>/<session>/subagents/agent-a<name>-<hash>.jsonl')" "yes"
+
+# Steps 2 and 3: verification reads the report off disk, and an absent FILE
+# (not an absent message) is the chase/escalate trigger. Checked per step —
+# both waves have a report and both have gone silent in practice.
+for pair in "2. Test wave|$SECTION_2_3" "3. Implementation wave|$SECTION_3_1"; do
+  label="${pair%%|*}"
+  body="${pair#*|}"
+  check "$label: verification reads the report from its file" \
+    "$(has_fn "$body" '.local/reports/NN-<wave>-<blocks>.md')" "yes"
+  check "$label: an absent report FILE is the trigger" \
+    "$(has_fn "$body" 'absent report file')" "yes"
+  check "$label: the trigger is to chase, then escalate" \
+    "$(has_fn "$body" 'to chase, then escalate')" "yes"
+  check "$label: an absent message is explicitly not the trigger" \
+    "$(has_fn "$body" 'not an absent message')" "yes"
+done
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

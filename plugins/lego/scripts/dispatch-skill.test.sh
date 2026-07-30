@@ -313,5 +313,106 @@ check "README clean bullet: still does not claim to archive" \
 #   - README.md (repo root) version cell matching plugin.json: enforced by
 #     scripts/readme-lint.sh's root-table check.
 
+# --- Teammate teardown content (contract: B01 dispatch-teammate-teardown) --
+# The contract's own scaffold docblock is embedded as an HTML comment at four
+# insertion points (search SKILL.md for "Contract: B01 dispatch-teammate-
+# teardown"); it describes what the new prose must say, but is not the prose
+# itself. Reuse $STRIPPED (built above for the pipe-safety checks) so the
+# comment's own vocabulary — "TaskStop", "teammate", "best-effort",
+# "disposable" — can never satisfy these checks; only real prose counts.
+#
+# Scope each check to the specific section the contract places it in — the
+# naming rule in "## Worker briefs" (insertion point 1), the test-writer
+# release at the end of "### 2. Test wave" on the accepted path (insertion
+# point 2), the implementer release in "### 4. Local merge" (insertion point
+# 3), and the Timeline addition in "## Unit status file" (insertion point
+# 4) — same technique as the pipe-safety "coverage at both 2.3 and 3.1"
+# checks above, so a file-wide token can't be satisfied by only one of the
+# two release points the contract actually requires.
+#
+# Some contract clauses are about meaning, not tokens (which text a wrong
+# implementation could still contain and read as satisfying); those are left
+# to the orchestrator's read at acceptance rather than given a check here
+# that would pass regardless of whether the meaning is right. See this
+# wave's report for which clauses those are.
+#
+# has_f is newline-sensitive: this file's prose wraps at ~80 columns, so a
+# multi-word literal (e.g. "accepted path") can have its own words land on
+# opposite sides of a source line break, and a plain fixed-string match
+# against the unwrapped section text would then miss prose that reads
+# correctly to a human. has_fn (fixed-string, wrap-tolerant) collapses
+# whitespace runs — including newlines — to a single space first. Used only
+# for this block's new checks below; existing checks above are untouched.
+has_fn() { # content literal
+  local flat; flat=$(tr '\n' ' ' <<<"$1" | tr -s ' ')
+  if grep -qF -- "$2" <<<"$flat"; then echo yes; else echo no; fi
+}
+
+WORKER_BRIEFS=$(awk '/^## Worker briefs$/{flag=1; next} /^## Unit status file$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_4=$(awk '/^### 4\. Local merge$/{flag=1; next} /^### 5\. Delivery$/{flag=0} flag' <<<"$STRIPPED")
+UNIT_STATUS=$(awk '/^## Unit status file$/{flag=1; next} /^## Dispatch order$/{flag=0} flag' <<<"$STRIPPED")
+
+# -- Worker briefs: the naming rule (clause a) --
+check "Worker briefs: teammate name shape stated literally" \
+  "$(has_fn "$WORKER_BRIEFS" '<unit-id>-<wave>-<NN>')" "yes"
+check "Worker briefs: teammate name example given" \
+  "$(has_fn "$WORKER_BRIEFS" 'U04-test-03')" "yes"
+check "Worker briefs: every dispatch passes a teammate name" \
+  "$(has_fn "$WORKER_BRIEFS" 'teammate name')" "yes"
+check "Worker briefs: NN ties a release to its brief/report pair" \
+  "$(has_fn "$WORKER_BRIEFS" 'traceable')" "yes"
+
+# -- Test wave, accepted path: release the test-writer(s) (clauses b, d-g) --
+check "2. Test wave: test-writer teammate(s) released" \
+  "$(has_fn "$SECTION_2_3" 'test-writer teammate')" "yes"
+check "2. Test wave: release covers teammate(s), not just one" \
+  "$(has_fn "$SECTION_2_3" 'teammate(s)')" "yes"
+check "2. Test wave: release scoped to the accepted path" \
+  "$(has_fn "$SECTION_2_3" 'accepted path')" "yes"
+check "2. Test wave: TaskStop is the named mechanism" \
+  "$(has_fn "$SECTION_2_3" 'TaskStop')" "yes"
+check "2. Test wave: teammate name passed as task_id" \
+  "$(has_fn "$SECTION_2_3" 'task_id')" "yes"
+check "2. Test wave: why release waits - worker stays available for rework" \
+  "$(has_fn "$SECTION_2_3" 'stays available')" "yes"
+check "2. Test wave: why release is safe - worker identity is disposable" \
+  "$(has_fn "$SECTION_2_3" 'disposable')" "yes"
+check "2. Test wave: release is best-effort" \
+  "$(has_fn "$SECTION_2_3" 'best-effort')" "yes"
+
+# -- Local merge: release the implementer(s) (clauses c, d, f-g) --
+check "4. Local merge: implementer teammate(s) released" \
+  "$(has_fn "$SECTION_4" 'implementer teammate')" "yes"
+check "4. Local merge: release covers teammate(s), not just one" \
+  "$(has_fn "$SECTION_4" 'teammate(s)')" "yes"
+check "4. Local merge: TaskStop is the named mechanism" \
+  "$(has_fn "$SECTION_4" 'TaskStop')" "yes"
+check "4. Local merge: teammate name passed as task_id" \
+  "$(has_fn "$SECTION_4" 'task_id')" "yes"
+check "4. Local merge: release never turns into a unit failure" \
+  "$(has_fn "$SECTION_4" "never changes the unit's outcome")" "yes"
+check "4. Local merge: engineer-owned block edge case addressed" \
+  "$(has_fn "$SECTION_4" 'engineer-owned')" "yes"
+
+# -- Unit status file: Timeline gains the release entry (clause h) --
+check "Unit status file: Timeline records each teammate release" \
+  "$(has_fn "$UNIT_STATUS" 'teammate release')" "yes"
+
+# -- Invariants: no new H2/H3 heading introduced by this block ------------
+# Hardcoded against the file's current heading set (12 H2, 5 H3); this block
+# is prose-only and may add sentences to existing sections, never a heading.
+check "invariant: H2 heading count unchanged (12, no new H2 added)" \
+  "$(grep -c '^## ' "$SKILL")" "12"
+check "invariant: H3 heading count unchanged (5, no new H3 added)" \
+  "$(grep -c '^### ' "$SKILL")" "5"
+
+# -- Invariants: existing content in the touched sections is not clobbered -
+check "Worker briefs: parallel-dispatch guidance still present" \
+  "$(has_fn "$WORKER_BRIEFS" "dispatch a wave's agents in a single message")" "yes"
+check "4. Local merge: worktree-removal prose still present (post-archive phrasing)" \
+  "$(has_fn "$SECTION_4" 'removes the unit worktree')" "yes"
+check "Unit status file: phase-commit Timeline entry still present" \
+  "$(has_fn "$UNIT_STATUS" 'each phase commit')" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

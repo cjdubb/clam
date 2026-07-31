@@ -98,10 +98,15 @@ worktree remove`, so `rmtree feat-my-feature --force` (or just `rmtree
 
 ## copyenv
 
-`copyenv` provisions a worktree's untracked env files (`.env` and similar)
-from a per-repo configured source directory. Configure it once per repo,
-from any of its worktrees — the config is stored in the shared `.bare` repo
-config, so every worktree sees the same setting:
+`copyenv` provisions a worktree's **untracked** files from a per-repo
+configured source directory. A fresh worktree contains only what git tracks,
+so anything gitignored — `.env` and friends, but equally local tool or editor
+config like `.claude/settings.local.json` — is absent until something puts it
+there. Configure it once per repo, from the root or from anywhere inside one
+of its worktrees; the config is stored in the shared `.bare` repo config, so
+every worktree sees the same setting. Unlike the copy path, the config
+subcommands don't need a working tree — they work at the root before any
+worktree exists, which is where you stand right after `cloneBareRepo`:
 
 ```bash
 copyenv --configure ~/env-files/myproject .env apps/api/.env
@@ -111,7 +116,14 @@ copyenv --configure ~/env-files/myproject   # every file under the dir
 Each named file is a path taken as **relative to both** the source directory
 and the destination worktree — `<source-dir>/<rel>` is copied to
 `<worktree>/<rel>`. Re-running `--configure` replaces the previous config
-outright.
+outright; to amend one in place instead, use the granular forms — they
+require an existing config and never create a partial one:
+
+```bash
+copyenv --add-file .claude/settings.local.json  # add to the configured list
+copyenv --remove-file apps/api/.env             # drop one entry
+copyenv --set-source ~/env-files/renamed        # repoint, keeping the list
+```
 
 Day to day:
 
@@ -124,13 +136,22 @@ copyenv --force            # overwrite files that already exist in the worktree
 
 Files that already exist at the destination are **skipped** with a warning
 unless you pass `--force` — this makes re-running `copyenv` idempotent and
-keeps it from clobbering local edits.
+keeps it from clobbering local edits. The corollary: changing what the source
+directory holds does **not** reach worktrees that already have the file. Run
+`copyenv --force` on each one that needs refreshing.
 
-Env files are **secrets**: the destination paths must be **gitignored** by
-the target project. `copyenv` only places the files in the worktree — it
-does nothing to stop git from tracking them if the project's `.gitignore`
-doesn't already cover that path, so verify the destination is ignored before
-relying on this.
+Only `newtree` runs `copyenv` automatically. A worktree created any other way
+— a raw `git worktree add`, or a tool that makes its own — starts without
+these files, and nothing warns you. When you find such a worktree, or create
+one, run `copyenv <dir-name>` against it rather than assuming it was
+provisioned.
+
+Treat anything seeded this way as a **secret** unless you know it isn't: the
+destination paths must be **gitignored** by the target project (or by the
+user's global ignore file). `copyenv` only places the files in the worktree —
+it does nothing to stop git from tracking them if the ignore rules don't
+already cover that path, so verify the destination is ignored before relying
+on this.
 
 ## cloneBareRepo
 

@@ -20,6 +20,12 @@ untouched.
 
 Enable per repo (or per machine) — take only the clusters you want.
 
+Enabling **per repo** records the choice in that project directory's
+gitignored `.claude/settings.local.json`. If you work in git worktrees, that
+file does not travel: a new worktree starts with none of these plugins
+enabled. The [worktrees](plugins/worktrees/) plugin's README explains how to
+seed it automatically with `copyenv`.
+
 ## Update
 
 The [updates](plugins/updates/) plugin wraps this in a guided flow:
@@ -59,7 +65,7 @@ auto-update doesn't refresh the recorded install path
 | [landing](plugins/landing/) | ✅ v0.2.2 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.2 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
-| [worktrees](plugins/worktrees/) | ✅ v0.1.2 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
+| [worktrees](plugins/worktrees/) | ✅ v0.1.3 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
 | [attribution](plugins/attribution/) | ✅ v0.2.1 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
 | [settings](plugins/settings/) | ✅ v0.2.1 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
 | [privacy](plugins/privacy/) | ✅ v0.2.1 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |

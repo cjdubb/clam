@@ -93,9 +93,11 @@ to work only under it. Once a worker's branch is merged or abandoned,
 lifecycle and hand-off examples — it applies the same whether the worker is
 a dispatched subagent or a human you're handing a branch to.
 
-### Provision env files into a new worktree
+### Provision untracked files into a new worktree
 
-Configure the mapping once per repo, from any of its worktrees:
+Configure the mapping once per repo, from the root or from anywhere inside
+one of its worktrees (the config subcommands don't need a working tree, so
+they also work at the root before the first worktree exists):
 
 ```bash
 copyenv --configure ~/env-files/myproject .env apps/api/.env
@@ -105,8 +107,50 @@ From then on, every `newtree` automatically runs `copyenv` for you; files
 that already exist at the destination are skipped unless you pass
 `--force`. Run `copyenv --list` to preview the configured mappings without
 copying anything, or `copyenv <dir-name>` to provision a specific sibling
-worktree by hand. Env files are secrets — make sure the destination paths
-are gitignored in the target project.
+worktree by hand. Treat what you seed as secret unless you know otherwise —
+make sure the destination paths are gitignored in the target project. See
+[git-helpers' README](https://github.com/cjdubb/git-helpers#4-copy-untracked-files-into-worktrees)
+for the full flag surface, including the granular `--add-file` /
+`--remove-file` / `--set-source` forms for amending a config in place.
+
+### Keep local-scope plugin enablement across worktrees
+
+If you enable plugins **per repo** rather than per machine, that choice is
+recorded in `.claude/settings.local.json` under the project directory — a
+file that is gitignored by convention, and which Claude Code writes for the
+directory you were standing in. It is therefore not in a fresh worktree, and
+nothing puts it there: a new `newtree` worktree starts with **none of your
+plugins enabled** until you seed it.
+
+`copyenv` is the fix, because that file is just another untracked
+per-worktree file. Point a source directory at a copy of the settings you
+want every worktree to share, and add it to the repo's copyenv config:
+
+```bash
+mkdir -p ~/env-files/myrepo/.claude
+cp .claude/settings.local.json ~/env-files/myrepo/.claude/
+copyenv --configure ~/env-files/myrepo .claude/settings.local.json
+```
+
+Every `newtree` from then on lands with your plugins already enabled. The
+seed becomes the source of truth: when you enable, rename, or remove a
+plugin, update the file in the source directory first, then run `copyenv
+--force` on the worktrees you want refreshed — plain `copyenv` skips files
+that already exist.
+
+Two caveats worth knowing:
+
+- **Installation is separate from enablement, and does not need seeding.**
+  In current Claude Code a local-scope plugin install is recorded against the
+  repository, so worktrees of the same repo resolve it without re-running
+  `/plugin install` — only the enablement file above has to travel. This is
+  observed behaviour rather than a documented guarantee, so if a worktree
+  reports a plugin missing entirely (as opposed to disabled), re-installing
+  there is the fallback.
+- **Only `newtree` runs `copyenv`.** Worktrees created by a raw `git worktree
+  add`, or by a tool that manages its own (Claude Code's own isolated-worktree
+  sessions among them), never trigger it and start with no plugins enabled.
+  Run `copyenv <dir-name>` against those by hand.
 
 ## Commands
 

@@ -107,6 +107,17 @@ report from its transcript at
 `~/.claude/projects/<project>/<session>/subagents/agent-a<name>-<hash>.jsonl`
 and archive it the same way. Never edit a report a worker wrote.
 
+An orchestrator that finds no report file chases the worker a single
+time, then stops chasing and escalates. A resend can vanish exactly as
+the first send did, so a second chase proves nothing; and pinging a
+worker that is merely idle resumes it, which the existing rule not to
+verify concurrently with a resumed worker already treats as hazardous,
+not merely wasteful — the same caution that also keeps you from
+blocking on a report in the first place, not a competing one. A report
+file that is present but malformed is an ordinary rejection at a fresh
+`NN`, the same path as any other rejected wave — not a third handling
+path beside absent and message-only.
+
 Brief and report both outlive the unit worktree itself: once the unit merges
 (step 4), `merge` copies `.local/briefs/`, `.local/reports/`, and
 `.local/status.md` into `.local/units/<plan-slug>/<unit-id>/` in the

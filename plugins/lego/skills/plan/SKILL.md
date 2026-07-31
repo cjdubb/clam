@@ -146,6 +146,48 @@ New blocks must fit the existing composition. If the existing code does not
 decompose cleanly, record the seams as they actually are; do not invent a
 fictional architecture.
 
+### Step 2a: When discovery invalidates the premise
+
+Discovery sometimes shows that the deliverable does not exist at all: the
+work is already done, or the premise collapsed under evidence gathered in
+Step 0 or Step 2. That is a finding about the world — factual and citable,
+never a preference about whether the workflow suits the task — so record it
+as a closure of the plan doc and stop; do not proceed to decomposition. This
+is the ONLY exit from planning that produces no blocks, and it is reachable
+only from evidence, never from an opinion about the size or shape of the
+work.
+
+The evidence must be citable: a merged commit or PR, an observed passing
+behavior, a superseding change already in the codebase. "It looks done" is
+not evidence — if the deliverable's status is genuinely unclear, decompose
+instead and let the uncertainty resolve inside the blocks (see Step 3).
+
+Update the plan doc from Step 0a in place: `Status: Closed (deliverable does not exist)`,
+an `Outcome:` summary of what was found, and an `Evidence:` field citing the
+commit, PR, or observation that establishes it. Record the same in
+`.local/blocks.md` — a note that the plan closed with no blocks and why. As
+with an approved block design, the engineer must confirm the closure before
+the plan doc is considered closed: the orchestrator proposes and stops, it
+never closes the doc unilaterally. Throughout, the plan doc's Status field reflects the closure
+— never left reading Planning once the work is known to be done.
+
+If the plan doc from Step 0a is missing when this closure is reached, create
+it now before recording the closure — this is a recovery path, not a reason
+to skip the record. If the evidence does not actually establish that the
+deliverable is void — it merely suggests the work is small, awkward, or a
+poor fit for the lego machinery — this closure does NOT apply; decompose
+instead (see Step 3).
+
+This closure is reachable only from evidence gathered in Step 0 or Step 2,
+never later: once Step 3 decomposition is underway, a change of mind about
+the work's value no longer routes here. Watch for these shapes:
+
+- The deliverable collapses during Step 0 clarification, before discovery runs at all.
+- Discovery finds the work already merged, but under a different design than
+  the one the engineer described — still close, but record the design delta as a follow-up.
+- Only part of the deliverable is already done — this closure does not
+  apply; decompose the remainder only.
+
 ## Step 3: Decompose with the engineer
 
 Work top-down, recursively: the deliverable is a block; split it until you reach
@@ -173,6 +215,46 @@ For every block, agree with the engineer on:
   then dispatched to the same agents sequentially.
 - **PR group** (`PR group: G<NN>`): default one unit per group; small units
   may be grouped to share one PR to master/main.
+
+### Every deliverable yields at least one block
+
+Decomposition always terminates in at least one block. There is no size
+threshold below which the workflow is skipped, and the orchestrator never
+asks whether a deliverable is "worth" block decomposition — that question
+has no principled answer and is not the orchestrator's to raise. A change
+too small to warrant dispatching a worker is still a block: the engineer
+claims it (`Owner: engineer`), builds it directly, and it carries the same
+contract, the same tests, and the same acceptance gate as any other block.
+That direct-change path lives INSIDE the workflow, not as an exit from it —
+planning has exactly two terminal states: an approved block design (Step 5),
+or the factual closure of Step 2a when the deliverable does not exist.
+
+This step is reached with a confirmed deliverable from Step 0 that Step 2a did not close.
+Decomposition here always yields a block design containing >= 1 block,
+presented at the Step 5 approval gate. Where a block is trivial or better
+done by hand, mark it `Owner: engineer` rather than omitted — it still needs
+a name, a contract, and a place in the block map.
+
+If decomposition seems to yield zero blocks, that is one of two things and
+neither is an exit: either the deliverable is void (go to Step 2a, with
+evidence), or the deliverable is a single block (write it as one). A plan
+presented with no blocks and no Step 2a evidence is a defect.
+
+Keep these invariants in view while decomposing:
+
+- Planning never concludes with zero blocks except via Step 2a.
+- Size, triviality, and "fit for the machinery" are NEVER grounds for
+  skipping decomposition.
+- `Owner: engineer` is the direct-change path; it does not bypass the
+  contract, the tests, or the acceptance gate.
+- One block is a legitimate, complete plan.
+
+Edge cases worth naming explicitly:
+
+- **Single-file, single-line changes:** one block, often `Owner: engineer`.
+- **Documentation-only deliverables: still blocks** — see the scaffold skill
+  for the acceptance gate when a block has no red/green cycle.
+- Deliverable partly already done: decompose the remainder only.
 
 Before moving to Step 4, confirm that every decomposition question — block
 name, dependencies, owner, paths, unit assignment, and PR group — has been
@@ -281,35 +363,3 @@ explicit approval. If the engineer annotates or objects, revise and re-present.
 Record the approval (date + summary) in the plan's Changelog.
 
 Then proceed to `/lego:scaffold`.
-
-## Step 5a: Conclude without blocks (off-ramp)
-
-When planning determines that no block decomposition is warranted — the
-deliverable collapsed during Step 0 clarification, Step 2 discovery revealed
-the work is already done, or Step 3 decomposition found the work is better
-served by a single direct change than by the lego machinery — take this
-off-ramp explicitly instead of letting the workflow trail off with no record.
-This step can be reached from any point in the planning flow: after Step 0
-clarification, after Step 2 discovery, or after Step 3 once it turns out all
-needed blocks already exist. A direct change may already have been made and
-PR'd before the off-ramp fires; that is fine, record it as the outcome.
-
-Update the plan doc from Step 0a in place:
-
-- `Status: Concluded (no blocks)`
-- `Outcome:` what was decided and why
-- `Rationale:` the rationale for skipping decomposition
-- `Direct change:` a pointer to the commit or PR, if one was made
-
-Present the conclusion to the engineer and stop. The engineer must confirm it
-before the plan doc is considered closed — the same approval standard Step 5
-applies to an approved block design. If the engineer objects, revise and
-re-present rather than closing unilaterally.
-
-Update `.local/blocks.md` with a note recording that the plan concluded
-without blocks (e.g., a line at the top pointing to the plan doc and its
-no-blocks status).
-
-If the plan doc from Step 0a is missing when this step is reached, create it
-now before recording the conclusion — this is a recovery path, not a reason
-to skip the record.

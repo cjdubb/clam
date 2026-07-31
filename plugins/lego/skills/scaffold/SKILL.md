@@ -94,6 +94,47 @@ effective config's commands (`.claude/lego.json` merged with any
 Record which rung ran in the plan document. Fix scaffold errors here; a scaffold
 that fails its gate must not be dispatched.
 
+### Step 2a: Blocks with no red/green cycle
+
+Some blocks carry no executable behavior to verify: prose whose quality is the
+deliverable (a README section, guidance text), or configuration whose only
+assertion is its own literal content. Planning always produces some of these,
+so decide their gate now, at scaffold time, rather than leaving dispatch to
+improvise one.
+
+**Decide by clause, not by convenience.** Walk every clause in the block's
+contract docblock and ask whether it can be expressed as an executable
+assertion. Structural and anchor assertions count as executable — a token,
+heading, or ordering check over a prose file is a real test — so a prose
+file with anchors is not review-gated; it takes the normal test wave like
+any other block.
+
+Reserve review-gated status for blocks where no clause is executably assertable —
+never merely because tests would be inconvenient, low-value, or awkward to
+write. Content with no assertable structure — README body text carrying no
+anchors a script could check, for instance — is review-gated. A block with a
+mix of assertable and non-assertable clauses is not review-gated either:
+partial testability means the normal wave runs and covers what it can, and
+the reviewer covers the remainder at acceptance.
+
+Review-gating is decided at scaffold time, by the orchestrator, and
+recorded on the block; it is never a dispatch-time improvisation. The
+moment you mark a block review-gated, note it — with the reason — on its
+`.local/blocks.md` entry.
+
+A review-gated block's test wave is skipped, and a skipped test wave is
+always recorded with its reason; the skip is never silent. Its acceptance
+gate replaces the normal one: orchestrator verification of the artifact
+against every contract clause, plus explicit engineer acceptance —
+orchestrator verification alone does not accept a review-gated block;
+both are required. Everything else about the block — realm rules, the
+contract docblock, the block-map lifecycle — is unchanged.
+
+This applies identically to engineer-owned blocks. An engineer-owned
+review-gated block takes the same gate as any other — the engineer
+cannot accept their own block unilaterally, and the orchestrator still
+verifies it against every clause before the block can move to `Accepted`.
+
 ## Step 3: Update state and checkpoint
 
 - Set every scaffolded block to `Status: Scaffolded` and fill in its `Code:`

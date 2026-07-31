@@ -95,7 +95,9 @@ a dispatched subagent or a human you're handing a branch to.
 
 ### Provision untracked files into a new worktree
 
-Configure the mapping once per repo, from any of its worktrees:
+Configure the mapping once per repo, from the root or from anywhere inside
+one of its worktrees (the config subcommands don't need a working tree, so
+they also work at the root before the first worktree exists):
 
 ```bash
 copyenv --configure ~/env-files/myproject .env apps/api/.env

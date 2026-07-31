@@ -102,9 +102,11 @@ worktree remove`, so `rmtree feat-my-feature --force` (or just `rmtree
 configured source directory. A fresh worktree contains only what git tracks,
 so anything gitignored — `.env` and friends, but equally local tool or editor
 config like `.claude/settings.local.json` — is absent until something puts it
-there. Configure it once per repo, from any of its worktrees; the config is
-stored in the shared `.bare` repo config, so every worktree sees the same
-setting:
+there. Configure it once per repo, from the root or from anywhere inside one
+of its worktrees; the config is stored in the shared `.bare` repo config, so
+every worktree sees the same setting. Unlike the copy path, the config
+subcommands don't need a working tree — they work at the root before any
+worktree exists, which is where you stand right after `cloneBareRepo`:
 
 ```bash
 copyenv --configure ~/env-files/myproject .env apps/api/.env

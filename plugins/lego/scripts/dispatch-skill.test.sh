@@ -510,5 +510,80 @@ for pair in "2. Test wave|$SECTION_2_3" "3. Implementation wave|$SECTION_3_1"; d
     "$(has_fn "$body" 'FAILURES')" "yes"
 done
 
+# --- B03 dispatch-chase-and-malformed-report (contract: B03) --------------
+# The contract's own HTML comment (search SKILL.md for "Contract: B03") is
+# embedded right inside the "Reports mirror briefs the other way" paragraph,
+# quoting nearly the exact clauses the real prose needs — matching against
+# $RAW (or even $WORKER_BRIEFS before comment-stripping) would pass today
+# against the comment's own vocabulary, before any real edit exists. These
+# checks read $WORKER_BRIEFS (defined above, already comment-stripped and
+# scoped to "## Worker briefs" — the section this paragraph lives in), so
+# only real prose in that section can satisfy them.
+#
+# Concept anchors, not literal quotes, mirroring the contract's own OR-style
+# tolerance for wording (see the 3.1 pipe-safety check above): the rule must
+# be stated, not stated in one exact phrasing.
+
+# Clause 1a: the chase is capped at one attempt.
+CHASE_CAP_STATED="no"
+if [[ "$(has_fn "$WORKER_BRIEFS" "a single time")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "at most once")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "only once")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "one chase")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "single chase")" == "yes" ]]; then
+  CHASE_CAP_STATED="yes"
+fi
+check "Worker briefs: chase capped at one attempt" "$CHASE_CAP_STATED" "yes"
+
+# Clause 1b, reason 1: a resend can vanish exactly as the first send did, so
+# a second chase proves nothing.
+CHASE_REASON1_STATED="no"
+if [[ "$(has_fn "$WORKER_BRIEFS" "resend")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "vanish")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "second chase")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "proves nothing")" == "yes" ]]; then
+  CHASE_REASON1_STATED="yes"
+fi
+check "Worker briefs: reason - a resend can vanish like the first send" \
+  "$CHASE_REASON1_STATED" "yes"
+
+# Clause 1b, reason 2: chasing a merely-idle worker resumes it, which costs
+# something rather than being free.
+CHASE_REASON2_STATED="no"
+if [[ "$(has_fn "$WORKER_BRIEFS" "resumes it")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "resumes the worker")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "resuming it")" == "yes" ]]; then
+  CHASE_REASON2_STATED="yes"
+fi
+check "Worker briefs: reason - chasing a merely-idle worker resumes it" \
+  "$CHASE_REASON2_STATED" "yes"
+
+# The existing "never verify concurrently with a resumed worker" rule is
+# referenced here (per the contract's Invariants), not restated in full.
+check "Worker briefs: references the existing resumed-worker rule (not restated)" \
+  "$(has_fn "$WORKER_BRIEFS" "verify concurrently with a resumed worker")" "yes"
+
+# Clause 2: a present-but-malformed report file is an ordinary rejection at
+# a fresh `NN` — the same path as any other rejected wave, not a third
+# handling path beside "absent" and "arrived only as a message".
+check "Worker briefs: malformed report addressed as its own case" \
+  "$(has_fn "$WORKER_BRIEFS" "malformed")" "yes"
+
+MALFORMED_REJECTION_STATED="no"
+if [[ "$(has_fn "$WORKER_BRIEFS" "ordinary rejection")" == "yes" || \
+      "$(has_fn "$WORKER_BRIEFS" "same path as any other rejected")" == "yes" ]]; then
+  MALFORMED_REJECTION_STATED="yes"
+fi
+check "Worker briefs: malformed report is an ordinary rejection (same path as any other)" \
+  "$MALFORMED_REJECTION_STATED" "yes"
+
+check "Worker briefs: malformed rejection happens at a fresh NN" \
+  "$(has_fn "$WORKER_BRIEFS" "fresh \`NN\`")" "yes"
+
+# Note: the contract's other named invariant — SKILL.md heading counts stay
+# at 12 H2 / 5 H3, no new H2/H3 section — is already asserted above ("H2
+# heading count unchanged" / "H3 heading count unchanged"), so it is not
+# duplicated here.
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

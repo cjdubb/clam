@@ -89,6 +89,13 @@ delivery is not guaranteed: reports sent this way have been lost with no
 error reported to either side, which is exactly why the file is the report
 and the message is only a courtesy.
 
+Stopping to escalate does not exempt you from this protocol: an
+ESCALATION writes the report file exactly as a COMPLETE does, and often
+matters more, since it's the escalation report the orchestrator most
+needs on disk. A brief that names no report path — an old-style brief —
+still gets one: write it under `.local/reports/` at that brief's own
+`NN`, and flag in the report that the brief named no path.
+
 The report is consumed by the orchestrator, not a human. FILES paths
 are relative to your unit worktree root. Write exactly:
 

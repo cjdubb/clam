@@ -132,5 +132,59 @@ check "lego-test-writer.md no longer lists reports/ among the read-only tree" \
 check "lego-implementer.md no longer lists reports/ among the read-only tree" \
   "$(has_fn "$IMPL_RAW" "\`status.md\`, \`briefs/\`, and \`reports/\` — is orchestrator-owned and read-only")" "no"
 
+# --- B04 worker-report-escalation-and-legacy-brief (contract: B04) --------
+# The contract's own HTML comment (search each file for "Contract: B04") is
+# embedded directly inside "## Report format", quoting nearly the exact
+# clauses the real prose needs — matching $TW_RAW/$IMPL_RAW directly would
+# pass today against the comment alone, before any real edit exists. Strip
+# HTML comments first (same technique as dispatch-skill.test.sh), then scope
+# to "## Report format" — the last section in both files, so no closing
+# anchor is needed — so only real prose in the section the contract governs
+# can satisfy these checks.
+strip_comments() { perl -0777 -pe 's/<!--.*?-->//gs' "$1"; }
+report_section() { awk '/^## Report format$/{flag=1} flag' <<<"$1"; }
+
+TW_STRIPPED=$(strip_comments "$TW")
+IMPL_STRIPPED=$(strip_comments "$IMPL")
+TW_REPORT=$(report_section "$TW_STRIPPED")
+IMPL_REPORT=$(report_section "$IMPL_STRIPPED")
+
+# OR-match helper (same wrap-tolerant flattening as has_fn): passes if ANY of
+# several reasonable phrasings is present. Used where the contract fixes the
+# concept but leaves each file's exact wording to its own voice — the rule
+# must be stated, not stated in one exact phrasing.
+any_fn() { # content phrase1 [phrase2 ...]
+  local content="$1"; shift
+  local flat; flat=$(tr '\n' ' ' <<<"$content" | tr -s ' ')
+  for p in "$@"; do
+    if grep -qF -- "$p" <<<"$flat"; then echo yes; return; fi
+  done
+  echo no
+}
+
+# Clause 1: an ESCALATION still writes the report file, exactly as a
+# COMPLETE does — escalating is not an exemption from the file protocol.
+check "lego-test-writer.md: an ESCALATION still writes the report file (not exempt)" \
+  "$(any_fn "$TW_REPORT" "still writes" "not an exemption" "exemption from the file protocol" "same as a COMPLETE" "as a COMPLETE does")" "yes"
+check "lego-implementer.md: an ESCALATION still writes the report file (not exempt)" \
+  "$(any_fn "$IMPL_REPORT" "still writes" "not an exemption" "exemption from the file protocol" "same as a COMPLETE" "as a COMPLETE does")" "yes"
+
+# Clause 2: a brief that names no report path (an old-style brief) is still
+# answered with a file, under .local/reports/ at the brief's own NN.
+check "lego-test-writer.md: old-style brief (no report path) still gets a file" \
+  "$(any_fn "$TW_REPORT" "old-style brief" "no report path" "names no path" "names no report path")" "yes"
+check "lego-implementer.md: old-style brief (no report path) still gets a file" \
+  "$(any_fn "$IMPL_REPORT" "old-style brief" "no report path" "names no path" "names no report path")" "yes"
+
+# Clause 2b: that fallback is flagged in the report, not applied silently.
+check "lego-test-writer.md: fallback is flagged in the report" \
+  "$(has_fn "$TW_REPORT" "flag")" "yes"
+check "lego-implementer.md: fallback is flagged in the report" \
+  "$(has_fn "$IMPL_REPORT" "flag")" "yes"
+
+# Note: the contract's other named invariant — the fenced STATUS block
+# untouched — is already asserted above ("has literal 'STATUS: COMPLETE |
+# ESCALATION'" for both files), so it is not duplicated here.
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

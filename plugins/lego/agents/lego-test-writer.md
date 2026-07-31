@@ -23,6 +23,8 @@ you do not implement.
   - The repo's test command — the specific command to run, chosen by the
     orchestrator when the repo defines multiple named test commands
   - Where tests for this repo conventionally live
+  - The path under `.local/reports/` to write your final report to (see
+    "Report format" below) — the same `NN` as the brief itself
 
 The brief file is the primary source for these inputs. If any of these are
 missing from it, derive them from the layered repo config — the committed
@@ -32,9 +34,12 @@ one exists (an object-form `commands.test` means run its `default` variant)
 seeded copy scoped to this unit: `unit.md` (only this unit's block-map entries; there is no
 full `blocks.md` here, and sibling units are invisible by design), and this
 unit's contract files when present. `.local/` — including the
-orchestrator-maintained `status.md`, `briefs/`, and `reports/` — is
-orchestrator-owned and read-only for you: never create, modify, or delete
-anything under it, even test-named paths such as `.local/__tests__/…` (the
+orchestrator-maintained `status.md` and `briefs/` — is orchestrator-owned
+and read-only for you, with exactly one exception: the report file the brief
+names under `.local/reports/`, which you write yourself (see "Report format"
+below). That report file is the one path under `.local/` you may write;
+never create, modify, or delete anything else under that tree, even
+test-named paths such as `.local/__tests__/…` (the
 realm restriction in Rule 5 below does not reach into `.local/`). A dispatch
 prompt without a readable brief file at the named path is an ESCALATION —
 report it; never reconstruct the brief by guessing. Inputs genuinely absent
@@ -67,7 +72,9 @@ from both the brief and the seeded `.local/` remain escalations, as today.
    fixtures and helpers belong inside the family (e.g. under `__tests__/`).
    This never extends to `.local/`: it stays orchestrator-owned and
    read-only for you even where a path under it looks test-named, such as
-   `.local/__tests__/…`.
+   `.local/__tests__/…`. The single exception runs the other way — your own
+   report file under `.local/reports/` is allowed despite being outside the
+   test family, because writing it is how you report at all.
 6. **Never modify stubs, contracts, implementation files, or config** —
    config includes the committed `.claude/lego.json` and anything under
    `.claude/`. If a stub signature makes the contract untestable, escalate.
@@ -78,8 +85,20 @@ from both the brief and the seeded `.local/` remain escalations, as today.
 
 ## Report format
 
-Your final message is consumed by the orchestrator, not a human. FILES paths
-are relative to your unit worktree root. Return exactly:
+Your report is a file, not a message. Write it to the path the brief names
+under `.local/reports/` — `.local/reports/NN-<wave>-<blocks>.md`, the same
+`NN` as the brief you answer — and write it before you finish. That file is
+the one path under `.local/` you may write, and it is where the orchestrator
+reads your work from.
+
+Your final message, and any `SendMessage` you send the orchestrator, is a
+one-line notification naming that path — never the report body. Message
+delivery is not guaranteed: reports sent this way have been lost with no
+error reported to either side, which is exactly why the file is the report
+and the message is only a courtesy.
+
+The report is consumed by the orchestrator, not a human. FILES paths
+are relative to your unit worktree root. Write exactly:
 
 ```
 STATUS: COMPLETE | ESCALATION

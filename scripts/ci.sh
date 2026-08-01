@@ -12,7 +12,8 @@
 #     1. lint     — bash scripts/marketplace-lint.sh, bash
 #                   scripts/executable-lint.sh, bash scripts/readme-lint.sh,
 #                   bash scripts/version-bump-lint.sh, bash
-#                   scripts/issue-template-lint.sh (each invoked from the
+#                   scripts/issue-template-lint.sh, bash
+#                   scripts/architecture-lint.sh (each invoked from the
 #                   repo root; readme-lint requires root cwd).
 #     2. test     — every repo-level scripts/*.test.sh, then every
 #                   plugins/*/scripts/*.test.sh and plugins/*/lib/*.test.sh,
@@ -152,7 +153,7 @@ run_check() { # <stage> <name> <cmd...>
 
 run_lint_stage() {
   echo "== lint =="
-  local checks=(marketplace-lint executable-lint readme-lint version-bump-lint issue-template-lint)
+  local checks=(marketplace-lint executable-lint readme-lint version-bump-lint issue-template-lint architecture-lint)
   local c
   for c in "${checks[@]}"; do
     run_check "lint" "$c" bash "scripts/$c.sh" || return 1

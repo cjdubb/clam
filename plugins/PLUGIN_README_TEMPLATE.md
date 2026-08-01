@@ -87,17 +87,27 @@
 
 ## Relationships to other plugins
 
-<!-- How this plugin interacts with other clam plugins:
-     - Hard dependencies (requires — the plugin breaks without these)
-     - Soft integrations (optional — degrades gracefully when absent)
-     - What this plugin provides to others (stable interfaces, files,
-       skills other plugins consume)
+<!-- How this plugin interacts with other clam plugins. Document, in this
+     order:
+
+     1. Capabilities consumed — describe what this plugin needs done,
+        never who does it ("opens a pull request", not "requires a
+        PR-automation plugin"). Give each capability its standard-tools
+        baseline (git, gh, the filesystem, ...) so a reader can see
+        exactly how the plugin degrades gracefully when nothing beyond
+        that baseline is installed.
+     2. Protocols implemented — name the shared artifact conventions
+        this plugin reads or writes, cited by spec path under
+        docs/protocols/ (e.g. docs/protocols/session-states.md).
 
      If standalone: "None required. This plugin is fully standalone."
 
-     For plugins with hard dependencies, the Requires / Provides / Consumes
-     taxonomy (as used by worktrees and orchestrator-handover) is a good
-     pattern. -->
+     Naming another plugin here is a defect: it is flagged as a
+     violation by scripts/architecture-lint.sh. The one exception is
+     build, the marketplace's sole composite — its README may list its
+     components by name, but only downward, only as detect-and-degrade,
+     and never as a requirement; this exception does not weaken the
+     standalone default for every other plugin. -->
 
 ## Uninstalling
 

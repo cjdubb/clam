@@ -78,6 +78,7 @@ auto-update doesn't refresh the recorded install path
 | [session-data](plugins/session-data/) | ✅ v0.1.2 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
 | [updates](plugins/updates/) | ✅ v0.1.2 | Guided plugin update flow: `/updates:run` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
+| [voice](plugins/voice/) | ✅ v0.1.0 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
 | [debugging](plugins/debugging/) | ✅ v0.2.2 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json

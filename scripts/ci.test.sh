@@ -242,6 +242,7 @@ NAME_EX="lint:executable-lint"
 NAME_RL="lint:readme-lint"
 NAME_VB="lint:version-bump-lint"
 NAME_ITL="lint:issue-template-lint"
+NAME_AL="lint:architecture-lint"
 
 # ===========================================================================
 # 1. Full green run (no flags): stage headers, check-prefix lines, stage
@@ -258,6 +259,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 write_check_stub "$f/scripts/z.test.sh" "test:scripts/z.test.sh" "$log" "$f" 0
 mkdir -p "$f/plugins/alpha/scripts" "$f/plugins/alpha/lib" "$f/plugins/zeta/scripts" "$f/plugins/zeta/lib"
@@ -276,6 +278,8 @@ check "1. stage headers: == test ==" "$(contains "$RUN_OUT" "== test ==")" "yes"
 check "1. stage headers: == validate ==" "$(contains "$RUN_OUT" "== validate ==")" "yes"
 check "1. check-prefix line for a lint check" \
   "$(line_has_all "$RUN_OUT" "--" "marketplace-lint")" "yes"
+check "1. check-prefix line for architecture-lint check" \
+  "$(line_has_all "$RUN_OUT" "--" "architecture-lint")" "yes"
 check "1. check-prefix line for a test check" \
   "$(line_has_all "$RUN_OUT" "--" "a.test.sh")" "yes"
 check "1. stage order: lint before test" \
@@ -288,6 +292,10 @@ check "1. lint order: executable before readme" \
   "$(order_ok "$log" "CHECK $NAME_EX" "CHECK $NAME_RL")" "yes"
 check "1. lint order: readme before version-bump" \
   "$(order_ok "$log" "CHECK $NAME_RL" "CHECK $NAME_VB")" "yes"
+check "1. lint order: issue-template-lint before architecture-lint" \
+  "$(order_ok "$log" "CHECK $NAME_ITL" "CHECK $NAME_AL")" "yes"
+check "1. lint order: architecture-lint before test stage" \
+  "$(order_ok "$log" "CHECK $NAME_AL" "CHECK test:scripts/a.test.sh")" "yes"
 check "1. lint checks all ran from repo root (no CWD_BAD)" \
   "$(log_has "$log" "CWD_BAD")" "no"
 check "1. test order: repo-level a before repo-level z" \
@@ -318,6 +326,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 1
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
 
@@ -327,6 +336,7 @@ check "2. fail-fast lint: executable-lint ran" "$(log_has "$log" "CHECK $NAME_EX
 check "2. fail-fast lint: readme-lint never ran" "$(log_has "$log" "CHECK $NAME_RL")" "no"
 check "2. fail-fast lint: version-bump-lint never ran" "$(log_has "$log" "CHECK $NAME_VB")" "no"
 check "2. fail-fast lint: issue-template-lint never ran" "$(log_has "$log" "CHECK $NAME_ITL")" "no"
+check "2. fail-fast lint: architecture-lint never ran" "$(log_has "$log" "CHECK $NAME_AL")" "no"
 check "2. fail-fast lint: test stage never ran" "$(log_has "$log" "CHECK test:")" "no"
 check "2. fail-fast lint: final line names lint/executable-lint" \
   "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "lint/" "executable-lint")" "yes"
@@ -343,13 +353,14 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 mkdir -p "$f/plugins/alpha"
 run_ci "$f" "$BASE_PATH" --lint
 
 check "3. --lint solo: exit 0" "$RUN_EXIT" "0"
 check "3. --lint solo: final line CI PASS" "$(contains "$(final_line "$RUN_OUT")" "CI PASS")" "yes"
-check "3. --lint solo: all 5 lint checks ran" "$(log_count "$log" "CHECK lint:")" "5"
+check "3. --lint solo: all 6 lint checks ran" "$(log_count "$log" "CHECK lint:")" "6"
 check "3. --lint solo: test stage never ran" "$(log_has "$log" "CHECK test:")" "no"
 check "3. --lint solo: validate stage never ran" "$(log_has "$log" "CHECK validate:")" "no"
 
@@ -364,6 +375,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 mkdir -p "$f/plugins/alpha"
 run_ci "$f" "$BASE_PATH" --test
@@ -386,6 +398,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH" --lint --test
 
 check "5. --lint --test together: exit 2" "$RUN_EXIT" "2"
@@ -405,6 +418,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH" --bogus
 
 check "6. unknown flag: exit 2" "$RUN_EXIT" "2"
@@ -436,6 +450,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
 
@@ -459,6 +474,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 mkdir -p "$f/plugins/beta"
 shim="$(mktemp -d)"; track_tmp "$shim"
 write_claude_shim "$shim" "$log" "$f" "beta"
@@ -466,6 +482,7 @@ run_ci "$f" "$shim:$BASE_PATH"
 
 check "9. vacuous test stage: notice printed" \
   "$(contains "$RUN_OUT" "no test checks to run")" "yes"
+check "9. lint stage completes: architecture-lint ran" "$(log_has "$log" "CHECK $NAME_AL")" "yes"
 check "9. validate fails: marketplace.json still checked" \
   "$(log_has "$log" "CHECK validate:.claude-plugin/marketplace.json")" "yes"
 check "9. validate fails: plugins/beta checked" \
@@ -488,6 +505,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 shim="$(mktemp -d)"; track_tmp "$shim"
 write_claude_shim "$shim" "$log" "$f" ""
 write_gh_shim "$shim" "$log" 0
@@ -516,6 +534,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 shim="$(mktemp -d)"; track_tmp "$shim"
 write_gh_shim "$shim" "$log" 0
 run_ci "$f" "$shim:$BASE_PATH" --post-status
@@ -527,6 +546,8 @@ check "11. post-status fail-fast: context pseudo-ci" "$(log_has "$log" "pseudo-c
 check "11. post-status fail-fast: sha present" "$(log_has "$log" "$sha")" "yes"
 check "11. post-status fail-fast: executable-lint never ran (fail-fast)" \
   "$(log_has "$log" "CHECK $NAME_EX")" "no"
+check "11. post-status fail-fast: architecture-lint never ran (fail-fast)" \
+  "$(log_has "$log" "CHECK $NAME_AL")" "no"
 
 # ===========================================================================
 # 12. No --post-status flag: gh is never attempted (gh entirely absent from
@@ -542,6 +563,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
 
 check "12. no post-status flag: exit 0" "$RUN_EXIT" "0"
@@ -560,6 +582,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH" --post-status
 
 check "13. gh absent + post-status: exit 0 (unaffected)" "$RUN_EXIT" "0"
@@ -580,6 +603,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 shim="$(mktemp -d)"; track_tmp "$shim"
 write_gh_shim "$shim" "$log" 1
 run_ci "$f" "$shim:$BASE_PATH" --post-status
@@ -602,6 +626,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 shim="$(mktemp -d)"; track_tmp "$shim"
 write_gh_shim "$shim" "$log" 0
 run_ci "$f" "$shim:$BASE_PATH" --post-status
@@ -625,6 +650,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 2
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
 
 check "16. lint check exits 2: exit 1 (not 2)" "$RUN_EXIT" "1"
@@ -634,6 +660,8 @@ check "16. lint check exits 2: version-bump-lint never ran (fail-fast)" \
   "$(log_has "$log" "CHECK $NAME_VB")" "no"
 check "16. lint check exits 2: issue-template-lint never ran (fail-fast)" \
   "$(log_has "$log" "CHECK $NAME_ITL")" "no"
+check "16. lint check exits 2: architecture-lint never ran (fail-fast)" \
+  "$(log_has "$log" "CHECK $NAME_AL")" "no"
 
 # ===========================================================================
 # 17. A test check exiting 2 is likewise CI FAIL, exit 1; fail-fast stops
@@ -647,6 +675,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 2
 write_check_stub "$f/scripts/z.test.sh" "test:scripts/z.test.sh" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
@@ -673,13 +702,14 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f/scripts" "$BASE_PATH"
 
 check "18. cwd-independence: exit 0 from nested subdir" "$RUN_EXIT" "0"
 check "18. cwd-independence: final line CI PASS" "$(contains "$(final_line "$RUN_OUT")" "CI PASS")" "yes"
 check "18. cwd-independence: all lint checks ran from repo root" \
   "$(log_has "$log" "CWD_BAD")" "no"
-check "18. cwd-independence: all 5 lint checks ran" "$(log_count "$log" "CHECK lint:")" "5"
+check "18. cwd-independence: all 6 lint checks ran" "$(log_count "$log" "CHECK lint:")" "6"
 
 # ===========================================================================
 # 19. Read-only invariant: the fixture tree is byte-identical before/after
@@ -695,6 +725,7 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
 before="$(tree_snapshot "$f")"
 run_ci "$f" "$BASE_PATH"
@@ -718,10 +749,69 @@ write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
 write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
 write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
 write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
 run_ci "$f" "$BASE_PATH"
 
 check "20. unread config: exit 0 unaffected" "$RUN_EXIT" "0"
 check "20. unread config: final line CI PASS" "$(contains "$(final_line "$RUN_OUT")" "CI PASS")" "yes"
+
+# ===========================================================================
+# 21. architecture-lint fails as the lint stage's sixth check: the five
+#     preceding lint checks ran (in order), architecture-lint ran and
+#     failed, and fail-fast stops the run before the test stage starts.
+#     Contract: Contract-delta B09 Behavior/Outputs ("SIXTH check ... after
+#     issue-template-lint"; "a architecture-lint failure is 'CI FAIL:
+#     lint/architecture-lint', exit 1"), Invariants ("fail-fast semantics
+#     unchanged").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 1
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH"
+
+check "21. architecture-lint fails: exit 1" "$RUN_EXIT" "1"
+check "21. architecture-lint fails: marketplace-lint ran" "$(log_has "$log" "CHECK $NAME_MP")" "yes"
+check "21. architecture-lint fails: executable-lint ran" "$(log_has "$log" "CHECK $NAME_EX")" "yes"
+check "21. architecture-lint fails: readme-lint ran" "$(log_has "$log" "CHECK $NAME_RL")" "yes"
+check "21. architecture-lint fails: version-bump-lint ran" "$(log_has "$log" "CHECK $NAME_VB")" "yes"
+check "21. architecture-lint fails: issue-template-lint ran" "$(log_has "$log" "CHECK $NAME_ITL")" "yes"
+check "21. architecture-lint fails: architecture-lint ran" "$(log_has "$log" "CHECK $NAME_AL")" "yes"
+check "21. architecture-lint fails: issue-template-lint before architecture-lint" \
+  "$(order_ok "$log" "CHECK $NAME_ITL" "CHECK $NAME_AL")" "yes"
+check "21. architecture-lint fails: test stage never ran (fail-fast)" \
+  "$(log_has "$log" "CHECK test:")" "no"
+check "21. architecture-lint fails: final line CI FAIL: lint/architecture-lint" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "lint/" "architecture-lint")" "yes"
+
+# ===========================================================================
+# 22. architecture-lint exiting 2 (its own environment error) is reported as
+#     that check's failure like every other lint check: CI FAIL, exit 1 (not
+#     2); fail-fast still stops the test stage. Contract: Contract-delta B09
+#     Errors clause ("architecture-lint exiting 2 ... is reported as that
+#     check's failure, same as every other lint failure").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 2
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH"
+
+check "22. architecture-lint exits 2: exit 1 (not 2)" "$RUN_EXIT" "1"
+check "22. architecture-lint exits 2: final line names lint/architecture-lint" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "lint/" "architecture-lint")" "yes"
+check "22. architecture-lint exits 2: test stage never ran (fail-fast)" \
+  "$(log_has "$log" "CHECK test:")" "no"
 
 # ===========================================================================
 echo "----"

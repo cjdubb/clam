@@ -1,7 +1,7 @@
 {
   "name": "tracking",
   "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

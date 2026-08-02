@@ -701,17 +701,101 @@ if state_is_parked "$state"; then
     exit 0
 fi
 
+# Contract: B01 — turn-end-state-guidance (plan 001)
+#
+# Behavior:
+#   The turn-end block reason built below stops presenting every parked state
+#   as needing no user action. Awaiting User Review — parked but summons=yes
+#   per docs/protocols/session-states.md — is presented separately as a
+#   turn-ending state that DOES summon the user, together with a
+#   forge-neutral statement of when to enter it: the session is waiting on
+#   the user to review something before it can proceed. The remaining parked
+#   states keep the "resumes on its own, no user action" framing, which is
+#   true of them.
+#
+#   The split is DERIVED, never hardcoded: the summoning parked states are
+#   those for which state_summons returns 0. The message therefore cannot
+#   drift from the manifest, the same single-source property the existing
+#   state_parked_list call was written for (#137).
+#
+#   The Complete line drops its forge vocabulary ("an open PR still needs a
+#   monitoring cron").
+#
+# Inputs:
+#   $state — outer scope. state_parked_list and state_summons from
+#   lib/states.sh, already sourced. No new inputs and no new external
+#   commands; in particular NO forge or network lookup — that would be the
+#   coupling class of #148, and this block adds detection of nothing.
+#
+# Outputs:
+#   The `reason` string, and hence the {decision:"block", reason:...} JSON.
+#   Every state name printed must match the manifest byte-for-byte: the
+#   message itself tells the agent the names "must match EXACTLY", so a
+#   paraphrase or abbreviation here is a defect.
+#
+# Errors:
+#   Fail-safe. If state_summons is unavailable the message must still list
+#   every parked state — degrading to the current single-line form is
+#   acceptable; emitting no reason, or a reason missing states, is not.
+#
+# Invariants:
+#   - The ALLOW/BLOCK decision is UNCHANGED. This block edits only the text
+#     of the reason. Awaiting User Review must still permit ending the turn;
+#     that path runs through state_is_parked above and is not touched here.
+#   - No forge vocabulary anywhere in the emitted reason: no "PR", "pull
+#     request", "merge request", "draft", "gh".
+#   - The decision-log references elsewhere in this file (the Waiting For
+#     Decision nudge) are outside this block's region and must not be
+#     disturbed: scripts/architecture-lint.sh baselines them and the
+#     baseline is shrink-only, so removing the last occurrence fails CI.
+#
+# Edge cases:
+#   - A manifest in which NO parked state summons: the summoning line is
+#     omitted entirely rather than printed with an empty list.
+#   - A manifest in which EVERY parked state summons: the "resumes on its
+#     own" line is omitted rather than printed empty.
+#   - Unrecognised or empty State, which also lands here: the message must
+#     still render in full — this is the near-miss self-correction path.
+#
 # Unrecognised state: block, and SHOW the valid turn-ending states so a
 # near-miss (typo, abbreviation, renamed state) can self-correct instead of
 # being rationalised into a false Complete.
-parked_list=$(state_parked_list | awk 'NR > 1 {printf " | "} {printf "%s", $0}')
+# Partition the parked states by whether they summon the user, deriving the
+# split from state_summons rather than hardcoding any name so it cannot
+# drift from the manifest (the same single-source property state_parked_list
+# itself was written for, #137). Fail-safe: if state_summons is unavailable,
+# every parked state falls to the non-summoning list below, degrading to a
+# single combined line rather than losing any state name.
+summoning_list=""
+resuming_list=""
+while IFS= read -r pstate; do
+    [ -n "$pstate" ] || continue
+    if command -v state_summons >/dev/null 2>&1 && state_summons "$pstate"; then
+        summoning_list="${summoning_list:+${summoning_list} | }${pstate}"
+    else
+        resuming_list="${resuming_list:+${resuming_list} | }${pstate}"
+    fi
+done < <(state_parked_list)
+
+parked_lines=""
+if [ -n "$summoning_list" ]; then
+    parked_lines="  - Parked, summons the user once on entry: ${summoning_list} — the session is waiting on the user to review something before it can proceed."
+fi
+if [ -n "$resuming_list" ]; then
+    if [ -n "$parked_lines" ]; then
+        parked_lines="${parked_lines}
+  - Parked, resumes on its own with no user action: ${resuming_list}"
+    else
+        parked_lines="  - Parked, resumes on its own with no user action: ${resuming_list}"
+    fi
+fi
 
 reason="Stop hook: .local/TODO.md State is \"${state:-<unset>}\", which is not a State that permits ending the turn.
 
 States that END the turn (these must match EXACTLY):
-  - Complete: work done (an open PR still needs a monitoring cron).
+  - Complete: work done (an open change still needs a monitoring cron).
   - Blocked / Waiting For Decision: needs the user. Set the reason field, then run notify <worktree-name> if the notify helper is installed (check with command -v notify; skip silently otherwise).
-  - Parked, resumes on its own with no user action: ${parked_list}
+${parked_lines}
 
 If you wrote a near-miss (e.g. \"Awaiting Review\" instead of \"Awaiting Human Review\"), correct it to the precise name above. Do NOT downgrade to Complete just to satisfy this hook; that reports the work as finished when it is not.
 

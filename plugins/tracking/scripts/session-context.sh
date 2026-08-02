@@ -81,7 +81,7 @@ _auto_create_todo() {
 }
 [ -n "$cwd" ] && _auto_create_todo
 
-rules=$(cat <<EOF
+IFS= read -r -d '' rules <<EOF || true
 # Tracking (clam tracking plugin)
 
 All work tracking uses \`.local/\` files in the current worktree as the single
@@ -139,7 +139,7 @@ up. For decisions, make each option decidable at a glance: plain-terms
 meaning, one-line trade-off, recommendation and why, the default on a bare
 "go", and the decision-file path (~10 lines for a 2-3 option decision).
 EOF
-)
+rules=${rules%$'\n'}
 
 # Contract: B02 — followups-capture-and-surfacing
 #
@@ -363,7 +363,7 @@ if [ -n "$cwd" ] && [ -f "$cwd/.local/TODO.md" ]; then
     if [ -n "$stale_block" ]; then
         resume=$(printf '\n\n%s' "$stale_block")
     else
-    resume=$(cat <<EOF
+    IFS= read -r -d '' resume <<EOF || true
 
 
 # Tracking document present — resume from it
@@ -374,7 +374,7 @@ Current Task: ${task:-unset}). Before doing anything else, read
 files if present — and continue from the recorded state. Do not restart
 completed work; trust the tracking docs over assumptions about a fresh start.
 EOF
-)
+    resume=${resume%$'\n'}
     fi
 fi
 

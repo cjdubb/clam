@@ -420,8 +420,11 @@ fi
 # heading, so the total count observed today (after B01 and B02, both
 # accepted and merged, neither of which added or removed a heading either)
 # is what B03 must also preserve.
+# Re-pinned 32 → 33 when the voice port section was added (plan
+# 001-the-voice): the pin tracks the current legitimate section inventory,
+# so a deliberate addition moves it and an accidental one still fails.
 check "total '## ' heading count in MIGRATION.md is unchanged by B03" \
-  "$(grep -cE '^## ' <<<"$BODY")" "32"
+  "$(grep -cE '^## ' <<<"$BODY")" "33"
 
 # "Every row traces to a B01 or B02 section; no row introduces a claim that
 # appears nowhere else in the file" and "every element that B01 or B02

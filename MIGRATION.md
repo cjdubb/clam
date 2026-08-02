@@ -452,6 +452,23 @@ independently versioned units (clam-code predates the plugin architecture).
 `/updates:run`'s catalog refresh, per-plugin version diff and confirm-to-apply
 flow, and setup-version-stamp tracking (`docs/setup-stamps.md`) are new.
 
+## voice — ported (from clam-code)
+
+Source: clam-code `general/system-prompt.md`'s Voice section, PRs #357 and
+#361, merged 2026-07-31.
+
+What came over: the spec text verbatim, with one standalone adaptation —
+the clause tying the rules to the source file's surrounding Communication section
+is dropped, since this plugin's SessionStart injection stands on its own
+rather than as a subsection of a larger system prompt.
+
+What deliberately stays behind: the `dev-docs/voice` campaign record and
+Phase 6 toolkit — org-private material (transcript excerpts and captured system prompts)
+approved only for the private source repo, while this repo is public.
+
+Canonical-home decision: this plugin is now canonical for the Voice
+spec. The source repo's copy is a consumer until retired.
+
 ## Unassigned — decide at port time
 
 - _(the former "support" cluster entries here — two skill names — were

@@ -57,6 +57,7 @@ body:
         - statusline
         - tracking
         - updates
+        - voice
         - worktrees
     validations:
       required: true

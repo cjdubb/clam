@@ -113,6 +113,32 @@ assert_contains_re_i() {
     fi
 }
 
+# assert_not_contains_re_i <label> <haystack> <ERE> (case-insensitive)
+assert_not_contains_re_i() {
+    if printf '%s' "$2" | grep -qiE -- "$3"; then
+        fail "$1" "context unexpectedly matched regex (case-insensitive): $3"
+    else
+        pass "$1"
+    fi
+}
+
+# bullet_zone_str <string> <start-line ERE> -> lines from the first line
+# matching start-line ERE through the line before the next "- **" bullet, or
+# through the end of the string if there is none. Mirrors the file-based
+# bullet_zone() in followups-docs.test.sh, adapted for an in-memory string
+# (the hook's stdout is never written to a file).
+bullet_zone_str() {
+    local str="$1" start_re="$2" start next
+    start=$(printf '%s\n' "$str" | grep -nE -- "$start_re" | head -n1 | cut -d: -f1)
+    [ -z "$start" ] && return 1
+    next=$(printf '%s\n' "$str" | awk -v s="$start" 'NR>s && /^- \*\*/ {print NR; exit}')
+    if [ -z "$next" ]; then
+        printf '%s\n' "$str" | sed -n "${start},\$p"
+    else
+        printf '%s\n' "$str" | sed -n "${start},$((next-1))p"
+    fi
+}
+
 # --- Auto-create TODO.md tests (B01 contract) ---
 
 # Test: auto-creates TODO.md when .local/ exists without TODO.md
@@ -527,6 +553,115 @@ test_b06_rules_mention_open_questions() {
     fi
 }
 
+# --- B02: session-start-orientation tests (plan 001) ---
+#
+# Contract: the "Contract: B02 — session-start-orientation (plan 001)"
+# docblock directly above the `rules=$(cat <<EOF ...)` heredoc in
+# session-context.sh — NOT the other, already-landed "Contract: B02 —
+# followups-capture-and-surfacing" docblock further down the same file.
+# Subtractive: strips forge vocabulary ("draft PR up") from the Awaiting
+# User Review bullet and rewords it forge-neutrally, without adding an
+# entry-trigger instruction (that belongs to B01, at turn end).
+#
+# These assert on the EMITTED additionalContext (stdout of the hook), never
+# on the file's source text — the contract docblock itself is a `#` comment
+# that never reaches stdout, so driving the hook is automatically immune to
+# the false-pass hazard of grepping the raw file.
+
+# _b02_rules_ctx -> the injected additionalContext from a bare SessionStart
+# with no .local/ dir at all (the rules heredoc is unconditional, so this
+# isolates it from auto-create/resume/follow-ups behavior).
+_b02_rules_ctx() {
+    local wd="$TMPROOT/b02-rules-$RANDOM-$RANDOM"
+    mkdir -p "$wd"
+    local output
+    output=$(run_hook "$wd")
+    printf '%s' "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null
+}
+
+# Test: no forge vocabulary anywhere in the injected rules, matched
+# case-insensitively on whole words so e.g. "PR" doesn't false-fail on a
+# word merely containing those letters (this same rules text legitimately
+# says "Awaiting Merge Queue", "Awaiting Reviewer Assignment", etc.).
+test_b02_no_forge_vocabulary() {
+    local ctx
+    ctx=$(_b02_rules_ctx)
+    assert_not_contains_re_i "B02: no 'PR' (whole word) in injected rules" "$ctx" '\bpr\b'
+    assert_not_contains_re_i "B02: no 'pull request' in injected rules" "$ctx" '\bpull request\b'
+    assert_not_contains_re_i "B02: no 'merge request' in injected rules" "$ctx" '\bmerge request\b'
+    assert_not_contains_re_i "B02: no 'draft' in injected rules" "$ctx" '\bdraft\b'
+    assert_not_contains_re_i "B02: no 'gh' (whole word) in injected rules" "$ctx" '\bgh\b'
+}
+
+# Test: the decision-log rundown skill reference in the Waiting For Decision
+# bullet survives verbatim. Load-bearing beyond the prose: architecture-lint
+# baselines this exact skill-invocation, and that baseline is shrink-only —
+# losing the last occurrence makes the baseline entry STALE and fails CI.
+test_b02_decision_log_rundown_preserved() {
+    local ctx
+    ctx=$(_b02_rules_ctx)
+    assert_contains "B02: /decision-log:rundown reference survives verbatim" "$ctx" "/decision-log:rundown"  # architecture-lint: allow guards the shrink-only baseline entry for this skill-invocation in session-context.sh; removing the mention here would defeat the guard
+}
+
+# Test: all 13 states from lib/states.tsv are still named somewhere in the
+# grouping — none dropped while rewording the Awaiting User Review bullet.
+# Flattened/whitespace-collapsed first: the heredoc hard-wraps some
+# multi-word state names across a line break (e.g. "Awaiting Bot\n  Review"),
+# which a literal single-space match would otherwise false-fail on, and that
+# wrapping is irrelevant to whether the state was dropped.
+test_b02_all_13_states_present() {
+    local ctx flat
+    ctx=$(_b02_rules_ctx)
+    flat=$(printf '%s' "$ctx" | tr '\n' ' ' | tr -s '[:space:]' ' ')
+    local states=(
+        "Not Started" "In Progress" "Awaiting Agent" "Awaiting CI"
+        "Awaiting Independent Agent Review" "Awaiting User Review"
+        "Awaiting Bot Review" "Awaiting Reviewer Assignment"
+        "Awaiting Human Review" "Awaiting Merge Queue"
+        "Waiting For Decision" "Blocked" "Complete"
+    )
+    local s
+    for s in "${states[@]}"; do
+        assert_contains "B02: state '$s' still present in the grouping" "$flat" "$s"
+    done
+}
+
+# Test edge case: the Awaiting User Review bullet must read correctly with
+# no forge specificity at all — a local-merge repo, or one where the thing
+# awaiting review is a design doc or a rendered plan — while still
+# identifying the state as one where the user reviews at their own pace.
+test_b02_awaiting_user_review_bullet_forge_neutral() {
+    local ctx bullet
+    ctx=$(_b02_rules_ctx)
+    bullet=$(bullet_zone_str "$ctx" '^- \*\*Parked, summons once then waits:')
+    if [ -z "$bullet" ]; then
+        fail "B02: 'Parked, summons once then waits' bullet is present" "bullet not found in ctx: $ctx"
+        return
+    fi
+    pass "B02: 'Parked, summons once then waits' bullet is present"
+    assert_contains "B02: bullet still names Awaiting User Review" "$bullet" "Awaiting User Review"
+    assert_not_contains_re_i "B02: bullet carries no forge vocabulary ('PR')" "$bullet" '\bpr\b'
+    assert_not_contains_re_i "B02: bullet carries no forge vocabulary ('draft')" "$bullet" '\bdraft\b'
+    local flat
+    flat=$(printf '%s' "$bullet" | tr '\n' ' ')
+    assert_contains_re_i "B02 edge case: bullet still reads as reviewing something at the user's own pace, forge-neutrally" \
+        "$flat" 'review.{0,40}own pace|own pace.{0,40}review'
+}
+
+# Test: subtractive-only — no entry-trigger instruction (when to move INTO
+# the state) is added to the bullet. That decision belongs at point-of-use
+# (turn end), which is B01's territory, not session start. "when" is a
+# reliable proxy: the bullet contains none today, and any instruction of the
+# form "set State to X when Y happens" would introduce it.
+test_b02_no_entry_instruction_added() {
+    local ctx bullet
+    ctx=$(_b02_rules_ctx)
+    bullet=$(bullet_zone_str "$ctx" '^- \*\*Parked, summons once then waits:')
+    local flat
+    flat=$(printf '%s' "$bullet" | tr '\n' ' ')
+    assert_not_contains_re_i "B02: bullet does not add a 'when to enter this state' instruction (subtractive-only)" "$flat" '\bwhen\b'
+}
+
 # --- Run all tests ---
 test_auto_create_when_local_exists
 test_auto_create_has_state
@@ -556,6 +691,13 @@ test_b06_open_questions_ordering
 test_b06_open_questions_hint_and_bullet_style
 test_b06_notimplemented_placeholder_gone
 test_b06_rules_mention_open_questions
+
+# B02 (session-start-orientation, plan 001)
+test_b02_no_forge_vocabulary
+test_b02_decision_log_rundown_preserved
+test_b02_all_13_states_present
+test_b02_awaiting_user_review_bullet_forge_neutral
+test_b02_no_entry_instruction_added
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

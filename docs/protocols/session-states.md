@@ -29,8 +29,10 @@ continue:
 
 - **active** — work is in flight; a session should not end a turn in an
   active state without cause.
-- **parked** — the session is waiting on something that resolves on its
-  own; stopping is allowed, and the state stays silent while it waits.
+- **parked** — the session has no active work left to do until something
+  outside the session changes; stopping is allowed. Whether the user must
+  be alerted on the way into the state is a separate, orthogonal question
+  — see Summons semantics, below.
 - **needs_user** — a human must act before the work can continue; the
   session stops.
 - **terminal** — no actionable work remains.

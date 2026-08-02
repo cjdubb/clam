@@ -5,6 +5,9 @@
 #   - B05 protocol-spec-decision-file  (docs/protocols/decision-file.md)
 #   - B06 protocol-spec-setup-stamp    (docs/protocols/setup-stamp.md)
 #   - B07 protocol-spec-todo-format    (docs/protocols/todo-format.md)
+# plus, from plan 001-awaiting-user-review-entry-principle:
+#   - B00 parked-category-definition (docs/protocols/session-states.md,
+#     the "## Category vocabulary" section's `parked` bullet only)
 #
 # Black-box, content-assertion tests against the committed doc files
 # themselves (there is no script under test here). Each doc's HTML
@@ -99,6 +102,19 @@ line_has_all() { # text needle...
 flatten() { # text -> newlines collapsed to single spaces, runs of
             # whitespace squeezed to one space each
   printf '%s' "$1" | tr '\n' ' ' | tr -s '[:space:]' ' '
+}
+
+extract_section() { # text header -> the lines strictly between an exact
+                     # "$header" line and the next "## "-prefixed line (or
+                     # EOF), header line itself excluded. Used to scope an
+                     # assertion to one markdown section instead of the
+                     # whole document.
+  local text="$1" header="$2"
+  awk -v hdr="$header" '
+    $0 == hdr { infield=1; next }
+    infield && /^## / { exit }
+    infield { print }
+  ' <<< "$text"
 }
 
 # Byte offset of the first occurrence of a literal needle in text, or -1 if
@@ -293,6 +309,75 @@ check "session-states: an out-of-table State value is a protocol violation, not 
 # --- No plugin named ---
 check "session-states: no plugin named anywhere in the doc" \
   "$(first_plugin_named "$ss_flat")" ""
+
+# ===========================================================================
+# B00 — session-states.md (parked-category-definition)
+# ===========================================================================
+#
+# B00 rewrites only the `parked` bullet inside "## Category vocabulary"; the
+# state table and "## Summons semantics" section are unchanged (already
+# covered by the B04 checks above). Its contract comment sits BEFORE that
+# section (between "## Runtime artifact" and "## Category vocabulary"), and
+# it restates every phrase B00's Outputs promise (`stopping is allowed`,
+# `work is in flight`, `human must act`, `no actionable work remains`). The
+# B04 strip above (`ss_doc`/`ss_flat`) only removes a "Contract: B04"
+# comment — a no-op here — so a naive check against $ss_flat would match
+# the COMMENT, not the delivered prose. ss_doc_b00 / ss_flat_b00 below
+# strip the B00 comment too, so every assertion under this heading runs
+# against delivered prose only.
+ss_doc_b00="$(printf '%s\n' "$ss_doc" | sed '/<!-- Contract: B00/,/^-->$/d')"
+ss_flat_b00="$(flatten "$ss_doc_b00")"
+
+# The category-vocabulary section ALONE, not the whole document. The
+# Summons semantics section (correct, unchanged) already explains that
+# Awaiting User Review alerts once on entry; asserting against the whole
+# document would let that correct section mask a still-defective category
+# bullet, which is exactly the failure this block exists to catch.
+ss_cat_section="$(extract_section "$ss_doc_b00" "## Category vocabulary")"
+ss_cat_flat="$(flatten "$ss_cat_section")"
+
+# --- Hygiene: contract comment gone at acceptance ---
+check "session-states (B00): contract comment removed from source" \
+  "$(contains "$ss_raw" "Contract: B00")" "no"
+
+# --- Behavior: the parked bullet stops asserting these of EVERY member,
+#     checked against the category section alone ---
+check "session-states (B00): category section no longer claims parked resolves on its own" \
+  "$(contains_ci "$ss_cat_flat" "resolves on its own")" "no"
+check "session-states (B00): category section no longer claims parked stays silent while it waits" \
+  "$(contains_ci "$ss_cat_flat" "stays silent while it waits")" "no"
+
+# --- Outputs: the four surviving substrings, checked against prose with
+#     the B00 comment properly stripped (the trap: the comment itself
+#     contains all four, so ss_flat above would false-PASS these even if
+#     the delivered prose lost them) ---
+check "session-states (B00): 'stopping is allowed' survives verbatim in delivered prose" \
+  "$(contains_ci "$ss_flat_b00" "stopping is allowed")" "yes"
+check "session-states (B00): sibling substring 'work is in flight' (active) survives" \
+  "$(contains_ci "$ss_flat_b00" "work is in flight")" "yes"
+check "session-states (B00): sibling substring 'human must act' (needs_user) survives" \
+  "$(contains_ci "$ss_flat_b00" "human must act")" "yes"
+check "session-states (B00): sibling substring 'no actionable work remains' (terminal) survives" \
+  "$(contains_ci "$ss_flat_b00" "no actionable work remains")" "yes"
+
+# --- Invariant: no plugin named anywhere in the document ---
+check "session-states (B00): no plugin named anywhere in the doc" \
+  "$(first_plugin_named "$ss_flat_b00")" ""
+
+# --- Invariant: the 13 (name, category, summons) triples are untouched ---
+for t in "${SS_TRIPLES[@]}"; do
+  IFS='|' read -r nm cat summ <<< "$t"
+  check "session-states (B00): triple ($nm / $cat / summons=$summ) untouched" \
+    "$(line_has_all "$ss_doc_b00" "$nm" "$cat" "$summ")" "yes"
+done
+
+# --- Edge case: a reader who consults ONLY the category-vocabulary section
+#     must not be able to conclude every parked state needs no user action.
+#     Casts a wider net than the Behavior checks above (a differently
+#     worded restatement of the same false generalisation still trips it),
+#     still scoped to the category section alone. ---
+check "session-states (B00) edge case: category section alone cannot be read as 'every parked state needs no user action'" \
+  "$(contains_any "$ss_cat_flat" "resolves on its own" "stays silent while it waits" "no user action" "needs no action" "requires no action" "never needs the user")" "no"
 
 # ===========================================================================
 # B05 — decision-file.md

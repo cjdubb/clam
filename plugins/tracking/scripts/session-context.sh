@@ -81,6 +81,48 @@ _auto_create_todo() {
 }
 [ -n "$cwd" ] && _auto_create_todo
 
+# Contract: B02 — session-start-orientation (plan 001)
+#
+# Behavior:
+#   The state-lifecycle prose inside the heredoc below carries no forge
+#   vocabulary. The Awaiting User Review bullet currently reads "(draft PR
+#   up, user reviewing at their own pace)"; "draft PR" is forge vocabulary
+#   inside a plugin whose rules may only cover concerns tracking itself owns
+#   (ARCHITECTURE.md, Responsibilities → tracking). It is replaced by a
+#   forge-neutral description of the same state.
+#
+#   This block is SUBTRACTIVE. The entry instruction — when to move INTO the
+#   state — deliberately does NOT belong here. ARCHITECTURE.md requires
+#   context at point-of-use rather than session start, and the point of use
+#   for a state-entry decision is turn end, which B01 owns. Session-start
+#   injection stays orientation: which states exist and what they mean.
+#
+# Inputs:
+#   The existing heredoc; docs/protocols/session-states.md as the authority
+#   for the state semantics being restated.
+#
+# Outputs:
+#   The injected rules on stdout at SessionStart. Every other rule in the
+#   heredoc is unchanged.
+#
+# Errors: n/a (static prose).
+#
+# Invariants:
+#   - The `/decision-log:rundown` reference in the Waiting For Decision
+#     bullet is preserved VERBATIM. scripts/architecture-lint.sh baselines
+#     it as `plugins/tracking/scripts/session-context.sh  skill-invocation
+#     decision-log`, and that baseline is shrink-only: removing the last
+#     occurrence in this file makes the entry STALE and fails CI.
+#   - No forge vocabulary introduced anywhere: no "PR", "pull request",
+#     "merge request", "draft", "gh".
+#   - The grouping still accounts for all 13 states; none is dropped while
+#     rewording.
+#
+# Edge cases:
+#   - The bullet must read correctly in a repo with no forge at all — a
+#     local-merge repo, or one where the thing awaiting review is a design
+#     doc or a rendered plan. That generality is the point of the rewording,
+#     not a side effect.
 rules=$(cat <<EOF
 # Tracking (clam tracking plugin)
 
@@ -116,8 +158,8 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
   per the /decision-log:rundown template — options, evidence, recommendation,
   if-deferred path — then populate \`Decision Needed:\` with the question, the
   recommended option, and the file path).
-- **Parked, summons once then waits:** \`Awaiting User Review\` (draft PR up,
-  user reviewing at their own pace).
+- **Parked, summons once then waits:** \`Awaiting User Review\` (user
+  reviewing at their own pace).
 - **Parked, resumes on its own, stays silent:** \`Awaiting Agent\`,
   \`Awaiting CI\`, \`Awaiting Independent Agent Review\`, \`Awaiting Bot
   Review\`, \`Awaiting Reviewer Assignment\`, \`Awaiting Human Review\`,

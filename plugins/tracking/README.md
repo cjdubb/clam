@@ -403,11 +403,11 @@ absent:
   `.local/decisions/NNN-<slug>.md` file, ideally written via
   `/decision-log:rundown`.
 - **notifications plugin** — bell, desktop notification, tmux highlight,
-  and phone push on summoning transitions (`Blocked`, `Waiting For
-  Decision`); its idle-event backstop delivers the push even when the
-  `notify` shell helper is not installed. It also vendors a copy of
-  `lib/states.tsv`/`states.sh`, so its notify logic tracks this plugin's
-  State manifest.
+  and phone push on summoning transitions (`Awaiting User Review`,
+  `Blocked`, `Waiting For Decision`); its idle-event backstop delivers the
+  push even when the `notify` shell helper is not installed. It also
+  vendors a copy of `lib/states.tsv`/`states.sh`, so its notify logic
+  tracks this plugin's State manifest.
 - **statusline plugin** — vendors the same `lib/states.tsv`/`states.sh` to
   show the State segment.
 - **agent-dash** (external) — reads the same `.local/` files for its

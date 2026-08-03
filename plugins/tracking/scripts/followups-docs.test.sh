@@ -40,6 +40,7 @@ README="$PLUGIN_ROOT/README.md"
 SKILL="$PLUGIN_ROOT/skills/make-progress/SKILL.md"
 PLUGIN_JSON="$PLUGIN_ROOT/.claude-plugin/plugin.json"
 README_LINT="$REPO_ROOT/scripts/readme-lint.sh"
+ROOT_README="$REPO_ROOT/README.md"
 
 FAILED=0
 pass() { echo "PASS  $1"; }
@@ -48,7 +49,7 @@ check() { # label got expected
     if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "got '$2', expected '$3'"; fi
 }
 
-for f in "$README" "$SKILL" "$PLUGIN_JSON" "$README_LINT"; do
+for f in "$README" "$SKILL" "$PLUGIN_JSON" "$README_LINT" "$ROOT_README"; do
     if [ ! -f "$f" ]; then
         fail "required file exists" "not found at $f"
         echo ""
@@ -254,6 +255,71 @@ expected_seq=$(printf '%s' "${expected_seq# }")
 check "step-2 list numbering is sequential (1..N, no gaps/repeats)" \
     "$(printf '%s' "$got_seq" | sed -E 's/[[:space:]]+/ /g; s/ $//')" \
     "$(printf '%s' "$expected_seq" | sed -E 's/[[:space:]]+/ /g; s/ $//')"
+
+# ===========================================================================
+# B07 followups-snapshot-docs (plan 002-tracking-followups-snapshot-docs,
+# cjdubb/clam#225): the SessionStart `compact` matcher and PreCompact
+# `auto` matcher bullets omit FOLLOWUPS.md from their file lists even
+# though the scripts they describe already carry it. Contract: the
+# "Contract: B07 followups-snapshot-docs" HTML-comment docblock directly
+# above the SessionStart `compact` matcher bullet in
+# plugins/tracking/README.md. Four clauses / artifact states, assigned to
+# this B05 suite per the contract's own Invariants section (which also
+# amends workgraph-docs.test.sh's exact-0.7.0 plugin.json pin to 0.7.1 so
+# the two suites never pin contradictory versions).
+# ===========================================================================
+
+# Clause 1: the SessionStart `compact` matcher bullet's re-injected file
+# list gains FOLLOWUPS.md, inserted after TROUBLESHOOTING.md and before
+# WORKGRAPH.md (the script's own order).
+postcompact_bullet=$(bullet_zone "$STRIPPED_README" '^- \*\*SessionStart, `compact` matcher\*\* ')
+check "Hooks: a '- **SessionStart, \`compact\` matcher** (...)' bullet exists" \
+    "$([ -n "$postcompact_bullet" ] && echo yes || echo no)" "yes"
+assert_contains_re_i "post-compact-recovery bullet: FOLLOWUPS.md joins the re-injection file list" \
+    "$postcompact_bullet" 'FOLLOWUPS\.md'
+assert_contains_re_i "post-compact-recovery bullet: FOLLOWUPS.md sits after TROUBLESHOOTING.md and before WORKGRAPH.md" \
+    "$postcompact_bullet" 'TROUBLESHOOTING\.md.{0,80}FOLLOWUPS\.md.{0,80}WORKGRAPH\.md'
+
+# Clause 2: the PreCompact `auto` matcher bullet's copied file list gains
+# FOLLOWUPS.md at the same position; the trailing "any SUBAGENT-LOG-*.md"
+# clause is unchanged (still trails WORKGRAPH.md). The two bullets' lists
+# differ (this one also names SUBAGENT-LOG-*.md and the snapshot
+# destination) — assert each bullet's own list only, never that the two
+# read identically.
+precompact_bullet=$(bullet_zone "$STRIPPED_README" '^- \*\*PreCompact, `auto` matcher\*\* ')
+check "Hooks: a '- **PreCompact, \`auto\` matcher** (...)' bullet exists" \
+    "$([ -n "$precompact_bullet" ] && echo yes || echo no)" "yes"
+assert_contains_re_i "PreCompact bullet: FOLLOWUPS.md joins the snapshot file list" \
+    "$precompact_bullet" 'FOLLOWUPS\.md'
+assert_contains_re_i "PreCompact bullet: FOLLOWUPS.md sits after TROUBLESHOOTING.md and before WORKGRAPH.md" \
+    "$precompact_bullet" 'TROUBLESHOOTING\.md.{0,80}FOLLOWUPS\.md.{0,80}WORKGRAPH\.md'
+assert_contains_re_i "PreCompact bullet: the trailing 'any SUBAGENT-LOG-*.md' clause still trails WORKGRAPH.md" \
+    "$precompact_bullet" 'WORKGRAPH\.md.{0,40}SUBAGENT-LOG-\*\.md'
+
+# Clause 3: plugin.json version becomes exactly 0.7.1 (from 0.7.0);
+# description is unchanged. The description is pinned byte-for-byte —
+# unlike the flexible-semver check above (which predates B07 and stays as
+# a loose "well-formed" check), B07's version target is a specific literal,
+# same treatment workgraph-docs.test.sh gives its own exact-version clause.
+b07_plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
+check "plugin.json version is exactly 0.7.1 (B07 bump from 0.7.0)" "$b07_plugin_version" "0.7.1"
+
+EXPECTED_B07_DESCRIPTION='Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), resume-after-/clear via SessionStart injection, and a work graph (.local/WORKGRAPH.md) for recursive problem decomposition.'
+b07_plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
+check "plugin.json description is unchanged by the B07 version bump" \
+    "$b07_plugin_description" "$EXPECTED_B07_DESCRIPTION"
+
+# Clause 4: the repo-root README.md Plugins table's tracking row version
+# cell becomes v0.7.1 (readme-lint's version-match rule pairs it with
+# clause 3). Anchored on the tracking row's own leading cell
+# ("[tracking](plugins/tracking/)"), never on a sibling plugin's row or a
+# position derived from one — several other rows legitimately mention
+# "tracking" in their own prose (statusline, notifications).
+tracking_row=$(grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
+check "root README.md: the tracking row exists in the Plugins table" \
+    "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
+assert_contains_re_i "root README.md: tracking row's version cell is v0.7.1" "$tracking_row" \
+    '✅ *v0\.7\.1'
 
 # ===========================================================================
 # Clause: `bash scripts/readme-lint.sh` (repo root) still passes for

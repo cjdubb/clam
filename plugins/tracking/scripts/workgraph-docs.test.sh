@@ -401,10 +401,16 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # Clause: plugin.json version is bumped exactly 0.6.3 -> 0.7.0 (a specific
 # target, unlike B05's flexible-semver bump), and the description field
 # gains the work-graph feature in its enumeration.
+#
+# Amended by B07 followups-snapshot-docs (cjdubb/clam#225): B07 bumps this
+# plugin.json version again, 0.7.0 -> 0.7.1 (see plugins/tracking/README.md's
+# "Contract: B07 followups-snapshot-docs" comment, invariant 3, and
+# followups-docs.test.sh's own plugin.json version check) — kept in
+# lockstep here so the two suites never pin contradictory versions.
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.7.0" "$plugin_version" "0.7.0"
+check "plugin.json version is exactly 0.7.1" "$plugin_version" "0.7.1"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

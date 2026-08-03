@@ -249,10 +249,11 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
   and appended after the open-follow-ups block.
 - **SessionStart, `compact` matcher** (`scripts/post-compact-recovery.sh`)
   — re-injects the full contents of `.local/TODO.md`, `PLAN.md`,
-  `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`, and `WORKGRAPH.md` after
-  a compaction, and drops a `.local/.flush-nudge-skip-next` marker so the
-  flush-nudge hook doesn't misread stale pre-compaction token counts on
-  the very next prompt. Fail-open.
+  `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`, `FOLLOWUPS.md`, and
+  `WORKGRAPH.md` after a compaction, and drops a
+  `.local/.flush-nudge-skip-next` marker so the flush-nudge hook doesn't
+  misread stale pre-compaction token counts on the very next prompt.
+  Fail-open.
 - **Stop** (`scripts/keep-working.sh`) — enforces the state lifecycle
   described in [What to expect](#what-to-expect). Escape hatch:
   `CLAM_TRACKING_STOP_GATE=disabled` turns the hook off entirely.
@@ -354,7 +355,7 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
 - **PreCompact, `auto` matcher** (`scripts/precompact-snapshot.sh`) — on
   auto-compaction only (not manual `/compact`), copies `.local/TODO.md`,
   `PLAN.md`, `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`,
-  `WORKGRAPH.md`, and any `SUBAGENT-LOG-*.md` to
+  `FOLLOWUPS.md`, `WORKGRAPH.md`, and any `SUBAGENT-LOG-*.md` to
   `.local/snapshots/<YYYYMMDD-HHMMSS>/`, and appends an HTML-comment
   marker recording the snapshot path to `TODO.md`. This is
   the deterministic backstop when the flush nudge above went unheeded;

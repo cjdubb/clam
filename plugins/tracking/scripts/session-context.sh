@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" "$cwd/.local/.workgraph-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -106,6 +106,18 @@ at \`$PLUGIN_ROOT/templates/FOLLOWUPS.md\` (lazy creation — do not create it
 ahead of need). Append one entry per item, in the template's entry format,
 and mark each entry's outcome in place as it is addressed — filed <ref>,
 resolved, or dropped (<reason>) — rather than deleting it.
+
+When a problem genuinely decomposes into subproblems, capture that
+decomposition in \`.local/WORKGRAPH.md\`, created lazily from the template at
+\`$PLUGIN_ROOT/templates/WORKGRAPH.md\` — never ahead of need — the moment it
+first happens. Add one node per subproblem at the moment it surfaces, each
+with a Goal, a Parent decomposition edge, and Deps ordering edges. Move the
+file-level Focus pointer in real time as attention shifts between nodes, and
+cite the Focus node's id in TODO.md's Current Task field. Mark each node
+done or dropped (<reason>) in place — rather than delete them; entries are
+never removed. When asked to show the work graph, render it as an indented
+ASCII tree: children nested under their parents, \`[needs: N<NN>]\` dependency
+annotations, a status glyph per node, and an arrow marking the Focus node.
 
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):
@@ -206,6 +218,133 @@ _followups_surfacing() {
     printf '\n\n# Open follow-ups (%s)\n' "$count"
     printf '%s\n' "$entries"
     printf '\nEach open follow-up above must be dispositioned — filed <ref>, resolved, or dropped (<reason>) — before this work closes out.\n'
+}
+
+# Contract: B03 — workgraph-rules-and-surfacing (plan 001-tracking-work-graph)
+#
+# Behavior:
+#   Three coupled obligations, all in this script, mirroring the follow-ups
+#   block above (the work graph is the sibling artifact for recursive
+#   problem decomposition; format: docs/protocols/work-graph.md):
+#   (1) Capture rule: the rules heredoc above gains a work-graph paragraph,
+#       placed directly after the FOLLOWUPS capture paragraph, requiring
+#       agents to: create `.local/WORKGRAPH.md` from
+#       $PLUGIN_ROOT/templates/WORKGRAPH.md the moment a problem genuinely
+#       decomposes into subproblems (lazy creation — never ahead of need);
+#       add one node per problem/subproblem AT the moment it surfaces, each
+#       with a Goal: stating what done looks like, a Parent: decomposition
+#       edge, and Deps: ordering edges; keep the file-level `Focus:` pointer
+#       on the node being worked and move it in real time as attention
+#       moves; cite the Focus node id in TODO.md's `Current Task:`;
+#       disposition nodes in place (done / dropped (<reason>)) rather than
+#       delete them; and render the graph as an indented ASCII tree
+#       (children under parents, [needs: N<NN>] dep annotations, status
+#       glyphs, an arrow at the Focus node) whenever the engineer asks to
+#       see it.
+#   (2) Surfacing: _workgraph_surfacing prints a "Work graph" block for
+#       injection whenever $cwd/.local/WORKGRAPH.md exists and contains at
+#       least one open node. Wiring: the final assembly becomes
+#       printf '%s%s%s%s' "$rules" "$resume" "$followups_block"
+#       "$workgraph_block" (wiring the fourth operand is part of this
+#       block's implementation; the work-graph block renders after the
+#       open-follow-ups block).
+#   (3) Epoch marker: `.local/.workgraph-nudge-fired` joins the
+#       marker-clear rm -f list at the top of this script, same
+#       session-boundary scheme as the other nudge markers (the marker
+#       itself is set by keep-working.sh's close-out gate, B04).
+# Inputs: $cwd; $cwd/.local/WORKGRAPH.md (may be absent). A node is OPEN
+#   iff it contains a line matching ^- Status: open[[:space:]]*$; the Focus
+#   pointer is the line matching ^Focus: (N[0-9]+|none)[[:space:]]*$; node
+#   headings match ^## N[0-9]+ — <title> (heading text = the line with the
+#   leading "## " stripped).
+# Outputs (stdout of _workgraph_surfacing): empty when $cwd is empty, the
+#   file is absent/unreadable, or no node is open. Otherwise:
+#     - header line: `# Work graph (N open node(s); Focus: <id|none>)`
+#       (N = count of open nodes; <id|none> = the Focus line's value, or
+#       `none` when the Focus line is absent/malformed);
+#     - when the Focus value names a node entry present in the file: one
+#       line `Focus: <heading text>` and one line `  Goal: <that node's
+#       Goal field value>` (both omitted when Focus is none, dangling, or
+#       the node has no Goal line — fail-open, never an error);
+#     - one line per open node: its heading text, or `(untitled)` if an
+#       open Status line has no preceding node heading;
+#     - one closing line instructing that the Focus pointer and node
+#       Statuses be kept current in real time, nodes dispositioned (done /
+#       dropped (<reason>)) rather than deleted, and the graph rendered as
+#       an ASCII tree on request.
+# Errors: fail-open — any failure prints nothing and returns 0; SessionStart
+#   is never broken by this feature.
+# Invariants:
+#   - Read-only: never creates or modifies WORKGRAPH.md.
+#   - Existing rules text, auto-create, resume behavior, follow-ups
+#     surfacing, and all pre-existing session-context tests remain
+#     unchanged/green.
+#   - bash 3.2 safe (no associative arrays, no bash 4+ features).
+# Edge cases:
+#   - WORKGRAPH.md exists, every node done/dropped → empty output (a
+#     finished graph is not resurfaced).
+#   - Zero-byte or malformed file → empty output, no error.
+#   - Freshly instantiated template (Focus: none, no real nodes) → empty
+#     output.
+#   - Open-node count N counts open Status lines, not headings.
+_workgraph_surfacing() {
+    [ -n "$cwd" ] || return 0
+    local file="$cwd/.local/WORKGRAPH.md"
+    [ -f "$file" ] && [ -r "$file" ] || return 0
+
+    local entries
+    entries=$(awk '
+        /^## / { heading = substr($0, 4); next }
+        /^- Status: open[ \t]*$/ {
+            if (heading == "") print "(untitled)"
+            else print heading
+            next
+        }
+    ' "$file" 2>/dev/null)
+    [ -n "$entries" ] || return 0
+
+    local count
+    count=$(printf '%s\n' "$entries" | wc -l | tr -d '[:space:]')
+
+    local focus_line focus_id
+    focus_line=$(grep -m1 -E '^Focus: (N[0-9]+|none)[[:space:]]*$' "$file" 2>/dev/null)
+    if [ -n "$focus_line" ]; then
+        focus_id=$(printf '%s\n' "$focus_line" | sed -E 's/^Focus: ([^[:space:]]+).*/\1/')
+    else
+        focus_id="none"
+    fi
+
+    # Focus/Goal detail lines: find the node heading whose leading token (the
+    # N<NN> id, up to the first space) equals focus_id, then capture its Goal
+    # field. Split on the first space rather than the em-dash separator to
+    # stay encoding-agnostic. Emits nothing when Focus is none/dangling, or
+    # the matched node has no Goal line — fail-open by construction.
+    local focus_detail
+    focus_detail=$(awk -v want="$focus_id" '
+        /^## / {
+            heading = substr($0, 4)
+            idpart = heading
+            sp = index(heading, " ")
+            if (sp > 0) idpart = substr(heading, 1, sp - 1)
+            matched = (idpart == want)
+            if (matched) { mheading = heading; mgoal = "" }
+            next
+        }
+        matched && /^- Goal: / {
+            mgoal = substr($0, 9)
+            next
+        }
+        END {
+            if (mheading != "" && mgoal != "") {
+                printf "Focus: %s\n  Goal: %s\n", mheading, mgoal
+            }
+        }
+    ' "$file" 2>/dev/null)
+
+    printf '\n\n# Work graph (%s open node(s); Focus: %s)\n' "$count" "$focus_id"
+    [ -n "$focus_detail" ] && printf '%s\n' "$focus_detail"
+    printf '%s\n' "$entries"
+    printf '\nKeep the Focus pointer and node Status entries current in real time; disposition nodes (done or dropped (<reason>)) rather than deleting them; render the graph as an indented ASCII tree when asked to see it.\n'
 }
 
 # Contract: B04 — resume-freshness
@@ -380,4 +519,6 @@ fi
 
 followups_block=$(_followups_surfacing 2>/dev/null) || followups_block=""
 
-printf '%s%s%s' "$rules" "$resume" "$followups_block" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'
+workgraph_block=$(_workgraph_surfacing 2>/dev/null) || workgraph_block=""
+
+printf '%s%s%s%s' "$rules" "$resume" "$followups_block" "$workgraph_block" | jq -Rs '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: .}}'

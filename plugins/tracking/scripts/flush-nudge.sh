@@ -48,7 +48,8 @@
 #     ~/.claude/settings.json .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW → skip.
 #   - Nudge text enumerates specific .local/ files (TODO.md, PLAN.md,
 #     IMPLEMENTATION-PLAN.md, TROUBLESHOOTING.md, SUBAGENT-LOG-*.md,
-#     decisions/*.md, FOLLOWUPS.md) with actionable instructions for each.
+#     decisions/*.md, FOLLOWUPS.md, WORKGRAPH.md) with actionable
+#     instructions for each.
 # Edge cases:
 #   - CLAUDE_CODE_AUTO_COMPACT_WINDOW not set anywhere → skip (no window)
 #   - CLAUDE_CODE_AUTO_COMPACT_WINDOW not a positive integer → skip
@@ -182,6 +183,16 @@ marker="$cwd/.local/.flush-nudge-fired"
 # Invariants: numbering stays sequential; the header comment at the top of
 #   this script naming the enumerated files is updated to match; the closing
 #   "If every doc above is already current" line stays last.
+#
+# Contract: B05 — workgraph-lifecycle (flush-nudge leg, plan 001-tracking-work-graph)
+# Behavior: the nudge below gains an 8th numbered item, after the
+#   FOLLOWUPS.md item, instructing: `.local/WORKGRAPH.md` — add any
+#   subproblem surfaced in conversation but not yet recorded as a node,
+#   verify the `Focus:` pointer names the node actually being worked, and
+#   disposition any node resolved in-conversation (done / dropped (<reason>)).
+# Invariants: numbering stays sequential; the header comment at the top of
+#   this script naming the enumerated files is updated to match; the closing
+#   "If every doc above is already current" line stays last.
 cat <<EOF
 [CLAM FLUSH NUDGE] Context fill is ~${pct}% (${fill} / ${window} tokens). Auto-compaction is approaching and will lossily summarise in-conversation state. Before doing any other work this turn, verify each \`.local/\` tracking doc reflects current reality and update only what is stale:
 
@@ -192,6 +203,7 @@ cat <<EOF
 5. \`.local/SUBAGENT-LOG-{descriptiveName}.md\` — persist any subagent return summaries received since last flush.
 6. \`.local/decisions/*.md\` — verify any open decision file (\`Status: Open\`) has its evidence, recommendation, and if-deferred path complete before compaction discards the supporting context.
 7. \`.local/FOLLOWUPS.md\` — capture any follow-up mentioned in conversation but not yet recorded, and verify every open entry is still genuinely open (disposition any resolved in-conversation).
+8. \`.local/WORKGRAPH.md\` — add any subproblem surfaced but not yet recorded as a node, verify the \`Focus:\` pointer names the node actually being worked, and disposition any node resolved in-conversation (done / dropped (<reason>)).
 
 If every doc above is already current, proceed with the user's request. Do not rewrite files that are already accurate.
 EOF

@@ -21,8 +21,8 @@
 #   - Gated on .local/TODO.md existing — if tracking has no state file, there
 #     is nothing to snapshot.
 #   - Files copied: TODO.md, PLAN.md, IMPLEMENTATION-PLAN.md,
-#     TROUBLESHOOTING.md, FOLLOWUPS.md, and all SUBAGENT-LOG-*.md files from
-#     .local/.
+#     TROUBLESHOOTING.md, FOLLOWUPS.md, WORKGRAPH.md, and all
+#     SUBAGENT-LOG-*.md files from .local/.
 #   - Never modifies the source files (except the HTML-comment marker appended
 #     to TODO.md).
 #   - HTML-comment marker format:
@@ -65,8 +65,16 @@ mkdir -p "$snapshot_dir" 2>/dev/null || exit 0
 # Invariants: list order otherwise preserved; the header comment at the top
 #   of this script naming the copied files is updated to match; absent
 #   FOLLOWUPS.md remains a silent no-op.
+#
+# Contract: B05 — workgraph-lifecycle (snapshot leg, plan 001-tracking-work-graph)
+# Behavior: WORKGRAPH.md joins the same fixed snapshot list, appended after
+#   FOLLOWUPS.md, so the work graph survives auto-compaction like the other
+#   tracking docs (copy-if-present semantics unchanged).
+# Invariants: list order otherwise preserved; the header comment at the top
+#   of this script naming the copied files is updated to match; absent
+#   WORKGRAPH.md remains a silent no-op.
 copied=0
-for f in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md FOLLOWUPS.md; do
+for f in TODO.md PLAN.md IMPLEMENTATION-PLAN.md TROUBLESHOOTING.md FOLLOWUPS.md WORKGRAPH.md; do
     if [[ -f "$cwd/.local/$f" ]]; then
         cp "$cwd/.local/$f" "$snapshot_dir/" 2>/dev/null && copied=$((copied + 1))
     fi

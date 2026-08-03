@@ -78,6 +78,19 @@ Concretely, once enabled:
   entry is still open — once per session epoch, same marker scheme as the
   other nudges; see [Commands](#commands) for the mechanics and the
   `CLAM_FOLLOWUPS_GATE` escape hatch.
+- **`.local/WORKGRAPH.md`** is the lazily-created work graph for recursive
+  problem decomposition — format per `docs/protocols/work-graph.md`: one
+  node per problem or subproblem, each with `Goal:`, `Status:`, `Parent:`,
+  and `Deps:` fields, plus a file-level `Focus:` pointer naming the node
+  currently being worked. It is created from `templates/WORKGRAPH.md` the
+  moment a problem genuinely decomposes — never ahead of need, and never
+  by a hook. Every open node and the Focus node are surfaced at every
+  SessionStart, and a Stop-hook close-out gate blocks parking `State:
+  Complete` while any node is still open — once per session epoch, same
+  marker scheme as the other nudges; see [Commands](#commands) for the
+  mechanics and the `CLAM_WORKGRAPH_GATE` escape hatch. The file is
+  carried through the flush nudge, the pre-compact snapshot, and
+  post-compaction recovery alongside the other tracking docs.
 - **A prompt arriving into a parked session** (State in the manifest's
   `parked` category, e.g. `Awaiting User Review`) gets a one-time nudge
   reminding the agent that the park may be over: set `State: In Progress`
@@ -164,6 +177,28 @@ hooks stop seeing the entry — an open follow-up then silently reads as
 dispositioned. Every other `Status:` value is a disposition and ends the
 entry's open state.
 
+### Track a problem decomposition
+
+The moment a problem genuinely decomposes into subproblems — not ahead of
+need — create `.local/WORKGRAPH.md` from `templates/WORKGRAPH.md` and add
+one node per subproblem the moment it surfaces, each with a `Goal:`
+stating what done looks like, a `Parent:` decomposition edge, and `Deps:`
+ordering edges (see [What to expect](#what-to-expect) for the full field
+list). Move the file-level `Focus:` pointer in real time as attention
+shifts from one node to the next, and cite the Focus node's id in
+`TODO.md`'s `Current Task:` field. Disposition each node in place as it
+resolves — edit its `Status:` line to `done` or `dropped (<reason>)` —
+never delete an entry, even a dropped one. On request, render the graph
+as an indented ASCII tree: children nested under their parents, `[needs:
+N<NN>]` dependency annotations, a status glyph per node, and an arrow
+marking the Focus node.
+
+`- Status: open` and `Focus:` are machine-read markers, matched literally
+(modulo trailing whitespace) by `scripts/keep-working.sh`'s close-out gate
+and `scripts/session-context.sh`'s work-graph surfacing. Reword either one
+and both hooks stop seeing it correctly — an open node then silently reads
+as resolved, or the Focus pointer stops resolving to a real node at all.
+
 ## Commands
 
 ### Skills
@@ -209,13 +244,15 @@ entry's open state.
   session start. It also surfaces any open follow-up entries from
   `.local/FOLLOWUPS.md` (see [What to expect](#what-to-expect)) as a
   trailing "Open follow-ups" block, read-only and appended after the
-  resume text.
+  resume text, and then any open work-graph nodes and the Focus node
+  from `.local/WORKGRAPH.md` as a trailing "Work graph" block, read-only
+  and appended after the open-follow-ups block.
 - **SessionStart, `compact` matcher** (`scripts/post-compact-recovery.sh`)
   — re-injects the full contents of `.local/TODO.md`, `PLAN.md`,
-  `IMPLEMENTATION-PLAN.md`, and `TROUBLESHOOTING.md` after a compaction,
-  and drops a `.local/.flush-nudge-skip-next` marker so the flush-nudge
-  hook doesn't misread stale pre-compaction token counts on the very next
-  prompt. Fail-open.
+  `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`, and `WORKGRAPH.md` after
+  a compaction, and drops a `.local/.flush-nudge-skip-next` marker so the
+  flush-nudge hook doesn't misread stale pre-compaction token counts on
+  the very next prompt. Fail-open.
 - **Stop** (`scripts/keep-working.sh`) — enforces the state lifecycle
   described in [What to expect](#what-to-expect). Escape hatch:
   `CLAM_TRACKING_STOP_GATE=disabled` turns the hook off entirely.
@@ -234,13 +271,22 @@ entry's open state.
   `CLAM_TRACKING_FRESHNESS_GATE=disabled` (default `enabled`).
 
   A follow-ups close-out gate runs first within `State: Complete`, ahead of
-  the two backstops below: once per session epoch (marker
-  `.local/.followups-nudge-fired`, cleared at SessionStart), it blocks
-  parking `Complete` while `.local/FOLLOWUPS.md` still has open entries,
-  listing each by title and instructing that it be dispositioned (`filed
-  <ref>` / `resolved` / `dropped (<reason>)`) — or the State moved off
-  `Complete` if the work genuinely isn't done. Escape hatch:
+  the work-graph gate and the two backstops below: once per session epoch
+  (marker `.local/.followups-nudge-fired`, cleared at SessionStart), it
+  blocks parking `Complete` while `.local/FOLLOWUPS.md` still has open
+  entries, listing each by title and instructing that it be dispositioned
+  (`filed <ref>` / `resolved` / `dropped (<reason>)`) — or the State moved
+  off `Complete` if the work genuinely isn't done. Escape hatch:
   `CLAM_FOLLOWUPS_GATE=disabled` (default `enabled`).
+
+  `CLAM_WORKGRAPH_GATE=disabled` (default `enabled`) turns off a
+  work-graph close-out gate that runs second within `State: Complete`,
+  after follow-ups and ahead of the two backstops below: once per session
+  epoch (marker `.local/.workgraph-nudge-fired`, cleared at SessionStart),
+  it blocks parking `Complete` while `.local/WORKGRAPH.md` still has open
+  nodes, listing each by title and instructing that it be dispositioned
+  (`done` / `dropped (<reason>)`) — or the State moved off `Complete` if
+  the work genuinely isn't done.
 
   Two further backstops compose on top of the state check:
   - `CLAM_PR_CRONS=enabled` (default `disabled`) blocks parking on
@@ -295,7 +341,10 @@ entry's open state.
   usage block) crosses `CLAM_FLUSH_NUDGE_THRESHOLD` percent of the
   compaction window, injects a one-time-per-epoch nudge listing the
   `.local/` docs to flush before auto-compaction discards
-  in-conversation state. The window is resolved in order:
+  in-conversation state — including `WORKGRAPH.md`: add any subproblem
+  surfaced but not yet recorded as a node, verify the `Focus:` pointer
+  names the node actually being worked, and disposition any node
+  resolved in-conversation. The window is resolved in order:
   `CLAM_FLUSH_CONTEXT_WINDOW` (test override) →
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (process env) →
   `~/.claude/settings.json`'s `.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` → a
@@ -304,9 +353,10 @@ entry's open state.
   machine. Escape hatch: `CLAM_TRACKING_FLUSH_GATE=disabled`.
 - **PreCompact, `auto` matcher** (`scripts/precompact-snapshot.sh`) — on
   auto-compaction only (not manual `/compact`), copies `.local/TODO.md`,
-  `PLAN.md`, `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`, and any
-  `SUBAGENT-LOG-*.md` to `.local/snapshots/<YYYYMMDD-HHMMSS>/`, and appends
-  an HTML-comment marker recording the snapshot path to `TODO.md`. This is
+  `PLAN.md`, `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`,
+  `WORKGRAPH.md`, and any `SUBAGENT-LOG-*.md` to
+  `.local/snapshots/<YYYYMMDD-HHMMSS>/`, and appends an HTML-comment
+  marker recording the snapshot path to `TODO.md`. This is
   the deterministic backstop when the flush nudge above went unheeded;
   never blocks compaction on failure.
 - **PreToolUse**, matcher `TaskCreate|TaskUpdate|TaskList|TaskGet`
@@ -359,6 +409,14 @@ entry's open state.
   `Status:`/`Captured:`/`Source:`/`Refs:`/`Statement:` fields) that
   `session-context.sh`'s surfacing and `keep-working.sh`'s close-out gate
   both parse.
+- **`templates/WORKGRAPH.md`** is the reference/template for
+  `.local/WORKGRAPH.md`, instantiated on first decomposition per
+  `docs/protocols/work-graph.md` — unlike `templates/TODO.md`, no hook
+  auto-creates it. Documents the node format (`## N<NN> — <title>` plus
+  `Goal:`/`Status:`/`Parent:`/`Deps:`/`Notes:` fields) and the two
+  machine-read markers, `Focus:` and `- Status: open`, that
+  `session-context.sh`'s work-graph surfacing and `keep-working.sh`'s
+  close-out gate both parse.
 
 ### Env var summary
 
@@ -368,6 +426,7 @@ entry's open state.
 | `CLAM_TRACKING_FRESHNESS_GATE` | `enabled` | `disabled` turns off the Stop-hook freshness-drift gate. |
 | `CLAM_TRACKING_FRESHNESS_THRESHOLD` | `2` | Human prompts since `.local/TODO.md`'s mtime, in the current transcript, at or above which the freshness gate blocks a turn-end-permitting state once per session epoch. |
 | `CLAM_FOLLOWUPS_GATE` | `enabled` | Any other value disables the Stop-hook follow-ups close-out gate that blocks parking `Complete` while `.local/FOLLOWUPS.md` has open entries. |
+| `CLAM_WORKGRAPH_GATE` | `enabled` | Any other value disables the Stop-hook work-graph close-out gate that blocks parking `Complete` while `.local/WORKGRAPH.md` has open nodes. |
 | `CLAM_TRACKING_TASK_TOOLS_GATE` | `enabled` | `disabled` turns off the built-in task-tools deny. |
 | `CLAM_PR_CRONS` | `disabled` | `enabled` blocks parking/completing with an open PR that has no monitoring cron (needs the pr-workflow plugin's create-pr watch crons; opt-in here, unlike clam-code where unset meant enabled). |
 | `CLAM_INDEPENDENT_REVIEW` | `disabled` | `enabled` blocks human-handoff states without an independent-review report (needs the independent-review skill). |
@@ -430,9 +489,9 @@ manifest vendored by statusline and notifications.
 ```
 
 `.local/TODO.md`, `.local/PLAN.md`, `.local/decisions/`,
-`.local/snapshots/`, `~/.claude/make-progress-captures/`, and
-`~/.claude/stop-log.jsonl` are not removed — they are ordinary state,
-capture, and log files outside the plugin's own directory. Any of the env
-vars from the summary table set by hand in a settings file's `env` block
-are no longer read once the plugin is disabled, but are harmless to leave
-in place.
+`.local/snapshots/`, `~/.claude/make-progress-captures/`,
+`~/.claude/stop-log.jsonl`, and `.local/WORKGRAPH.md` are not removed —
+they are ordinary state, capture, and log files outside the plugin's own
+directory. Any of the env vars from the summary table set by hand in a
+settings file's `env` block are no longer read once the plugin is
+disabled, but are harmless to leave in place.

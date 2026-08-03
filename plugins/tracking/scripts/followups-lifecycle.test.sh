@@ -276,11 +276,10 @@ test_nudge_numbering_sequential() {
     else
         fail "flush-nudge: numbered list runs sequentially 1-7 with FOLLOWUPS.md added" "missing one or more sequential items in: $NUDGE_OUT"
     fi
-    if printf '%s' "$NUDGE_OUT" | grep -qE '^8\. '; then
-        fail "flush-nudge: list has exactly 7 items (no item 8)" "unexpected item 8 found"
-    else
-        pass "flush-nudge: list has exactly 7 items (no item 8)"
-    fi
+    # The list's upper bound is not this item's concern: item 7 owns
+    # only its own presence and position (checked above); the newest
+    # item owns the boundary, asserted as "no item 9" in
+    # workgraph-lifecycle.test.sh.
 }
 
 # Clause: the "If every doc above is already current" closing line stays

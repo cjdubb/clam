@@ -58,7 +58,14 @@ Opens a dark-theme HTML view in the browser. The H1 selects the layout:
 status pills; `Design Questions:` gets, per `## DQ<n>:` section, side-by-side
 option cards with pros/cons and an inline recommendation banner (a
 non-conforming DQ section falls back to baseline rendering for that section
-only). Any other H1 gets baseline rendering: TOC with scroll tracking,
+only); `# Work Graph` — the shape defined by the work-graph document format
+(`docs/protocols/work-graph.md`) — gets a tree of node cards nested by their
+Parent edges, a dependency badge for each entry in a node's Deps list, a
+three-way status pill (open, done, or dropped) per node, and a focus banner
+naming the `Focus:` node when one is set. A node missing a required field or
+shaped wrong falls back to baseline rendering for that node only — a
+per-node fallback that keeps one bad entry from breaking the rest of the
+tree. Any other H1 gets baseline rendering: TOC with scroll tracking,
 collapsible h2 sections, styled GFM tables. A topbar toggle switches to
 generic rendering at any time.
 
@@ -142,12 +149,12 @@ user action is needed to start or stop it — it comes and goes with usage.
 
 The parser is `marked` v18.0.6 (MIT), vendored byte-identical from the npm
 tarball as `assets/marked.min.js`; the file header records provenance and
-the upgrade procedure. `scripts/render.test.sh` renders all three fixtures
-(`plan`, `decision`, `design-questions`) in a temp directory and asserts:
-parser spliced, doc round-trips byte-for-byte through base64, no slot
-markers remain, script-element count unchanged (the `</script>` proof), no
-external resource references, and `render.sh` fails loudly on bad input.
-Run it after any template or script change.
+the upgrade procedure. `scripts/render.test.sh` renders all four fixtures
+(`plan`, `decision`, `design-questions`, `work-graph`) in a temp directory
+and asserts: parser spliced, doc round-trips byte-for-byte through base64,
+no slot markers remain, script-element count unchanged (the `</script>`
+proof), no external resource references, and `render.sh` fails loudly on
+bad input. Run it after any template or script change.
 
 ## Tests
 

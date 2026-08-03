@@ -24,7 +24,7 @@ The rendered HTML is self-contained (vendored parser, no CDNs, system fonts). Wh
 | Layer | Behavior |
 |-------|----------|
 | Baseline | TOC with scroll tracking, collapsible h2 sections, styled GFM tables, `@TAG:` chips highlighted in prose (never inside `pre`/`code`) |
-| Schema-aware | Keyed on the H1: `Plan:` gets approach cards, edge-case treatment, changelog timeline; `Decision:` gets side-by-side option cards, a recommendation banner, status pills; `Design Questions:` gets, per `## DQ<n>:` section, side-by-side option cards with pros/cons and an inline recommendation banner (a non-conforming DQ falls back to baseline for that section only). A topbar toggle switches to generic rendering; unrecognized H1s get baseline only |
+| Schema-aware | Keyed on the H1: `Plan:` gets approach cards, edge-case treatment, changelog timeline; `Decision:` gets side-by-side option cards, a recommendation banner, status pills; `Design Questions:` gets, per `## DQ<n>:` section, side-by-side option cards with pros/cons and an inline recommendation banner (a non-conforming DQ falls back to baseline for that section only); `# Work Graph` gets a tree of node cards nested by Parent edges, a dependency badge per Deps entry, a three-way status pill (open, done, or dropped) per node, and a focus banner for the Focus node, with per-node fallback to baseline for a non-conforming node. A topbar toggle switches to generic rendering; unrecognized H1s get baseline only |
 | Feedback composer | Hover a section heading → `+ annotate`, or hover a paragraph/bullet/row → gutter `+`, then pick a tag and type a note. "Copy all feedback" puts a block on the clipboard, one line per item: section-anchored (`§ Proposed Approach — @CONCERN: ...`) or block-anchored with a verbatim excerpt greppable in the source (`§ Proposed Approach ¶ "..." — @CONCERN: ...`) |
 
 The composer emits exactly this annotation vocabulary: `@COMMENT:`, `@QUESTION:`, `@CONCERN:`, `@APPROVE:`, `@EVIDENCE:`. Reading without annotating requires nothing — the composer stays out of the way until used.
@@ -63,7 +63,7 @@ The output self-checks: leftover slot markers fail the render before anything is
 ## Maintenance
 
 - The parser is `marked` v18.0.6 (MIT), vendored byte-identical from the npm tarball as `assets/marked.min.js`; the file header records provenance and the upgrade procedure.
-- `scripts/render.test.sh` renders all three fixtures (`plan`, `decision`, `design-questions`) in a temp dir and asserts: parser spliced, doc round-trips byte-for-byte through base64, no slot markers remain, script-element count unchanged (the `</script>` proof), no external resource references, and render.sh fails loudly on bad input. Run it after any template or script change.
+- `scripts/render.test.sh` renders all four fixtures (`plan`, `decision`, `design-questions`, `work-graph`) in a temp dir and asserts: parser spliced, doc round-trips byte-for-byte through base64, no slot markers remain, script-element count unchanged (the `</script>` proof), no external resource references, and render.sh fails loudly on bad input. Run it after any template or script change.
 
 ## Annotation server
 

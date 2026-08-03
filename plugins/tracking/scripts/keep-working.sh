@@ -591,6 +591,102 @@ This nudge fires at most once per session epoch."
     return 1
 }
 
+# Contract: B04 — workgraph-closeout-gate (plan 001-tracking-work-graph)
+#
+# Behavior:
+#   Once per session epoch, prevent a Complete park while
+#   $cwd/.local/WORKGRAPH.md still has OPEN nodes (format:
+#   docs/protocols/work-graph.md). Wiring (part of this block's
+#   implementation): runs in the Complete branch below AFTER
+#   check_followups_disposition and BEFORE check_independent_review — the
+#   two once-per-epoch close-out gates fire in artifact order (follow-ups
+#   first, per that gate's masking rationale), ahead of the repeating
+#   IR/PR-cron backstops. On the first violating stop of the epoch: write
+#   the marker, set WORKGRAPH_BLOCK_REASON to a message listing each open
+#   node (`N<NN> — <title>`) and instructing that every one be
+#   dispositioned — done, or dropped (<reason>) — or the State moved off
+#   Complete if the work genuinely is not done; the caller then logs
+#   log_stop "block_workgraph_open" and emits the block JSON, exactly like
+#   the sibling Complete-branch checks.
+# Inputs: $cwd; $cwd/.local/WORKGRAPH.md (absent → pass);
+#   marker $cwd/.local/.workgraph-nudge-fired (cleared each SessionStart by
+#   session-context.sh, B03); env CLAM_WORKGRAPH_GATE (default "enabled";
+#   any other value disables the gate → always pass).
+#   Open node := line matching ^- Status: open[[:space:]]*$, attributed to
+#   the nearest preceding node heading matching ##[[:space:]]N[0-9]+
+#   followed by whitespace (unanchored, same glued-heading tolerance as the
+#   follow-ups gate; heading text = the match with the leading "## "
+#   stripped).
+# Outputs: return 0 = pass (file absent, no open nodes, gate disabled,
+#   marker already present, or marker unwritable). return 1 = block, with
+#   WORKGRAPH_BLOCK_REASON set (non-empty).
+# Errors: unreadable file or unwritable marker → return 0 (fail-open; an
+#   unwritable filesystem must never block parking, same as the sibling
+#   gates).
+# Invariants:
+#   - Never blocks more than once per session epoch.
+#   - Read-only wrt WORKGRAPH.md; side effects are only the marker file and
+#     the caller's log line.
+#   - States other than Complete are unaffected; Complete with a fully
+#     dispositioned (or absent) WORKGRAPH.md behaves exactly as today.
+#   - The Focus pointer is NOT checked (a dangling or none Focus never
+#     blocks; only open nodes do).
+# Edge cases:
+#   - Engineer genuinely wants a node to stay open past close-out: re-stop
+#     after the nudge (marker → pass) or use dropped (<reason>) — the
+#     sanctioned escape hatches; the gate is a nudge, not a wall.
+#   - WORKGRAPH.md present but zero-byte/malformed → pass (no open lines).
+#   - An open Status line with no preceding node heading lists as
+#     `(untitled)`.
+check_workgraph_closeout() {
+    WORKGRAPH_BLOCK_REASON=""
+
+    [[ "${CLAM_WORKGRAPH_GATE:-enabled}" == "enabled" ]] || return 0
+
+    local workgraph="$cwd/.local/WORKGRAPH.md"
+    [[ -f "$workgraph" && -r "$workgraph" ]] || return 0
+
+    local marker="$cwd/.local/.workgraph-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+
+    # Open node := a "- Status: open" line (trailing whitespace tolerated),
+    # attributed to the nearest preceding "## N<NN> — <title>" heading. The
+    # heading search is unanchored (not "line starts with") because a
+    # heading can land mid-line, glued onto the prior entry's last content
+    # line with no separating newline — same tolerance as the follow-ups
+    # gate. An open Status line with no preceding node-heading match
+    # (including one under a non-N<NN> "##" heading) attributes as
+    # (untitled).
+    local open_re='^- Status: open[[:space:]]*$'
+    local heading_re='##[[:space:]]N[0-9]+[[:space:]].*$'
+    local heading="" line="" entries=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ $heading_re ]]; then
+            heading="${BASH_REMATCH[0]#"## "}"
+        fi
+        if [[ "$line" =~ $open_re ]]; then
+            entries="${entries}  - ${heading:-(untitled)}"$'\n'
+        fi
+    done < "$workgraph"
+
+    [[ -z "$entries" ]] && return 0
+
+    # Fail-open when the marker can't be written: an unwritable filesystem
+    # must never block parking, same as the follow-ups gate.
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    WORKGRAPH_BLOCK_REASON="Stop hook: TODO State is Complete, but .local/WORKGRAPH.md has open node(s) that still need a disposition:
+
+${entries}
+Disposition every open node before ending the turn — set its Status to done or dropped (<reason>) — or move State off Complete if the work genuinely is not done.
+
+This nudge fires at most once per session epoch."
+
+    return 1
+}
+
 # Parked states (the manifest's parked category) allow stop — work resumes on
 # its own, no user action. state_is_parked / state_parked_list come from
 # lib/states.sh, the single source that also feeds the reject message
@@ -607,6 +703,15 @@ case "$state" in
         if ! check_followups_disposition; then
             log_stop "block_followups_open" "$state" "$FOLLOWUPS_BLOCK_REASON"
             jq -n --arg r "$FOLLOWUPS_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        # Work-graph closeout gate (B04) runs SECOND, after follow-ups and
+        # before independent-review: same once-per-epoch-goes-first rationale
+        # as the follow-ups gate above, so it also gets a turn before the
+        # (repeating) IR/PR-cron reasons would otherwise mask it.
+        if ! check_workgraph_closeout; then
+            log_stop "block_workgraph_open" "$state" "$WORKGRAPH_BLOCK_REASON"
+            jq -n --arg r "$WORKGRAPH_BLOCK_REASON" '{decision: "block", reason: $r}'
             exit 0
         fi
         # Two independent backstops compose: both must pass to allow Complete.

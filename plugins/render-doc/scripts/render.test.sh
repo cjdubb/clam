@@ -131,6 +131,7 @@ check_render() {
 check_render plan
 check_render decision
 check_render design-questions
+check_render work-graph
 
 # --- Failure modes: Errors clause -------------------------------------------
 # Errors: missing input, missing template -> exit non-zero, message on

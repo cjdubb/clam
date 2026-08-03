@@ -4,7 +4,7 @@
     "lint": "bash scripts/ci.sh --lint"
   },
   "models": {
-    "testWriter": "sonnet",
+    "testWriter": "opus",
     "implementer": "sonnet"
   },
   "testPatterns": [],

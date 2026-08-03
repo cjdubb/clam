@@ -442,6 +442,41 @@
   .tl-change { font-size: 14px; color: var(--text); margin-top: 1px; }
   .tl-reason { font-size: 12.5px; color: var(--muted); font-style: italic; margin-top: 1px; }
 
+  /* ---------- Schema: work-graph tree ---------- */
+  .wg-tree { display: flex; flex-direction: column; gap: 0; }
+  .wg-node { margin-bottom: 4px; }
+  .wg-children {
+    margin: 10px 0 4px 22px;
+    padding-left: 16px;
+    border-left: 2px dashed var(--border);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .wg-summary { padding: 2px 0; }
+  .wg-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+  .wg-status-pill {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--muted); background: rgba(255, 255, 255, 0.04);
+  }
+  .wg-status-pill.wg-status-open { color: var(--gold); border-color: rgba(246, 193, 119, 0.4); background: rgba(246, 193, 119, 0.1); }
+  .wg-status-pill.wg-status-done { color: var(--green); border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.1); }
+  .wg-status-pill.wg-status-dropped { color: var(--coral); border-color: rgba(255, 138, 107, 0.4); background: rgba(255, 138, 107, 0.1); }
+  .wg-dep-badge {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    padding: 2px 9px; border-radius: 999px;
+    color: var(--muted); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border);
+  }
+  .wg-goal { font-size: 14.5px; color: var(--text); }
+  .wg-notes { font-size: 13px; color: var(--muted); font-style: italic; }
+  .wg-focus-banner {
+    margin: 0 0 18px; padding: 10px 16px;
+    border: 1px solid rgba(45, 212, 191, 0.4); border-left: 3px solid var(--teal);
+    border-radius: 12px;
+    background: linear-gradient(160deg, rgba(45, 212, 191, 0.08), rgba(45, 212, 191, 0.02));
+    color: var(--teal-soft); font-size: 13.5px; font-weight: 600;
+  }
+  .wg-focused { border-color: rgba(45, 212, 191, 0.55); box-shadow: 0 0 24px rgba(45, 212, 191, 0.1); }
+
   /* ---------- Feedback composer popover ---------- */
   .composer {
     margin: 0 20px 16px;
@@ -673,6 +708,7 @@ __SOURCE_PATH_SPLICE__
       if (/^Plan:/i.test(h1)) return "plan";
       if (/^Decision:/i.test(h1)) return "decision";
       if (/^Design Questions:/i.test(h1)) return "design-questions";
+      if (/^Work Graph$/i.test(h1)) return "work-graph";
       return "generic";
     }
 
@@ -884,10 +920,301 @@ __SOURCE_PATH_SPLICE__
       return null;
     }
 
+    /* Contract: B01 workgraph-transform (plan 001-render-doc-workgraph-transform)
+       Behavior:
+         Schema-aware rendering for Work Graph documents, format per
+         docs/protocols/work-graph.md (the transform keys on that protocol
+         only; it never references any plugin).
+         1. detectDocType returns "work-graph" when the document's first H1
+            text is exactly "Work Graph" (case-insensitive, trimmed) — an
+            exact-match arm, unlike the existing `Label:` prefix arms.
+         2. applySchema runs [transformWorkGraph] for docType "work-graph"
+            via an explicit branch; a work-graph document must never fall
+            into the else-branch (which runs the Plan transforms).
+         3. transformWorkGraph(doc):
+            - Focus marker: matched anywhere in the source markdown with
+              the protocol's regex /^Focus: (N[0-9]+|none)[ \t]*$/m.
+            - Node sections: every .doc-sec whose dataset.heading matches
+              /^N[0-9]+ — /. Fields parsed from the section's bullet list:
+              Goal (required), Status (open | done | dropped (reason),
+              required), Parent (none | N<NN>, required), Deps (none |
+              comma-separated N<NN> list, required), Notes (optional).
+            - Tree layout: node cards nested inside their Parent's card
+              (children container, indented); Parent: none => top level.
+            - Dep badges: one "needs: N<NN>" badge per Deps entry.
+            - Status pills: three-way — open, done, dropped; a dropped
+              pill preserves the reason text on the card.
+            - Focus banner: when Focus names an existing node, a banner at
+              the top of the document names it (id + title) and the
+              focused card is visually marked. Focus: none, or an id with
+              no matching node: no banner, no error.
+       Outputs:
+         Rendered DOM only; the source markdown, the annotation write-back
+         path, and render.sh are untouched by this block.
+       Errors:
+         None thrown to the page: a node section missing a required field
+         or with a malformed Status falls back to baseline rendering for
+         that node only (per-node try/catch, transformDesignQuestions
+         precedent); a document with zero parseable node sections renders
+         entirely as baseline.
+       Invariants:
+         - All logic lives client-side in this file; no new <script>
+           elements (script-count invariant), no external resources.
+         - Plan/Decision/Design-Questions transforms and behavior are
+           unchanged.
+         - Every synthesized block container class joins BLOCK_SEL (the
+           .tl-entry precedent) so nodes stay block-annotatable; every
+           synthesized badge/pill/banner/label class joins SYNTH_SEL so
+           annotation excerpts stay verbatim-greppable in the source.
+         - The no-schema tooltip in updateChrome names Work Graph
+           alongside the three existing types.
+       Edge cases:
+         - Focus: none; Focus naming a missing node id (banner suppressed).
+         - dropped (reason) where the reason itself contains parentheses.
+         - Deps: none vs multi-entry Deps lists.
+         - Multi-line Goal values.
+         - A child node appearing before its Parent in document order.
+         - A Parent cycle (must not loop: nodes on a detected cycle render
+           un-nested at top level).
+    */
+    function transformWorkGraph(doc) {
+      var FOCUS_RE = /^Focus: (N[0-9]+|none)[ \t]*$/m;
+      var nodesById = {};
+      var order = [];
+
+      Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
+        var heading = sec.dataset.heading || "";
+        if (!WG_HEADING_RE.test(heading)) return; // not a node section; leave untouched
+        try {
+          var node = parseWorkGraphNode(sec, heading);
+          decorateWorkGraphNode(node);
+          nodesById[node.id] = node;
+          order.push(node.id);
+        } catch (err) { /* this node falls back to baseline rendering */ }
+      });
+
+      if (!order.length) return; // zero parseable node sections -> baseline untouched
+
+      var effectiveParent = breakWorkGraphCycles(order, nodesById);
+      var childrenOf = {};
+      order.forEach(function (id) {
+        var p = effectiveParent[id];
+        var key = (p && nodesById[p]) ? p : "";
+        if (!childrenOf[key]) childrenOf[key] = [];
+        childrenOf[key].push(id);
+      });
+
+      var anchor = nodesById[order[0]].sec;
+      var tree = document.createElement("div");
+      tree.className = "wg-tree";
+      anchor.parentNode.insertBefore(tree, anchor);
+      (childrenOf[""] || []).forEach(function (id) {
+        tree.appendChild(buildWorkGraphNodeTree(id, childrenOf, nodesById));
+      });
+
+      var fm = FOCUS_RE.exec(sourceMd);
+      var focusId = fm ? fm[1] : null;
+      if (focusId && focusId !== "none" && nodesById[focusId]) {
+        var banner = document.createElement("div");
+        banner.className = "wg-focus-banner";
+        banner.textContent = "→ Focus: " + focusId + " — " + nodesById[focusId].title;
+        doc.insertBefore(banner, doc.firstChild);
+        nodesById[focusId].sec.classList.add("wg-focused");
+      }
+    }
+
+    /* ---------- Work Graph parsing/rendering helpers ----------
+       Format is normative per docs/protocols/work-graph.md; this transform
+       keys on that protocol only and never references any plugin. ---------- */
+    var WG_HEADING_RE = /^(N[0-9]+) — (.+)$/;
+
+    function wgFieldLabel(li) {
+      var first = li.firstChild;
+      while (first && first.nodeType === 3 && !first.nodeValue.trim()) first = first.nextSibling;
+      if (!first || first.nodeType !== 3) return null;
+      var m = first.nodeValue.match(/^\s*(Goal|Status|Parent|Deps|Notes)\s*:\s*/i);
+      return m ? m[1].toLowerCase() : null;
+    }
+
+    function wgFieldText(li) {
+      var text = li.textContent.replace(/\s+/g, " ").trim();
+      return text.replace(/^(Goal|Status|Parent|Deps|Notes)\s*:\s*/i, "").trim();
+    }
+
+    /* Preserve child nodes (e.g. a highlighted @TAG span) while dropping only
+       the leading "Label: " text, so prose fields keep their inline markup. */
+    function wgFieldContentNodes(li) {
+      var out = [];
+      var strippedFirst = false;
+      Array.prototype.forEach.call(li.childNodes, function (n) {
+        if (!strippedFirst && n.nodeType === 3) {
+          strippedFirst = true;
+          var v = n.nodeValue.replace(/^\s*(Goal|Status|Parent|Deps|Notes)\s*:\s*/i, "");
+          if (v) out.push(document.createTextNode(v));
+          return;
+        }
+        strippedFirst = true;
+        out.push(n.cloneNode(true));
+      });
+      return out;
+    }
+
+    function findWorkGraphFieldList(body) {
+      var uls = body.querySelectorAll(":scope > ul");
+      for (var i = 0; i < uls.length; i++) {
+        var firstLi = uls[i].querySelector(":scope > li");
+        if (firstLi && wgFieldLabel(firstLi) === "goal") return uls[i];
+      }
+      return null;
+    }
+
+    /* Parse one node section's Goal/Status/Parent/Deps(/Notes) bullet list.
+       Throws on any missing-required-field or malformed-Status/Parent/Deps
+       condition; the caller's per-node try/catch falls that section back to
+       baseline rendering rather than letting the whole document blank out. */
+    function parseWorkGraphNode(sec, heading) {
+      var m = WG_HEADING_RE.exec(heading);
+      var body = sec.querySelector(".sec-body");
+      var ul = findWorkGraphFieldList(body);
+      if (!ul) throw new Error("work-graph: no field list");
+
+      var fields = {};
+      Array.prototype.forEach.call(ul.querySelectorAll(":scope > li"), function (li) {
+        var label = wgFieldLabel(li);
+        if (label) fields[label] = li;
+      });
+      if (!fields.goal || !fields.status || !fields.parent || !fields.deps) {
+        throw new Error("work-graph: missing a required field");
+      }
+
+      var statusText = wgFieldText(fields.status);
+      var statusKind, statusReason = "";
+      if (/^open$/i.test(statusText)) {
+        statusKind = "open";
+      } else if (/^done$/i.test(statusText)) {
+        statusKind = "done";
+      } else {
+        var dm = /^dropped\s*\((.+)\)\s*$/i.exec(statusText);
+        if (!dm || !dm[1].trim()) throw new Error("work-graph: malformed Status");
+        statusKind = "dropped";
+        statusReason = dm[1].trim();
+      }
+
+      var parentText = wgFieldText(fields.parent);
+      if (!/^(none|N[0-9]+)$/i.test(parentText)) throw new Error("work-graph: malformed Parent");
+
+      var depsText = wgFieldText(fields.deps);
+      var deps = [];
+      if (!/^none$/i.test(depsText)) {
+        deps = depsText.split(",").map(function (s) { return s.trim(); });
+        if (!deps.length || deps.some(function (d) { return !/^N[0-9]+$/i.test(d); })) {
+          throw new Error("work-graph: malformed Deps");
+        }
+      }
+
+      return {
+        id: m[1],
+        title: m[2].trim(),
+        sec: sec,
+        ul: ul,
+        goalNodes: wgFieldContentNodes(fields.goal),
+        notesNodes: fields.notes ? wgFieldContentNodes(fields.notes) : null,
+        statusKind: statusKind,
+        statusReason: statusReason,
+        parent: /^none$/i.test(parentText) ? null : parentText,
+        deps: deps
+      };
+    }
+
+    /* Replace the raw field bullet list with a status pill, one dep badge per
+       Deps entry, and Goal/Notes prose — all inside one .wg-summary block so
+       the whole thing stays one quotable unit (the .tl-entry precedent). */
+    function decorateWorkGraphNode(node) {
+      var pill = document.createElement("span");
+      pill.className = "wg-status-pill wg-status-" + node.statusKind;
+      pill.textContent = node.statusKind === "dropped" ? "dropped (" + node.statusReason + ")" : node.statusKind;
+
+      var meta = document.createElement("div");
+      meta.className = "wg-meta";
+      meta.appendChild(pill);
+      node.deps.forEach(function (dep) {
+        var badge = document.createElement("span");
+        badge.className = "wg-dep-badge";
+        badge.textContent = "needs: " + dep;
+        meta.appendChild(badge);
+      });
+
+      var summary = document.createElement("div");
+      summary.className = "wg-summary";
+      summary.appendChild(meta);
+
+      var goal = document.createElement("p");
+      goal.className = "wg-goal";
+      node.goalNodes.forEach(function (n) { goal.appendChild(n); });
+      summary.appendChild(goal);
+
+      if (node.notesNodes && node.notesNodes.length) {
+        var notes = document.createElement("p");
+        notes.className = "wg-notes";
+        node.notesNodes.forEach(function (n) { notes.appendChild(n); });
+        summary.appendChild(notes);
+      }
+
+      node.ul.replaceWith(summary);
+    }
+
+    /* Walk each node's Parent chain; a chain that revisits a node it already
+       passed through is a cycle, so every node on that cycle is detached to
+       the top level (effective parent null) instead of looping forever. */
+    function breakWorkGraphCycles(order, nodesById) {
+      var effectiveParent = {};
+      order.forEach(function (id) { effectiveParent[id] = nodesById[id].parent; });
+      var color = {}; // 1 = on the current walk, 2 = fully resolved
+      order.forEach(function (start) {
+        if (color[start]) return;
+        var path = [];
+        var cur = start;
+        while (cur && nodesById[cur] && color[cur] !== 2) {
+          if (color[cur] === 1) {
+            var idx = path.indexOf(cur);
+            for (var i = idx; i < path.length; i++) effectiveParent[path[i]] = null;
+            break;
+          }
+          color[cur] = 1;
+          path.push(cur);
+          var p = effectiveParent[cur];
+          cur = (p && nodesById[p]) ? p : null;
+        }
+        path.forEach(function (id) { if (color[id] !== 2) color[id] = 2; });
+      });
+      return effectiveParent;
+    }
+
+    /* Recursively wrap a node's (already decorated) .doc-sec together with a
+       .wg-children container holding its own children, nested inside the
+       node's own .sec-body — literal "card nested inside parent's card". */
+    function buildWorkGraphNodeTree(id, childrenOf, nodesById) {
+      var node = nodesById[id];
+      var wrap = document.createElement("div");
+      wrap.className = "wg-node";
+      wrap.appendChild(node.sec);
+      var kids = childrenOf[id];
+      if (kids && kids.length) {
+        var kidsWrap = document.createElement("div");
+        kidsWrap.className = "wg-children";
+        kids.forEach(function (kid) {
+          kidsWrap.appendChild(buildWorkGraphNodeTree(kid, childrenOf, nodesById));
+        });
+        node.sec.querySelector(".sec-body").appendChild(kidsWrap);
+      }
+      return wrap;
+    }
+
     function applySchema(doc) {
       var transforms;
       if (docType === "decision") transforms = [transformOptionCards, transformRecommendation];
       else if (docType === "design-questions") transforms = [transformDesignQuestions];
+      else if (docType === "work-graph") transforms = [transformWorkGraph];
       else transforms = [transformApproachCards, transformEdgeCases, transformChangelog];
       transforms.forEach(function (fn) {
         try { fn(doc); } catch (err) { /* per-section fallback to baseline */ }
@@ -1428,8 +1755,8 @@ __SOURCE_PATH_SPLICE__
        that exists in the source markdown: elements synthesized by the schema
        transforms (badges, option numbers, arrows, labels) are skipped, so the
        copied anchor is always greppable in the source document. */
-    var BLOCK_SEL = "p, li, blockquote, tr, .tl-entry";
-    var SYNTH_SEL = ".rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer";
+    var BLOCK_SEL = "p, li, blockquote, tr, .tl-entry, .wg-summary";
+    var SYNTH_SEL = ".rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-dep-badge, .wg-focus-banner";
 
     function annotatableBlock(el) {
       if (!el || el.nodeType !== 1) return null;
@@ -1655,7 +1982,7 @@ __SOURCE_PATH_SPLICE__
         pill.classList.add("generic");
         toggle.disabled = true;
         toggle.textContent = "Schema view";
-        toggle.title = "No schema detected — the H1 does not start with Plan:, Decision:, or Design Questions:";
+        toggle.title = "No schema detected — the H1 does not start with Plan:, Decision:, or Design Questions:, and is not exactly \"Work Graph\"";
       } else {
         pill.textContent = docType;
         pill.classList.remove("generic");

@@ -196,9 +196,19 @@ independently testable through its public interface. A **composition** is a
 higher-order block whose contract is about how its children compose; its tests
 are integration tests and it is dispatched only after its children are accepted.
 
+A block stays a leaf only if it passes the **leaf test**, three parts read
+together as one test: **one contract** — a single coherent behavioral promise;
+**one concern** — no "and" doing load-bearing work in its name or summary;
+**one worker run** — a single agent session can implement it against its
+tests without mid-flight re-briefing. A block that fails the leaf test is not
+a leaf; split it further here in Step 3.
+
 For every block, agree with the engineer on:
 
-- Name and one-line contract summary (the full contract is written at scaffold)
+- Name and one-line contract summary. The summary clears a content bar: it
+  names the **behavior**, the **input/output shape**, and the **primary
+  error mode**. A summary missing any of the three is not plan-complete; the
+  full contract docblock is still written at scaffold.
 - Dependencies (which other blocks it consumes)
 - Kind: leaf or composition
 - **Owner: agent or engineer.** Ask which blocks the engineer wants to build
@@ -286,6 +296,19 @@ strategy behind it. Three things happen here, in order, with the engineer:
    can't be split under budget and has no justification, don't decide it
    alone — that's an escalation to the engineer, not something to resolve by
    picking a number and moving on.
+
+   Independently of the group budget, every block also carries a
+   **per-block ceiling** DERIVED from it: `ceiling = floor(prSizeBudget / 2)`
+   — default budget 500 gives a default ceiling of **250** — no new config
+   key is introduced. A block's Est exactly at the ceiling needs no
+   justification; only a strictly-over-ceiling Est triggers the requirement,
+   and a rough Est on a prose or config block is not an exemption from the
+   ceiling. An over-ceiling block is first split, same as any mis-sized
+   block; a genuinely indivisible one instead carries a written
+   `Justification:` field, recorded in its block-map entry (Step 4). An
+   over-ceiling block with no `Justification:` field is a plan defect that
+   blocks Step 5 approval. A block re-planned mid-dispatch re-passes the
+   leaf test and the ceiling before it is re-scaffolded.
 3. **Form PR groups** whose combined estimate fits the budget — default one
    unit per group, small related units sharing one. For each group, fix its
    landing details now rather than at delivery time: a branch name
@@ -342,6 +365,7 @@ a PR.
    - Unit: U<NN>
    - PR group: G<NN>
    - Est: <estimated changed lines>
+   - Justification: <optional; required only when Est is strictly over the per-block ceiling from Step 3a>
    - Code: <intended path(s)>
    - Contract: <one-line summary; authoritative contract is the docblock at Code>
    - Plan: plans/NNN-<slug>.md
@@ -349,7 +373,9 @@ a PR.
 
    `Est:` carries the block's estimated changed lines from Step 3a; the same
    field is added to the example entry in `templates/blocks.md` so a fresh
-   repo inherits it.
+   repo inherits it. `Justification:` is optional — it is written only for a
+   block whose Est exceeds the per-block ceiling and cannot be split
+   further; a block under the ceiling omits it.
 
    Status lifecycle: `Planned → Scaffolded → Tests Written → Tests Verified →
    Implemented → Accepted`, with `Escalated` as a side-state that returns to the

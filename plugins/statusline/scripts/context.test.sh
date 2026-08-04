@@ -76,10 +76,10 @@ trap 'rm -rf "$TMPROOT"' EXIT
 WD="$TMPROOT/wd"; mkdir -p "$WD"
 
 # Never inherit the harness's own effort or day-shape knobs; each case sets
-# them explicitly. SL_DAY_START/SL_SLEEP_HOURS steer B01's awake-hours model
+# them explicitly. CLAM_STATUSLINE_DAY_START/CLAM_STATUSLINE_SLEEP_HOURS steer B01's awake-hours model
 # via B05, so a value leaking in from the developer's shell would move every
 # derived pacing figure.
-unset CLAUDE_EFFORT SL_DAY_START SL_SLEEP_HOURS
+unset CLAUDE_EFFORT CLAM_STATUSLINE_DAY_START CLAM_STATUSLINE_SLEEP_HOURS
 
 ESC=$(printf '\033')
 FAILED=0
@@ -1348,7 +1348,7 @@ burn_json() { # cwd tokens model effort r5 r5_reset r7 r7_reset added removed
 
 # burn_render(json, [NAME=VALUE ...]): a hermetic always-cold render (TTL 0)
 # with the ANSI stripped. Extra env pairs go straight to `env`, so a case can
-# set SL_DAY_START / SL_SLEEP_HOURS without leaking the value into any other.
+# set CLAM_STATUSLINE_DAY_START / CLAM_STATUSLINE_SLEEP_HOURS without leaking the value into any other.
 burn_render() { # json [env...]
   local json="$1"; shift
   printf '%s' "$json" \
@@ -1711,7 +1711,7 @@ b5_na_json=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 32 "$b5_na_reset" "" "
 b5_na_ds=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" "$b5_na_hour")
 check "23j: the fixture really is degenerate (B01 answers NA for today's share)" \
   "$(burn_metrics 32 0 "$B5_NOW" "$b5_na_reset" "$b5_na_ds" 10800 | awk '{print $1}')" "NA"
-b5_na_line=$(burn_only "$b5_na_json" "SL_DAY_START=$b5_na_hour" "SL_SLEEP_HOURS=3")
+b5_na_line=$(burn_only "$b5_na_json" "CLAM_STATUSLINE_DAY_START=$b5_na_hour" "CLAM_STATUSLINE_SLEEP_HOURS=3")
 check "23j: NA today's share → the %t sub-segment is omitted" \
   "$(printf '%s' "$b5_na_line" | grep -qF '%t' && echo present || echo absent)" "absent"
 check "23j: NA today's share → the literal 'NA' is never rendered" \
@@ -1870,7 +1870,7 @@ check "23m: a normal burnrate render writes exactly two lines to stdout, nothing
   "$(sed -E "s/${ESC}\\[[0-9;]*m//g" "$b5_ok_out" | grep -c '' | tr -d ' ')" "2"
 
 # --- 23n. The two environment knobs -----------------------------------------
-# SL_DAY_START (0..23, default 2) and SL_SLEEP_HOURS (default 6), both consumed
+# CLAM_STATUSLINE_DAY_START (0..23, default 2) and CLAM_STATUSLINE_SLEEP_HOURS (default 6), both consumed
 # here and passed down to B01. A non-integer or out-of-range value falls back
 # to its default rather than erroring.
 #
@@ -1888,28 +1888,28 @@ check "23m: a normal burnrate render writes exactly two lines to stdout, nothing
 # clamped a negative %t could not make these pass or fail for the wrong reason.
 B5_KNOB_USED=60
 b5_knob=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$B5_KNOB_USED" "$B5_R7_RESET" "" "")
-check "23n: SL_DAY_START unset → B01's default 02:00 day start" \
+check "23n: CLAM_STATUSLINE_DAY_START unset → B01's default 02:00 day start" \
   "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_DAY_START=14 is consumed (the day-start anchor moves with it)" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=14")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 14 6)"
-check "23n: SL_DAY_START out of range (99) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=99")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_DAY_START negative (-1) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_DAY_START non-integer ('half-past') falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=half-past")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_SLEEP_HOURS unset → B01's default six sleep hours" \
+check "23n: CLAM_STATUSLINE_DAY_START=14 is consumed (the day-start anchor moves with it)" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=14")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 14 6)"
+check "23n: CLAM_STATUSLINE_DAY_START out of range (99) falls back to 2" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=99")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+check "23n: CLAM_STATUSLINE_DAY_START negative (-1) falls back to 2" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+check "23n: CLAM_STATUSLINE_DAY_START non-integer ('half-past') falls back to 2" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+check "23n: CLAM_STATUSLINE_SLEEP_HOURS unset → B01's default six sleep hours" \
   "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_SLEEP_HOURS=0 is consumed (degenerates to plain calendar time)" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=0")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 0)"
-check "23n: SL_SLEEP_HOURS=12 is consumed" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=12")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 12)"
-check "23n: SL_SLEEP_HOURS negative (-1) falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23n: SL_SLEEP_HOURS non-integer ('six') falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=six")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+check "23n: CLAM_STATUSLINE_SLEEP_HOURS=0 is consumed (degenerates to plain calendar time)" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=0")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 0)"
+check "23n: CLAM_STATUSLINE_SLEEP_HOURS=12 is consumed" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=12")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 12)"
+check "23n: CLAM_STATUSLINE_SLEEP_HOURS negative (-1) falls back to 6" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+check "23n: CLAM_STATUSLINE_SLEEP_HOURS non-integer ('six') falls back to 6" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
 check "23n: a rejected knob value never breaks the render" \
-  "$(burn_wellformed "$(burn_only "$b5_knob" "SL_DAY_START=half-past" "SL_SLEEP_HOURS=six")")" "yes"
+  "$(burn_wellformed "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "yes"
 # The fixture really does discriminate: if the four settings collapsed onto one
 # figure the ten checks above would agree no matter what the knobs did.
 check "23n: the knob fixture separates the settings (four distinct %t figures)" \
@@ -1979,7 +1979,7 @@ check "23q: all four separators of a five-group line are the exact dim sequence 
   "$(printf '%s' "$b5_sep_raw" | grep -oaF "$b5_sep" | wc -l | tr -d ' ')" "4"
 
 # --- 23r. Zero-padded knob values are DECIMAL, not octal --------------------
-# SL_DAY_START=08 and SL_SLEEP_HOURS=08 are values a user has written perfectly
+# CLAM_STATUSLINE_DAY_START=08 and CLAM_STATUSLINE_SLEEP_HOURS=08 are values a user has written perfectly
 # correctly -- a zero-padded hour is how clocks are written. Bash arithmetic
 # reads a leading-zero numeric string as OCTAL, in which 08 and 09 are not
 # merely the wrong number but a hard error ("value too great for base"), and an
@@ -1997,31 +1997,31 @@ check "23q: all four separators of a five-group line are the exact dim sequence 
 # padded value is pinned BOTH to the figure its anchor should produce and to
 # the unpadded spelling's own render, so "dropped for both" fails the first
 # check even where the two anchors' figures happen to coincide.
-b5_pad_ds_line=$(burn_only "$b5_knob" "SL_DAY_START=08")
-check "23r: SL_DAY_START=08 anchors the day at 08:00 (decimal 8, not an octal error)" \
+b5_pad_ds_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=08")
+check "23r: CLAM_STATUSLINE_DAY_START=08 anchors the day at 08:00 (decimal 8, not an octal error)" \
   "$(today_token "$b5_pad_ds_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 8 6)"
-check "23r: SL_DAY_START=08 renders the same %t as the unpadded 8" \
+check "23r: CLAM_STATUSLINE_DAY_START=08 renders the same %t as the unpadded 8" \
   "$(today_token "$b5_pad_ds_line")" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=8")")"
-check "23r: SL_DAY_START=08 → the weekly group still carries all four figures" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=8")")"
+check "23r: CLAM_STATUSLINE_DAY_START=08 → the weekly group still carries all four figures" \
   "$(printf '%s' "$b5_pad_ds_line" | grep -qE "🎯 $B5_KNOB_USED%.*%t.*%/d.*(▲|▼)" && echo yes || echo no)" "yes"
 
-b5_pad_slp_line=$(burn_only "$b5_knob" "SL_SLEEP_HOURS=08")
-check "23r: SL_SLEEP_HOURS=08 is eight sleep hours (decimal 8, not an octal error)" \
+b5_pad_slp_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=08")
+check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 is eight sleep hours (decimal 8, not an octal error)" \
   "$(today_token "$b5_pad_slp_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 8)"
-check "23r: SL_SLEEP_HOURS=08 renders the same %t as the unpadded 8" \
+check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 renders the same %t as the unpadded 8" \
   "$(today_token "$b5_pad_slp_line")" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=8")")"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=8")")"
 
 # Forcing base 10 must not become forcing the value through: the fallbacks 23n
 # pins still hold, and a padded value that is STILL out of range once read as
-# decimal falls back exactly as its unpadded twin does. SL_SLEEP_HOURS=99 is
+# decimal falls back exactly as its unpadded twin does. CLAM_STATUSLINE_SLEEP_HOURS=99 is
 # the one out-of-range case 23n does not cover, and 099 is the pair of the two.
-check "23r: SL_SLEEP_HOURS out of range (99) still falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_SLEEP_HOURS=99")")" \
+check "23r: CLAM_STATUSLINE_SLEEP_HOURS out of range (99) still falls back to 6" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=99")")" \
   "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
-check "23r: SL_DAY_START=099 reads as 99, is still out of range, still falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "SL_DAY_START=099")")" \
+check "23r: CLAM_STATUSLINE_DAY_START=099 reads as 99, is still out of range, still falls back to 2" \
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=099")")" \
   "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

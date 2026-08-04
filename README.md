@@ -61,7 +61,7 @@ auto-update doesn't refresh the recorded install path
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.1.2 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.7.2 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
-| [statusline](plugins/statusline/) | ✅ v0.4.3 | Statusline: context usage, session/day/week cost, effort, tracking State. One explicit global write via `/statusline:setup`. |
+| [statusline](plugins/statusline/) | ✅ v0.5.0 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to your awake hours, context usage. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.2.3 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.2 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
@@ -79,7 +79,7 @@ auto-update doesn't refresh the recorded install path
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
 | [management](plugins/management/) | ✅ v0.3.0 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.1.1 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
-| [debugging](plugins/debugging/) | ✅ v0.2.2 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
+| [debugging](plugins/debugging/) | ✅ v0.2.3 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
      has exactly one row here, and its status cell must read "✅ vX.Y.Z" matching

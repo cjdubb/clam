@@ -31,7 +31,7 @@
     {
       "name": "statusline",
       "source": "./plugins/statusline",
-      "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
+      "description": "Two-line statusline: path, git branch and session State; then model, reasoning effort, weekly and 5-hour plan limits paced against your awake hours, context-window occupancy and a pet whose mood tracks the worst meter. Wired explicitly via /statusline:setup.",
       "category": "session-ux"
     },
     {

@@ -236,6 +236,220 @@ tree_snapshot() { # root -> sorted "relpath  sha256" lines
   ( cd "$root" && find . -type f -exec sha256sum {} + ) | sort
 }
 
+# ---------------------------------------------------------------------------
+# B03 (ci-parallel-stages) helpers.
+#
+# Concurrency changes what EXECUTION order guarantees still hold (none,
+# within the test/validate stages) versus what OUTPUT order guarantees hold
+# (fixed, always) -- text_pos/text_order_ok below assert the latter, against
+# ci.sh's own stdout, instead of the log-write order the pre-B03 tests used.
+# ---------------------------------------------------------------------------
+text_pos() { # text needle -> line number of first EXACT-line match, or empty
+  # -x (whole-line) matters here: "-- plugins/alpha" must not match the
+  # earlier "-- plugins/alpha/lib/m.test.sh" test-check header as a prefix.
+  printf '%s\n' "$1" | grep -n -x -F -- "$2" | head -1 | cut -d: -f1
+}
+
+text_order_ok() { # text needleA needleB -> yes if A's first match precedes B's
+  local text="$1" a="$2" b="$3" pa pb
+  pa="$(text_pos "$text" "$a")"
+  pb="$(text_pos "$text" "$b")"
+  if [ -z "$pa" ] || [ -z "$pb" ]; then echo no; return; fi
+  [ "$pa" -lt "$pb" ] && echo yes || echo no
+}
+
+# A check stub that emits a large, exact, predictable body to stdout only
+# (no stderr, to keep the transcript-identity assertion unambiguous about
+# which real stream carries it). build_expected_block below must be kept
+# byte-for-byte in sync with the line this prints.
+write_output_stub() { # <path> <name> <n_lines> <exit_code>
+  local path="$1" name="$2" n="$3" code="$4"
+  cat > "$path" <<STUB
+#!/bin/bash
+i=0
+while [ "\$i" -lt $n ]; do
+  printf '%s stdout line %d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' '$name' "\$i"
+  i=\$((i+1))
+done
+exit $code
+STUB
+  chmod +x "$path"
+}
+
+# The exact "-- <name>" header plus body ci.sh should emit for one
+# write_output_stub check, so the transcript-identity test can assert byte
+# equality of a whole contiguous slice of RUN_OUT rather than just presence.
+build_expected_block() { # <name> <n_lines>
+  local name="$1" n="$2" i=0 out
+  out="-- $name"$'\n'
+  while [ "$i" -lt "$n" ]; do
+    out="${out}$(printf '%s stdout line %d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$name" "$i")"$'\n'
+    i=$((i+1))
+  done
+  printf '%s' "$out"
+}
+
+# Like write_claude_shim, but fails validate on ANY of several target
+# substrings instead of just one, so a stage can be given more than one
+# failing target to test "first failure in fixed order" reporting.
+write_claude_shim_multi() { # <shim_dir> <log_file> <expected_cwd> <fail_substr...>
+  local dir="$1" log="$2" exp="$3"; shift 3
+  mkdir -p "$dir"
+  local cases="" fs
+  for fs in "$@"; do
+    cases="$cases
+  case \"\$3\" in *'$fs'*) exit 1 ;; esac"
+  done
+  cat > "$dir/claude" <<STUB
+#!/bin/bash
+printf 'CALL claude %s\n' "\$*" >> '$log'
+if [ "\$1" = "plugin" ] && [ "\$2" = "validate" ]; then
+  printf 'CHECK validate:%s\n' "\$3" >> '$log'
+  if [ "\$(pwd)" = '$exp' ]; then
+    printf 'CWD_OK validate:%s\n' "\$3" >> '$log'
+  else
+    printf 'CWD_BAD validate:%s %s\n' "\$3" "\$(pwd)" >> '$log'
+  fi
+$cases
+fi
+exit 0
+STUB
+  chmod +x "$dir/claude"
+}
+
+# A fake scheduler binary (xargs/parallel/sem) that just records that it was
+# invoked at all -- ci.sh must never spawn any of these (B03: bash job
+# control and wait only).
+write_scheduler_shim() { # <shim_dir> <log_file> <tool_name>
+  local dir="$1" log="$2" tool="$3"
+  mkdir -p "$dir"
+  cat > "$dir/$tool" <<STUB
+#!/bin/bash
+printf 'CALLED $tool %s\n' "\$*" >> '$log'
+exit 0
+STUB
+  chmod +x "$dir/$tool"
+}
+
+# ---------------------------------------------------------------------------
+# Concurrency-cap barrier apparatus. No sleep and no wall-clock assertion is
+# used to decide pass/fail: each stub blocks on a shared FIFO until this
+# script explicitly releases it, so "how many checks are running right now"
+# is an exact causal signal, never a timing guess. Wall time (via
+# wait_for_count's deadline) is used ONLY as a hang guard against a truly
+# broken run; it never determines a pass.
+# ---------------------------------------------------------------------------
+write_barrier_stub() { # <path> <name> <run_dir> <gate_fifo> <exit_code>
+  local path="$1" name="$2" rundir="$3" gate="$4" code="$5"
+  cat > "$path" <<STUB
+#!/bin/bash
+: > '$rundir/running-$name'
+read -r _ < '$gate'
+rm -f '$rundir/running-$name'
+: > '$rundir/done-$name'
+exit $code
+STUB
+  chmod +x "$path"
+}
+
+count_glob() { # dir pattern -> count of matching files
+  local d="$1" p="$2" n=0 f
+  for f in "$d"/$p; do
+    [ -e "$f" ] && n=$((n+1))
+  done
+  echo "$n"
+}
+
+# Busy-waits (no sleep) for at least <want> files matching <pattern> in
+# <dir>, bailing out early -- "yes" if met, "no" if the background pid has
+# already exited (nothing more will change) or a generous deadline elapses.
+wait_for_count() { # <dir> <pattern> <want> <pid> <timeout_secs>
+  local dir="$1" pat="$2" want="$3" pid="$4" secs="$5" deadline
+  deadline=$(( $(date +%s) + secs ))
+  while :; do
+    [ "$(count_glob "$dir" "$pat")" -ge "$want" ] && { echo yes; return; }
+    if ! kill -0 "$pid" 2>/dev/null; then echo no; return; fi
+    [ "$(date +%s)" -ge "$deadline" ] && { echo no; return; }
+  done
+}
+
+RUN_BG_PID=""
+RUN_BG_OUT=""
+RUN_BG_ERR=""
+
+run_ci_bg() { # <cwd> <path_value> <ci_args...> -- backgrounds ci.sh
+  local cwd="$1" pathval="$2"; shift 2
+  RUN_BG_OUT="$(mktemp)"; RUN_BG_ERR="$(mktemp)"
+  track_tmp "$RUN_BG_OUT"; track_tmp "$RUN_BG_ERR"
+  ( cd "$cwd" && PATH="$pathval" bash "$CI_SCRIPT" "$@" >"$RUN_BG_OUT" 2>"$RUN_BG_ERR" ) &
+  RUN_BG_PID=$!
+}
+
+wait_bg() { # -> sets RUN_EXIT/RUN_OUT/RUN_ERR from the backgrounded run
+  wait "$RUN_BG_PID" 2>/dev/null
+  RUN_EXIT=$?
+  RUN_OUT="$(cat "$RUN_BG_OUT" 2>/dev/null)"
+  RUN_ERR="$(cat "$RUN_BG_ERR" 2>/dev/null)"
+}
+
+# Runs ci.sh in the background against a test stage made entirely of
+# barrier stubs, and reports "yes" only if (a) at no point did more than
+# $cap of them run at once, and (b) the run eventually finished all of them
+# with exit 0. <extra_args...> -- <check_name...>  (names become
+# scripts/<name>.test.sh in $repo).
+assert_jobs_cap() { # <repo> <pathval> <cap> <extra_args...> -- <names...>
+  local repo="$1" pathval="$2" cap="$3"; shift 3
+  local extra=()
+  while [ "$1" != "--" ]; do extra+=("$1"); shift; done
+  shift
+  local names=("$@") rundir gate n total want got count
+  rundir="$(mktemp -d)"; track_tmp "$rundir"
+  gate="$(mktemp -u)"; mkfifo "$gate"; track_tmp "$gate"
+  exec 8<>"$gate"
+  for n in "${names[@]}"; do
+    write_barrier_stub "$repo/scripts/$n.test.sh" "$n" "$rundir" "$gate" 0
+  done
+  run_ci_bg "$repo" "$pathval" "${extra[@]}"
+  total="${#names[@]}"
+  want=$(( total < cap ? total : cap ))
+  got="$(wait_for_count "$rundir" "running-*" "$want" "$RUN_BG_PID" 3)"
+  count="$(count_glob "$rundir" "running-*")"
+  printf 'go\n%.0s' $(seq 1 "$total") >&8
+  wait_bg
+  exec 8>&-
+  if [ "$got" = "yes" ] && [ "$count" -le "$cap" ] && [ "$RUN_EXIT" -eq 0 ]; then
+    echo yes
+  else
+    echo no
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# B10 (ci-scheduler-slot-fill) helpers. write_barrier_stub above already
+# gives a controllable long-running check; these two add the other roles
+# the fill-on-any-completion distinguishing construction needs: a check
+# that finishes at once, and a check whose completion leaves a durable,
+# no-timing mark that a poll loop can detect.
+# ---------------------------------------------------------------------------
+write_immediate_stub() { # <path> <exit_code>
+  local path="$1" code="$2"
+  cat > "$path" <<STUB
+#!/bin/bash
+exit $code
+STUB
+  chmod +x "$path"
+}
+
+write_marker_stub() { # <path> <marker_file> <exit_code>
+  local path="$1" marker="$2" code="$3"
+  cat > "$path" <<STUB
+#!/bin/bash
+: > '$marker'
+exit $code
+STUB
+  chmod +x "$path"
+}
+
 # Namespaced check names, shared across cases.
 NAME_MP="lint:marketplace-lint"
 NAME_EX="lint:executable-lint"
@@ -298,20 +512,25 @@ check "1. lint order: architecture-lint before test stage" \
   "$(order_ok "$log" "CHECK $NAME_AL" "CHECK test:scripts/a.test.sh")" "yes"
 check "1. lint checks all ran from repo root (no CWD_BAD)" \
   "$(log_has "$log" "CWD_BAD")" "no"
-check "1. test order: repo-level a before repo-level z" \
-  "$(order_ok "$log" "CHECK test:scripts/a.test.sh" "CHECK test:scripts/z.test.sh")" "yes"
-check "1. test order: repo-level z before plugins/alpha/lib" \
-  "$(order_ok "$log" "CHECK test:scripts/z.test.sh" "CHECK test:plugins/alpha/lib/m.test.sh")" "yes"
-check "1. test order: alpha/lib before alpha/scripts (lexicographic)" \
-  "$(order_ok "$log" "CHECK test:plugins/alpha/lib/m.test.sh" "CHECK test:plugins/alpha/scripts/n.test.sh")" "yes"
-check "1. test order: alpha/scripts before zeta/lib (lexicographic)" \
-  "$(order_ok "$log" "CHECK test:plugins/alpha/scripts/n.test.sh" "CHECK test:plugins/zeta/lib/k.test.sh")" "yes"
-check "1. test order: zeta/lib before zeta/scripts (lexicographic)" \
-  "$(order_ok "$log" "CHECK test:plugins/zeta/lib/k.test.sh" "CHECK test:plugins/zeta/scripts/q.test.sh")" "yes"
-check "1. validate order: marketplace.json before plugins/alpha" \
-  "$(order_ok "$log" "CHECK validate:.claude-plugin/marketplace.json" "CHECK validate:plugins/alpha")" "yes"
-check "1. validate order: marketplace.json before plugins/zeta" \
-  "$(order_ok "$log" "CHECK validate:.claude-plugin/marketplace.json" "CHECK validate:plugins/zeta")" "yes"
+# B03: within the test/validate stages EXECUTION order is explicitly no
+# longer guaranteed (checks run concurrently), so these can no longer be
+# asserted via the log's CHECK-write order -- only ci.sh's own OUTPUT order
+# is contracted to stay fixed. Asserted against RUN_OUT (the "-- <name>"
+# header ci.sh itself prints), not the log.
+check "1. test order: repo-level a before repo-level z (OUTPUT order)" \
+  "$(text_order_ok "$RUN_OUT" "-- scripts/a.test.sh" "-- scripts/z.test.sh")" "yes"
+check "1. test order: repo-level z before plugins/alpha/lib (OUTPUT order)" \
+  "$(text_order_ok "$RUN_OUT" "-- scripts/z.test.sh" "-- plugins/alpha/lib/m.test.sh")" "yes"
+check "1. test order: alpha/lib before alpha/scripts (OUTPUT order, lexicographic)" \
+  "$(text_order_ok "$RUN_OUT" "-- plugins/alpha/lib/m.test.sh" "-- plugins/alpha/scripts/n.test.sh")" "yes"
+check "1. test order: alpha/scripts before zeta/lib (OUTPUT order, lexicographic)" \
+  "$(text_order_ok "$RUN_OUT" "-- plugins/alpha/scripts/n.test.sh" "-- plugins/zeta/lib/k.test.sh")" "yes"
+check "1. test order: zeta/lib before zeta/scripts (OUTPUT order, lexicographic)" \
+  "$(text_order_ok "$RUN_OUT" "-- plugins/zeta/lib/k.test.sh" "-- plugins/zeta/scripts/q.test.sh")" "yes"
+check "1. validate order: marketplace.json before plugins/alpha (OUTPUT order)" \
+  "$(text_order_ok "$RUN_OUT" "-- .claude-plugin/marketplace.json" "-- plugins/alpha")" "yes"
+check "1. validate order: marketplace.json before plugins/zeta (OUTPUT order)" \
+  "$(text_order_ok "$RUN_OUT" "-- .claude-plugin/marketplace.json" "-- plugins/zeta")" "yes"
 
 # ===========================================================================
 # 2. Fail-fast within lint stage: 2nd lint check (executable-lint) fails;
@@ -664,9 +883,13 @@ check "16. lint check exits 2: architecture-lint never ran (fail-fast)" \
   "$(log_has "$log" "CHECK $NAME_AL")" "no"
 
 # ===========================================================================
-# 17. A test check exiting 2 is likewise CI FAIL, exit 1; fail-fast stops
-#     later test checks and validate. Contract: Errors (same clause,
-#     explicitly covers "lint/test").
+# 17. A test check exiting 2 is likewise CI FAIL, exit 1. Errors (same
+#     clause, explicitly covers "lint/test"). Post-B03: the test STAGE still
+#     fail-fasts the overall run (validate never starts), but WITHIN the
+#     stage every check now runs to completion even after an earlier one
+#     already failed -- z.test.sh (later in fixed order than the failing
+#     a.test.sh) still runs. Contract: Behavior ("every check in the stage
+#     runs to completion even when an earlier one fails").
 # ===========================================================================
 f="$(new_repo)"
 log="$(mktemp)"; track_tmp "$log"
@@ -683,9 +906,9 @@ run_ci "$f" "$BASE_PATH"
 check "17. test check exits 2: exit 1 (not 2)" "$RUN_EXIT" "1"
 check "17. test check exits 2: final line names test/a.test.sh" \
   "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "test/" "a.test.sh")" "yes"
-check "17. test check exits 2: z.test.sh never ran (fail-fast)" \
-  "$(log_has "$log" "CHECK test:scripts/z.test.sh")" "no"
-check "17. test check exits 2: validate never ran (fail-fast)" \
+check "17. test check exits 2: z.test.sh DOES run (B03: stage runs to completion, only stage-level fail-fast remains)" \
+  "$(log_has "$log" "CHECK test:scripts/z.test.sh")" "yes"
+check "17. test check exits 2: validate never ran (stage-level fail-fast)" \
   "$(log_has "$log" "CHECK validate:")" "no"
 
 # ===========================================================================
@@ -812,6 +1035,540 @@ check "22. architecture-lint exits 2: final line names lint/architecture-lint" \
   "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "lint/" "architecture-lint")" "yes"
 check "22. architecture-lint exits 2: test stage never ran (fail-fast)" \
   "$(log_has "$log" "CHECK test:")" "no"
+
+# ===========================================================================
+# B03 (ci-parallel-stages): stage-level fail-fast survives; within the test
+# and validate stages, checks run concurrently under --jobs <n>; per-check
+# output is buffered and emitted whole in fixed order; bash job control
+# only, no external scheduler; lint stays sequential.
+# ===========================================================================
+
+# ===========================================================================
+# 23. --jobs 1 is documented as the escape hatch that forces fully
+#     sequential execution. With jobs=1 there is no concurrency to race, so
+#     -- uniquely among the test/validate ordering assertions -- EXECUTION
+#     order (via the log's CHECK-write order) is legitimately deterministic
+#     and can be asserted directly. Contract: Inputs ("--jobs 1 forces fully
+#     sequential execution ... the escape hatch for debugging an
+#     interleaving-sensitive failure").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+write_check_stub "$f/scripts/z.test.sh" "test:scripts/z.test.sh" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --test --jobs 1
+
+check "23. --jobs 1 escape hatch: exit 0" "$RUN_EXIT" "0"
+check "23. --jobs 1 escape hatch: final line CI PASS" "$(contains "$(final_line "$RUN_OUT")" "CI PASS")" "yes"
+check "23. --jobs 1 escape hatch: deterministic execution order, a before z" \
+  "$(order_ok "$log" "CHECK test:scripts/a.test.sh" "CHECK test:scripts/z.test.sh")" "yes"
+
+# ===========================================================================
+# 24. --jobs with a valid value (3) is accepted and does not change the
+#     outcome of an all-green run. Contract: Inputs ("--jobs <n> ... max
+#     concurrent checks").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+shim="$(mktemp -d)"; track_tmp "$shim"
+write_claude_shim "$shim" "$log" "$f" ""
+run_ci "$f" "$shim:$BASE_PATH" --jobs 3
+
+check "24. --jobs 3 valid value: exit 0" "$RUN_EXIT" "0"
+check "24. --jobs 3 valid value: final line CI PASS" "$(contains "$(final_line "$RUN_OUT")" "CI PASS")" "yes"
+
+# ===========================================================================
+# 25-27. Invalid --jobs values are a usage error, exit 2, nothing invoked.
+#     Contract: Inputs ("A non-integer or <1 value is a usage error, exit
+#     2."). 0 and -1 are both <1; "abc" is non-integer.
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --jobs 0
+
+check "25. --jobs 0: exit 2" "$RUN_EXIT" "2"
+check "25. --jobs 0: stderr non-empty" "$([ -n "$RUN_ERR" ] && echo yes || echo no)" "yes"
+check "25. --jobs 0: nothing invoked" "$([ -s "$log" ] && echo no || echo yes)" "yes"
+
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --jobs -1
+
+check "26. --jobs -1: exit 2" "$RUN_EXIT" "2"
+check "26. --jobs -1: stderr non-empty" "$([ -n "$RUN_ERR" ] && echo yes || echo no)" "yes"
+check "26. --jobs -1: nothing invoked" "$([ -s "$log" ] && echo no || echo yes)" "yes"
+
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --jobs abc
+
+check "27. --jobs abc (non-integer): exit 2" "$RUN_EXIT" "2"
+check "27. --jobs abc (non-integer): stderr non-empty" "$([ -n "$RUN_ERR" ] && echo yes || echo no)" "yes"
+check "27. --jobs abc (non-integer): nothing invoked" "$([ -s "$log" ] && echo no || echo yes)" "yes"
+
+# ===========================================================================
+# 28. The lint stage stays strictly sequential and check-level fail-fast
+#     even when --jobs is given a value greater than 1: --jobs only affects
+#     the test and validate stages. Contract: Behavior ("Lint checks remain
+#     strictly sequential and check-level fail-fast").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 1
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --lint --jobs 4
+
+check "28. lint stays sequential under --jobs: exit 1" "$RUN_EXIT" "1"
+check "28. lint stays sequential under --jobs: version-bump-lint never ran (fail-fast unaffected)" \
+  "$(log_has "$log" "CHECK $NAME_VB")" "no"
+check "28. lint stays sequential under --jobs: architecture-lint never ran" \
+  "$(log_has "$log" "CHECK $NAME_AL")" "no"
+check "28. lint stays sequential under --jobs: final line names lint/readme-lint" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "lint/" "readme-lint")" "yes"
+
+# ===========================================================================
+# 29. Multiple failures in the TEST stage: every check still runs to
+#     completion (b and c both fail, but a and d -- which come both before
+#     and after them in fixed order -- still run), the reported failure is
+#     the FIRST one in FIXED order (b), not whichever happened to finish
+#     first under concurrency (c), and the stage failure still prevents
+#     validate from starting at all. No timing is used to force b to
+#     "finish first": for a correct implementation this holds regardless of
+#     real completion order, since the docblock requires the choice to be
+#     made by fixed order, not completion order. Contract: Behavior ("every
+#     check in the stage runs to completion... reports the FIRST failure in
+#     fixed output order"), Behavior ("Stage-level fail-fast: a failing
+#     STAGE stops the run").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+write_check_stub "$f/scripts/b.test.sh" "test:scripts/b.test.sh" "$log" "$f" 1
+write_check_stub "$f/scripts/c.test.sh" "test:scripts/c.test.sh" "$log" "$f" 1
+write_check_stub "$f/scripts/d.test.sh" "test:scripts/d.test.sh" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH"
+
+check "29. test-stage multi-failure: exit 1" "$RUN_EXIT" "1"
+check "29. test-stage multi-failure: a.test.sh ran" "$(log_has "$log" "CHECK test:scripts/a.test.sh")" "yes"
+check "29. test-stage multi-failure: b.test.sh ran (first failure)" \
+  "$(log_has "$log" "CHECK test:scripts/b.test.sh")" "yes"
+check "29. test-stage multi-failure: c.test.sh ALSO ran (stage runs to completion despite b already failing)" \
+  "$(log_has "$log" "CHECK test:scripts/c.test.sh")" "yes"
+check "29. test-stage multi-failure: d.test.sh ALSO ran" "$(log_has "$log" "CHECK test:scripts/d.test.sh")" "yes"
+check "29. test-stage multi-failure: final line names the FIRST failure in fixed order (b)" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "test/" "scripts/b.test.sh")" "yes"
+check "29. test-stage multi-failure: final line does not name scripts/c.test.sh" \
+  "$(contains "$(final_line "$RUN_OUT")" "scripts/c.test.sh")" "no"
+check "29. test-stage multi-failure: validate stage never ran (stage-level fail-fast still applies)" \
+  "$(log_has "$log" "CHECK validate:")" "no"
+
+# ===========================================================================
+# 30. Same three properties as #29, for the VALIDATE stage: both failing
+#     plugin targets run to completion, and the reported failure is the one
+#     first in fixed (sorted) order -- alpha, not beta.
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
+mkdir -p "$f/plugins/alpha" "$f/plugins/beta"
+shim="$(mktemp -d)"; track_tmp "$shim"
+write_claude_shim_multi "$shim" "$log" "$f" "alpha" "beta"
+run_ci "$f" "$shim:$BASE_PATH"
+
+check "30. validate-stage multi-failure: exit 1" "$RUN_EXIT" "1"
+check "30. validate-stage multi-failure: marketplace.json checked" \
+  "$(log_has "$log" "CHECK validate:.claude-plugin/marketplace.json")" "yes"
+check "30. validate-stage multi-failure: plugins/alpha checked (first failure)" \
+  "$(log_has "$log" "CHECK validate:plugins/alpha")" "yes"
+check "30. validate-stage multi-failure: plugins/beta ALSO checked (stage runs to completion)" \
+  "$(log_has "$log" "CHECK validate:plugins/beta")" "yes"
+check "30. validate-stage multi-failure: final line names the FIRST failure in fixed order (alpha)" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "validate/" "plugins/alpha")" "yes"
+check "30. validate-stage multi-failure: final line does not name plugins/beta" \
+  "$(contains "$(final_line "$RUN_OUT")" "plugins/beta")" "no"
+
+# ===========================================================================
+# 31. Transcript identity: the strongest available assertion. Four
+#     concurrent, all-green test-stage checks each emit a sizeable, exact
+#     body to stdout; RUN_OUT must contain, byte for byte, the header plus
+#     body of each in fixed order as ONE contiguous block per check, with no
+#     other check's lines interleaved into it -- proving output order is
+#     fixed and per-check output is buffered and emitted whole, even though
+#     execution order (four checks genuinely running at once, --jobs 4) is
+#     not. Contract: Outputs, Invariants ("A reader diffing two transcripts
+#     sees no difference attributable to concurrency").
+# ===========================================================================
+f="$(new_repo)"
+write_output_stub "$f/scripts/a.test.sh" "scripts/a.test.sh" 30 0
+write_output_stub "$f/scripts/b.test.sh" "scripts/b.test.sh" 30 0
+write_output_stub "$f/scripts/c.test.sh" "scripts/c.test.sh" 30 0
+write_output_stub "$f/scripts/d.test.sh" "scripts/d.test.sh" 30 0
+run_ci "$f" "$BASE_PATH" --test --jobs 4
+# Command substitution unconditionally strips trailing newlines, so each
+# $(build_expected_block ...) call loses the newline that separates it from
+# the next block's header. Restore one explicitly at each boundary.
+expected="$(build_expected_block "scripts/a.test.sh" 30)"$'\n'"$(build_expected_block "scripts/b.test.sh" 30)"$'\n'"$(build_expected_block "scripts/c.test.sh" 30)"$'\n'"$(build_expected_block "scripts/d.test.sh" 30)"
+
+check "31. transcript identity: exit 0" "$RUN_EXIT" "0"
+check "31. transcript identity: exact contiguous a+b+c+d block, in fixed order, no interleaving" \
+  "$(contains "$RUN_OUT" "$expected")" "yes"
+
+# ===========================================================================
+# 32. No external scheduler: a run that exercises lint, test, and validate
+#     never invokes xargs, parallel, or sem, even when shims for all three
+#     are placed ahead of everything else on PATH. Mechanical, dependency-
+#     free spawn-count check (no strace). Contract: Invariants ("implemented
+#     with bash job control and wait, NOT with xargs -P, GNU parallel, or
+#     any other external scheduler").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+sched_log="$(mktemp)"; track_tmp "$sched_log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+write_check_stub "$f/scripts/executable-lint.sh" "$NAME_EX" "$log" "$f" 0
+write_check_stub "$f/scripts/readme-lint.sh" "$NAME_RL" "$log" "$f" 0
+write_check_stub "$f/scripts/version-bump-lint.sh" "$NAME_VB" "$log" "$f" 0
+write_check_stub "$f/scripts/issue-template-lint.sh" "$NAME_ITL" "$log" "$f" 0
+write_check_stub "$f/scripts/architecture-lint.sh" "$NAME_AL" "$log" "$f" 0
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+write_check_stub "$f/scripts/z.test.sh" "test:scripts/z.test.sh" "$log" "$f" 0
+shim="$(mktemp -d)"; track_tmp "$shim"
+write_claude_shim "$shim" "$log" "$f" ""
+sched_shim="$(mktemp -d)"; track_tmp "$sched_shim"
+write_scheduler_shim "$sched_shim" "$sched_log" xargs
+write_scheduler_shim "$sched_shim" "$sched_log" parallel
+write_scheduler_shim "$sched_shim" "$sched_log" sem
+run_ci "$f" "$sched_shim:$shim:$BASE_PATH"
+
+check "32. no external scheduler: exit 0" "$RUN_EXIT" "0"
+check "32. no external scheduler: xargs never invoked" "$(log_has "$sched_log" "CALLED xargs")" "no"
+check "32. no external scheduler: parallel never invoked" "$(log_has "$sched_log" "CALLED parallel")" "no"
+check "32. no external scheduler: sem never invoked" "$(log_has "$sched_log" "CALLED sem")" "no"
+
+# ===========================================================================
+# 33. --jobs <n> caps concurrency: with --jobs 2 and 4 blocking checks in
+#     the test stage, at no point do more than 2 run at once, and all 4
+#     eventually complete. See the barrier apparatus above for why this
+#     needs no sleep and asserts no wall-clock duration.
+# ===========================================================================
+f="$(new_repo)"
+check "33. --jobs 2 caps concurrency (never exceeds 2, all 4 complete)" \
+  "$(assert_jobs_cap "$f" "$BASE_PATH" 2 --test --jobs 2 -- a b c d)" "yes"
+
+# ===========================================================================
+# 34. --jobs default reads the machine's core count via nproc: with a fake
+#     nproc reporting "3" ahead of everything else on PATH and no --jobs
+#     flag, the cap defaults to 3. Contract: Inputs ("Defaults to the
+#     machine's core count as reported by nproc").
+# ===========================================================================
+f="$(new_repo)"
+nproc_shim="$(mktemp -d)"; track_tmp "$nproc_shim"
+printf '#!/bin/bash\necho 3\n' > "$nproc_shim/nproc"
+chmod +x "$nproc_shim/nproc"
+check "34. --jobs default reads nproc (fake nproc=3 caps at 3, no --jobs given)" \
+  "$(assert_jobs_cap "$f" "$nproc_shim:$BASE_PATH" 3 --test -- a b c d e)" "yes"
+
+# ===========================================================================
+# 35. --jobs default falls back to 4 when nproc is unavailable, simulated
+#     via a PATH shim rather than uninstalling anything: PATH is replaced
+#     with a minimal directory of symlinks to exactly what ci.sh and these
+#     stubs need (bash, git, find, sort, rm) with no nproc anywhere in it --
+#     nproc's real binary is never touched, it is simply unreachable via
+#     this PATH. Contract: Inputs ("falling back to 4 when nproc is
+#     unavailable").
+# ===========================================================================
+f="$(new_repo)"
+noproc_shim="$(mktemp -d)"; track_tmp "$noproc_shim"
+for b in bash git find sort rm; do
+  p="$(type -P "$b" 2>/dev/null)"
+  [ -n "$p" ] && ln -s "$p" "$noproc_shim/$b"
+done
+check "35. --jobs default falls back to 4 when nproc is unavailable (caps at 4, all 5 complete)" \
+  "$(assert_jobs_cap "$f" "$noproc_shim" 4 --test -- a b c d e)" "yes"
+
+# ===========================================================================
+# 36. --jobs 1 caps concurrency at one but is NOT the old sequential
+#     short-circuit: a failing check part-way through the stage must not
+#     stop later checks from running. --jobs 1 only removes the race, it
+#     does not restore intra-stage fail-fast. This is the case an
+#     implementer is most likely to get wrong by treating --jobs 1 as "the
+#     old sequential path" wholesale. Since jobs=1 leaves no concurrency to
+#     race, execution order is legitimately deterministic here too, so it
+#     is asserted directly via the log (as in #23). Contract: Behavior
+#     ("every check in the stage runs to completion even when an earlier
+#     one fails"), Inputs ("--jobs 1 forces fully sequential execution").
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/a.test.sh" "test:scripts/a.test.sh" "$log" "$f" 0
+write_check_stub "$f/scripts/b.test.sh" "test:scripts/b.test.sh" "$log" "$f" 1
+write_check_stub "$f/scripts/c.test.sh" "test:scripts/c.test.sh" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --test --jobs 1
+
+check "36. --jobs 1 still runs to completion: exit 1" "$RUN_EXIT" "1"
+check "36. --jobs 1 still runs to completion: a.test.sh ran" \
+  "$(log_has "$log" "CHECK test:scripts/a.test.sh")" "yes"
+check "36. --jobs 1 still runs to completion: b.test.sh ran (the failure)" \
+  "$(log_has "$log" "CHECK test:scripts/b.test.sh")" "yes"
+check "36. --jobs 1 still runs to completion: c.test.sh ALSO ran (not the old short-circuit)" \
+  "$(log_has "$log" "CHECK test:scripts/c.test.sh")" "yes"
+check "36. --jobs 1 still runs to completion: order is a, then b, then c" \
+  "$(order_ok "$log" "CHECK test:scripts/a.test.sh" "CHECK test:scripts/b.test.sh")" "yes"
+check "36. --jobs 1 still runs to completion: final line names the failure (b)" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "test/" "scripts/b.test.sh")" "yes"
+
+# ===========================================================================
+# 37. --jobs with no value at all (the flag is the last argument) is a
+#     usage error, exit 2 -- the same bucket as a non-integer or <1 value,
+#     not a `set -u` crash. A parser that shifts and reads $1 without first
+#     checking $# aborts on an unbound variable, which exits 1 (or 127),
+#     not 2, and prints a bash diagnostic rather than a usage message; the
+#     exit-code-2 assertion alone already fails such an implementation, and
+#     the explicit "not unbound variable" check below documents why.
+#     Contract: Inputs ("A non-integer or <1 value is a usage error, exit
+#     2") extended to "no value" by the same reasoning; ruled explicitly by
+#     the orchestrator since the docblock as scaffolded doesn't spell out
+#     the missing-argument case.
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --jobs
+
+check "37. --jobs with missing value: exit 2 (not a set -u crash)" "$RUN_EXIT" "2"
+check "37. --jobs with missing value: stderr non-empty (usage message)" \
+  "$([ -n "$RUN_ERR" ] && echo yes || echo no)" "yes"
+check "37. --jobs with missing value: stderr is not a bash unbound-variable diagnostic" \
+  "$(contains "$RUN_ERR" "unbound variable")" "no"
+check "37. --jobs with missing value: nothing invoked" "$([ -s "$log" ] && echo no || echo yes)" "yes"
+
+# ===========================================================================
+# 38. --jobs immediately followed by another flag: the next token must not
+#     be silently consumed as --jobs's value. Same usage-error bucket as
+#     #37. Contract: same ruling as #37.
+# ===========================================================================
+f="$(new_repo)"
+log="$(mktemp)"; track_tmp "$log"
+write_check_stub "$f/scripts/marketplace-lint.sh" "$NAME_MP" "$log" "$f" 0
+run_ci "$f" "$BASE_PATH" --jobs --test
+
+check "38. --jobs followed by another flag: exit 2" "$RUN_EXIT" "2"
+check "38. --jobs followed by another flag: stderr non-empty (usage message)" \
+  "$([ -n "$RUN_ERR" ] && echo yes || echo no)" "yes"
+check "38. --jobs followed by another flag: stderr is not a bash unbound-variable diagnostic" \
+  "$(contains "$RUN_ERR" "unbound variable")" "no"
+check "38. --jobs followed by another flag: nothing invoked" "$([ -s "$log" ] && echo no || echo yes)" "yes"
+
+# ===========================================================================
+# B10 (ci-scheduler-slot-fill): a free concurrency slot must be filled as
+# soon as ANY in-flight check completes, never only when the OLDEST
+# launched check completes. No test above (1-38) can tell the two
+# schedulers apart -- B03's cap, transcript, and ordering guarantees all
+# hold identically whether the scheduler waits on the oldest pid or on
+# whichever finishes first, and 1-38 all pass against either. These two
+# tests are causal, not timing-based: they never assert a duration, only
+# that specific events happen (or fail to happen) in a specific order,
+# using durable marker files and blocking release gates instead of sleeps.
+# ===========================================================================
+
+# ===========================================================================
+# 39. The definitive distinguishing test. --jobs 2, three test checks in
+#     fixed order a, b, c. a blocks on a release gate and is held blocked
+#     for the whole test; b exits 0 the instant it starts; c creates a
+#     marker file the instant it starts, then exits 0. The window (cap 2)
+#     fills with a+b; b finishes almost immediately, freeing one slot while
+#     a is still running and NOT yet released.
+#       - Fill-on-any (correct): the freed slot is taken by c, so c's
+#         marker appears WHILE a is still blocked.
+#       - Oldest-first (current bug): run_concurrent's `wait "${pids[0]}"`
+#         blocks specifically on a (the oldest of the two in-flight pids),
+#         so c is never even launched until a is released -- the marker
+#         cannot appear first, no matter how long the test waits.
+#     wait_for_count's deadline below is a bounded hang guard only (25s,
+#     generous), not the assertion under test: whether the marker appears
+#     AT ALL before a is released is the causal fact being checked, not how
+#     fast. a is released unconditionally right after the poll, outside any
+#     conditional, so a failing assertion here can never leave a wedged
+#     background ci.sh process behind.
+#     Contract: Invariants (B10: "a free concurrency slot is filled as soon
+#     as ANY in-flight check completes -- never only when the OLDEST
+#     launched check completes").
+# ===========================================================================
+f="$(new_repo)"
+rundir="$(mktemp -d)"; track_tmp "$rundir"
+gate="$(mktemp -u)"; mkfifo "$gate"; track_tmp "$gate"
+write_barrier_stub "$f/scripts/a.test.sh" "a" "$rundir" "$gate" 0
+write_immediate_stub "$f/scripts/b.test.sh" 0
+write_marker_stub "$f/scripts/c.test.sh" "$rundir/marker-c" 0
+
+exec 8<>"$gate"
+run_ci_bg "$f" "$BASE_PATH" --test --jobs 2
+
+marker_seen="$(wait_for_count "$rundir" "marker-c" 1 "$RUN_BG_PID" 25)"
+# Unconditional release of a: fed here regardless of the outcome above, so
+# a stuck oldest-first run (marker never appeared) still finishes rather
+# than leaving a wedged background process.
+printf 'go\n' >&8
+exec 8>&-
+wait_bg
+
+check "39. B10 fill-on-any: c's marker appears while a is still blocked (free slot filled by ANY completion, not only the oldest)" \
+  "$marker_seen" "yes"
+check "39. B10 fill-on-any: run still completes all checks once a is released, exit 0" \
+  "$RUN_EXIT" "0"
+
+# ===========================================================================
+# 40. The cap boundary that 33/34/35 cannot reach. Those three all gate
+#     EVERY check in the stage on one shared release fed to all of them at
+#     once, so their window is always either "full, about to be released in
+#     lockstep" or "empty" -- it never holds one long-running check while a
+#     SECOND, unrelated check completes and is replaced by a THIRD next to
+#     the still-running first one. That mixed-age window is exactly what
+#     fill-on-any opens up, and exactly where an off-by-one in a
+#     from-scratch scheduler rewrite would first show a cap violation.
+#     Construction: --jobs 2, three test checks: a (held blocked the whole
+#     test) and b, c (sharing one release gate, so at most one of them is
+#     ever a live process at a time -- the other is still queued, not yet
+#     forked, under a correct scheduler). The window fills with a+b;
+#     releasing b must free its slot for c WHILE a is still blocked, and
+#     the running-check count sampled at that exact moment must never
+#     exceed the cap of 2.
+#     Contract: Invariants (B10, restated) and (unchanged: "the cap itself
+#     ... [tests] must pass untouched" -- this is an ADDITIONAL cap sample
+#     at a boundary 33/34/35 structurally cannot produce, not a replacement
+#     for them).
+# ===========================================================================
+f="$(new_repo)"
+rundir="$(mktemp -d)"; track_tmp "$rundir"
+gate_a="$(mktemp -u)"; mkfifo "$gate_a"; track_tmp "$gate_a"
+gate_bc="$(mktemp -u)"; mkfifo "$gate_bc"; track_tmp "$gate_bc"
+write_barrier_stub "$f/scripts/a.test.sh" "a" "$rundir" "$gate_a" 0
+write_barrier_stub "$f/scripts/b.test.sh" "b" "$rundir" "$gate_bc" 0
+write_barrier_stub "$f/scripts/c.test.sh" "c" "$rundir" "$gate_bc" 0
+
+exec 8<>"$gate_a"
+exec 9<>"$gate_bc"
+run_ci_bg "$f" "$BASE_PATH" --test --jobs 2
+
+filled="$(wait_for_count "$rundir" "running-*" 2 "$RUN_BG_PID" 20)"
+initial_count="$(count_glob "$rundir" "running-*")"
+
+printf 'go\n' >&9
+refilled="$(wait_for_count "$rundir" "running-c" 1 "$RUN_BG_PID" 20)"
+count_at_refill="$(count_glob "$rundir" "running-*")"
+
+printf 'go\n' >&9
+# Unconditional release of a: fed here regardless of the outcome above, so
+# a stuck oldest-first run (c never admitted) still finishes rather than
+# leaving a wedged background process.
+printf 'go\n' >&8
+exec 8>&- 9>&-
+wait_bg
+
+check "40. B10 cap boundary: initial window fills at exactly 2 (a+b)" "$filled" "yes"
+check "40. B10 cap boundary: initial running count is 2, not more" "$initial_count" "2"
+check "40. B10 cap boundary: c is admitted into the freed slot while a is still blocked" \
+  "$refilled" "yes"
+check "40. B10 cap boundary: running count at refill is still capped at 2 (a+c), never 3" \
+  "$count_at_refill" "2"
+check "40. B10 cap boundary: run completes once a is released, exit 0" "$RUN_EXIT" "0"
+
+# ===========================================================================
+# 41. Corrective (brief 02): forces completion order to be the INVERSE of
+#     fixed order among the two failing checks in a stage, and asserts the
+#     reported failure is still the one first in FIXED order (b), never the
+#     one that completed first in real time (c). --jobs 4 puts all four
+#     checks in flight together: a and d succeed immediately; c is the
+#     SECOND failing check in fixed order but the FIRST to complete
+#     (immediate exit 1); b is the FIRST failing check in fixed order but
+#     the LAST to complete (held on a release gate until this script
+#     explicitly frees it, well after a/c/d have all finished).
+#
+#     Tests 29/30 already assert this invariant, but -- as test 29's own
+#     comment concedes -- under B03's oldest-pid scheduler, completion order
+#     tracks launch order closely enough that 29/30 pass whether an
+#     implementation selects the failure by fixed order or by completion
+#     order; the two are not distinguished by either test. B10's fill-on-any
+#     scheduler decouples completion order from launch order by design,
+#     which is exactly what makes "report whichever failure was reaped
+#     first" an easy mistake once the scheduler is rewritten. This test
+#     arms a regression guard for that mistake before the rewrite happens.
+#
+#     Causal, not timing-based: a, c, and d are confirmed complete (via
+#     durable marker files) and b is confirmed STILL in flight (via its
+#     barrier stub's running-b marker) before b is ever released -- never
+#     via a sleep or an assumed race outcome. b is released unconditionally
+#     right after the poll, outside any conditional, so a failing assertion
+#     here can never leave a wedged background ci.sh process behind.
+#
+#     This test PASSES against the current scripts/ci.sh: B03 already
+#     records exit codes by fixed array index and scans them in fixed order
+#     once every check has completed, regardless of reap/completion order.
+#     Its job is to be armed now, not to specify new behaviour. Contract:
+#     Behavior ("every check in the stage runs to completion... reports the
+#     FIRST failure in fixed output order"), same as #29/#30, exercised at
+#     the completion-order boundary B10 newly puts at risk.
+# ===========================================================================
+f="$(new_repo)"
+rundir="$(mktemp -d)"; track_tmp "$rundir"
+gate="$(mktemp -u)"; mkfifo "$gate"; track_tmp "$gate"
+write_marker_stub "$f/scripts/a.test.sh" "$rundir/marker-a" 0
+write_barrier_stub "$f/scripts/b.test.sh" "b" "$rundir" "$gate" 1
+write_marker_stub "$f/scripts/c.test.sh" "$rundir/marker-c" 1
+write_marker_stub "$f/scripts/d.test.sh" "$rundir/marker-d" 0
+
+exec 8<>"$gate"
+run_ci_bg "$f" "$BASE_PATH" --test --jobs 4
+
+# a, c, d (the three non-blocked checks) must all complete -- and b must
+# still be in flight, unreaped -- before b is released, so completion order
+# is forced to be c (and a, d), then b: the exact inverse of fixed order
+# among the two failures (b, c).
+others_done="$(wait_for_count "$rundir" "marker-*" 3 "$RUN_BG_PID" 25)"
+b_still_running="$([ -e "$rundir/running-b" ] && echo yes || echo no)"
+# Unconditional release of b: fed here regardless of the outcome above, so
+# a truly wedged implementation (a/c/d never reaped) still finishes rather
+# than leaving a wedged background process.
+printf 'go\n' >&8
+exec 8>&-
+wait_bg
+
+check "41. B10 completion-order inversion: a, c, d all completed before b was released" \
+  "$others_done" "yes"
+check "41. B10 completion-order inversion: b was still in flight (unreaped) at that point" \
+  "$b_still_running" "yes"
+check "41. B10 completion-order inversion: exit 1" "$RUN_EXIT" "1"
+check "41. B10 completion-order inversion: all four checks ran (stage runs to completion)" \
+  "$([ -e "$rundir/marker-a" ] && [ -e "$rundir/marker-c" ] && [ -e "$rundir/marker-d" ] && [ -e "$rundir/done-b" ] && echo yes || echo no)" "yes"
+check "41. B10 completion-order inversion: final line names the FIRST failure in FIXED order (b), not the first to complete (c)" \
+  "$(line_has_all "$(final_line "$RUN_OUT")" "CI FAIL:" "test/" "scripts/b.test.sh")" "yes"
+check "41. B10 completion-order inversion: final line does not name scripts/c.test.sh" \
+  "$(contains "$(final_line "$RUN_OUT")" "scripts/c.test.sh")" "no"
 
 # ===========================================================================
 echo "----"

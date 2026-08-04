@@ -88,7 +88,6 @@ nothing here grants autonomy.
 
 | Observed state | Decision |
 |----------------|----------|
-| Lego blocks dispatchable: `.local/blocks.md` exists and contains blocks whose Status indicates they are ready for the next pipeline phase (e.g. Scaffolded blocks ready for test wave, Tests Verified blocks ready for implementation, Accepted blocks enabling dependent units), with all dependency blocks at the required status | Invoke `/lego:dispatch` to advance the dispatchable units. State which units and why they are unblocked. |
 | PR merged but post-merge cleanup not run (branch still exists locally, worktree still present, TODO.md still references the merged PR) | Run post-merge cleanup: remove the worktree if applicable, update `.local/TODO.md`, then re-assess from step 2. |
 | Feedback (bot or human) posted on an open PR and unaddressed (comments exist after the last force-push or commit) | Route to the feedback-addressing flow. If `/address-pr-feedback` is available, invoke it; otherwise tell the user what feedback is pending and where. |
 | Feedback addressed and pushed, but re-review not requested from the existing reviewer | Re-request review from that reviewer — distinct from assigning NEW reviewers, which stays user-gated. |

@@ -211,7 +211,7 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
   `capture.sh --fallback` if the hook didn't fire), (2) assesses current
   state from `.local/TODO.md`, `.local/PLAN.md`, other `.local/` artifacts,
   `gh pr view`, and active watch crons, (3) applies an attended decision
-  table (dispatch more lego blocks, run post-merge cleanup, route to
+  table (run post-merge cleanup, route to
   feedback-addressing, re-request review, reschedule a missing PR-watch
   cron, resolve a park contradicted by PR reality, re-surface a correct
   stop, or report nothing-dispatchable), (4) records the decision as

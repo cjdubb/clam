@@ -449,8 +449,10 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # exemption, so the plugin necessarily moves 0.7.1 -> 0.7.2. The pin tracks
 # the CURRENT version, so every legitimate bump retargets it — see
 # .local/FOLLOWUPS.md F05 for why that coupling is worth removing.
+# Retargeted again to 0.7.3 by cjdubb/clam#147 (dropping the sibling-specific
+# decision-table row), for the same no-docs-exemption reason.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.7.2" "$plugin_version" "0.7.2"
+check "plugin.json version is exactly 0.7.3" "$plugin_version" "0.7.3"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

@@ -17,12 +17,15 @@ starts it.
    checking anything. This is a read-only refresh of the marketplace
    clone — it does not touch any installed plugin.
 2. **Build the version report.** Run
-   `${CLAUDE_PLUGIN_ROOT}/scripts/check-versions.sh` and parse its TSV
-   output (columns: `plugin`, `installed`, `latest`, `update`, `stamp`,
-   `setup`).
+   `${CLAUDE_PLUGIN_ROOT}/scripts/check-versions.sh` and parse its
+   seven-column TSV output (columns: `plugin`, `installed`, `latest`,
+   `update`, `stamp`, `setup`, `stale_targets`).
 3. **Present the report before anything changes.** Show the table as a
-   readable summary — what's current, what's stale, what's unstamped.
-   Nothing has changed yet; this step is purely informational.
+   readable summary — what's current, what's stale, what's unstamped —
+   and for any row whose `setup` is `stale`, show its `stale_targets`
+   value too, so the reader can see which target is behind without
+   opening the stamp file. Nothing has changed yet; this step is purely
+   informational.
 4. **Nothing stale?** If no row's `update` column is `stale`, say plainly
    that nothing is stale and stop — there is nothing to update. (Setup
    re-run offers below can still apply even here, if a stamp is stale
@@ -37,11 +40,27 @@ starts it.
    through the remaining confirmed plugins and collect every failure to
    report at the end.
 7. **Re-run the check after updating.** Run `check-versions.sh` again and
-   show the after state next to the before state, so the before/after
-   change is visible.
+   show the after state — including each row's `stale_targets` value —
+   next to the before state, so the before/after change is visible.
 8. **Offer setup re-runs — never run them.** Using the `setup` column from
    the after-state check, offer the matching setup command (see the
    mapping below) for every plugin whose `setup` status is `stale`.
+
+   Alongside that offer, use each row's `stale_targets`: for every target
+   listed there, offer the exact command
+   `${CLAUDE_PLUGIN_ROOT}/scripts/prune-stamp.sh <plugin> <target>` that
+   would clear that record — one full command per target, never a single
+   command with a placeholder covering several. The skill never runs
+   `prune-stamp.sh` itself, under any circumstance, including an
+   instruction like "fix everything": it only offers the command, and the
+   engineer decides whether and when to run it — the same never-run rule
+   this step already applies to the setup commands above, and the reason
+   offering a deletion is safe at all. The skill states no opinion on
+   whether a stamp should be pruned; it reports which targets are behind
+   and leaves that judgement to the engineer. A row whose `stale_targets`
+   is `-` gets no prune offer and no mention of pruning. An `unstamped`
+   row is unaffected by any of this — it has no stamp record to remove,
+   so it is never a prune candidate.
 9. **Close with reload guidance.** Tell the user to run `/reload-plugins`
    to pick up the updates in the current session, or to restart the
    Claude Code session entirely if any updated plugin ships hooks or

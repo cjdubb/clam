@@ -1,6 +1,6 @@
 {
   "name": "management",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Guided plugin update flow: /management:update refreshes the clam catalog, diffs installed vs latest versions, applies per-plugin updates on confirmation, and surfaces which setup skills need re-running via setup version stamps.",
   "author": {
     "name": "Cam Williamson",

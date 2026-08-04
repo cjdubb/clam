@@ -35,6 +35,19 @@
 #     new key is a contract violation even if every other anchor passes.
 # This file does not test prose semantics beyond tokens/order/adjacency —
 # meaning is verified by the orchestrator at acceptance.
+#
+# Sections 13-15 extend the same approach to Contract: B08 —
+# Est-includes-tests prose (Step 3a item 1 states that the block's own tests
+# count toward Est and that test volume typically dominates the total, 2-4x
+# observed). Two notes specific to that contract:
+#   - Its anchors are sliced out of Step 3a's ITEM 1, not out of Step 3a as a
+#     whole: the contract fixes which item the sentence lands in, so a
+#     correct sentence in item 2 is a failure, not a pass.
+#   - The docblock for B08 sits inside item 1 and quotes its own mandated
+#     anchor ("typically dominates") verbatim. Slicing from $STRIPPED is what
+#     keeps the red run red; a check written against $RAW would pass today
+#     off the comment and keep passing after the comment is removed with no
+#     prose ever written.
 # Run: bash plugins/lego/scripts/plan-sizing.test.sh   (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -297,6 +310,86 @@ for pair in "Step 3 body:$STEP3_BODY" "Step 3a:$STEP3A_SECTION"; do
   check "$label has no TODO.md reference" "$(has_f "$body" "TODO.md")" "no"
   check "$label has no PLAN.md reference" "$(has_f "$body" "PLAN.md")" "no"
 done
+
+# === Contract: B08 — Est-includes-tests prose ==============================
+# Step 3a's items, sliced individually out of the comment-stripped section.
+# The contract appends sentences to item 1 only, so item 1 is where the new
+# anchors must read and items 2-3 are held as they are.
+STEP3A_ITEM1="$(section_text '1. **Estimate each block' '2. **Feed' <<<"$STEP3A_SECTION")"
+STEP3A_ITEM2="$(section_text '2. **Feed' '3. **Form' <<<"$STEP3A_SECTION")"
+
+for pair in "Step 3a item 1:$STEP3A_ITEM1" "Step 3a item 2:$STEP3A_ITEM2"; do
+  label="${pair%%:*}"; body="${pair#*:}"
+  check "section slice is non-empty: $label" \
+    "$([[ -n "$(tr -d '[:space:]' <<<"$body")" ]] && echo yes || echo no)" "yes"
+done
+
+# The observed multiple. The contract fixes the observation (2-4x), not its
+# typography, so an en dash, a spelled-out range, and "times" for "x" are all
+# correct. Written as alternation rather than a bracket class so the "×"
+# spelling matches under a C locale too.
+TEST_MULTIPLE_RE='(2[^0-9]{1,6}4[[:space:]]*(x|X|×|times)|[Tt]wo[^0-9]{1,8}four[[:space:]]+times)'
+
+# --- 13. Behavior: item 1 states that tests count toward Est and that test
+# volume typically dominates -----------------------------------------------
+# NOTE: the counting clause is NOT distinguishing on its own — item 1's
+# pre-existing opening ("implementation plus its own tests") already states
+# it, so these two checks are green before the block is implemented. They are
+# asserted anyway so the clause traces to a test AND so that appending the
+# new sentences cannot quietly drop the clause they build on.
+check "item 1 still counts implementation alongside the block's own tests" \
+  "$(has_re "$STEP3A_ITEM1" "[Ii]mplementation plus")" "yes"
+check "item 1 still names the block's own tests as part of the estimate" \
+  "$(has_re "$STEP3A_ITEM1" "own tests")" "yes"
+# The contract's named structural anchor. Case-tolerant only for a
+# sentence-initial spelling; the phrase itself is fixed.
+check "item 1 carries the \"typically dominates\" anchor" \
+  "$(has_re "$STEP3A_ITEM1" "[Tt]ypically dominates")" "yes"
+check "item 1 records the observed 2-4x multiple" \
+  "$(has_re "$STEP3A_ITEM1" "$TEST_MULTIPLE_RE")" "yes"
+# The dominance claim, the multiple, and the tests it is about must read as
+# one statement, not as three facts scattered through the item.
+check "the dominance claim, the multiple, and tests are stated together" \
+  "$(near_all 3 "$STEP3A_ITEM1" "[Tt]ypically dominates" "$TEST_MULTIPLE_RE" "[Tt]ests?")" "yes"
+# The consequence the contract asks for: estimates weight tests accordingly
+# instead of treating them as a rounding error on the implementation. Both
+# framings are correct prose, so either satisfies the check; which one reads
+# better is the orchestrator's call at acceptance.
+check "item 1 draws the consequence for how estimates weight tests" \
+  "$(has_re "$STEP3A_ITEM1" "([Ww]eigh|[Rr]ounding error)")" "yes"
+
+# --- 14. Placement: the new prose lands in Step 3a item 1 ------------------
+# Sizing guidance belongs to Step 3a; decomposition (Step 3) is not where the
+# estimate rule is stated.
+check "the dominance anchor is not introduced in Step 3" \
+  "$(has_re "$STEP3_BODY" "[Tt]ypically dominates")" "no"
+# Item 2 is the grouping/ceiling item — a correct sentence landing there
+# instead of item 1 is a placement failure.
+check "the dominance anchor is not introduced in Step 3a item 2" \
+  "$(has_re "$STEP3A_ITEM2" "[Tt]ypically dominates")" "no"
+# "no new step": Step 3a still holds exactly the three numbered items it
+# holds today. Scoped to this section rather than the file's heading list, so
+# an unrelated step added elsewhere doesn't fail this contract's suite.
+check "Step 3a still has exactly three numbered items" \
+  "$(grep -cE '^[0-9]+\. ' <<<"$STEP3A_SECTION")" "3"
+
+# --- 15. Invariants the appended prose must not disturb -------------------
+# Item 1's own pre-existing content: the numbers stay rough, and the
+# mechanical delivery-time gate is still the thing that actually holds.
+check "invariant: item 1 still calls the estimates rough" \
+  "$(has_re "$STEP3A_ITEM1" "[Rr]ough")" "yes"
+check "invariant: item 1 still points at the mechanical gate at delivery time" \
+  "$(has_f "$STEP3A_ITEM1" "pr-size-check.sh")" "yes"
+# Est stays an estimate in changed lines — no new unit, no split field.
+check "invariant: item 1 still estimates in changed lines" \
+  "$(has_f "$STEP3A_ITEM1" "changed lines")" "yes"
+# The ceiling and justification rules stay BELOW item 1, unchanged and where
+# they are. Their content is pinned by sections 3-4 and 7 above; these two
+# checks pin that the edit did not relocate them into item 1's territory.
+check "invariant: the per-block ceiling rules still live in item 2" \
+  "$(has_re "$STEP3A_ITEM2" "[Cc]eiling")" "yes"
+check "invariant: the Justification: path still lives in item 2" \
+  "$(has_f "$STEP3A_ITEM2" "Justification:")" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

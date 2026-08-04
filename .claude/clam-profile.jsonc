@@ -9,8 +9,7 @@
     "verify": "bash scripts/ci.sh",
     "open-as": "ready",
     "bot-reviewers": [],
-    "human-review": "none",
-    "merge-style": "merge"
+    "human-review": "none"
   },
 
   // Deploy policy
@@ -20,6 +19,11 @@
 
   // The orchestrator pushes the branch and opens a GitHub PR;
   // the engineer reviews and merges. The orchestrator never merges to master.
+  //
+  // GitHub merge methods: squash only. Merge commits and rebase merges are
+  // disabled in the repo settings, which is why master's history is one
+  // squashed commit per PR. (merge-style is a local-merge key and does not
+  // apply under this strategy.)
   //
   // Worktree layout: worktrees live at ~/github/clam/<branch> off a bare
   // repo; master's checkout is ~/github/clam/master.

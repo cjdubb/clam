@@ -345,6 +345,79 @@ else
   pass "README.md: no clam-code-era path references"
 fi
 
+# --- Failure modes: argument rejection ---------------------------------------
+# The missing-input case above rejects a bad path; these reject bad ARGUMENTS
+# — none at all, and an unknown flag beside an otherwise valid document.
+
+# The no-args run happens in an empty directory of its own, so "wrote nothing"
+# is checked directly rather than guessed from an output path it never derived.
+noargs_dir="$WORK/no-args"
+mkdir -p "$noargs_dir"
+if (cd "$noargs_dir" && "$RENDER" > /dev/null 2>&1); then
+  fail "no arguments: render.sh exited 0 (expected non-zero)"
+else
+  pass "no arguments: render.sh exits non-zero"
+fi
+noargs_left="$(ls -A "$noargs_dir")"
+if [ -z "$noargs_left" ]; then
+  pass "no arguments: no file written"
+else
+  fail "no arguments: wrote '$noargs_left' despite the error"
+fi
+
+# $WORK/plan.md was rendered successfully above, so the only thing left for
+# render.sh to reject here is the flag.
+if "$RENDER" "$WORK/plan.md" --bogus > /dev/null 2>&1; then
+  fail "unknown flag: render.sh exited 0 for --bogus with a valid document"
+else
+  pass "unknown flag: render.sh exits non-zero"
+fi
+
+# --- Design-questions schema wiring ------------------------------------------
+# This file cannot run the browser, so these assert the doc type's machinery
+# survives the splice and that the fixture exercises each rendered element.
+# DOM-level behaviour (cards visible, banner visible, fallback) is out of scope
+# here, as it is for every other transform above; what is proved is detection,
+# transforms, and fixture coverage.
+#
+# The two halves stay distinct on purpose: assert_out greps the RENDERED
+# output, assert_src greps the FIXTURE SOURCE. Asserting the fixture against
+# itself would prove nothing.
+dq_out="$WORK/design-questions.html"
+dq_src="$FIXTURES_DIR/design-questions.md"
+
+assert_out() { # <label> <grep-flag-and-pattern...>
+  label="$1"; shift
+  if grep "$@" "$dq_out"; then pass "design-questions: $label"; else fail "design-questions: $label"; fi
+}
+assert_src() { # <label> <grep-flag-and-pattern...>
+  label="$1"; shift
+  if grep "$@" "$dq_src"; then pass "fixture: $label"; else fail "fixture: $label"; fi
+}
+
+# Detection: the H1 regex and the doc-type string are wired into the template.
+assert_out "H1 detection regex present" -qF '/^Design Questions:/i'
+assert_out "doc-type string present" -qF 'design-questions'
+# Transforms: the per-DQ transform and the shared card builder are present.
+assert_out "per-DQ transform present" -qF 'transformDesignQuestions'
+assert_out "shared option-card builder present" -qF 'buildOptionCard'
+# Option cards: pros/cons labelling machinery is present.
+assert_out "pros/cons label classes present" -qE 'pros-lbl|cons-lbl'
+# Recommendation banner: the design-questions banner class is present.
+assert_out "recommendation banner class present" -qF 'dq-rec'
+
+# Fixture coverage: the fixture must exercise every rendered element.
+assert_src "H1 starts with Design Questions:" -qE '^# Design Questions:'
+assert_src "has H3 options" -qE '^### Option'
+assert_src "has pros labels" -qF '**Pros:**'
+assert_src "has cons labels" -qF '**Cons:**'
+assert_src "has a recommendation" -qF '**Recommendation:**'
+assert_src "has a non-conforming DQ for the fallback path" -qF 'non-conforming'
+# Adversarial coverage: the fixture carries a closing script tag inside a DQ
+# section, so the byte-for-byte round-trip and script-count checks above are
+# exercised against a real </script> in the document body, not just metadata.
+assert_src "has adversarial script fence" -qF '</script>'
+
 # --- Summary -----------------------------------------------------------------
 if [ "$FAILURES" -gt 0 ]; then
   printf 'render.test.sh: %d assertion(s) failed\n' "$FAILURES" >&2

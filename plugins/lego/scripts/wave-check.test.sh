@@ -23,6 +23,48 @@
 #
 # Run directly: `bash wave-check.test.sh`. Exits 0 when every test passes,
 # 1 when any test fails, 2 on the suite's own environment errors.
+# <!--
+# Contract: B12 wave-check-dependency-injection (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   As B11, applied to wave-check.sh / wave-check.test.sh. The `path_without`
+#   helper below is deleted outright and the two jq-absence sites drive
+#   wave-check.sh's new `: "${JQ:=jq}"` seam directly, by setting
+#   JQ=/nonexistent in the environment of the single invocation under test,
+#   instead of reconstructing PATH.
+#
+#   wave-check.sh is the fifth script to receive the seam B04 gave
+#   realm-gate.sh, pr-size-check.sh and worktree.sh: every `jq` in command
+#   position becomes `"$JQ"`, and `command -v jq` becomes
+#   `command -v "$JQ"`. Error-message strings mentioning jq are NOT touched.
+#
+# Inputs:  unchanged — the same fixture repositories and the same CLI.
+# Outputs: unchanged — `Passed: 48  Failed: 0  Total: 48`.
+#
+# Errors:
+#   Unchanged. The jq-required diagnostic and its exit 2 must fire
+#   identically whether jq is absent from PATH or JQ names a nonexistent
+#   path: both are detected through `command -v "$JQ"`.
+#
+# Invariants:
+#   - Pass count is EXACTLY 48, failures EXACTLY 0. A changed count is a
+#     defect, not an improvement, whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - wave-check.sh's observable behaviour is unchanged on every path:
+#     stdout, stderr and exit code byte-identical, jq present or absent.
+#   - Zero `basename` and zero `ln` spawns from this suite. The current
+#     figures are 15,786 and 7,120 — two calls to the helper across 7,895
+#     files on $PATH.
+#   - No wall-clock assertion anywhere in this file.
+#
+# Edge cases:
+#   - `JQ=""` must degrade to the default rather than to an empty command,
+#     which is why the seam uses `:=` and not `:-`.
+#   - The seam must not be exported: it applies to the invocation under
+#     test, never to the suite's own jq calls, which build fixtures.
+#   - run_wave_env's PATH parameter stays in the signature: tests unrelated
+#     to jq use it, and only the jq-absence sites stop passing a value.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wave-check.sh"
@@ -118,9 +160,14 @@ assert_contains() {
 #
 # run_wave_env <dir> <path-or-empty> <lego-config-or-empty> <tmpdir-or-empty>
 #              <args...>
-#   Runs wave-check.sh with cwd <dir>, optionally overriding $PATH (used to
-#   exercise the no-jq paths), $LEGO_CONFIG (the override-config redirection
-#   seam) and $TMPDIR (used to observe the captured-output temp file).
+#   Runs wave-check.sh with cwd <dir>, optionally overriding $PATH,
+#   $LEGO_CONFIG (the override-config redirection seam) and $TMPDIR (used to
+#   observe the captured-output temp file).
+#
+# To exercise the jq-absent path, prefix the call with JQ=/nonexistent (e.g.
+# `JQ=/nonexistent run_wave_env "$repo" "" "" "" test`) — bash exports a
+# prefix assignment into the environment of everything the function invokes,
+# including the `bash "$SCRIPT"` below.
 # ---------------------------------------------------------------------------
 RUN_OUT=""
 RUN_ERR=""
@@ -181,28 +228,6 @@ run_wave_at() {
     RUN_OUT_LINES=0
   fi
   rm -f "$out" "$err"
-}
-
-# path_without <exe-name> -- prints a dir containing symlinks to every
-# executable currently resolvable on $PATH except <exe-name>.
-path_without() {
-  local exclude="$1"
-  local dir p b name
-  dir="$(mktemp -d)"
-  track_tmp "$dir"
-  local parts
-  IFS=':' read -ra parts <<< "$PATH"
-  for p in "${parts[@]}"; do
-    [ -n "$p" ] && [ -d "$p" ] || continue
-    for b in "$p"/*; do
-      [ -e "$b" ] || continue
-      name="$(basename "$b")"
-      [ "$name" = "$exclude" ] && continue
-      [ -e "$dir/$name" ] && continue
-      ln -s "$b" "$dir/$name" 2>/dev/null || true
-    done
-  done
-  printf '%s' "$dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -590,13 +615,12 @@ test_unresolvable_test_command_exit_2() {
 
 # jq is required only when the command must come from config.
 test_jq_required_when_config_resolution_needed() {
-  local repo path_no_jq cmd
+  local repo cmd
   repo="$(new_git_repo)"
   cmd="$(red_cmd)"
   write_base_config "$repo" "{\"commands\":{\"test\":\"$cmd\"}}"
-  path_no_jq="$(path_without jq)"
 
-  run_wave_env "$repo" "$path_no_jq" "" "" test
+  JQ=/nonexistent run_wave_env "$repo" "" "" "" test
   assert_eq 2 "$RUN_EXIT" "config-sourced test command with jq absent: exit code"
   case "$RUN_ERR" in
     *jq*|*JQ*) : ;;
@@ -607,16 +631,15 @@ test_jq_required_when_config_resolution_needed() {
 # ...and NOT required when --test-cmd is given: the config is never consulted
 # on that path, so a repo with a config file but no jq still works.
 test_no_jq_needed_when_test_cmd_given() {
-  local repo path_no_jq cmd marker cfg_cmd
+  local repo cmd marker cfg_cmd
   repo="$(new_git_repo)"
   marker="$(mktemp)"
   track_tmp "$marker"
   cfg_cmd="$(make_test_cmd 0 "" "" "$marker" "from-config")"
   write_base_config "$repo" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
   cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-flag")"
-  path_no_jq="$(path_without jq)"
 
-  run_wave_env "$repo" "$path_no_jq" "" "" test --test-cmd "$cmd"
+  JQ=/nonexistent run_wave_env "$repo" "" "" "" test --test-cmd "$cmd"
   assert_eq 0 "$RUN_EXIT" "--test-cmd with jq absent and a config present: exit code (stderr: $RUN_ERR)"
   assert_check "$RUN_OUT" "RED-RUN" "PASS" "--test-cmd with jq absent: red run"
   assert_eq "from-flag" "$(cat "$marker")" "--test-cmd wins: only the flag's command ran, config never read"

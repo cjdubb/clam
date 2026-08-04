@@ -6,11 +6,55 @@
 # pr-size-check.test.sh / realm-gate.test.sh. Black-box only: every test
 # builds a throwaway block map under mktemp, invokes blocks-lint.sh through
 # its public CLI (--budget, an optional positional path, the default
-# .local/blocks.md, $LEGO_CONFIG, $PATH without jq) and asserts on its real
+# .local/blocks.md, $LEGO_CONFIG, $JQ) and asserts on its real
 # exit code, stdout finding/summary lines, and stderr — never on internals.
 #
 # Run directly: `bash blocks-lint.test.sh`. Exits 0 when every test passes,
 # 1 when any test fails, 2 on an environment error of the suite itself.
+# <!--
+# Contract: B11 blocks-lint-dependency-injection (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   The `path_without` helper below — which rebuilds a whole PATH-minus-jq
+#   symlink farm on every call — is deleted outright, together with the
+#   `PATH_NO_JQ` / `path_no_jq` memo wrapper that fronts it. The five
+#   jq-absence sites drive `blocks-lint.sh`'s new `: "${JQ:=jq}"` seam
+#   directly, by setting JQ=/nonexistent in the environment of the single
+#   invocation under test, instead of reconstructing PATH.
+#
+#   This mirrors B04, which made exactly this change to realm-gate.test.sh,
+#   pr-size-check.test.sh and worktree.test.sh. blocks-lint.sh predates that
+#   conversion and is the fourth script to receive the same seam: every
+#   `jq` in command position becomes `"$JQ"`, and `command -v jq` becomes
+#   `command -v "$JQ"`. Error-message strings mentioning jq are NOT touched.
+#
+# Inputs:  unchanged — the same block-map fixtures and the same CLI.
+# Outputs: unchanged — `Passed: 35  Failed: 0  Total: 35`.
+#
+# Errors:
+#   Unchanged. In particular the jq-required diagnostic and its exit 2 must
+#   fire identically whether jq is absent from PATH or JQ names a
+#   nonexistent path: both are detected through `command -v "$JQ"`.
+#
+# Invariants:
+#   - Pass count is EXACTLY 35, failures EXACTLY 0. A changed count is a
+#     defect, not an improvement, whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - blocks-lint.sh's observable behaviour is unchanged on every path:
+#     stdout, stderr and exit code byte-identical, jq present or absent.
+#   - Zero `basename` and zero `ln` spawns from this suite. The current
+#     figures are 39,465 and 17,800 — five surviving calls to the helper
+#     (the memo is dead, because a `PATH_NO_JQ=` assignment inside command
+#     substitution dies with the subshell) across 7,895 files on $PATH.
+#   - No wall-clock assertion anywhere in this file.
+#
+# Edge cases:
+#   - `JQ=""` must degrade to the default rather than to an empty command,
+#     which is why the seam uses `:=` and not `:-`.
+#   - The seam must not be exported: it applies to the invocation under
+#     test, never to the suite's own jq calls, which build fixtures and must
+#     keep working.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/blocks-lint.sh"
@@ -21,9 +65,9 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 # The suite's own prerequisites. jq builds the config-resolution fixtures
-# (the script's own jq requirement is exercised separately, by removing jq
-# from $PATH); git backs the read-only invariant and the cwd-relative
-# default-path fixtures.
+# (the script's own jq requirement is exercised separately, by pointing $JQ
+# at a nonexistent path); git backs the read-only invariant and the
+# cwd-relative default-path fixtures.
 for tool in jq git md5sum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "FATAL: this suite requires $tool on \$PATH" >&2
@@ -108,8 +152,11 @@ assert_eq() {
 # ---------------------------------------------------------------------------
 # Invocation helper: run_cmd <dir> <path-or-empty> <lego-config-or-empty>
 # <args...> — runs blocks-lint.sh with cwd <dir>, optionally overriding $PATH
-# (to exercise the no-jq paths) and/or $LEGO_CONFIG (the override-path
-# redirection seam). Sets RUN_OUT / RUN_ERR / RUN_EXIT / RUN_OUT_LINES.
+# and/or $LEGO_CONFIG (the override-path redirection seam). Sets RUN_OUT /
+# RUN_ERR / RUN_EXIT / RUN_OUT_LINES. To exercise the jq-absent paths, prefix
+# the call with JQ=/nonexistent (e.g. `JQ=/nonexistent run_in "$dir"`) — bash
+# exports a prefix assignment into the environment of everything the function
+# invokes, including the `bash "$SCRIPT"` below.
 # ---------------------------------------------------------------------------
 RUN_OUT=""
 RUN_ERR=""
@@ -146,34 +193,6 @@ run_in() {
   local dir="$1"
   shift
   run_cmd "$dir" "" "" "$@"
-}
-
-# path_without <exe-name> — prints a dir containing symlinks to every
-# executable currently resolvable on $PATH except <exe-name>.
-path_without() {
-  local exclude="$1"
-  local dir p b name
-  dir="$(mktemp -d)"
-  track_tmp "$dir"
-  local parts
-  IFS=':' read -ra parts <<< "$PATH"
-  for p in "${parts[@]}"; do
-    [ -n "$p" ] && [ -d "$p" ] || continue
-    for b in "$p"/*; do
-      [ -e "$b" ] || continue
-      name="$(basename "$b")"
-      [ "$name" = "$exclude" ] && continue
-      [ -e "$dir/$name" ] && continue
-      ln -s "$b" "$dir/$name" 2>/dev/null || true
-    done
-  done
-  printf '%s' "$dir"
-}
-
-PATH_NO_JQ=""
-path_no_jq() {
-  [ -n "$PATH_NO_JQ" ] || PATH_NO_JQ="$(path_without jq)"
-  printf '%s' "$PATH_NO_JQ"
 }
 
 # ---------------------------------------------------------------------------
@@ -487,12 +506,12 @@ test_default_budget_500_ceiling_250_no_jq_needed() {
   local dir
   dir="$(new_map_dir "$(block B01 250)" "$(block B02 1)")"
 
-  run_cmd "$dir" "$(path_no_jq)" ""
+  JQ=/nonexistent run_in "$dir"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "default budget, Est at the ceiling: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_clean_structure "ALL PASS (2 blocks, ceiling 250)" "default budget 500 derives ceiling 250"
 
   dir="$(new_map_dir "$(block B01 251)" "$(block B02 1)")"
-  run_cmd "$dir" "$(path_no_jq)" ""
+  JQ=/nonexistent run_in "$dir"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "default budget, Est one over the ceiling: expected exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_findings_structure "FAILURES: 1 — fix the block map before scaffolding" "one over the default ceiling"
   assert_block_finding B01 "justif" "251 over the default ceiling of 250"
@@ -604,7 +623,7 @@ test_budget_flag_wins_over_config_and_no_jq_needed() {
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 20)"
 
-  run_cmd "$dir" "$(path_no_jq)" "" --budget 100
+  JQ=/nonexistent run_in "$dir" --budget 100
   [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 100 over a config budget of 20, jq absent: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "--budget wins over the config value and needs no jq"
 }
@@ -616,7 +635,7 @@ test_jq_required_when_config_resolution_needed() {
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 20)"
 
-  run_cmd "$dir" "$(path_no_jq)" ""
+  JQ=/nonexistent run_in "$dir"
   assert_usage_error "base config present, no --budget, jq absent"
   case "$RUN_ERR" in
     *jq*|*JQ*) : ;;
@@ -626,7 +645,7 @@ test_jq_required_when_config_resolution_needed() {
   local dir2
   dir2="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir2" ".local/config.json" "$(budget_json 20)"
-  run_cmd "$dir2" "$(path_no_jq)" ""
+  JQ=/nonexistent run_in "$dir2"
   assert_usage_error "override config present, no --budget, jq absent"
 }
 

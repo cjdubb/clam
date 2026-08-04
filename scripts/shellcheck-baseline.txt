@@ -22,7 +22,7 @@
 # new test file for no real defect, and this baseline's own rule forbids
 # adding rows to fix that.
 #
-# What remains deduplicates to the 115 (path, code) pairs below.
+# What remains deduplicates to the 114 (path, code) pairs below.
 plugins/ask-in-text/scripts/structure.test.sh	SC2016
 plugins/attribution/scripts/structure.test.sh	SC2088
 plugins/build/scripts/b03-plugin-metadata.test.sh	SC2016
@@ -46,7 +46,6 @@ plugins/lego/scripts/realm-gate.test.sh	SC2012
 plugins/lego/scripts/realm.sh	SC2254
 plugins/lego/scripts/scaffold-skill.test.sh	SC2016
 plugins/lego/scripts/session-context-question-gate.test.sh	SC2016
-plugins/lego/scripts/wave-check.test.sh	SC2015
 plugins/lego/scripts/wave-check.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2143
 plugins/lego/scripts/wave-check.test.sh	SC2295

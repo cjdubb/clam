@@ -92,6 +92,8 @@
 
 set -uo pipefail
 
+: "${JQ:=jq}"
+
 USAGE_MSG="usage: wave-check.sh <test|impl> [--test-cmd \"<command>\"] [--scaffold-ref <ref>] [--stub <path>]... [--collection-pattern \"<ERE>\"] [diff-range]"
 DEFAULT_COLLECTION_PATTERN="SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|ParseError|collection error"
 
@@ -206,38 +208,42 @@ else
     exit 2
   fi
 
-  if ! command -v jq >/dev/null 2>&1; then
+  if ! command -v "$JQ" >/dev/null 2>&1; then
     err "jq is required to resolve commands.test from config ($base_config and/or $override_config present); pass --test-cmd to skip config entirely"
     exit 2
   fi
 
-  if [ "$have_base" -eq 1 ] && ! jq -e . "$base_config" >/dev/null 2>&1; then
+  if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$base_config" >/dev/null 2>&1; then
     err "invalid JSON in config file: $base_config"
     exit 2
   fi
-  if [ "$have_override" -eq 1 ] && ! jq -e . "$override_config" >/dev/null 2>&1; then
+  if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$override_config" >/dev/null 2>&1; then
     err "invalid JSON in config file: $override_config"
     exit 2
   fi
 
   if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-    effective_config="$(jq -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
+    effective_config="$("$JQ" -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
   elif [ "$have_base" -eq 1 ]; then
     effective_config="$(cat "$base_config")"
   else
     effective_config="$(cat "$override_config")"
   fi
 
-  raw_type="$(jq -r '.commands.test | type' <<<"$effective_config" 2>/dev/null)"
+  raw_type="$("$JQ" -r '.commands.test | type' <<<"$effective_config" 2>/dev/null)"
   case "$raw_type" in
     string)
-      TEST_CMD="$(jq -r '.commands.test' <<<"$effective_config" 2>/dev/null)"
+      TEST_CMD="$("$JQ" -r '.commands.test' <<<"$effective_config" 2>/dev/null)"
       [ -n "$TEST_CMD" ] || { err "commands.test is an empty string in the effective config"; exit 2; }
       ;;
     object)
-      default_key="$(jq -r '.commands.test.default // empty' <<<"$effective_config" 2>/dev/null)"
+      default_key="$("$JQ" -r '.commands.test.default // empty' <<<"$effective_config" 2>/dev/null)"
       [ -n "$default_key" ] || { err "commands.test is an object without a 'default' key in the effective config"; exit 2; }
-      TEST_CMD="$(jq -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$effective_config" 2>/dev/null)"
+      # $k is the jq variable bound by --arg, not a shell one, so the single
+      # quotes are required. shellcheck cannot tell: it special-cases the
+      # literal command word `jq`, and "$JQ" hides that.
+      # shellcheck disable=SC2016
+      TEST_CMD="$("$JQ" -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$effective_config" 2>/dev/null)"
       [ -n "$TEST_CMD" ] || { err "commands.test.default names an absent or empty variant in the effective config"; exit 2; }
       ;;
     *)

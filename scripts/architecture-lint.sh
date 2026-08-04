@@ -72,6 +72,15 @@
 #
 # Invariants:
 #   - Read-only; never modifies the tree or the baseline.
+#   - PERFORMANCE (B01, plan 001-speed-up-repo-ci): the four per-name regex
+#     patterns depend ONLY on the plugin name — never on the file or the
+#     line — so each is computed once per name and reused for the whole
+#     scan. No subprocess may be spawned from inside the per-file or
+#     per-line loops. Acceptance is mechanical and twofold: output must be
+#     BYTE-IDENTICAL to the pre-change run (`0 new, 0 stale, 160 baselined`
+#     on today's tree), and the full scan must spawn ZERO `sed` processes
+#     (pre-change baseline: >20,000). Wall-clock is a consequence, not the
+#     assertion: 66.5s before, 4.4s in the verified prototype.
 #   - cwd-independent: resolves the repo root via git rev-parse and scans
 #     from there; all reported paths are repo-relative.
 #   - Scan scope is EXACTLY tracked files under plugins/*/ — repo-root
@@ -108,10 +117,27 @@ BASELINE_FILE="$REPO_ROOT/scripts/architecture-lint-baseline.txt"
 ALLOWLIST_TARGETS_FOR_BUILD="landing lego tracking forge-github forge-gitlab"
 
 # ---------------------------------------------------------------------------
-# ERE-escape a literal string for embedding in a regex.
+# ERE-escape a literal string for embedding in a regex. Fork-free: bash
+# parameter expansion only (no subprocess), so this can run in a hot loop.
+# Escapes backslash first so escapes introduced for the other characters are
+# never themselves re-escaped.
 # ---------------------------------------------------------------------------
 escape_re() {
-  printf '%s' "$1" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//./\\.}"
+  s="${s//\[/\\[}"
+  s="${s//\*/\\*}"
+  s="${s//^/\\^}"
+  s="${s//\$/\\\$}"
+  s="${s//(/\\(}"
+  s="${s//)/\\)}"
+  s="${s//+/\\+}"
+  s="${s//\?/\\?}"
+  s="${s//\{/\\\{}"
+  s="${s//\}/\\\}}"
+  s="${s//|/\\|}"
+  printf '%s' "$s"
 }
 
 BOUNDARY_BEFORE='(^|[^A-Za-z0-9_-])'
@@ -119,10 +145,19 @@ BOUNDARY_AFTER='([^A-Za-z0-9_-]|$)'
 PLUGIN_WORD='[Pp][Ll][Uu][Gg][Ii][Nn]'
 PLUGIN_SUFFIX="${PLUGIN_WORD}('[Ss]|[Ss])?"
 
-skill_pat_for() { printf '/%s:[A-Za-z0-9_-]+' "$(escape_re "$1")"; }
-mkt_pat_for()   { printf '%s%s@clam' "$BOUNDARY_BEFORE" "$(escape_re "$1")"; }
-eng_pat_for()   { printf '%s%s[[:space:]]+%s%s' "$BOUNDARY_BEFORE" "$(escape_re "$1")" "$PLUGIN_SUFFIX" "$BOUNDARY_AFTER"; }
-path_pat_for()  { printf 'plugins/%s/' "$(escape_re "$1")"; }
+skill_pat_for() { printf '/%s:[A-Za-z0-9_-]+' "$1"; }
+mkt_pat_for()   { printf '%s%s@clam' "$BOUNDARY_BEFORE" "$1"; }
+eng_pat_for()   { printf '%s%s[[:space:]]+%s%s' "$BOUNDARY_BEFORE" "$1" "$PLUGIN_SUFFIX" "$BOUNDARY_AFTER"; }
+path_pat_for()  { printf 'plugins/%s/' "$1"; }
+
+# ---------------------------------------------------------------------------
+# PERFORMANCE (B01): the four per-name patterns depend only on the plugin
+# name, never on the file or line, so each is computed exactly once per
+# name here and reused for the whole scan -- nothing in the per-file or
+# per-line loops below recomputes a pattern or forks a subprocess for it.
+# Populated per-name lazily below, right after the vocabulary is known.
+# ---------------------------------------------------------------------------
+declare -A ESC_OF PAT_skill PAT_mkt PAT_eng PAT_path
 
 # ---------------------------------------------------------------------------
 # Discover scan scope (tracked files under plugins/<name>/...) and the
@@ -144,6 +179,16 @@ for f in "${SCAN_FILES[@]}"; do
   VOCAB_SET["$name"]=1
 done
 VOCAB=("${!VOCAB_SET[@]}")
+
+# Compute each name's escape and four patterns exactly once, up front.
+for q in "${VOCAB[@]}"; do
+  esc="$(escape_re "$q")"
+  ESC_OF["$q"]="$esc"
+  PAT_skill["$q"]="$(skill_pat_for "$esc")"
+  PAT_mkt["$q"]="$(mkt_pat_for "$esc")"
+  PAT_eng["$q"]="$(eng_pat_for "$esc")"
+  PAT_path["$q"]="$(path_pat_for "$esc")"
+done
 
 # ---------------------------------------------------------------------------
 # Parse the baseline (line-number-free triples), preserving file order for
@@ -238,7 +283,7 @@ for path in "${SCAN_FILES[@]}"; do
   [ "${#names[@]}" -eq 0 ] && continue
 
   esc_names=()
-  for q in "${names[@]}"; do esc_names+=("$(escape_re "$q")"); done
+  for q in "${names[@]}"; do esc_names+=("${ESC_OF[$q]}"); done
   alt="$(IFS='|'; echo "${esc_names[*]}")"
 
   skill_alt="/(${alt}):[A-Za-z0-9_-]+"
@@ -277,10 +322,10 @@ for path in "${SCAN_FILES[@]}"; do
     for q in "${names[@]}"; do
       for form in "${FORM_NAMES[@]}"; do
         case "$form" in
-          skill-invocation) pat="$(skill_pat_for "$q")" ;;
-          marketplace-id)   pat="$(mkt_pat_for "$q")" ;;
-          english)          pat="$(eng_pat_for "$q")" ;;
-          path)             pat="$(path_pat_for "$q")" ;;
+          skill-invocation) pat="${PAT_skill[$q]}" ;;
+          marketplace-id)   pat="${PAT_mkt[$q]}" ;;
+          english)          pat="${PAT_eng[$q]}" ;;
+          path)             pat="${PAT_path[$q]}" ;;
         esac
 
         if [[ "$text" =~ $pat ]]; then

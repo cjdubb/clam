@@ -1126,6 +1126,30 @@ test_invariant_one_shellcheck_invocation_over_the_full_file_list() {
   done
 }
 
+# ===========================================================================
+# Clause: Invariant — "SC2317 is excluded at the invocation rather than
+# baselined ... No other code is excluded". The fake cannot filter, so what is
+# asserted here is the argv: the exclusion is passed, and it is the only one.
+# ===========================================================================
+test_invariant_sc2317_is_excluded_at_the_invocation_and_nothing_else_is() {
+  local repo argv
+  new_shellcheck_shim
+  repo="$(new_repo)"
+  write_file "$repo" scripts/a.sh
+  commit_all "$repo" "add one tracked shell file"
+
+  run_lint "$repo"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected a clean pass, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+
+  argv="$(scan_argv)"
+  assert_contains "$argv" "--exclude=SC2317" "SC2317 must be excluded at the invocation, not carried in the baseline"
+
+  case "$argv" in
+    *--exclude=SC2317*--exclude=*|*--exclude=*--exclude=SC2317*)
+      record_fail "SC2317 must be the ONLY exclusion; argv carries more than one --exclude ($argv)" ;;
+  esac
+}
+
 # The same invariant from the angle that actually bites: invocation count must
 # not grow with the number of files. Four times the files, same count.
 test_invariant_invocation_count_does_not_scale_with_file_count() {
@@ -1215,6 +1239,7 @@ run_test "invariant: no env var and no stray config file changes the verdict" te
 
 run_test "invariant: shellcheck is invoked exactly once, over the full file list" test_invariant_one_shellcheck_invocation_over_the_full_file_list
 run_test "invariant: invocation count does not scale with the file count" test_invariant_invocation_count_does_not_scale_with_file_count
+run_test "invariant: SC2317 is excluded at the invocation, and it is the only exclusion" test_invariant_sc2317_is_excluded_at_the_invocation_and_nothing_else_is
 
 run_test "edge case: a repo with no tracked *.sh files is a clean pass" test_repo_with_no_tracked_sh_files_is_a_clean_pass
 

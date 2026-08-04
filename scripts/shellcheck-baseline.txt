@@ -5,23 +5,27 @@
 # Entries may only be REMOVED (after the finding is fixed); a row with no
 # matching finding fails the lint as stale. Never add rows for new findings.
 #
-# Seeded 2026-08-04 from the first CI run that had shellcheck available
-# (actions run 30899085910), because the machine this check was written on
-# does not have it installed. 6,648 raw findings across the repo's tracked
-# *.sh files deduplicate to the 140 (path, code) pairs below.
+# Seeded from CI, not from a developer machine: shellcheck is not installed
+# where this check was written, so the first push shipped an empty baseline
+# deliberately rather than a fabricated one. Two runs fed this file —
+# 30899085910 (6,648 findings) and 30900425331 (7,907 findings, after four
+# prose comments that were parsing as shellcheck directives were reworded and
+# master was merged in).
 #
-# 6,441 of those 6,648 are SC2317 "Command appears to be unreachable", every
-# one of them in a *.test.sh file. They are a false positive from this repo's
-# test-harness idiom: `run_test "$name" <fn>` invokes each test function via
-# `"$@"`, and `cleanup` runs from a `trap`, so shellcheck's reachability
-# analysis cannot see either call. They collapse to 21 rows here, but a NEW
-# test file will emit un-baselined SC2317 and fail this check for no real
-# defect — excluding SC2317 at the invocation instead is tracked as a
-# follow-up.
+# SC2317 "Command appears to be unreachable" dominates both runs — 6,441 of
+# the first run's findings, 765 of the second run's 770 uncovered ones — and
+# every instance is in a *.test.sh file. They are a false positive from this
+# repo's test-harness idiom: `run_test "$name" <fn>` invokes each test
+# function via `"$@"`, and `cleanup` runs from a `trap`, so shellcheck's
+# reachability analysis cannot see either call. SC2317 is therefore excluded
+# at the invocation rather than listed here — baselining it would fail every
+# new test file for no real defect, and this baseline's own rule forbids
+# adding rows to fix that.
+#
+# What remains deduplicates to the 114 (path, code) pairs below.
 plugins/ask-in-text/scripts/structure.test.sh	SC2016
 plugins/attribution/scripts/structure.test.sh	SC2088
 plugins/build/scripts/b03-plugin-metadata.test.sh	SC2016
-plugins/build/scripts/b03-plugin-metadata.test.sh	SC2317
 plugins/build/scripts/structure.test.sh	SC2001
 plugins/debugging/scripts/b01-root-cause-skill.test.sh	SC2016
 plugins/debugging/scripts/b02-reproduce-ref.test.sh	SC2034
@@ -31,7 +35,6 @@ plugins/debugging/scripts/structure.test.sh	SC2016
 plugins/decision-log/scripts/rundown-render-seam.test.sh	SC2088
 plugins/landing/scripts/landing-docs.test.sh	SC2155
 plugins/lego/scripts/blocks-lint.test.sh	SC2015
-plugins/lego/scripts/blocks-lint.test.sh	SC2317
 plugins/lego/scripts/dispatch-scheduling.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2088
@@ -39,9 +42,7 @@ plugins/lego/scripts/gate-wiring-docs.test.sh	SC2016
 plugins/lego/scripts/plan-sizing.test.sh	SC2034
 plugins/lego/scripts/pr-size-check.sh	SC2016
 plugins/lego/scripts/pr-size-check.test.sh	SC2069
-plugins/lego/scripts/pr-size-check.test.sh	SC2317
 plugins/lego/scripts/realm-gate.test.sh	SC2012
-plugins/lego/scripts/realm-gate.test.sh	SC2317
 plugins/lego/scripts/realm.sh	SC2254
 plugins/lego/scripts/scaffold-skill.test.sh	SC2016
 plugins/lego/scripts/session-context-question-gate.test.sh	SC2016
@@ -49,22 +50,20 @@ plugins/lego/scripts/wave-check.test.sh	SC2015
 plugins/lego/scripts/wave-check.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2143
 plugins/lego/scripts/wave-check.test.sh	SC2295
-plugins/lego/scripts/wave-check.test.sh	SC2317
 plugins/lego/scripts/worktree.sh	SC2016
 plugins/lego/scripts/worktree.sh	SC2181
 plugins/lego/scripts/worktree.test.sh	SC2012
 plugins/lego/scripts/worktree.test.sh	SC2034
-plugins/lego/scripts/worktree.test.sh	SC2317
 plugins/management/scripts/manifest.test.sh	SC2016
+plugins/management/scripts/prune-stamp.test.sh	SC2088
+plugins/management/scripts/prune-stamp.test.sh	SC2295
 plugins/management/scripts/registration.test.sh	SC2016
+plugins/management/scripts/run-skill.test.sh	SC2016
 plugins/management/scripts/stamp-conformance.test.sh	SC2016
 plugins/management/scripts/stamp-conformance.test.sh	SC2088
-plugins/management/scripts/stamp-conformance.test.sh	SC2317
 plugins/notifications/lib/desktop-notify.test.sh	SC1091
 plugins/notifications/lib/desktop-notify.test.sh	SC2015
-plugins/notifications/lib/desktop-notify.test.sh	SC2317
 plugins/notifications/lib/notify.test.sh	SC1091
-plugins/notifications/lib/notify.test.sh	SC2317
 plugins/notifications/scripts/notify.sh	SC1091
 plugins/notifications/scripts/push-notify.sh	SC1091
 plugins/notifications/scripts/stop-notify.sh	SC1091
@@ -77,8 +76,6 @@ plugins/render-doc/scripts/open.test.sh	SC2120
 plugins/render-doc/scripts/render.sh	SC2015
 plugins/render-doc/scripts/render.test.sh	SC2016
 plugins/render-doc/scripts/render.test.sh	SC2088
-plugins/render-doc/scripts/save-status.test.sh	SC2317
-plugins/render-doc/scripts/server-docs.test.sh	SC2317
 plugins/render-doc/scripts/server.test.sh	SC2016
 plugins/render-doc/scripts/server.test.sh	SC2034
 plugins/render-doc/scripts/structure.test.sh	SC2015
@@ -103,17 +100,16 @@ plugins/statusline/scripts/ccost.test.sh	SC1091
 plugins/statusline/scripts/context.sh	SC1003
 plugins/statusline/scripts/context.sh	SC1090
 plugins/statusline/scripts/context.sh	SC1091
-plugins/statusline/scripts/context.sh	SC2034
 plugins/statusline/scripts/context.test.sh	SC1090
 plugins/statusline/scripts/context.test.sh	SC1091
 plugins/statusline/scripts/context.test.sh	SC2016
 plugins/statusline/scripts/context.test.sh	SC2088
 plugins/statusline/scripts/context.test.sh	SC2154
+plugins/statusline/scripts/readme.test.sh	SC2016
 plugins/statusline/scripts/render-budget.test.sh	SC1091
 plugins/statusline/scripts/render-budget.test.sh	SC2016
 plugins/tracking/lib/activity.test.sh	SC1091
 plugins/tracking/lib/activity.test.sh	SC2016
-plugins/tracking/scripts/capture-migration.test.sh	SC2317
 plugins/tracking/scripts/capture.sh	SC1091
 plugins/tracking/scripts/capture.test.sh	SC2012
 plugins/tracking/scripts/compaction-wiring.test.sh	SC2016
@@ -129,24 +125,15 @@ plugins/tracking/scripts/workgraph-docs.test.sh	SC2016
 plugins/tracking/scripts/workgraph-docs.test.sh	SC2034
 plugins/tracking/scripts/workgraph-lifecycle.test.sh	SC2016
 plugins/tracking/scripts/workgraph-template.test.sh	SC2016
-plugins/voice/scripts/registration.test.sh	SC2317
 plugins/voice/scripts/structure.test.sh	SC2016
-plugins/worktrees/scripts/b01-manifest.test.sh	SC2317
 plugins/worktrees/scripts/b02-usage-skill.test.sh	SC2034
 plugins/worktrees/scripts/b03-per-worker-skill.test.sh	SC2016
 scripts/architecture-doc.test.sh	SC2016
 scripts/architecture-lint.sh	SC2207
 scripts/architecture-lint.sh	SC2295
-scripts/architecture-lint.test.sh	SC2317
 scripts/claude-md.test.sh	SC2016
-scripts/issue-template-lint.test.sh	SC2317
 scripts/marketplace-lint.test.sh	SC2034
-scripts/marketplace-lint.test.sh	SC2317
 scripts/migration-audit-surfaces.test.sh	SC2016
-scripts/pre-push.test.sh	SC2317
 scripts/protocol-specs.test.sh	SC2016
-scripts/readme-lint.test.sh	SC2317
 scripts/setup-hooks.test.sh	SC2086
-scripts/setup-hooks.test.sh	SC2317
 scripts/version-bump-lint.sh	SC2181
-scripts/version-bump-lint.test.sh	SC2317

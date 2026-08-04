@@ -205,6 +205,8 @@ done
 management_row="$(grep -F '[management](plugins/management/)' <<< "$DATA_ROWS" | head -n1)"
 check "management row names /management:update" \
   "$(grep -qF '/management:update' <<< "$management_row" && echo yes || echo no)" "yes"
+check "management row names /management:install" \
+  "$(grep -qF '/management:install' <<< "$management_row" && echo yes || echo no)" "yes"
 check "management row matches the standard row shape" \
   "$([[ "$management_row" =~ ^\|\ \[management\]\(plugins/management/\)\ \|\ ✅\ v[0-9]+\.[0-9]+\.[0-9]+\ \|\ .+\ \|$ ]] && echo yes || echo no)" "yes"
 

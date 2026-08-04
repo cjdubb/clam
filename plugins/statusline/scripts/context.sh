@@ -174,14 +174,7 @@ sl_bundle_write() {
 }
 # ------------------------------------------------------------------------
 
-# --- B04 / B05 scaffold surface -------------------------------------------
-# Loud-but-safe unimplemented marker. Writes to stderr ONLY: this script's
-# stdout is the user's statusline, so a stub must never print into it. The
-# non-zero return is what callers branch on to omit an unbuilt segment.
-_sl_not_implemented() {
-  echo "NotImplemented: $1" >&2
-  return 70
-}
+# --- Burnrate line ---------------------------------------------------------
 
 # Contract: B04 payload-parse (plan 001-statusline-burnrate-uplift)
 #
@@ -357,7 +350,173 @@ sl_parse_burn_fields() {
 #     string, and the caller prints no line at all rather than a bare
 #     newline.
 sl_render_burn_line() {
-  _sl_not_implemented "B05 burnrate-line (line not assembled)"
+  # Every COLOUR on this line is B03's choice; no threshold or palette is
+  # decided here. Three escape shapes are still typed out below, none of them
+  # a colour decision:
+  #   $_sl_burn_sep -- the dim group separator, which B03 offers no helper
+  #     for. "Dim" in the Outputs clause above is SGR 2.
+  #   $rst -- the closing half of B03's sequences. burn_plan_color and its
+  #     siblings each echo a bare SGR OPENER, so closing it is the caller's
+  #     job.
+  #   $esc[38;5;Nm in group 3, wrapping the colour NUMBER burn_ctx_state
+  #     returns -- the same shape the State segment already builds from
+  #     state_color further up this file.
+  # Anything beyond those three is a bug: it means a colour was picked here
+  # instead of in burn-theme.sh.
+  local esc=$'\033' rst=$'\033[0m'
+  local _sl_burn_acc="" g frame
+
+  # One animation frame per render, shared by the rainbow and the pet. The
+  # frame file sits in the segment-cache dir, which the bundle write already
+  # created, so the warm path spends no `mkdir` of its own on it. An
+  # unwritable path freezes the animation rather than failing (B03).
+  frame=1
+  if declare -f burn_frame_advance >/dev/null 2>&1; then
+    frame=$(burn_frame_advance "$SL_CACHE_DIR/.burn-frame")
+  fi
+
+  # --- group 1: mascot, model name, effort tier -----------------------------
+  g=""
+  if [ -n "$model_name" ] && declare -f burn_model_style >/dev/null 2>&1; then
+    # BARE call, never $(burn_model_style ...): it sets BURN_MASCOT and
+    # BURN_HUES as globals and echoes nothing, so a subshell capture would
+    # discard exactly what the two lines below read.
+    burn_model_style "$model_name"
+    # An ABSENT model renders no mascot at all; an unrecognised one renders
+    # B03's 🤖 fallback. Absent is not unknown -- the same "empty is not zero"
+    # distinction B04 draws for the rate-limit fields -- which is why the
+    # mascot hangs off this branch rather than off burn_model_style alone.
+    # "Opus 5 (1M context)" is trimmed at " (": the suffix costs a third of
+    # the line's width and says nothing the meters do not.
+    g="$BURN_MASCOT $(burn_rainbow "${model_name%% (*}" "$frame")"
+  fi
+  if [ -n "$effort" ]; then
+    [ -n "$g" ] && g="$g "
+    g="$g$(burn_effort_color "$effort")$effort$rst"
+  fi
+  _sl_burn_group "$g"
+
+  # --- group 2: weekly limit (🎯 used%, %t, %/d, trend) ---------------------
+  g=""
+  if [ -n "$r7" ]; then
+    g="$(burn_plan_color "${r7%%.*}")🎯 ${r7}%$rst"
+    if [ -n "$r7_reset" ]; then
+      local hour slp ds frac metrics m_today m_pace m_trend arrow
+      # The awake-hours knobs, both passed straight down to B01. A
+      # non-integer (the leading "-" of a negative included) or out-of-range
+      # value falls back to its default rather than erroring. The 10# is not
+      # decoration: a perfectly reasonable "08" is OCTAL to bash arithmetic,
+      # and an unforced one aborts the multiplication below -- silently
+      # dropping %t, %/d and the trend for a value the user wrote correctly.
+      hour="${SL_DAY_START:-2}"
+      case "$hour" in ''|*[!0-9]*) hour=2 ;; *) hour=$(( 10#$hour )) ;; esac
+      [ "$hour" -gt 23 ] && hour=2
+      slp="${SL_SLEEP_HOURS:-6}"
+      case "$slp" in ''|*[!0-9]*) slp=6 ;; *) slp=$(( 10#$slp )) ;; esac
+      [ "$slp" -gt 23 ] && slp=6
+
+      ds=$(_sl_burn_day_start "$hour")
+      if [ -n "$ds" ]; then
+        # The sub-tick fraction refines %t only, and only when the payload
+        # carries the session cost it is estimated from; without one B02 has
+        # nothing to measure, so skip the call rather than let it re-anchor
+        # (and re-write its state file) on every render.
+        frac=0
+        if [ -n "$total_cost_usd" ] && declare -f burn_tick_frac >/dev/null 2>&1; then
+          frac=$(burn_tick_frac "$r7" "$session_id" "$total_cost_usd" "$_sl_burn_tick_file")
+          [ -n "$frac" ] || frac=0
+        fi
+        # burn_metrics echoes "TODAY PACE TREND" or, when it cannot compute
+        # (a reset already past, a degenerate week), nothing at all -- in
+        # which case all three derived figures drop and 🎯 used% stays.
+        metrics=$(burn_metrics "$r7" "$frac" "$_sl_now" "$r7_reset" "$ds" "$(( slp * 3600 ))")
+        if [ -n "$metrics" ]; then
+          read -r m_today m_pace m_trend <<< "$metrics"
+          # NA is B01 saying today's slice is degenerate, not a figure to
+          # render; pace and trend survive it.
+          [ "$m_today" != "NA" ] \
+            && g="$g $(burn_today_color "$m_today")${m_today}%t$rst"
+          g="$g $(burn_pace_color "$m_pace")${m_pace}%/d$rst"
+          # Ahead of the even-burn line points up. The magnitude is printed as
+          # B01 signs it, so a negative trend reads "▼-11".
+          case "$m_trend" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
+          g="$g $arrow$m_trend"
+        fi
+      fi
+    fi
+  fi
+  _sl_burn_group "$g"
+
+  # --- group 3: session (🧠 occupancy, lines touched) -----------------------
+  g=""
+  if [ -n "$pct" ]; then
+    g="${esc}[38;5;${ctx_color}m🧠 ${pct}%$rst"
+    # Only once at least one count is above zero: a session that has edited
+    # nothing shows nothing, not "+0/-0".
+    if [ "${lines_added:-0}" -gt 0 ] 2>/dev/null \
+      || [ "${lines_removed:-0}" -gt 0 ] 2>/dev/null; then
+      g="$g +${lines_added:-0}/-${lines_removed:-0}"
+    fi
+  fi
+  _sl_burn_group "$g"
+
+  # --- group 4: 5-hour limit (🔥 used%, countdown) --------------------------
+  g=""
+  if [ -n "$r5" ]; then
+    g="$(burn_plan_color "${r5%%.*}")🔥 ${r5}%$rst"
+    # A missing reset drops the countdown ONLY -- the used% is live quota
+    # state, exactly as the weekly group keeps its 🎯 figure without one.
+    if [ -n "$r5_reset" ]; then
+      local countdown
+      countdown=$(burn_reset_str "$r5_reset" "$_sl_now") \
+        && [ -n "$countdown" ] && g="$g $countdown"
+    fi
+  fi
+  _sl_burn_group "$g"
+
+  # --- group 5: the pet, keyed to the WORST meter present -------------------
+  g=""
+  local stress="" v
+  for v in "$pct" "${r5%%.*}" "${r7%%.*}"; do
+    # An absent meter is skipped, never folded in as a zero.
+    case "$v" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$stress" ] || [ "$v" -gt "$stress" ]; then
+      stress="$v"
+    fi
+  done
+  [ -n "$stress" ] && g=$(burn_pet "$stress" "$frame")
+  _sl_burn_group "$g"
+
+  printf '%s' "$_sl_burn_acc"
+}
+
+# The dim group separator, and the accumulator helper that places it. The
+# separator goes only BETWEEN present groups, so a group that vanishes takes
+# its separator with it and the line never shows a dangling │.
+_sl_burn_sep=$'\033[2m│\033[0m'
+
+# _sl_burn_group GROUP -- append GROUP to the line under assembly. The
+# accumulator is sl_render_burn_line's own $_sl_burn_acc local, visible here
+# through bash's dynamic scoping; this exists only to keep that function's
+# five group blocks free of the same four lines of join bookkeeping.
+_sl_burn_group() { # group
+  [ -z "$1" ] && return 0
+  [ -n "$_sl_burn_acc" ] && _sl_burn_acc="$_sl_burn_acc $_sl_burn_sep "
+  _sl_burn_acc="$_sl_burn_acc$1"
+  return 0
+}
+
+# _sl_burn_day_start HOUR -> epoch of the current day's start, or nothing when
+# the clock cannot be read. Spends the render's SECOND and last `date` on the
+# seconds-into-the-LOCAL-day figure B01 needs: one `date` invocation carries
+# one timezone, and the shared $_sl_now has to be UTC because
+# .ctx-status.json's fetched_at is. Called only from the weekly group, so a
+# payload with no weekly data never pays for it.
+_sl_burn_day_start() { # hour
+  local h m s
+  read -r h m s <<< "$(date +'%H %M %S')"
+  case "$h$m$s" in ''|*[!0-9]*) return 1 ;; esac
+  burn_day_start_epoch "$_sl_now" "$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))" "$1"
 }
 # ------------------------------------------------------------------------
 
@@ -425,8 +584,15 @@ _sl_mtime_epoch() {
 
 sl_parse_input
 
-# Format number with commas
-fmt() { printf "%'d" "$1" 2>/dev/null || echo "$1"; }
+# B02's sub-tick anchor file, keyed exactly as the segment bundle is (the
+# transcript path, falling back to the cwd) so two sessions never share an
+# anchor. It lives in the segment-cache dir the bundle write already creates,
+# which is what keeps the burnrate line's scratch state off the warm render's
+# process budget: no `mkdir` of its own, and an unwritable path just degrades
+# the interpolation to a zero fraction.
+_sl_burn_tick_key="$transcript_path"
+[ -z "$_sl_burn_tick_key" ] && _sl_burn_tick_key="$cwd"
+_sl_burn_tick_file="$SL_CACHE_DIR/${_sl_burn_tick_key//\//_}.tick"
 
 # Age of a file in seconds (missing file reads as very old). Only used by
 # the refresh-engine kicks below, which are cold-path-only; the live parts
@@ -665,6 +831,87 @@ if ! sl_bundle_read; then
 fi
 # ------------------------------------------------------------------------
 
+# Live context computation. Shows real occupancy (total_input_tokens, the figure
+# /context reports) against the operational budget: the auto-compaction window, which
+# is where compaction actually fires. Two deliberate choices:
+#   - Numerator is total_input_tokens, NOT used_percentage. used_percentage saturates
+#     at 100, so it can never render an overrun (it read 100% while /context showed
+#     253%).
+#   - Denominator is CLAUDE_CODE_AUTO_COMPACT_WINDOW, NOT context_window_size. Once
+#     that env var is set, the JSON's used_percentage/context_window_size track the
+#     model's FULL window (1M on Opus 4.8), not the compaction budget — so source the
+#     budget from the env var (then settings.json, then the reported window) to keep
+#     the meter aligned with where compaction actually fires.
+# Prints nothing itself: it feeds the burnrate line's 🧠 group below and the
+# .local/.ctx-status.json publish, which is why it now runs AHEAD of the
+# rendered lines rather than as a line of its own. $pct stays empty when
+# occupancy cannot be computed, and that is what makes the 🧠 group vanish.
+ctx_budget="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
+if [ -z "$ctx_budget" ]; then
+  ctx_budget=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null)
+fi
+ctx_budget="${ctx_budget:-$window_size}"
+pct=""
+used_tokens=""
+idle_seconds=0
+ctx_color=40
+if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/dev/null; then
+  used_tokens="$total_input"
+  # Integer occupancy percent (floor). Deliberately NOT clamped at 100 — an
+  # overrun reads >100, mirroring the numerator's non-saturating behaviour.
+  pct=$(( 100 * used_tokens / ctx_budget ))
+
+  # Idle seconds = time since the transcript's last append. Claude Code only
+  # appends to the transcript, so its mtime marks the last real turn. Guard the
+  # empty/missing case explicitly: file_age() would return a huge now-minus-0
+  # value for a missing path and read as "infinitely cold", so only measure a
+  # transcript that actually exists. Reuses the render's shared $_sl_now
+  # rather than forking its own `date`, and $_sl_os (via _sl_mtime_epoch)
+  # rather than forking its own `uname`.
+  last_activity_epoch=0
+  if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+    last_activity_epoch=$(_sl_mtime_epoch "$transcript_path")
+    idle_seconds=$(( _sl_now - last_activity_epoch ))
+    # Clamp a negative idle (possible after an NTP backward step) to 0 so the
+    # published idle_seconds is never negative for the agent-dash consumer.
+    [ "$idle_seconds" -lt 0 ] && idle_seconds=0
+  fi
+
+  # The tri-state staleness tier — a big session turning orange as it cools and
+  # red once the prompt cache is nearly lapsed — is B03's burn_ctx_state, which
+  # yields "LEVEL COLOR". Both the 🧠 group's colour and the level published
+  # below read off that single call, so the number on screen and the number in
+  # .ctx-status.json cannot disagree. The thresholds are NOT restated here on
+  # purpose: a second copy is exactly the drift that invariant exists to stop,
+  # so an install missing lib/burn-theme.sh publishes the safe tier rather than
+  # a private duplicate of the rules.
+  level="ok"
+  if declare -f burn_ctx_state >/dev/null 2>&1; then
+    read -r level ctx_color <<< "$(burn_ctx_state "$used_tokens" "$ctx_budget" "$idle_seconds")"
+  fi
+
+  # Publish the machine-readable context status for agent-dash (separate repo,
+  # later chunk) to read across sessions. Inline + best-effort: gated on a git
+  # worktree with a .local dir, written atomically (mktemp in-dir -> mv), and it
+  # never errors the statusline on failure. printf only (no jq) — every value is
+  # an integer or a fixed enum/ISO string, so there is nothing to escape.
+  # An orphaned .ctx-status.json.XXXXXX temp (only possible if this process is
+  # SIGKILLed between mktemp and mv) is harmless, gitignored clutter under
+  # .local/ — same convention as the mktemp temps in git-sync-refresh.sh /
+  # pr-status-refresh.sh, neither of which sweeps stale temps either.
+  if [ -n "$toplevel" ] && [ -d "$toplevel/.local" ]; then
+    _ctx_tmp=$(mktemp "$toplevel/.local/.ctx-status.json.XXXXXX" 2>/dev/null)
+    if [ -n "$_ctx_tmp" ]; then
+      if printf '{"context_tokens":%s,"budget":%s,"used_percentage":%s,"last_activity_epoch":%s,"idle_seconds":%s,"level":"%s","fetched_at":"%s"}\n' \
+           "$used_tokens" "$ctx_budget" "$pct" "$last_activity_epoch" "$idle_seconds" "$level" "$_sl_now_iso" > "$_ctx_tmp" 2>/dev/null; then
+        mv -f "$_ctx_tmp" "$toplevel/.local/.ctx-status.json" 2>/dev/null || rm -f "$_ctx_tmp" 2>/dev/null
+      else
+        rm -f "$_ctx_tmp" 2>/dev/null
+      fi
+    fi
+  fi
+fi
+
 # Format the status line. Render $HOME as ~ so the path segment stays short
 # (~ is kept literal; when $HOME is empty or $cwd is outside it, the full path
 # shows unchanged). $cwd itself is left intact — it is still used for the git
@@ -689,124 +936,30 @@ if [ -n "$git_sync_segment" ]; then
   printf '%s' "$git_sync_segment"
 fi
 
+# Clam session mode, in teal, beside the State segment (decision
+# 001-clam-mode-placement). It used to lead the mode/model/effort line, which
+# the burnrate line replaces; line 1 is where it costs nothing, since the mode
+# and the State segment come from the same cache bundle on the same TTL and so
+# can never disagree about age. An empty mode prints nothing at all — not a
+# stray separator or space.
+if [ -n "$clam_mode" ]; then
+  printf '  \033[38;5;37m%s\033[0m' "$clam_mode"
+fi
+
 if [ -n "$state_segment" ]; then
   printf '%s' "$state_segment"
 fi
 
-# The burnrate line (B05). This is the seam the uplift lands in: once B05 is
-# implemented it emits the whole line and the three legacy blocks below it —
-# mode/model/effort, Ctx usage, and Cost — are deleted. While the stub
-# returns non-zero the substitution is empty and nothing is printed, so the
-# render is byte-identical to the pre-uplift output and the existing suite
-# stays green.
+# The burnrate line (B05): the whole of what used to be three rendered lines
+# (mode/model/effort, Ctx usage, Cost). It PREPENDS its newline rather than
+# trailing one, so the status block ends on its last rendered line with no
+# dangling blank line — which is why the path line above prints no trailing
+# newline either. An empty result means every group vanished, and then no line
+# is printed at all rather than a bare newline. stderr is dropped here because
+# this script's stdout is the user's statusline and its stderr should not
+# become a second channel; a component that cannot compute drops its figure.
 burn_line=$(sl_render_burn_line 2>/dev/null)
 if [ -n "$burn_line" ]; then
   printf '\n%s' "$burn_line"
-fi
-
-# Mode + model + effort line (its own line so the path line above stays
-# short). The clam session mode (sanitized from .local/MODE above) leads in
-# teal, the model in purple, the effort dimmed so it reads as secondary.
-# Renders e.g. "Build · Opus · max effort"; any subset degrades gracefully —
-# sep_needed puts the dim · only BETWEEN present segments — and the line is
-# omitted when all three are empty.
-# This and the blocks below each PREPEND their newline (rather than trailing
-# one) so the status block ends on its last rendered line with no dangling
-# blank line — which is why the path line above prints no trailing newline.
-if [ -n "$clam_mode" ] || [ -n "$model_name" ] || [ -n "$effort" ]; then
-  printf '\n'
-  sep_needed=false
-  if [ -n "$clam_mode" ]; then
-    printf '\033[38;5;37m%s\033[0m' "$clam_mode"
-    sep_needed=true
-  fi
-  if [ -n "$model_name" ]; then
-    [ "$sep_needed" = "true" ] && printf ' \033[38;5;245m·\033[0m '
-    printf '\033[38;5;93m%s\033[0m' "$model_name"
-    sep_needed=true
-  fi
-  if [ -n "$effort" ]; then
-    [ "$sep_needed" = "true" ] && printf ' \033[38;5;245m·\033[0m '
-    printf '\033[38;5;245m%s effort\033[0m' "$effort"
-  fi
-fi
-
-# Context usage summary line. Shows real occupancy (total_input_tokens, the figure
-# /context reports) against the operational budget: the auto-compaction window, which
-# is where compaction actually fires. Two deliberate choices:
-#   - Numerator is total_input_tokens, NOT used_percentage. used_percentage saturates
-#     at 100, so it can never render an overrun (it read 100% while /context showed
-#     253%).
-#   - Denominator is CLAUDE_CODE_AUTO_COMPACT_WINDOW, NOT context_window_size. Once
-#     that env var is set, the JSON's used_percentage/context_window_size track the
-#     model's FULL window (1M on Opus 4.8), not the compaction budget — so source the
-#     budget from the env var (then settings.json, then the reported window) to keep
-#     the meter aligned with where compaction actually fires.
-ctx_budget="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
-if [ -z "$ctx_budget" ]; then
-  ctx_budget=$(jq -r '.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW // empty' "$HOME/.claude/settings.json" 2>/dev/null)
-fi
-ctx_budget="${ctx_budget:-$window_size}"
-if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/dev/null; then
-  printf '\n'
-  used_tokens="$total_input"
-  # Integer occupancy percent (floor). Deliberately NOT clamped at 100 — an
-  # overrun reads >100, mirroring the numerator's non-saturating behaviour.
-  pct=$(( 100 * used_tokens / ctx_budget ))
-
-  # Idle seconds = time since the transcript's last append. Claude Code only
-  # appends to the transcript, so its mtime marks the last real turn. Guard the
-  # empty/missing case explicitly: file_age() would return a huge now-minus-0
-  # value for a missing path and read as "infinitely cold", so only measure a
-  # transcript that actually exists. Reuses the render's shared $_sl_now
-  # rather than forking its own `date`, and $_sl_os (via _sl_mtime_epoch)
-  # rather than forking its own `uname`.
-  last_activity_epoch=0
-  idle_seconds=0
-  if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-    last_activity_epoch=$(_sl_mtime_epoch "$transcript_path")
-    idle_seconds=$(( _sl_now - last_activity_epoch ))
-    # Clamp a negative idle (possible after an NTP backward step) to 0 so the
-    # published idle_seconds is never negative for the agent-dash consumer.
-    [ "$idle_seconds" -lt 0 ] && idle_seconds=0
-  fi
-
-  # Tri-state staleness: a big session (>=60%) turns orange once it starts
-  # cooling (>=30 min idle) and red at >=45 min — 15 min before the ~1h
-  # prompt-cache TTL lapses, so it says "compact now, still time" not "too late".
-  # Over-budget is always red. Thresholds are locked (not env-configurable).
-  if [ "$used_tokens" -ge "$ctx_budget" ] 2>/dev/null \
-     || { [ "$pct" -ge 60 ] && [ "$idle_seconds" -ge 2700 ]; }; then
-    level="cold"; ctx_color='196'  # red
-  elif [ "$pct" -ge 60 ] && [ "$idle_seconds" -ge 1800 ]; then
-    level="warn"; ctx_color='208'  # orange
-  else
-    level="ok"; ctx_color='40'     # green
-  fi
-
-  printf '\033[38;5;245mCtx used:\033[0m '
-  printf '\033[38;5;%sm%s\033[0m / \033[38;5;33m%s\033[0m \033[38;5;245m(%s%%)\033[0m' \
-    "$ctx_color" "$(fmt "$used_tokens")" "$(fmt "$ctx_budget")" "$pct"
-
-  # Publish the machine-readable context status for agent-dash (separate repo,
-  # later chunk) to read across sessions. Inline + best-effort: gated on a git
-  # worktree with a .local dir, written atomically (mktemp in-dir -> mv), and it
-  # never errors the statusline on failure. printf only (no jq) — every value is
-  # an integer or a fixed enum/ISO string, so there is nothing to escape.
-  # An orphaned .ctx-status.json.XXXXXX temp (only possible if this process is
-  # SIGKILLed between mktemp and mv) is harmless, gitignored clutter under
-  # .local/ — same convention as the mktemp temps in git-sync-refresh.sh /
-  # pr-status-refresh.sh, neither of which sweeps stale temps either.
-  if [ -n "$toplevel" ] && [ -d "$toplevel/.local" ]; then
-    _ctx_tmp=$(mktemp "$toplevel/.local/.ctx-status.json.XXXXXX" 2>/dev/null)
-    if [ -n "$_ctx_tmp" ]; then
-      if printf '{"context_tokens":%s,"budget":%s,"used_percentage":%s,"last_activity_epoch":%s,"idle_seconds":%s,"level":"%s","fetched_at":"%s"}\n' \
-           "$used_tokens" "$ctx_budget" "$pct" "$last_activity_epoch" "$idle_seconds" "$level" "$_sl_now_iso" > "$_ctx_tmp" 2>/dev/null; then
-        mv -f "$_ctx_tmp" "$toplevel/.local/.ctx-status.json" 2>/dev/null || rm -f "$_ctx_tmp" 2>/dev/null
-      else
-        rm -f "$_ctx_tmp" 2>/dev/null
-      fi
-    fi
-  fi
 fi
 

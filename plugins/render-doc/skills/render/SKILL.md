@@ -14,7 +14,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]
 ```
 
 - Writes a sibling `.html` next to the input (`.local/PLAN.md` → `.local/PLAN.html`).
-- `--open` starts a shared local annotation server (if python3 is available) and opens the rendered view on `http://127.0.0.1:<port>/d/<id>`. Falls back to a plain `file://` open when python3 is unavailable. The server is a single shared instance: the first `--open` call starts it, subsequent calls reuse it. It auto-shuts down after 30 minutes of inactivity.
+- `--open` starts the shared local annotation server (if python3 is available) and opens the rendered view on `http://127.0.0.1:<port>/doc/<absolute path of the .md>`, where `<port>` is 27183 unless `RENDER_DOC_PORT` overrides it. Falls back to a plain `file://` open when python3 is unavailable. The server is a single shared instance, and the fixed port is what makes that work: the first `--open` call binds it, every later call on the machine reuses it. See "## Annotation server" below.
 - Exits non-zero with a message on stderr for any failure (missing input, missing template or parser, splice failure). Callers MUST treat a non-zero exit as "fall back to the markdown flow", never as a reason to block review.
 
 The rendered HTML is self-contained (vendored parser, no CDNs, system fonts). When served via the annotation server, the feedback composer writes `@TAG:` lines directly into the source markdown on each "Add" click; when opened as `file://`, annotations live in browser memory only and "Copy all feedback" is the export path.
@@ -69,14 +69,15 @@ The output self-checks: leftover slot markers fail the render before anything is
 
 ## Annotation server
 
-`scripts/serve.py` is a single shared HTTP server on `127.0.0.1` (never exposed to the network). State file: `/tmp/render-doc-serve.json` (`{"pid": N, "port": N}`).
+`scripts/serve.py` is a single shared HTTP server on `127.0.0.1` (never exposed to the network), bound to the fixed port 27183 by default — override with `RENDER_DOC_PORT`. It takes no arguments and keeps no state file: the bind itself is the singleton lock, so whichever session gets there first serves every session and every agent on the machine afterward, and a process that loses the race just exits.
 
-- `render.sh --open` starts it if not running, reuses it if alive (health-checked via `/health`).
-- Documents are registered via POST `/register` with `{html, md}` paths; each gets a deterministic ID (sha256 prefix of the HTML path).
-- POST `/annotate` with `{md, section, excerpt, tag, note}` writes the annotation into the markdown. Only registered `md` paths are accepted (403 otherwise).
-- Auto-shuts down after 30 minutes of no requests. Cleans up the state file on exit.
+- `render.sh --open` starts it if nothing is bound to the port, reuses it if a copy of this server is already alive there (health-checked via `/health`).
+- Documents are addressed deterministically at `GET /doc/<absolute path to the .md>` — the URL for a given file never changes and survives a server restart. The handler re-renders the sibling `.html` on demand whenever the `.md` or the template is newer than it, otherwise serves the existing file untouched.
+- Every path-bearing request is checked on the realpath of the markdown it names, before any read: it must be a `.md` file, must exist, must resolve under `$HOME`, and must sit inside a git worktree.
+- Every request must also carry a `Host` header of exactly `127.0.0.1:<port>`; anything else is rejected before routing, so no other origin can drive the server through the reader's browser.
+- POST `/annotate` with `{md, section, excerpt, tag, note}` writes the annotation into the markdown, subject to the same scope check.
 
-One server handles all concurrent sessions. No user action needed to start or stop it.
+One server handles all concurrent sessions. There is no automatic shutdown — it runs until the machine reboots or someone kills it by hand; no user action is needed to start it.
 
 ## Boundaries
 

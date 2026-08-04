@@ -90,6 +90,7 @@
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn.active { color: var(--teal-soft); border-color: var(--border-glow); background: rgba(45, 212, 191, 0.12); }
   .btn.attention { color: var(--gold); border-color: rgba(246, 193, 119, 0.4); }
+  .btn.error { color: var(--coral); border-color: rgba(255, 138, 107, 0.4); background: rgba(255, 138, 107, 0.12); }
 
   /* ---------- Layout ---------- */
   .layout {
@@ -1987,6 +1988,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
         closeComposer();
         saveAnnotationToFile(item).then(function (saved) {
           if (saved) showSaveStatus("Saved to " + (sourceFileName || "file"), true);
+          else if (SAVE_ENABLED) showSaveStatus("Save failed — use Copy all feedback", false);
         });
       });
       actions.appendChild(cancel);
@@ -2225,11 +2227,13 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var btn = document.getElementById("feedback-btn");
       btn.textContent = msg;
       btn.classList.toggle("active", ok);
+      btn.classList.toggle("error", !ok);
       btn.classList.remove("attention");
       setTimeout(function () {
         btn.textContent = "Feedback · " + state.feedback.length;
         btn.classList.toggle("attention", state.feedback.length > 0);
         btn.classList.remove("active");
+        btn.classList.remove("error");
       }, 2000);
     }
 

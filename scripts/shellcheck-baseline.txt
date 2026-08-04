@@ -1,0 +1,14 @@
+# shellcheck-lint baseline — the shrink-only inventory of pre-existing
+# shellcheck findings (see scripts/shellcheck-lint.sh for semantics).
+# Format: one entry per line, two TAB-separated fields:
+#   <repo-relative-path>	<shellcheck-code>
+# Entries may only be REMOVED (after the finding is fixed); a row with no
+# matching finding fails the lint as stale. Never add rows for new findings.
+#
+# Generated at B07 implementation time (plan 001-speed-up-repo-ci) on a
+# machine with NO shellcheck installed, so this baseline is deliberately
+# EMPTY rather than fabricated: scripts/shellcheck-lint.sh cannot produce
+# real findings here to seed it with. The first CI run on a machine that has
+# shellcheck installed will surface whatever pre-existing violations the
+# repo's ~178 tracked *.sh files actually contain; add rows here only to
+# excuse those, never speculatively.

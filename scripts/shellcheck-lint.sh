@@ -25,7 +25,7 @@
 #
 # Inputs:
 #   - The working tree (git ls-files '*.sh'); requires git and bash.
-#     shellcheck is OPTIONAL — see Invariants.
+#     The shellcheck binary itself is OPTIONAL — see Invariants.
 #   - scripts/shellcheck-baseline.txt — one entry per line:
 #     `<path>\t<shellcheck-code>` (e.g. `scripts/ci.sh\tSC2086`). Duplicate
 #     findings of the same (path, code) pair are covered by one entry.
@@ -153,8 +153,8 @@ if [ -f "$BASELINE_FILE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# shellcheck is OPTIONAL: absence degrades to a WARN and exit 0, exactly like
-# ci.sh's treatment of the claude and gh CLIs. Presence gates.
+# The shellcheck binary is OPTIONAL: absence degrades to a WARN and exit 0,
+# exactly like ci.sh's treatment of the claude and gh CLIs. Presence gates.
 # ---------------------------------------------------------------------------
 if ! command -v shellcheck >/dev/null 2>&1; then
   echo "WARN  shellcheck skipped (shellcheck not found)"
@@ -175,7 +175,7 @@ trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
 ( cd "$ROOT" && shellcheck -f gcc -- "${FILES[@]}" >"$OUT_FILE" 2>"$ERR_FILE" )
 SC_EXIT=$?
 
-# shellcheck's own exit codes: 0 clean, 1 findings reported. Anything else
+# The tool's own exit codes: 0 clean, 1 findings reported. Anything else
 # (bad install, unreadable file, its own usage error) is an environment
 # error -- never a silent pass.
 if [ "$SC_EXIT" -ne 0 ] && [ "$SC_EXIT" -ne 1 ]; then

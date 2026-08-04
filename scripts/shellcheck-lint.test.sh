@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck-lint.test.sh — contract tests for scripts/shellcheck-lint.sh
+# scripts/shellcheck-lint.test.sh — contract tests for shellcheck-lint.sh
 # (B07 shellcheck-lint, plan 001-speed-up-repo-ci).
 #
 # Black-box only: builds throwaway git repositories under mktemp -d holding

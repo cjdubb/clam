@@ -133,8 +133,8 @@
 #     only when the run would exit 0; a fail-fast run still posts failure
 #     before exiting.
 #   - Requires only bash+git+jq for the gate itself: claude, gh and
-#     shellcheck are optional enhancers whose absence degrades to WARN,
-#     never to a failure or a silent skip. Concurrency adds no dependency —
+#     the shellcheck binary are optional enhancers whose absence degrades
+#     to WARN, never to a failure or a silent skip. Concurrency adds no dependency —
 #     it is implemented with bash job control and wait, NOT with xargs -P,
 #     GNU parallel, or any other external scheduler, precisely so this
 #     promise survives B03. nproc is read for the --jobs default and its

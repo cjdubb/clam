@@ -1609,8 +1609,8 @@ check "41. B10 completion-order inversion: final line does not name scripts/c.te
   "$(contains "$(final_line "$RUN_OUT")" "scripts/c.test.sh")" "no"
 
 # ===========================================================================
-# B07 (shellcheck-lint): the lint stage gains a SEVENTH check,
-# shellcheck-lint, appended after architecture-lint. Test 1 above covers it
+# B07 (shellcheck-lint): the lint stage gains a SEVENTH check named
+# `shellcheck-lint`, appended after architecture-lint. Test 1 above covers it
 # on the green path (it runs, after architecture-lint, before the test
 # stage) and tests 3/18 count the stage at 7; this block covers the failure
 # path, which test 21 no longer covers. Test 21 was written for "the LAST

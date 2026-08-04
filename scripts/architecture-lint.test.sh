@@ -164,6 +164,10 @@ expected_stale() { # path form target
   printf "STALE  baseline entry has no matches: %s %s %s" "$1" "$2" "$3"
 }
 
+expected_new_pragma_defect() { # path line form target text
+  printf "NEW  %s:%s: %s reference to '%s': %s (architecture-lint: allow pragma present but its reason is empty — does not excuse)" "$1" "$2" "$3" "$4" "$5"
+}
+
 # ---------------------------------------------------------------------------
 # Invocation helper.
 # ---------------------------------------------------------------------------
@@ -179,6 +183,48 @@ run_lint() { # <cwd>
   RUN_EXIT=$?
   RUN_OUT="$(cat "$out")"
   RUN_ERR="$(cat "$err")"
+  rm -f "$out" "$err"
+}
+
+# ---------------------------------------------------------------------------
+# Sed-spawn-counting invocation (PERFORMANCE clause, B01): installs a `sed`
+# shim ahead of the real one on PATH. The shim appends a byte to a counter
+# file, then execs the REAL sed (its absolute path is resolved via
+# `command -v sed` BEFORE the shim is installed, so the shim can still reach
+# it once the shim directory shadows it on PATH). No strace/ltrace/perf/other
+# profiler is used -- the counter file is the only measurement dependency,
+# and it's just bash+the shim script.
+# ---------------------------------------------------------------------------
+SED_CALL_COUNT=0
+
+run_lint_counting_sed() { # <cwd>
+  local cwd="$1"
+  local out err shim_dir real_sed counter
+  out="$(mktemp)"; err="$(mktemp)"
+  shim_dir="$(mktemp -d)"
+  track_tmp "$shim_dir"
+  counter="$(mktemp)"
+  track_tmp "$counter"
+
+  real_sed="$(command -v sed)"
+  if [ -z "$real_sed" ]; then
+    echo "FATAL: no real sed found on PATH to shim" >&2
+    exit 1
+  fi
+
+  cat > "$shim_dir/sed" <<SHIM
+#!/bin/bash
+printf 'x\n' >> "$counter"
+exec "$real_sed" "\$@"
+SHIM
+  chmod +x "$shim_dir/sed"
+
+  ( cd "$cwd" && PATH="$shim_dir:$PATH" bash "$SCRIPT" >"$out" 2>"$err" )
+  RUN_EXIT=$?
+  RUN_OUT="$(cat "$out")"
+  RUN_ERR="$(cat "$err")"
+  SED_CALL_COUNT="$(wc -l < "$counter" | tr -d '[:space:]')"
+  [ -n "$SED_CALL_COUNT" ] || SED_CALL_COUNT=0
   rm -f "$out" "$err"
 }
 
@@ -769,6 +815,98 @@ test_invariant_read_only_repo_unchanged() {
 }
 
 # ===========================================================================
+# PERFORMANCE invariant (B01, plan 001-speed-up-repo-ci): the per-name regex
+# patterns depend only on the plugin name, so each must be computed once per
+# name and reused for the whole scan -- no subprocess spawned from inside the
+# per-file or per-line loop. Acceptance is mechanical and twofold: the full
+# scan spawns ZERO `sed` processes, and the scan's output/exit code are
+# unchanged by the optimisation. Wall-clock is a consequence, never asserted
+# here.
+#
+# One shared fixture exercises all four reference forms plus allowlist,
+# pragma, and baseline excusals, so both mechanical criteria are checked
+# against the same comprehensive scenario:
+#   - alpha/NOTES.md: skill-invocation (unexcused, NEW), marketplace-id
+#     (baselined), english (pragma-excused, non-empty reason), path (pragma
+#     present but EMPTY reason -- NEW, reported as a defect).
+#   - build/NOTES.md: the 5 allowlisted targets (silent) plus one
+#     non-allowlisted target, gamma (NEW).
+#   - a baseline row for a file/target that no longer matches anything
+#     (STALE).
+# ===========================================================================
+build_full_scan_fixture() {
+  local repo p
+  repo="$(new_repo)"
+
+  for p in landing lego tracking forge-github forge-gitlab; do
+    ensure_plugin "$repo" "$p"
+  done
+  ensure_plugin "$repo" build
+  ensure_plugin "$repo" beta
+  ensure_plugin "$repo" gamma
+  ensure_plugin "$repo" alpha
+
+  local skill_line='See /beta:some-skill for details.'
+  local mkt_line='Also beta@clam in the marketplace.'
+  local eng_line='The beta plugin handles this. # architecture-lint: allow intentional interop'
+  local path_line='Path: plugins/beta/lib/foo.sh # architecture-lint: allow'
+  write_plugin_file "$repo" alpha "NOTES.md" "$skill_line
+$mkt_line
+$eng_line
+$path_line
+"
+
+  local gamma_line='plugins/gamma/lib/x.sh'
+  write_plugin_file "$repo" build "NOTES.md" "plugins/landing/
+plugins/lego/
+plugins/tracking/
+plugins/forge-github/
+plugins/forge-gitlab/
+$gamma_line
+"
+
+  commit_all "$repo" "full scan fixture (all forms + allowlist + pragma + baseline)"
+
+  write_baseline "$repo" "$(printf 'plugins/alpha/NOTES.md\tmarketplace-id\tbeta\nplugins/ghost/GONE.md\tpath\tbeta\n')"
+
+  printf '%s' "$repo"
+}
+
+test_performance_full_scan_spawns_zero_sed_processes() {
+  local repo
+  repo="$(build_full_scan_fixture)"
+
+  run_lint_counting_sed "$repo"
+
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "sed-spawn-count fixture: the shim must not alter behavior -- expected exit 1, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  [ "$SED_CALL_COUNT" -eq 0 ] || record_fail "PERFORMANCE: full scan must spawn zero sed processes (patterns are computed once per name, never per-file/per-line), observed $SED_CALL_COUNT sed invocation(s)"
+}
+
+test_performance_output_identical_across_all_forms_and_excusals() {
+  local repo
+  repo="$(build_full_scan_fixture)"
+
+  local l_skill l_path l_gamma
+  l_skill="$(line_no "$repo/plugins/alpha/NOTES.md" "See /beta:some-skill for details.")"
+  l_path="$(line_no "$repo/plugins/alpha/NOTES.md" "Path: plugins/beta/lib/foo.sh # architecture-lint: allow")"
+  l_gamma="$(line_no "$repo/plugins/build/NOTES.md" "plugins/gamma/lib/x.sh")"
+
+  run_lint "$repo"
+
+  local expected
+  expected="$(printf '%s\n%s\n%s\n%s' \
+    "$(expected_new "plugins/alpha/NOTES.md" "$l_skill" "skill-invocation" "beta" "See /beta:some-skill for details.")" \
+    "$(expected_new_pragma_defect "plugins/alpha/NOTES.md" "$l_path" "path" "beta" "Path: plugins/beta/lib/foo.sh # architecture-lint: allow")" \
+    "$(expected_new "plugins/build/NOTES.md" "$l_gamma" "path" "gamma" "plugins/gamma/lib/x.sh")" \
+    "$(expected_stale "plugins/ghost/GONE.md" "path" "beta")")"
+  expected="${expected}
+Summary: 3 new, 1 stale, 1 baselined, 1 pragma-excused"
+
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "expected exit 1 (new hits + a stale row), got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected" "$RUN_OUT" "PERFORMANCE: output must be byte-identical to the pre-optimisation scan on a fixture covering all four forms plus allowlist/pragma/baseline excusals"
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -810,6 +948,9 @@ run_test "fixture guidance: git ls-files drives the scan (staged counts, untrack
 
 run_test "edge case: empty plugins/ dir is a clean pass" test_vacuous_empty_plugins_dir_is_clean_pass
 run_test "invariant: read-only (fixture tree unchanged)" test_invariant_read_only_repo_unchanged
+
+run_test "PERFORMANCE (B01): full scan spawns zero sed processes" test_performance_full_scan_spawns_zero_sed_processes
+run_test "PERFORMANCE (B01): output byte-identical across all forms + allowlist/pragma/baseline excusals" test_performance_output_identical_across_all_forms_and_excusals
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

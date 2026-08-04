@@ -34,7 +34,7 @@ BLOCKS_TEMPLATE="$PLUGIN_DIR/templates/blocks.md"
 PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 BLOCKS_LINT="$SCRIPT_DIR/blocks-lint.sh"
 
-EXPECTED_VERSION="0.14.0"
+EXPECTED_VERSION="0.14.1"
 
 FAILED=0
 

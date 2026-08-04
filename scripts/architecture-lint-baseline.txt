@@ -11,15 +11,14 @@
 # today, captured so existing debt does not block adoption. Fixing any of
 # these references is backlog work — remove the row when it is fixed.
 #
-# Exception to "removed only after the reference is fixed": the five
-# `path	updates` rows (the attribution, landing, privacy, settings and
-# statusline setup skills, each pointing at plugins/updates/docs/
-# setup-stamps.md) were dropped when the updates plugin was renamed to
-# management. `updates` left the lint's plugin vocabulary with the rename, so
-# those rows could never match again and would fail the run as stale. The
-# five pointers themselves still exist and still want fixing: repoint them at
-# docs/protocols/setup-stamp.md — the protocol owns the format, so that
-# deletes the cross-plugin reference instead of renaming it.
+# The five `path	updates` rows (the attribution, landing, privacy, settings
+# and statusline setup skills, each citing plugins/updates/docs/
+# setup-stamps.md as the stamp-format authority) were removed because those
+# references were fixed, not because the rename made them unmatchable: each
+# pointer now cites docs/protocols/setup-stamp.md instead. ARCHITECTURE.md's
+# Protocols section says a plugin cites the protocol spec, never the plugin
+# that implements it — so the cross-plugin reference is deleted rather than
+# renamed, and the baseline shrinks by five.
 plugins/ask-in-text/README.md	english	tracking
 plugins/ask-in-text/scripts/questions-context.sh	english	tracking
 plugins/debugging/scripts/b10-registration.test.sh	path	decision-log

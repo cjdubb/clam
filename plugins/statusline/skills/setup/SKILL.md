@@ -52,7 +52,7 @@ keeping the marketplace's install-changes-nothing constraint intact.
    setup in the shared stamp file so the update flow can tell this plugin's
    setup is current with the installed version:
    `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
-   in `plugins/updates/docs/setup-stamps.md`.
+   in `docs/protocols/setup-stamp.md`.
    - Read the plugin's version from the `plugin.json` at this
      installation's `installPath` (from its `installed_plugins.json`
      entry) — never from the entry's own `version` field, which can go

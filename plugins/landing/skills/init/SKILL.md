@@ -79,7 +79,7 @@ After `.claude/clam-profile.jsonc` is written and confirmed, record this
 init in the shared stamp file so the update flow can tell this repo's
 landing setup is current with the installed version:
 `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
-in `plugins/updates/docs/setup-stamps.md`.
+in `docs/protocols/setup-stamp.md`.
 
 - Read the plugin's version from the `plugin.json` at this installation's
   `installPath` (from its `installed_plugins.json` entry) — never from the

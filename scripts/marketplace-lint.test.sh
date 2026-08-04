@@ -144,6 +144,16 @@ tree_snapshot() { # <root> -> sorted per-file checksums (cksum is POSIX; sha256s
   ( cd "$1" && find . -type f -exec cksum {} + ) | sort
 }
 
+# Per-check report lines only. Drops the trailing summary ("ALL PASS" /
+# "FAILURES — fix before merging"), which restates the overall exit code and
+# so differs or not depending on whether unrelated checks passed — exactly
+# the host-dependence the differential case below exists to avoid. Neither
+# summary matches: "ALL PASS" does not start with PASS, and the F-word in
+# "FAILURES" is followed by "URES", not whitespace.
+status_lines() { # <text> -> only "PASS  ..." / "FAIL  ..." check lines
+  printf '%s\n' "$1" | grep -E '^(PASS|FAIL)[[:space:]]' || true
+}
+
 ALL_OK="$(marketplace \
   "$(entry alpha '"delivery"')" \
   "$(entry beta '"records"')" \
@@ -253,7 +263,7 @@ run_lint "$(new_fixture "$(marketplace \
   "$(entry gamma '"setup"')")")"
 out_bad="$RUN_OUT"
 
-diff_lines="$(diff <(printf '%s\n' "$out_ok") <(printf '%s\n' "$out_bad") \
+diff_lines="$(diff <(status_lines "$out_ok") <(status_lines "$out_bad") \
   | grep -E '^[<>]' || true)"
 check "differential: one line differs, in both directions" \
   "$(printf '%s\n' "$diff_lines" | grep -Ec '^[<>]' || true)" "2"

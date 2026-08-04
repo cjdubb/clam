@@ -81,6 +81,23 @@ composed behavior.
 
 ## Step 2: Run the scaffold gate
 
+**Rung 0: the sizing lint.** Before the composition rungs below run,
+re-check the plan's own sizing discipline rather than trusting it from
+planning time: run `scripts/blocks-lint.sh` against `.local/blocks.md`
+(this presupposes an approved plan's block map already exists — a fresh
+repo with no `.local/blocks.md` yet has nothing to scaffold, so the rung
+never runs). Exit 0 proceeds to the rungs below. Exit 1 means findings — an
+oversized entry with no `Justification:`, a malformed `Est:`, or similar —
+and the plan goes back to `/lego:plan` as a sizing defect; it is never
+patched silently here, at scaffold time. Exit 2 is an environment or usage
+error (a missing block map, a bad `--budget`, e.g.): fix it and re-run, it
+says nothing about the plan itself. If `scripts/blocks-lint.sh` is absent —
+an older checkout mid an upgrade — rung 0 is skipped with an explicit
+warning naming the script, visible in the transcript, never silent. A block
+whose `Est:` already carries a `Justification:` for exceeding the
+per-block ceiling passes the lint as written; nothing about it is
+re-argued here.
+
 Prove the design composes using the **strongest available check**, from the
 effective config's commands (`.claude/lego.json` merged with any
 `.local/config.json` override — see `docs/config-schema.md`), in this order:

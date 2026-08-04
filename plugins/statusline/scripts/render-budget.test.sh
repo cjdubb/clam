@@ -92,6 +92,14 @@ ln -s "$CONTEXT" "$SHADOW/scripts/context.sh"
 ln -s "$SCRIPT_DIR/../lib/platform.sh" "$SHADOW/lib/platform.sh"
 ln -s "$SCRIPT_DIR/../lib/states.sh" "$SHADOW/lib/states.sh"
 ln -s "$SCRIPT_DIR/../lib/states.tsv" "$SHADOW/lib/states.tsv"
+# The burnrate libraries too: context.sh sources each only when the file is
+# present, so a shadow tree missing them would render a silently DEGRADED
+# burnrate line, and every budget figure measured through it would be counting
+# a render that never ran B01's or B02's awk -- passing the bound for the wrong
+# reason.
+ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$SHADOW/lib/burn-math.sh"
+ln -s "$SCRIPT_DIR/../lib/burn-tick.sh" "$SHADOW/lib/burn-tick.sh"
+ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$SHADOW/lib/burn-theme.sh"
 cat > "$SHADOW/scripts/ccost.sh" <<EOF
 #!/bin/bash
 echo "\$*" >> "\${CCOST_LOG:-/dev/null}"
@@ -193,10 +201,15 @@ cold_ccost_calls=$(shim_count "$CCOST_LOG_FILE")
 
 check "clause3: cold render includes the cwd path" \
   "$(printf '%s' "$cold_out" | grep -qF "$MANDATORY_WD" && echo yes || echo no)" "yes"
-check "clause3: cold render includes the model/effort line" \
-  "$(printf '%s' "$cold_out" | grep -qF "Opus" && printf '%s' "$cold_out" | grep -qF "high effort" && echo yes || echo no)" "yes"
-check "clause3: cold render includes the Ctx-usage line" \
-  "$(printf '%s' "$cold_out" | grep -qF "Ctx used:" && echo yes || echo no)" "yes"
+# Same two clauses the retired lines carried -- the model name with its effort
+# tier, and the context occupancy -- now read off the burnrate line's model and
+# session groups. B05 folded the standalone "Opus · high effort" and
+# "Ctx used: N / M (NN%)" lines into it (mascot + rainbow name + coloured tier,
+# and 🧠 NN%), so the strings change while the clauses do not.
+check "clause3: cold render includes the model/effort group" \
+  "$(printf '%s' "$cold_out" | grep -qE '🎭 Opus high' && echo yes || echo no)" "yes"
+check "clause3: cold render includes the context-occupancy group" \
+  "$(printf '%s' "$cold_out" | grep -qE '🧠 [0-9]+%' && echo yes || echo no)" "yes"
 check "clause3: cold render includes no Cost line and no Session cost figure" \
   "$(printf '%s' "$cold_out" | grep -qE 'Cost:|Session: \$' && echo yes || echo no)" "no"
 check "clause3: cold render seeds exactly one segment-bundle cache entry" \
@@ -220,8 +233,14 @@ render_shim "$mandatory_json" "$MANDATORY_BUNDLE_DIR" 600 "$MANDATORY_CCOST_DIR"
 warm_out=$(strip_ansi < "$REND_OUT")
 warm_total=$(shim_count "$SHIM_LOG")
 
-check "clause1: warm render (transcript present, no compaction-window env var, worktree .local) invokes at most 10 external commands" \
-  "$([ "${warm_total:-999}" -le 10 ] && echo yes || echo no)" "yes"
+# The bound was raised from 10 to 12 in the approved plan, before any of this
+# was implemented. The pre-uplift warm render measured 8; B05's burnrate line
+# adds at most three -- two awk (one in B01's pacing maths, one in B02's
+# sub-tick interpolator) and one `date` for the local time-of-day day-start
+# anchor, alongside the existing shared UTC `date`. 12 is that decided figure,
+# not a number retuned to whatever the implementation happens to measure.
+check "clause1: warm render (transcript present, no compaction-window env var, worktree .local) invokes at most 12 external commands" \
+  "$([ "${warm_total:-999}" -le 12 ] && echo yes || echo no)" "yes"
 check "clause1: warm render carries no Cost line (the replayed bundle has no cost_line key)" \
   "$(printf '%s' "$warm_out" | grep -qE 'Cost:|Session: \$' && echo yes || echo no)" "no"
 
@@ -334,6 +353,99 @@ render_shim "$iso_json_b" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJE
 
 check "clause7: two sessions sharing a cwd and cache dir produce two distinct bundle entries" \
   "$(find "$ISO_BUNDLE_DIR" -name '*.bundle' 2>/dev/null | wc -l | tr -d ' ')" "2"
+
+# ============================================================================
+# The LOCAL WALL-CLOCK hour is read as decimal, never octal
+#
+# The day-start anchor derives seconds-into-the-local-day from `date +'%H %M
+# %S'`, which returns zero-PADDED fields: "08" at 8am, "09" at 9am, and the
+# same for any minute or second below ten. Bash arithmetic reads a leading-zero
+# numeric string as octal, in which 08 and 09 are not merely the wrong number
+# but a hard error ("value too great for base"). The anchor is computed inside
+# a command substitution, so the error kills that subshell and the whole
+# weekly group silently loses %t, %/d and the trend -- for EVERY user, between
+# 08:00 and 09:59 local time every day, and for a minute or a second at the
+# top of many other hours.
+#
+# Every case below runs through the suite's existing PATH-shim harness with one
+# extra wrapper ahead of it, because the input under test is what `date` says.
+# The wrapper answers the render's two date calls and nothing else:
+#   - the local time-of-day call, from $FAKE_LOCAL_HMS, which is the fixture;
+#   - the shared UTC "now", from a single instant frozen at suite start, so a
+#     padded render and its unpadded twin are compared at the SAME instant.
+#     Without that, %t/%/d/trend all drift with the real clock between the two
+#     renders and a byte-exact comparison would be a rounding-boundary coin
+#     flip rather than an assertion.
+# Anything else execs the real date, so nothing outside these two calls moves.
+# ============================================================================
+read -r FROZEN_NOW FROZEN_ISO <<< "$(date -u +'%s %Y-%m-%dT%H:%M:%SZ')"
+
+CLOCK_BIN="$TMPROOT/clock-bin"; mkdir -p "$CLOCK_BIN"
+# Two heredocs: the first interpolates the frozen instant and the real binary
+# path, the second is quoted so the wrapper's own $1/$FAKE_LOCAL_HMS survive to
+# runtime. `type -P` for the same reason the shim loop above gives.
+cat > "$CLOCK_BIN/date" <<EOF
+#!/bin/bash
+_frozen_now="$FROZEN_NOW"
+_frozen_iso="$FROZEN_ISO"
+_real_date="$(type -P date)"
+EOF
+cat >> "$CLOCK_BIN/date" <<'EOF'
+echo "date" >> "${SHIM_LOG:-/dev/null}"
+if [ "$1" = "+%H %M %S" ]; then printf '%s\n' "$FAKE_LOCAL_HMS"; exit 0; fi
+if [ "$1" = "-u" ]; then
+  case "$2" in "+%s "*) printf '%s %s\n' "$_frozen_now" "$_frozen_iso"; exit 0 ;; esac
+fi
+exec "$_real_date" "$@"
+EOF
+chmod +x "$CLOCK_BIN/date"
+
+OCTAL_WD="$TMPROOT/octal-wd"; mk_wt "$OCTAL_WD"
+OCTAL_BUNDLE_DIR="$TMPROOT/octal-bundle-cache"
+OCTAL_CCOST_DIR="$TMPROOT/octal-ccost-cache"
+OCTAL_PROJECTS_DIR="$TMPROOT/octal-projects"; mkdir -p "$OCTAL_PROJECTS_DIR"
+# A weekly limit with a reset three days past the frozen instant, and no
+# total_cost_usd: that keeps the sub-tick interpolator (and the state file it
+# would carry between the two renders of a pair) out of the comparison, so the
+# only thing separating a pair is how its `date` fields are spelled. TTL 0
+# below likewise keeps every render cold, so no bundle crosses a pair either.
+octal_json="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$OCTAL_WD\"},\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"\",\"session_id\":\"sess-octal\",\"rate_limits\":{\"seven_day\":{\"used_percentage\":60,\"resets_at\":$(( FROZEN_NOW + 3 * 86400 ))}}}"
+
+# The weekly group of a render whose local clock reads HMS: everything from 🎯
+# up to the next separator, trailing space trimmed. Same extraction the 🔥
+# group's clause uses in context.test.sh §23o, and for the same reason -- a
+# group that lost its derived figures reads "🎯 60%" and one that vanished
+# reads "", so all three outcomes are distinguishable rather than collapsing
+# into a single "absent".
+weekly_group_at() { # hms
+  render_shim "$octal_json" "$OCTAL_BUNDLE_DIR" 0 "$OCTAL_CCOST_DIR" 0 "$OCTAL_PROJECTS_DIR" \
+    "PATH=$CLOCK_BIN:$SHIM_BIN" "FAKE_LOCAL_HMS=$1"
+  strip_ansi < "$REND_OUT" | grep -oE '🎯[^│]*' | head -n1 | sed 's/[[:space:]]*$//'
+}
+
+# The wrapper is doing the steering, and every figure below is genuinely a
+# function of the fixture: two different faked clocks must produce two
+# different weekly groups. Without this, a wrapper that silently fell through
+# to the real `date` would make all four equality checks below pass vacuously
+# -- both sides being the same unfaked render. (Every figure here is derived
+# from differences against the frozen instant, so the two groups are the same
+# on every machine and at every real time of day; only the fixture moves them.)
+check "octal-clock: the faked clock really steers the render (08:15 and 13:15 differ)" \
+  "$([ "$(weekly_group_at '08 15 30')" != "$(weekly_group_at '13 15 30')" ] && echo yes || echo no)" "yes"
+check "octal-clock: at 08:09:07 local the weekly group keeps %t, %/d and the trend" \
+  "$(weekly_group_at '08 09 07' | grep -qE '🎯 60% -?[0-9]+%t [0-9.]+%/d (▲|▼)' && echo yes || echo no)" "yes"
+# Each position is pinned on its own: 10# was needed on all three fields, and a
+# fix applied to only some of them is the plausible regression. The unpadded
+# twin of each pair is the same instant expressed the way `date` never spells
+# it, so the two renders differ in nothing but the padding.
+check "octal-clock: a padded HOUR renders byte-identically to the unpadded spelling (08 15 30 = 8 15 30)" \
+  "$(weekly_group_at '08 15 30')" "$(weekly_group_at '8 15 30')"
+check "octal-clock: a padded MINUTE renders byte-identically to the unpadded spelling (13 08 30 = 13 8 30)" \
+  "$(weekly_group_at '13 08 30')" "$(weekly_group_at '13 8 30')"
+check "octal-clock: a padded SECOND renders byte-identically to the unpadded spelling (13 15 08 = 13 15 8)" \
+  "$(weekly_group_at '13 15 08')" "$(weekly_group_at '13 15 8')"
+check "octal-clock: 08:09:07 -- padded in all three positions at once -- matches its unpadded twin" \
+  "$(weekly_group_at '08 09 07')" "$(weekly_group_at '8 9 7')"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -90,8 +90,10 @@ nothing to do.
 
 ## Notes
 
-- The scripts need `jq`. Cost figures come from `scripts/prices.json` —
-  list-price equivalents computed from local transcripts, not billing data.
+- The scripts need `jq`. The statusline shows no cost figure;
+  `scripts/ccost.sh` is a standalone CLI that does. Its figures come from
+  `scripts/prices.json` — list-price equivalents computed from local
+  transcripts, not billing data.
 - The session-State segment lights up only in repos using the tracking
   plugin's `.local/TODO.md` convention; elsewhere it stays hidden.
 - Plugin updates keep the same install path, so the settings entry survives

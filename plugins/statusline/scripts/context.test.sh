@@ -279,12 +279,16 @@ check "path collapses an exact \$HOME to just ~" \
   "$(printf '%s\n' "$out" | sed -n '1p' | grep -qxF '~' && echo yes || echo no)" "yes"
 
 # 8. Clean termination: the decorative "$" prompt line is gone, and the last
-#    rendered line is the Cost line, so there is no trailing blank line either.
+#    rendered line is non-empty, so there is no trailing blank line either.
+#    (B04 drops the ccost.sh invocation and the Cost line along with it -- see
+#    section 16 and case 22i -- so the last segment is no longer anchored to
+#    "Cost:"; what matters is that some real segment, not blank padding, ends
+#    the block.)
 out=$(render "$json_json_effort")
 check "no decorative \$ prompt line remains" \
   "$(printf '%s\n' "$out" | grep -qE '^[$] ?$' && echo present || echo absent)" "absent"
-check "status block ends on the Cost line (no trailing blank line)" \
-  "$(printf '%s\n' "$out" | tail -n1 | grep -q '^Cost:' && echo yes || echo no)" "yes"
+check "status block ends on a real line (no trailing blank line)" \
+  "$(printf '%s\n' "$out" | tail -n1 | grep -q '[^[:space:]]' && echo yes || echo no)" "yes"
 
 # 9. Tri-state Ctx-usage colour by occupancy + idle staleness. Budget is 300000
 #    (the render/render_raw env). Colours: 40 green (small, or big-but-warm),
@@ -633,8 +637,8 @@ cold_git=$(shim_count "$SHIM_LOG" git)
 cold_ccost=$(shim_count "$CCOST_LOG_FILE")
 check "cold render (bundle rebuild) invokes git for the branch lookup" \
   "$([ "${cold_git:-0}" -gt 0 ] && echo yes || echo no)" "yes"
-check "cold render (bundle rebuild) invokes ccost.sh for the Cost line" \
-  "$([ "${cold_ccost:-0}" -gt 0 ] && echo yes || echo no)" "yes"
+check "cold render (bundle rebuild) does not invoke ccost.sh (B04: context.sh no longer depends on it at all, cold or warm)" \
+  "$([ "${cold_ccost:-1}" -eq 0 ] && echo yes || echo no)" "yes"
 
 render_shim "$inv_json" "$INV_DIR" 5              # warm: same key, within TTL
 warm_total=$(shim_count "$SHIM_LOG")
@@ -770,6 +774,222 @@ for f in "$SMOKE_OUT"/*; do
   grep -qE '^Ctx used: [0-9,]+ / [0-9,]+ \([0-9]+%\)$' "$f" || bad=$((bad+1))
 done
 check "concurrency smoke: every concurrent render (ttl=0, max write contention) still produced valid output" "$bad" "0"
+
+# === 22. B04 payload-parse ==================================================
+# Contract: sl_parse_input additionally parses eight burnrate fields (r5,
+# r5_reset, r7, r7_reset, lines_added, lines_removed, total_cost_usd,
+# session_id) from the SAME single jq invocation, the cached bundle drops its
+# cost_line key (six keys -> five, mask 63 -> 31), and context.sh stops
+# invoking ccost.sh entirely. The renderer that consumes these fields (B05)
+# is still an unimplemented stub in this unit, so every case here observes
+# the variables directly by sourcing context.sh rather than reading them out
+# of the rendered text.
+
+B04_CACHE_DIR="$TMPROOT/b04-cache"
+
+# parse_vars(json): source context.sh (safe -- no `exit`, no `set -e`, its own
+# dir resolved via BASH_SOURCE[0]) against a synthetic payload on stdin, and
+# echo `declare -p` for the eight contract variables so the caller can eval
+# them into its own scope. Hermetic env mirrors render()'s: sandboxed
+# CLAUDE_PROJECTS_DIR/CCOST_CACHE_DIR, compaction window pinned so the
+# settings.json jq fallback never fires, and caching disabled (TTL 0) so
+# every call is a fresh cold parse independent of any prior call's bundle.
+parse_vars() { # json
+  printf '%s' "$1" | (
+    export CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache"
+    export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
+    export CLAM_STATUSLINE_CACHE_DIR="$B04_CACHE_DIR" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0
+    . "$CONTEXT" >/dev/null 2>&1
+    declare -p r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id 2>/dev/null
+  )
+}
+
+# 22a. Full payload: all eight fields present and parsed correctly, alongside
+#      the pre-existing fields the same jq already produced (model_name,
+#      effort survive downstream in the render) -- proving the burnrate
+#      fields ride the SAME single jq rather than a parallel one.
+b04_full="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-abc123\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":1700000000},\"seven_day\":{\"used_percentage\":17,\"resets_at\":1700500000}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
+eval "$(parse_vars "$b04_full")"
+check "full payload: r5 (five_hour used_percentage)" "$r5" "42"
+check "full payload: r5_reset (five_hour resets_at)" "$r5_reset" "1700000000"
+check "full payload: r7 (seven_day used_percentage)" "$r7" "17"
+check "full payload: r7_reset (seven_day resets_at)" "$r7_reset" "1700500000"
+check "full payload: lines_added" "$lines_added" "503"
+check "full payload: lines_removed" "$lines_removed" "16"
+check "full payload: total_cost_usd" "$total_cost_usd" "12.34"
+check "full payload: session_id" "$session_id" "sess-abc123"
+
+# 22a2. The Inputs clause explicitly warns off a DIFFERENT internal shape
+#       (ISO-8601 utilization/resets_at) that also exists in the Claude Code
+#       binary. A payload using those field names (not used_percentage/
+#       resets_at) must parse as if rate_limits were absent, not silently
+#       pick up "utilization" as if it were used_percentage.
+b04_wrongshape="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"rate_limits\":{\"five_hour\":{\"utilization\":42,\"resets_at\":\"2026-01-01T00:00:00Z\"}}}"
+eval "$(parse_vars "$b04_wrongshape")"
+check "ISO/utilization shape is not parsed: r5 empty (not the utilization value)" "$r5" ""
+check "ISO/utilization shape is not parsed: r5_reset empty (not the ISO string)" "$r5_reset" ""
+
+# 22b. rate_limits absent entirely (API-key, Bedrock, Vertex, or Claude Code
+#      older than 2.1): all four rate-limit variables empty at once, while
+#      cost and session_id -- unrelated fields from the SAME jq -- still
+#      parse correctly.
+b04_norl="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-xyz\",\"cost\":{\"total_lines_added\":9,\"total_lines_removed\":2,\"total_cost_usd\":1.5}}"
+eval "$(parse_vars "$b04_norl")"
+check "rate_limits absent: r5 empty" "$r5" ""
+check "rate_limits absent: r5_reset empty" "$r5_reset" ""
+check "rate_limits absent: r7 empty" "$r7" ""
+check "rate_limits absent: r7_reset empty" "$r7_reset" ""
+check "rate_limits absent: cost/session_id still parse (lines_added)" "$lines_added" "9"
+check "rate_limits absent: cost/session_id still parse (session_id)" "$session_id" "sess-xyz"
+
+# 22c. Gap in the middle: five_hour present, seven_day ABSENT, cost present.
+#      The highest-value case in this block -- proves the \x01 join keeps
+#      every later field in its own column despite the missing pair between
+#      them, rather than silently swallowing lines_added/lines_removed/
+#      total_cost_usd/session_id into the gap.
+b04_gap_mid="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-gap1\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":55,\"resets_at\":1700111111}},\"cost\":{\"total_lines_added\":7,\"total_lines_removed\":3,\"total_cost_usd\":0.42}}"
+eval "$(parse_vars "$b04_gap_mid")"
+check "gap in middle (seven_day absent): r5 present" "$r5" "55"
+check "gap in middle (seven_day absent): r5_reset present" "$r5_reset" "1700111111"
+check "gap in middle (seven_day absent): r7 empty" "$r7" ""
+check "gap in middle (seven_day absent): r7_reset empty" "$r7_reset" ""
+check "gap in middle (seven_day absent): lines_added still lands correctly" "$lines_added" "7"
+check "gap in middle (seven_day absent): lines_removed still lands correctly" "$lines_removed" "3"
+check "gap in middle (seven_day absent): total_cost_usd still lands correctly" "$total_cost_usd" "0.42"
+check "gap in middle (seven_day absent): session_id still lands correctly" "$session_id" "sess-gap1"
+
+# 22d. Reverse pairing: five_hour ABSENT, seven_day present, cost present.
+b04_gap_rev="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-gap2\",\"rate_limits\":{\"seven_day\":{\"used_percentage\":88,\"resets_at\":1700222222}},\"cost\":{\"total_lines_added\":11,\"total_lines_removed\":4,\"total_cost_usd\":2.75}}"
+eval "$(parse_vars "$b04_gap_rev")"
+check "gap in middle (five_hour absent): r5 empty" "$r5" ""
+check "gap in middle (five_hour absent): r5_reset empty" "$r5_reset" ""
+check "gap in middle (five_hour absent): r7 present" "$r7" "88"
+check "gap in middle (five_hour absent): r7_reset present" "$r7_reset" "1700222222"
+check "gap in middle (five_hour absent): lines_added still lands correctly" "$lines_added" "11"
+check "gap in middle (five_hour absent): lines_removed still lands correctly" "$lines_removed" "4"
+check "gap in middle (five_hour absent): total_cost_usd still lands correctly" "$total_cost_usd" "2.75"
+check "gap in middle (five_hour absent): session_id still lands correctly" "$session_id" "sess-gap2"
+
+# 22e. Float used_percentage preserved exactly (23.5) -- not rounded, not
+#      truncated; rounding is the renderer's job, not the parser's.
+b04_float="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":23.5,\"resets_at\":1700333333}}}"
+eval "$(parse_vars "$b04_float")"
+check "float used_percentage (23.5) preserved as given" "$r5" "23.5"
+
+# 22f. Empty is not zero, both directions. A GENUINE zero (session with truly
+#      no rate-limit usage yet, or truly no line changes) parses to "0", not
+#      "" -- a "" would be indistinguishable from an absent field and a "0"
+#      would render a real meter for a session with no quota data at all.
+b04_zero="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":0,\"resets_at\":0}},\"cost\":{\"total_lines_added\":0,\"total_lines_removed\":0,\"total_cost_usd\":0}}"
+eval "$(parse_vars "$b04_zero")"
+check "genuine zero used_percentage parses to \"0\", not empty" "$r5" "0"
+check "genuine zero resets_at parses to \"0\", not empty" "$r5_reset" "0"
+check "genuine zero total_lines_added parses to \"0\", not empty" "$lines_added" "0"
+check "genuine zero total_lines_removed parses to \"0\", not empty" "$lines_removed" "0"
+check "genuine zero total_cost_usd parses to \"0\", not empty" "$total_cost_usd" "0"
+
+# 22g. cost object entirely absent: lines_added/lines_removed/total_cost_usd
+#      all empty -- distinguishable from the genuine-zero case above. Also
+#      confirms session_id is empty, not just skipped, when absent.
+b04_nocost="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\"}"
+eval "$(parse_vars "$b04_nocost")"
+check "cost object absent: lines_added empty" "$lines_added" ""
+check "cost object absent: lines_removed empty" "$lines_removed" ""
+check "cost object absent: total_cost_usd empty" "$total_cost_usd" ""
+check "cost object absent: session_id empty" "$session_id" ""
+
+# 22h. Cached bundle: five required keys (mask 31), the OLD six-key bundle
+#      still valid (migration path), and a bundle missing a required key
+#      still treated as corrupt/absent. Detected the same way sections 13/14
+#      detect warm-vs-cold: a hand-written bundle carries a branch= value the
+#      real git branch would never produce, so if the render shows it, the
+#      bundle was served warm (mask accepted it); if the render shows the
+#      REAL branch instead, sl_bundle_read rejected the file as incomplete.
+BUNDLE_DIR="$TMPROOT/bundle-mask-cache"; mkdir -p "$BUNDLE_DIR"
+BUNDLE_WD="$TMPROOT/bundle-mask-wd"; mk_wt "$BUNDLE_WD"
+git -C "$BUNDLE_WD" checkout -q -b real-branch >/dev/null 2>&1
+bundle_json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$BUNDLE_WD\"},$ctx,\"transcript_path\":\"\"}"
+BUNDLE_FILE=$(printf '%s' "$BUNDLE_WD" | sed 's#/#_#g')
+
+# 22h-i. Five-key bundle (new format, no cost_line line): valid.
+{
+  printf 'branch=five-key-sentinel\n'
+  printf 'pr_badge=\n'
+  printf 'git_sync=\n'
+  printf 'state_seg=\n'
+  printf 'clam_mode=\n'
+} > "$BUNDLE_DIR/$BUNDLE_FILE.bundle"
+out=$(render_cached "$bundle_json" "$BUNDLE_DIR" 5)
+check "five-key bundle (no cost_line) is valid: mask 31 serves it warm" \
+  "$(printf '%s\n' "$out" | grep -qF '(five-key-sentinel)' && echo yes || echo no)" "yes"
+
+# 22h-ii. Old six-key bundle (previous version's format, extra cost_line=
+#         line): still valid -- the migration path for every already-
+#         installed user. The extra key is ignored, not treated as corrupt.
+{
+  printf 'branch=six-key-sentinel\n'
+  printf 'pr_badge=\n'
+  printf 'git_sync=\n'
+  printf 'state_seg=\n'
+  printf 'clam_mode=\n'
+  printf 'cost_line=Session: $1.23\n'
+} > "$BUNDLE_DIR/$BUNDLE_FILE.bundle"
+out=$(render_cached "$bundle_json" "$BUNDLE_DIR" 5)
+check "old six-key bundle (with cost_line) still reads as valid, extra key ignored" \
+  "$(printf '%s\n' "$out" | grep -qF '(six-key-sentinel)' && echo yes || echo no)" "yes"
+
+# 22h-iii. Bundle missing a required key (only 4 of the 5): treated as
+#          absent -- the mask enforces completeness, not "any subset".
+{
+  printf 'branch=incomplete-sentinel\n'
+  printf 'pr_badge=\n'
+  printf 'git_sync=\n'
+  printf 'state_seg=\n'
+} > "$BUNDLE_DIR/$BUNDLE_FILE.bundle"
+out=$(render_cached "$bundle_json" "$BUNDLE_DIR" 5)
+check "bundle missing a required key (4 of 5) is treated as absent, not served warm" \
+  "$(printf '%s\n' "$out" | grep -qF '(incomplete-sentinel)' && echo present || echo absent)" "absent"
+
+# 22h-iv. Write side: a fresh cold-render bundle contains no cost_line= line
+#         and carries all five remaining keys.
+WRITE_DIR="$TMPROOT/bundle-write-cache"
+WRITE_WD="$TMPROOT/bundle-write-wd"; mk_wt "$WRITE_WD"
+write_json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WRITE_WD\"},$ctx,\"transcript_path\":\"\"}"
+render_cached "$write_json" "$WRITE_DIR" 5 >/dev/null
+WRITE_FILE=$(printf '%s' "$WRITE_WD" | sed 's#/#_#g')
+WRITE_BUNDLE="$WRITE_DIR/$WRITE_FILE.bundle"
+check "freshly-written bundle exists after a cold render" \
+  "$([ -f "$WRITE_BUNDLE" ] && echo yes || echo no)" "yes"
+check "freshly-written bundle has no cost_line= key" \
+  "$(grep -qE '^cost_line=' "$WRITE_BUNDLE" 2>/dev/null && echo present || echo absent)" "absent"
+check "freshly-written bundle carries all five remaining keys" \
+  "$(for k in branch pr_badge git_sync state_seg clam_mode; do grep -qE "^${k}=" "$WRITE_BUNDLE" 2>/dev/null || { echo no; exit; }; done; echo yes)" "yes"
+
+# 22i. Exactly one jq per render, cold and warm alike, even with all eight
+#      burnrate fields folded into the payload -- adding fields is not
+#      grounds for a second jq. Also re-confirms ccost.sh is never invoked,
+#      this time with a payload that actually carries cost data (so a
+#      regression that re-adds the ccost.sh call would have real inputs to
+#      act on, not just absent ones).
+B04INV_DIR="$TMPROOT/b04-inv-cache"
+B04INV_WD="$TMPROOT/b04-inv-wd"; mk_wt "$B04INV_WD"
+b04inv_json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$B04INV_WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-inv\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":10,\"resets_at\":1700444444},\"seven_day\":{\"used_percentage\":5,\"resets_at\":1700555555}},\"cost\":{\"total_lines_added\":1,\"total_lines_removed\":1,\"total_cost_usd\":0.01}}"
+
+render_shim "$b04inv_json" "$B04INV_DIR" 5             # cold: seeds the bundle
+b04_cold_jq=$(shim_count "$SHIM_LOG" jq)
+b04_cold_ccost=$(shim_count "$CCOST_LOG_FILE")
+check "B04 payload, cold render: exactly one jq" \
+  "$([ "${b04_cold_jq:-99}" -eq 1 ] && echo yes || echo no)" "yes"
+check "B04 payload, cold render: ccost.sh never invoked" \
+  "$([ "${b04_cold_ccost:-1}" -eq 0 ] && echo yes || echo no)" "yes"
+
+render_shim "$b04inv_json" "$B04INV_DIR" 5             # warm: same key, within TTL
+b04_warm_jq=$(shim_count "$SHIM_LOG" jq)
+b04_warm_ccost=$(shim_count "$CCOST_LOG_FILE")
+check "B04 payload, warm render: exactly one jq" \
+  "$([ "${b04_warm_jq:-99}" -eq 1 ] && echo yes || echo no)" "yes"
+check "B04 payload, warm render: ccost.sh never invoked" \
+  "$([ "${b04_warm_ccost:-1}" -eq 0 ] && echo yes || echo no)" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

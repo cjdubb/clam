@@ -18,8 +18,15 @@ Implemented → Accepted` (side-state: `Escalated`).
 - Unit: U01
 - PR group: G01
 - Est: 180
+- Justification: exceeds the per-block ceiling because the token-bucket
+  algorithm and its concurrency-safe refill logic don't split cleanly
+  without duplicating shared state between two blocks
 - Code: src/rate-limiter.ts
 - Contract: token-bucket limiter; allow/deny per key with configurable refill
 - Plan: plans/001-api-hardening.md
+
+Justification: is optional — required only when Est exceeds the per-block
+ceiling (half the PR size budget); an under-ceiling entry needs no
+Justification: at all.
 
 -->

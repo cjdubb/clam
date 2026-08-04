@@ -103,6 +103,11 @@ accepting; an implementation wave then makes them pass, verified the same
 way plus a check that contracts stayed unchanged; accepted units merge
 locally into the integration branch, and (under `main-prs` delivery) PR
 groups are raised to master/main once every unit in the group is merged.
+Scheduling across units is **background-first**: every wave dispatch runs in
+the background, and the orchestrator advances whichever unit has an
+actionable stage right now rather than waiting synchronously on one unit
+while a sibling sits idle — ending its turn only once no unit has an
+actionable stage and at least one background wave is still outstanding.
 Watch `.local/blocks.md` for status as it happens.
 
 ### Take a block yourself
@@ -257,6 +262,23 @@ error.
 budget. `--justified` turns an over-budget FAIL into a WARN and exits 0.
 Exit 0 within budget (or over but justified), 1 over budget, 2 on a usage
 or environment error.
+
+**`scripts/wave-check.sh <test|impl> [options] [diff-range]`** — the
+mechanical half of a wave gate in one command: mode `test` proves the red
+run is red for the right reason (never a collection/import failure) and
+realm-pure; mode `impl` proves the suite is green, realm-pure, and, with
+`--scaffold-ref` and one or more `--stub`, that contract docblocks and
+signatures are unchanged from the scaffold commit. One `WAVE-CHECK <CHECK>:
+PASS|FAIL|SKIPPED` line per check plus a summary verdict.
+
+**`scripts/blocks-lint.sh [--budget <n>] [path/to/blocks.md]`** — the
+plan-time sizing lint: every block entry needs a bare-integer `Est:`, and
+every entry whose `Est` exceeds the **per-block ceiling** — derived, never
+configured, as `prSizeBudget / 2` — needs a non-empty `Justification:`.
+Run once at plan time and again as rung 0 of the scaffold gate (see
+`skills/scaffold/SKILL.md`), so a plan that shrank a budget after sizing its
+blocks can't slip an unjustified oversized block through to dispatch. Exit
+0 clean, 1 on findings, 2 on a usage or environment error.
 
 ### Agents
 

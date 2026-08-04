@@ -85,6 +85,31 @@
      ```
 -->
 
+## Update
+
+```
+/plugin marketplace update clam
+claude plugin update {plugin-name}@clam
+```
+
+Both commands are needed: refreshing the catalog never touches an installed
+plugin, and updating one is CLI-only — there is no `/plugin update`.
+Afterwards run `/reload-plugins` to pick the new version up in the current
+session, or restart the session if this plugin ships hooks or agents.
+
+Auto-update is off by default for third-party marketplaces. Even with it
+enabled, a plugin that ships hooks stays pinned to the last explicitly
+installed version until you run the update command yourself
+(anthropics/claude-code#52218).
+
+<!-- Copy this section verbatim into the plugin's README, substituting only
+     the plugin name in the second command, and place it last among the
+     sections between Commands and Relationships (readme-lint.sh allows
+     extra H2s only in that window). The text is generic lifecycle
+     guidance: do not add plugin-specific steps, and never name another
+     plugin — a reader with only this plugin installed must be able to
+     follow it as written. -->
+
 ## Relationships to other plugins
 
 <!-- How this plugin interacts with other clam plugins. Document, in this

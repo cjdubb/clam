@@ -451,6 +451,23 @@ in normal use.
 Any of these may be set by hand in the `env` block of the settings file at
 the scope where the plugin is installed — no setup command writes them.
 
+## Update
+
+```
+/plugin marketplace update clam
+claude plugin update tracking@clam
+```
+
+Both commands are needed: refreshing the catalog never touches an installed
+plugin, and updating one is CLI-only — there is no `/plugin update`.
+Afterwards run `/reload-plugins` to pick the new version up in the current
+session, or restart the session if this plugin ships hooks or agents.
+
+Auto-update is off by default for third-party marketplaces. Even with it
+enabled, a plugin that ships hooks stays pinned to the last explicitly
+installed version until you run the update command yourself
+(anthropics/claude-code#52218).
+
 ## Relationships to other plugins
 
 No hard dependencies — tracking is fully standalone, and every hook above

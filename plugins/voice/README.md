@@ -85,6 +85,23 @@ bash plugins/voice/scripts/registration.test.sh
 bash plugins/voice/scripts/readme.test.sh
 ```
 
+## Update
+
+```
+/plugin marketplace update clam
+claude plugin update voice@clam
+```
+
+Both commands are needed: refreshing the catalog never touches an installed
+plugin, and updating one is CLI-only — there is no `/plugin update`.
+Afterwards run `/reload-plugins` to pick the new version up in the current
+session, or restart the session if this plugin ships hooks or agents.
+
+Auto-update is off by default for third-party marketplaces. Even with it
+enabled, a plugin that ships hooks stays pinned to the last explicitly
+installed version until you run the update command yourself
+(anthropics/claude-code#52218).
+
 ## Relationships to other plugins
 
 None required. This plugin is fully standalone.

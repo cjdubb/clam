@@ -29,8 +29,9 @@
 #       with a single oracle.
 #   (5) The B06 contract comment itself is gone from the raw file (marked
 #       remove-at-acceptance).
-#   (6) plugin.json is at 0.5.0 (its PR group's version) and the root
-#       README.md Plugins-table row agrees with it. version-bump-lint and
+#   (6) plugin.json is at 0.5.1 (its PR group's version, 0.5.0, retargeted
+#       by the README Update-section wave) and the root README.md
+#       Plugins-table row agrees with it. version-bump-lint and
 #       readme-lint both gate this; checking it here fails it in the inner
 #       loop instead of in CI.
 #   (7) The contract's edge case that agent-dash and the tracking plugin keep # architecture-lint: allow naming them is the assertion the check below verifies, not a cross-plugin dependency
@@ -255,12 +256,16 @@ check "attribution names the MIT licence" \
   "$(has_re '(^|[^A-Za-z])MIT([^A-Za-z]|$)' "$BODY")" "yes"
 
 # ---------------------------------------------------------------------------
-# 6. Version: plugin.json at 0.5.0, root README Plugins table agreeing
+# 6. Version: plugin.json at 0.5.1, root README Plugins table agreeing
 # ---------------------------------------------------------------------------
 
+# Retargeted 0.5.0 -> 0.5.1 by the README Update-section wave: that wave
+# edits plugins/statusline/README.md, and version-bump-lint has no docs
+# exemption, so the plugin necessarily bumps. The pin tracks the CURRENT
+# version, so every legitimate bump retargets it.
 PLUGIN_VERSION="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$PLUGIN_JSON" 2>/dev/null | head -1)"
-check "plugin.json version is 0.5.0 (this block's PR group)" \
-  "$PLUGIN_VERSION" "0.5.0"
+check "plugin.json version is 0.5.1 (this block's PR group)" \
+  "$PLUGIN_VERSION" "0.5.1"
 
 ROOT_ROW_STATUS="$(grep -E '^\|[[:space:]]*\[?statusline[](]' "$ROOT_README" 2>/dev/null | head -1 \
   | awk -F'|' '{ print $3 }' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"

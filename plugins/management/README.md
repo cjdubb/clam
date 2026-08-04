@@ -155,6 +155,23 @@ bash plugins/management/scripts/check-versions.test.sh
 bash plugins/management/scripts/prune-stamp.test.sh
 ```
 
+## Update
+
+```
+/plugin marketplace update clam
+claude plugin update management@clam
+```
+
+Both commands are needed: refreshing the catalog never touches an installed
+plugin, and updating one is CLI-only — there is no `/plugin update`.
+Afterwards run `/reload-plugins` to pick the new version up in the current
+session, or restart the session if this plugin ships hooks or agents.
+
+Auto-update is off by default for third-party marketplaces. Even with it
+enabled, a plugin that ships hooks stays pinned to the last explicitly
+installed version until you run the update command yourself
+(anthropics/claude-code#52218).
+
 ## Relationships to other plugins
 
 Soft integrations only: this plugin reads the setup version stamps written

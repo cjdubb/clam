@@ -1,6 +1,6 @@
 {
   "name": "management",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Guided plugin lifecycle flow: /management:install offers the clam catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope, /management:update diffs installed vs latest versions and applies confirmed updates, and both close by surfacing which setup skills to run via setup version stamps.",
   "author": {
     "name": "Cam Williamson",

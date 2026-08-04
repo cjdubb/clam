@@ -82,6 +82,17 @@
 # Invariants:
 #   - Read-only: never writes a file, never touches the index, working tree,
 #     or any ref.
+#   - DEPENDENCY SEAM (B04, plan 001-speed-up-repo-ci): the jq dependency is
+#     reached through `: "${JQ:=jq}"` and invoked as "$JQ", never as a bare
+#     `jq`. Absence is detected with `command -v "$JQ"`. Tests exercise the
+#     jq-absent path by setting JQ=/nonexistent rather than constructing a
+#     PATH without jq. Observable CLI behaviour is UNCHANGED: same arguments,
+#     same output, same exit codes, including when jq is genuinely absent.
+#   - SOURCEABILITY (B05, plan 001-speed-up-repo-ci): the script guards its
+#     entry point with `[[ "${BASH_SOURCE[0]}" == "${0}" ]]` so a test can
+#     source it and call its public function in-process rather than forking.
+#     The contract boundary is unchanged — tests exercise the public
+#     interface only, never internals.
 #   - cwd-independent: resolves the repo root and runs git from there, so the
 #     same range measures the same from any subdirectory.
 #   - Exit status is only ever 0, 1, or 2.
@@ -123,6 +134,7 @@
 # -->
 
 set -uo pipefail
+: "${JQ:=jq}"
 
 USAGE_MSG="usage: pr-size-check.sh [--budget <n>] [--justified] <diff-range> [-- <pathspec>...]"
 
@@ -217,29 +229,29 @@ else
   [ -f "$override_config" ] && have_override=1
 
   if [ "$have_base" -eq 1 ] || [ "$have_override" -eq 1 ]; then
-    if ! command -v jq >/dev/null 2>&1; then
+    if ! command -v "$JQ" >/dev/null 2>&1; then
       err "jq is required to read delivery.prSizeBudget from config ($base_config and/or $override_config present); pass --budget to skip config entirely"
       exit 2
     fi
 
-    if [ "$have_base" -eq 1 ] && ! jq -e . "$base_config" >/dev/null 2>&1; then
+    if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$base_config" >/dev/null 2>&1; then
       err "invalid JSON in config file: $base_config"
       exit 2
     fi
-    if [ "$have_override" -eq 1 ] && ! jq -e . "$override_config" >/dev/null 2>&1; then
+    if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$override_config" >/dev/null 2>&1; then
       err "invalid JSON in config file: $override_config"
       exit 2
     fi
 
     if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-      effective_config="$(jq -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
+      effective_config="$("$JQ" -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
     elif [ "$have_base" -eq 1 ]; then
       effective_config="$(cat "$base_config")"
     else
       effective_config="$(cat "$override_config")"
     fi
 
-    resolved="$(jq -r '
+    resolved="$("$JQ" -r '
       (.delivery.prSizeBudget) as $b
       | if $b == null then "absent"
         elif ($b | type) == "number" and $b > 0 and ($b == ($b | floor)) then "valid:\($b | floor)"

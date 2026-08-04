@@ -301,10 +301,12 @@ assert_contains_re_i "PreCompact bullet: the trailing 'any SUBAGENT-LOG-*.md' cl
 # unlike the flexible-semver check above (which predates B07 and stays as
 # a loose "well-formed" check), B07's version target is a specific literal,
 # same treatment workgraph-docs.test.sh gives its own exact-version clause.
-# Retargeted to 0.7.2 by B06 (plan 001-speed-up-repo-ci); see the matching
+# Retargeted to 0.7.2 by B06 (plan 001-speed-up-repo-ci), then to 0.7.3 by
+# the README Update-section wave (same cause: that wave edits this plugin's
+# README and version-bump-lint has no docs exemption); see the matching
 # note in workgraph-docs.test.sh and .local/FOLLOWUPS.md F05.
 b07_plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.7.2" "$b07_plugin_version" "0.7.2"
+check "plugin.json version is exactly 0.7.3" "$b07_plugin_version" "0.7.3"
 
 EXPECTED_B07_DESCRIPTION='Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), resume-after-/clear via SessionStart injection, and a work graph (.local/WORKGRAPH.md) for recursive problem decomposition.'
 b07_plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
@@ -320,8 +322,8 @@ check "plugin.json description is unchanged by the B07 version bump" \
 tracking_row=$(grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "root README.md: the tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "root README.md: tracking row's version cell is v0.7.2" "$tracking_row" \
-    '✅ *v0\.7\.2'
+assert_contains_re_i "root README.md: tracking row's version cell is v0.7.3" "$tracking_row" \
+    '✅ *v0\.7\.3'
 
 # ===========================================================================
 # Clause: `bash scripts/readme-lint.sh` (repo root) still passes for

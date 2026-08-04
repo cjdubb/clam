@@ -34,7 +34,11 @@ BLOCKS_TEMPLATE="$PLUGIN_DIR/templates/blocks.md"
 PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 BLOCKS_LINT="$SCRIPT_DIR/blocks-lint.sh"
 
-EXPECTED_VERSION="0.14.2"
+# Retargeted 0.14.2 -> 0.14.3 by the README Update-section wave: that wave
+# edits plugins/lego/README.md, and version-bump-lint has no docs
+# exemption, so the plugin necessarily bumps. The pin tracks the CURRENT
+# version, so every legitimate bump retargets it.
+EXPECTED_VERSION="0.14.3"
 
 FAILED=0
 

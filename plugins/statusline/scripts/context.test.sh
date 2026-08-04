@@ -33,11 +33,14 @@
 #   genuine text processing on multi-line input.
 #
 # Inputs:  unchanged — the same synthetic statusLine JSON payloads.
-# Outputs: unchanged — 86 PASS lines, then "ALL PASS".
+# Outputs: unchanged — one PASS line per assertion, then "ALL PASS".
 #
 # Invariants:
-#   - Exactly 86 PASS lines and a zero exit. A changed count is a defect,
-#     whichever direction it moves.
+#   - Exactly 277 PASS lines and a zero exit. A changed count is a defect,
+#     whichever direction it moves. (Was 86 when this contract was written;
+#     the burnrate uplift raised it. The rule is the frozen count, not the
+#     number, so the number moves when a deliberate change to the suite
+#     lands and stays frozen in between.)
 #   - No assertion may be weakened, skipped, merged, or deleted.
 #   - Hermeticity is NOT negotiable for speed: the temp cwd with no
 #     git/.local and the temp ccost dirs stay. B03 runs this file

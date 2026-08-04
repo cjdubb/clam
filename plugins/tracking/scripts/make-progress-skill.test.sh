@@ -12,6 +12,10 @@
 #   and generalizes the lego-specific `.local/blocks.md` line to reference
 #   `.local/` state files generically instead of assuming the lego plugin.
 #
+#   #147 extends that generalization from the Assess step to the Decide
+#   table: no decision row may name a sibling plugin's artifact format,
+#   status vocabulary, or skill namespace.
+#
 # Run: bash plugins/tracking/scripts/make-progress-skill.test.sh
 #      (exits non-zero on failure)
 
@@ -39,6 +43,16 @@ assess_section() {
     ' "$1"
 }
 
+# Extracts the body of the "### 3. Decide" step, up to the next numbered
+# "### N." heading — i.e. the decision table plus the NEVER list.
+decide_section() {
+    awk '
+        /^### 3\. Decide/ { flag=1; next }
+        /^### [0-9]+\./ { flag=0 }
+        flag { print }
+    ' "$1"
+}
+
 if [ ! -f "$SKILL_MD" ]; then
     fail "SKILL.md exists at plugins/tracking/skills/make-progress/SKILL.md" \
         "not found at $SKILL_MD"
@@ -49,6 +63,7 @@ fi
 
 FM=$(frontmatter "$SKILL_MD")
 ASSESS=$(assess_section "$SKILL_MD")
+DECIDE=$(decide_section "$SKILL_MD")
 # Flattened (newlines -> spaces) so multi-word phrases aren't missed just
 # because markdown line-wrapped them across two lines.
 ASSESS_FLAT=$(echo "$ASSESS" | tr '\n' ' ' | tr -s ' ')
@@ -176,6 +191,53 @@ if echo "$ASSESS_FLAT" | grep -qiE "$generic_local_pattern"; then
 else
     fail "Assess step references .local/ state files generically" \
         "no generic .local/ state-files phrasing found"
+fi
+
+# ============================================================
+# #147 — the decision table owns only tracking's own concerns
+# ============================================================
+
+if [ -z "$DECIDE" ]; then
+    fail "Decide step section is extractable (### 3. Decide ... next ### N.)" \
+        "could not locate the Decide step section — the checks below cannot run meaningfully"
+fi
+
+DECIDE_FLAT=$(echo "$DECIDE" | tr '\n' ' ' | tr -s ' ')
+
+# --- Test 13: no row invokes another plugin's skill namespace. Tracking's
+# built-in rows cover only concerns tracking itself owns; a row that names a
+# sibling's skill namespace is dead weight when that sibling isn't installed
+# and rots whenever it evolves. Sibling names are discovered from plugins/
+# rather than hardcoded, so this never drifts as plugins are added — and so
+# the banned literal (`/<sibling>:<skill>`) never appears in this file.
+PLUGINS_DIR="$SCRIPT_DIR/../.."
+sibling_ns_found=""
+while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    [ "$name" = "tracking" ] && continue
+    if printf '%s' "$DECIDE_FLAT" | grep -qF "/${name}:"; then
+        sibling_ns_found="/${name}:"
+        break
+    fi
+done < <(ls -1 "$PLUGINS_DIR" 2>/dev/null)
+
+if [ -n "$sibling_ns_found" ]; then
+    fail "Decide table invokes no sibling plugin's skill namespace" \
+        "found '$sibling_ns_found'"
+else
+    pass "Decide table invokes no sibling plugin's skill namespace"
+fi
+
+# --- Test 14: no row keys off another plugin's artifact format or status
+# vocabulary. `.local/blocks.md` and the Scaffolded/Tests Verified/Accepted
+# status vocabulary belong to the plugin that writes them; the generic
+# assess step already reads whatever `.local/` state exists without
+# assuming an author.
+if echo "$DECIDE_FLAT" | grep -qiE 'blocks\.md|Tests Verified'; then
+    fail "Decide table keys off no sibling plugin's artifact format or status vocabulary" \
+        "found a sibling artifact path or status name in the decision table"
+else
+    pass "Decide table keys off no sibling plugin's artifact format or status vocabulary"
 fi
 
 echo ""

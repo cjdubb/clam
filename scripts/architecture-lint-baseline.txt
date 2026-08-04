@@ -112,7 +112,6 @@ plugins/tracking/scripts/make-progress-skill.test.sh	english	lego
 plugins/tracking/scripts/merge-manifest.test.sh	english	debugging
 plugins/tracking/scripts/merge-manifest.test.sh	path	debugging
 plugins/tracking/scripts/session-context.sh	skill-invocation	decision-log
-plugins/tracking/skills/make-progress/SKILL.md	skill-invocation	lego
 plugins/worktrees/scripts/b03-per-worker-skill.test.sh	english	lego
 plugins/worktrees/scripts/b04-registration.test.sh	english	tracking
 plugins/worktrees/scripts/b04-registration.test.sh	path	decision-log

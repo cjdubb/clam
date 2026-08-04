@@ -286,11 +286,15 @@ sl_parse_burn_fields() {
 #   computation, the shared $_sl_now, and the local time-of-day seconds used
 #   to derive the day-start anchor.
 #
-#   Two environment knobs, both consumed here and passed down to B01:
-#     SL_DAY_START     hour the user's day flips, 0..23  (default 2)
-#     SL_SLEEP_HOURS   hours after that counted as sleep (default 6)
+#   Two environment knobs, both consumed here and passed down to B01. They
+#   carry the plugin's PUBLIC env prefix, as every user-settable knob here
+#   does; the bare SL_* spellings are internal locals seeded from them, the
+#   same split CLAM_STATUSLINE_CACHE_DIR -> SL_CACHE_DIR already uses:
+#     CLAM_STATUSLINE_DAY_START     hour the user's day flips, 0..23 (default 2)
+#     CLAM_STATUSLINE_SLEEP_HOURS   hours after that counted as sleep (default 6)
 #   A non-integer or out-of-range value for either falls back to its
-#   default rather than erroring.
+#   default rather than erroring. Zero-padded values are read as DECIMAL:
+#   "08" is a user writing an hour correctly, not octal.
 #
 # Outputs:
 #   One line of text on stdout, no trailing newline, ANSI-coloured.
@@ -408,10 +412,10 @@ sl_render_burn_line() {
       # decoration: a perfectly reasonable "08" is OCTAL to bash arithmetic,
       # and an unforced one aborts the multiplication below -- silently
       # dropping %t, %/d and the trend for a value the user wrote correctly.
-      hour="${SL_DAY_START:-2}"
+      hour="${CLAM_STATUSLINE_DAY_START:-2}"
       case "$hour" in ''|*[!0-9]*) hour=2 ;; *) hour=$(( 10#$hour )) ;; esac
       [ "$hour" -gt 23 ] && hour=2
-      slp="${SL_SLEEP_HOURS:-6}"
+      slp="${CLAM_STATUSLINE_SLEEP_HOURS:-6}"
       case "$slp" in ''|*[!0-9]*) slp=6 ;; *) slp=$(( 10#$slp )) ;; esac
       [ "$slp" -gt 23 ] && slp=6
 

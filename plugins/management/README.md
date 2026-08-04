@@ -114,23 +114,45 @@ isn't available, the same pages are presented as numbered plain-text lists.
 bash plugins/management/scripts/check-versions.sh
 ```
 
-Prints a TSV (`plugin  installed  latest  update  stamp  setup`) to stdout,
-one row per marketplace plugin. Exit `0` when nothing is stale, `10` when
-at least one plugin is; `2`/`3`/`4` on missing or malformed installed-plugin
-data, a missing marketplace clone, and a missing `jq`, respectively (see
-the script's own header for the full contract). Honors `CLAUDE_CONFIG_DIR`
-(default `~/.claude`) and `CLAM_MARKETPLACE` (default `clam`) for testing
-against fixtures.
+Prints a TSV (`plugin  installed  latest  update  stamp  setup
+stale_targets`) to stdout, one row per marketplace plugin. `stamp` reports
+the lowest — i.e. driving — version among that plugin's stamps, the one
+setting its `setup` status; `stale_targets` names the absolute path of
+each stamp target that is behind, or `-` when the row isn't stale. Exit
+`0` when nothing is stale, `10` when at least one plugin is; `2`/`3`/`4`
+on missing or malformed installed-plugin data, a missing marketplace
+clone, and a missing `jq`, respectively (see the script's own header for
+the full contract). Honors `CLAUDE_CONFIG_DIR` (default `~/.claude`) and
+`CLAM_MARKETPLACE` (default `clam`) for testing against fixtures.
 
 The `setup` column reflects setup version stamps — see
 [`docs/setup-stamps.md`](docs/setup-stamps.md) for the stamp file's format
 and semantics.
+
+**`scripts/prune-stamp.sh <plugin> <target>`** — deletes one setup-stamp
+record: the one for `<plugin>` at `<target>`, an engineer-named pair taken
+from a `stale_targets` value in the version report above.
+
+```
+bash plugins/management/scripts/prune-stamp.sh privacy /home/user/.claude/settings.json
+```
+
+The update skill offers this exact command for each stale target and
+never runs it itself — the engineer decides whether and when to run it.
+Deletes at most the one record named; no matching record is a silent
+no-op (exit `0`). Exit `2` on a wrong argument count or an empty
+argument, `3` when the stamp file doesn't exist, `4` when `jq` is
+missing, `5` when the stamp file is present but not valid JSON, `6` on a
+write failure (see the script's own header for the full contract).
+Honors `CLAUDE_CONFIG_DIR` (default `~/.claude`) for testing against
+fixtures.
 
 ## Tests
 
 ```bash
 bash plugins/management/scripts/manifest.test.sh
 bash plugins/management/scripts/check-versions.test.sh
+bash plugins/management/scripts/prune-stamp.test.sh
 ```
 
 ## Relationships to other plugins

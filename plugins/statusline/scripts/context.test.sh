@@ -1874,49 +1874,134 @@ check "23m: a normal burnrate render writes exactly two lines to stdout, nothing
 # here and passed down to B01. A non-integer or out-of-range value falls back
 # to its default rather than erroring.
 #
-# Pinned through %t -- the one derived figure that does not drift with the
-# render's clock -- against B01's output for the anchor each knob value SHOULD
-# produce. A fallback case therefore fails both when the bad value is honoured
-# and when a good value is ignored: those two have different expected numbers,
-# not a shared "it didn't crash".
+# Pinned through %t -- the one derived figure that does not move with the
+# render's `now`, only with the day-start anchor it shares with this suite --
+# against B01's output for the anchor each knob value SHOULD produce. A
+# fallback case therefore fails both when the bad value is honoured and when a
+# good value is ignored: those two have different expected numbers, not a
+# shared "it didn't crash".
 #
-# used=60 against a reset three days out is the fixture because the knobs only
-# separate under some pressure: below ~50 every setting saturates at 100%t and
-# the checks would all agree vacuously, while above ~70 they all go negative.
-# At 60 the four settings exercised here land on four distinct figures, and in
-# ordinary working hours all four are positive -- so an implementation that
-# clamped a negative %t could not make these pass or fail for the wrong reason.
-B5_KNOB_USED=60
-b5_knob=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$B5_KNOB_USED" "$B5_R7_RESET" "" "")
+# That reasoning only holds while the settings land on DIFFERENT figures, and
+# what decides whether they do is the fixture: its reset instant and its used%.
+# The two do quite different jobs, and only one of them is a lever at all.
+#
+#   The RESET'S PHASE is what separates the sleep settings, and nothing else
+#   is. %t reads today's slice off the week [reset-7d, reset) as a ratio of
+#   awake seconds; when that week BEGINS INSIDE A SLEEP WINDOW, B01's awake
+#   walk trims the same remainder-of-the-sleep from the numerator and the
+#   denominator alike, the sleep length cancels out of the ratio, and (2,0),
+#   (2,6) and (2,12) collapse onto one figure. A reset a whole number of days
+#   out from `now` starts the week at the CURRENT time of day, so which
+#   settings collapsed depended on the hour the suite happened to run at --
+#   02:00-08:00 local made (2,6) and (2,12) equal, and four of the ten checks
+#   below vacuous. Anchoring the reset to the DAY-START instead of to `now`
+#   fixes that phase once and for all: 3d17h30m past the default day-start
+#   begins the week 17.5h into a day, past the longest sleep window under test
+#   (12h) and short of the day's end, so every sleep length trims a different
+#   amount at every hour of the clock. Only the whole-day COUNT still moves
+#   with the clock, and that shifts every setting by the same 100 points.
+#
+#   The half hour is not decoration. %t is printed through awk's "%.0f", and a
+#   round 3d18h works out to exactly n+0.5 for the eight-hour sleep setting
+#   23r reuses, at every integer used%. Both this suite and the render derive
+#   the day-start anchor from TWO `date` calls -- an epoch, then a local H:M:S
+#   -- so either can read its midnight a second early and the two anchors can
+#   differ by a second. A second is worth ~0.002 of a point here: invisible,
+#   except exactly on the boundary, where it decides the printed integer and
+#   the check becomes a coin flip. b5_knob_figure asserts that margin rather
+#   than trusting the arithmetic to keep it.
+#
+#   The USED% cannot separate anything. All these settings measure one awake
+#   day out of the same seven, so used% shifts all their figures by the same
+#   amount -- it moves the whole set, never the gaps within it. What it does
+#   decide is whether they land in the band where B01 reports %t faithfully:
+#   above it %t saturates at B01's cap of 100, below it goes negative, and at
+#   either end two settings can agree for a reason that has nothing to do with
+#   the knobs. So it is SCANNED at runtime for the first value putting every
+#   setting this fixture is rendered against -- the four here, plus the two
+#   23r reuses -- strictly inside 1..99, rather than fixed at a literal that
+#   is only in band for part of the day.
+B5_KNOB_RESET=$(( $(burn_day_start_epoch "$B5_NOW" "$B5_SECS" 2) + 3 * 86400 + 63000 ))
+
+# b5_knob_figure(used day_start sleep_hours): B01's %t for that setting, but
+# only when nudging the day-start anchor two seconds either way leaves the
+# printed integer alone -- otherwise the word "unstable", which no candidate
+# below is allowed to carry. Two seconds is more than the one the two clocks
+# can disagree by, so a figure that survives it is one the render cannot
+# disagree with this suite about.
+b5_knob_figure() { # used day_start sleep_hours
+  local ds v0 vlo vhi
+  ds=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" "$2") || return 1
+  v0=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$ds" "$(( $3 * 3600 ))" | awk '{print $1}')
+  vlo=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$(( ds - 2 ))" "$(( $3 * 3600 ))" | awk '{print $1}')
+  vhi=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$(( ds + 2 ))" "$(( $3 * 3600 ))" | awk '{print $1}')
+  if [ "$v0" = "$vlo" ] && [ "$v0" = "$vhi" ]; then printf '%s\n' "$v0"; else printf 'unstable\n'; fi
+}
+# Every (day_start, sleep_hours) setting the knob fixture is rendered against,
+# as that figure for a candidate used%, one per line.
+b5_knob_figures() { # used
+  b5_knob_figure "$1" 2 6      # 23n: both knobs defaulted
+  b5_knob_figure "$1" 14 6     # 23n: day start moved
+  b5_knob_figure "$1" 2 0      # 23n: sleep off
+  b5_knob_figure "$1" 2 12     # 23n: sleep doubled
+  b5_knob_figure "$1" 8 6      # 23r: day start "08"
+  b5_knob_figure "$1" 2 8      # 23r: sleep "08"
+}
+B5_KNOB_USED=""
+for (( _b5u = 45; _b5u <= 75; _b5u++ )); do
+  _b5figs=$(b5_knob_figures "$_b5u")
+  [ "$(printf '%s\n' "$_b5figs" | sort -u | wc -l | tr -d ' ')" = "6" ] || continue
+  printf '%s\n' "$_b5figs" | grep -qvE '^([1-9]|[1-9][0-9])$' && continue
+  B5_KNOB_USED="$_b5u"; break
+done
+check "23n: some used% in 45..75 puts all six settings on a distinct in-band figure" \
+  "$([ -n "$B5_KNOB_USED" ] && echo found || echo none)" "found"
+# Only so the payload below stays well-formed when the scan came up empty: the
+# checks then fail on their own figures rather than on a malformed render.
+B5_KNOB_USED="${B5_KNOB_USED:-60}"
+b5_knob=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$B5_KNOB_USED" "$B5_KNOB_RESET" "" "")
 check "23n: CLAM_STATUSLINE_DAY_START unset → B01's default 02:00 day start" \
-  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_DAY_START=14 is consumed (the day-start anchor moves with it)" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=14")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 14 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=14")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 14 6)"
 check "23n: CLAM_STATUSLINE_DAY_START out of range (99) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=99")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=99")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_DAY_START negative (-1) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_DAY_START non-integer ('half-past') falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_SLEEP_HOURS unset → B01's default six sleep hours" \
-  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_SLEEP_HOURS=0 is consumed (degenerates to plain calendar time)" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=0")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 0)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=0")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 0)"
 check "23n: CLAM_STATUSLINE_SLEEP_HOURS=12 is consumed" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=12")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 12)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=12")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 12)"
 check "23n: CLAM_STATUSLINE_SLEEP_HOURS negative (-1) falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: CLAM_STATUSLINE_SLEEP_HOURS non-integer ('six') falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23n: a rejected knob value never breaks the render" \
   "$(burn_wellformed "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "yes"
-# The fixture really does discriminate: if the four settings collapsed onto one
-# figure the ten checks above would agree no matter what the knobs did.
+# The fixture really does discriminate: if two of the four settings landed on
+# one figure the ten checks above would agree no matter what the knobs did.
+# Re-derived from B5_KNOB_USED -- the value the ten actually rendered against
+# -- by four direct calls rather than through b5_knob_figures, so a scan that
+# tested one thing and published another is caught rather than echoed back.
+b5_knob_four=$(printf '%s\n' \
+  "$(b5_knob_figure "$B5_KNOB_USED" 2 6)" \
+  "$(b5_knob_figure "$B5_KNOB_USED" 14 6)" \
+  "$(b5_knob_figure "$B5_KNOB_USED" 2 0)" \
+  "$(b5_knob_figure "$B5_KNOB_USED" 2 12)")
 check "23n: the knob fixture separates the settings (four distinct %t figures)" \
-  "$(printf '%s\n' "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)" \
-      "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 14 6)" \
-      "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 0)" \
-      "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 12)" | sort -u | wc -l | tr -d ' ')" "4"
+  "$(printf '%s\n' "$b5_knob_four" | sort -u | wc -l | tr -d ' ')" "4"
+# Distinctness alone is not enough. At B01's cap, below zero, or on a rounding
+# boundary two settings can agree -- or a figure can differ from the render's
+# -- for a reason that has nothing to do with the knobs, and a fixture drifting
+# towards any of those would lose its teeth one check at a time without the
+# count above ever changing. So each of the four must also be a plain 1..99,
+# which "unstable" and B01's own 100 and negatives are all excluded from.
+check "23n: and all four are in band (1..99) and unmoved by a two-second anchor nudge" \
+  "$(printf '%s\n' "$b5_knob_four" | grep -cE '^([1-9]|[1-9][0-9])$' | tr -d ' ')" "4"
 
 # --- 23o. A 🔥 group whose reset timestamp is absent -------------------------
 # The Errors clause permits dropping "that figure OR its whole group", and the
@@ -1999,7 +2084,7 @@ check "23q: all four separators of a five-group line are the exact dim sequence 
 # check even where the two anchors' figures happen to coincide.
 b5_pad_ds_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=08")
 check "23r: CLAM_STATUSLINE_DAY_START=08 anchors the day at 08:00 (decimal 8, not an octal error)" \
-  "$(today_token "$b5_pad_ds_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 8 6)"
+  "$(today_token "$b5_pad_ds_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 8 6)"
 check "23r: CLAM_STATUSLINE_DAY_START=08 renders the same %t as the unpadded 8" \
   "$(today_token "$b5_pad_ds_line")" \
   "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=8")")"
@@ -2008,7 +2093,7 @@ check "23r: CLAM_STATUSLINE_DAY_START=08 → the weekly group still carries all 
 
 b5_pad_slp_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=08")
 check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 is eight sleep hours (decimal 8, not an octal error)" \
-  "$(today_token "$b5_pad_slp_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 8)"
+  "$(today_token "$b5_pad_slp_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 8)"
 check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 renders the same %t as the unpadded 8" \
   "$(today_token "$b5_pad_slp_line")" \
   "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=8")")"
@@ -2019,10 +2104,10 @@ check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 renders the same %t as the unpadded 8
 # the one out-of-range case 23n does not cover, and 099 is the pair of the two.
 check "23r: CLAM_STATUSLINE_SLEEP_HOURS out of range (99) still falls back to 6" \
   "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=99")")" \
-  "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 check "23r: CLAM_STATUSLINE_DAY_START=099 reads as 99, is still out of range, still falls back to 2" \
   "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=099")")" \
-  "$(burn_expect_today "$B5_KNOB_USED" "$B5_R7_RESET" 2 6)"
+  "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

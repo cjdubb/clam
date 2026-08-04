@@ -120,69 +120,30 @@ check "5b: deliver refuses to push on divergence" \
 check "5b: an unverified delivery is not handed over" \
   "$(has_f "$SECTION_5B" 'An unverified delivery is not handed over')" "yes"
 
-# --- Pipe-safety guidance content (contract: B01 exit-code-pipe-safety) --
-# The contract's own scaffold docblocks are embedded as HTML comments at
-# both insertion points (search SKILL.md for "Contract: B01"); they
-# describe what the guidance must say, but are not the guidance itself.
-# Strip HTML comments before matching so a comment's vocabulary can never
-# satisfy these checks — only real prose counts. Then scope each check to
-# its own step's section (via the same headings the "Invariants" loop above
-# already guarantees survive) so "coverage at both 2.3 and 3.1" is verified
+# --- Comment-stripped, step-scoped views (used by everything below) ------
+# The scaffold docblocks embedded in SKILL.md as HTML comments describe what
+# the finished prose must say, but are not the prose itself. Strip HTML
+# comments before matching so a comment's vocabulary can never satisfy a
+# check — only real prose counts. Then scope each check to its own step's
+# section (via the same headings the "Invariants" loop above already
+# guarantees survive) so a rule the contract ties to both steps is verified
 # per-location, not just once anywhere in the file.
 STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 SECTION_2_3=$(awk '/^### 2\. Test wave$/{flag=1; next} /^### 3\. Implementation wave$/{flag=0} flag' <<<"$STRIPPED")
 SECTION_3_1=$(awk '/^### 3\. Implementation wave$/{flag=1; next} /^### 4\. Local merge$/{flag=0} flag' <<<"$STRIPPED")
 
-# Step 2.3 (red run): the warning must name `$?` and explain that piping
-# replaces it with the pipe tail's exit code, not the test command's.
-check "2.3: warning names \$? and the piping hazard" \
-  "$(has_f "$SECTION_2_3" 'replaces `$?`')" "yes"
-check "2.3: warning identifies which exit code wins" \
-  "$(has_f "$SECTION_2_3" 'exit code of the last pipeline stage')" "yes"
-
-# Step 2.3: canonical snippet invariant — never a pipe when the exit code
-# matters (semicolons/separate commands instead). Anchored without a
-# leading "no"/"never" so a sentence-initial capital on that word doesn't
-# break the case-sensitive match.
-check "2.3: canonical snippet states no pipe when exit code matters" \
-  "$(has_f "$SECTION_2_3" 'pipe when the exit code matters')" "yes"
-
-# Step 2.3 edge case: output redirection is safe and must not be
-# prohibited — only piping affects `$?`, redirection does not. Anchored
-# without the leading "does"/"Does" for the same case-sensitivity reason.
-check "2.3: redirection explicitly not prohibited" \
-  "$(has_f "$SECTION_2_3" 'not affect `$?`')" "yes"
-
-# Step 2.3 invariant: pipefail must not be relied on as the fix (not
-# guaranteed in the orchestrator's ad-hoc commands). Anchored on "not rely
-# on `pipefail`" rather than "do not ..." so a sentence-initial "Do not" (or
-# "must not", "does not") still matches — case-sensitive grep would miss a
-# capitalized sentence opener otherwise.
-check "2.3: pipefail not relied on as the fix" \
-  "$(has_f "$SECTION_2_3" 'not rely on `pipefail`')" "yes"
-
-# Step 3.1 (green run): the contract allows the same warning inline OR a
-# cross-reference to step 2.3 — either satisfies it, so accept the labeled
-# term or a full restatement of the core warning. The green run masking a
-# false acceptance is the higher-stakes case, so this location must not be
-# skipped.
-STEP_3_1_COVERED="no"
-if grep -qF -- "pipe-safety" <<<"$SECTION_3_1" || \
-   grep -qF -- 'replaces `$?`' <<<"$SECTION_3_1"; then
-  STEP_3_1_COVERED="yes"
-fi
-check "3.1: pipe-safety warning present inline or by cross-reference" \
-  "$STEP_3_1_COVERED" "yes"
-
-# Edge case: PIPESTATUS, if mentioned anywhere in the new guidance, must be
-# flagged bash-specific and not the preferred pattern. Vacuously satisfied
-# if the implementer never brings PIPESTATUS up at all — the contract does
-# not require mentioning it, only conditions what must accompany it.
-PIPESTATUS_OK="yes"
-if grep -qF -- "PIPESTATUS" <<<"$SECTION_2_3$SECTION_3_1"; then
-  PIPESTATUS_OK="$(has_f "$SECTION_2_3$SECTION_3_1" 'bash-specific')"
-fi
-check "PIPESTATUS, if mentioned, flagged bash-specific" "$PIPESTATUS_OK" "yes"
+# SUPERSEDED by "Contract: B01 dispatch background scheduler": the
+# pipe-safety guidance that used to be pinned here (step 2.3's `$?` warning,
+# the canonical capture snippet, the redirection-is-safe carve-out, the
+# pipefail caveat, the PIPESTATUS condition, and step 3.1's inline-or-
+# cross-reference coverage) is a mechanical checklist item, and B01 collapses
+# every mechanical item in steps 2 and 3 into one invocation of
+# scripts/wave-check.sh — whose own contract makes pipe-safe capture an
+# invariant of the script rather than a procedure the orchestrator performs
+# by hand. Those checks are therefore removed rather than weakened: the
+# behaviour still exists, it just moved out of this document. What replaces
+# them lives in dispatch-scheduling.test.sh ("Behavior 7"), which pins
+# wave-check.sh per step AND asserts the hand-run recipe is gone from both.
 
 # --- B02 archive documentation (contract: B02 dispatch-archive-docs, plan
 # 001-brief-report-archive) ------------------------------------------------
@@ -398,17 +359,28 @@ check "4. Local merge: engineer-owned block edge case addressed" \
 check "Unit status file: Timeline records each teammate release" \
   "$(has_fn "$UNIT_STATUS" 'teammate release')" "yes"
 
-# -- Invariants: no new H2/H3 heading introduced by this block ------------
-# Hardcoded against the file's current heading set (12 H2, 5 H3); this block
-# is prose-only and may add sentences to existing sections, never a heading.
-check "invariant: H2 heading count unchanged (12, no new H2 added)" \
-  "$(grep -c '^## ' "$SKILL")" "12"
+# -- Invariants: heading set is fixed, and grows only where a contract says
+# Hardcoded against the file's heading set. 12 H2 became 13 under "Contract:
+# B01 dispatch background scheduler", whose Anchors list requires exactly one
+# new section, "## Scheduling" — that suite pins the heading's existence and
+# that it appears exactly once; this count is what stops a second, unasked-
+# for section arriving alongside it. H3 stays at 5: no contract has asked
+# for a new one, and the prose blocks that edit this file add sentences to
+# existing sections.
+check "invariant: H2 heading count is 13 (12 pre-B01 + ## Scheduling)" \
+  "$(grep -c '^## ' "$SKILL")" "13"
 check "invariant: H3 heading count unchanged (5, no new H3 added)" \
   "$(grep -c '^### ' "$SKILL")" "5"
 
 # -- Invariants: existing content in the touched sections is not clobbered -
-check "Worker briefs: parallel-dispatch guidance still present" \
-  "$(has_fn "$WORKER_BRIEFS" "dispatch a wave's agents in a single message")" "yes"
+# The batching sentence's LOCATION is superseded by "Contract: B01 dispatch
+# background scheduler": it survives "only as the explicit degrade path for
+# harnesses without background dispatch", which may well be stated in the
+# new Scheduling section rather than here. What this check still owns is
+# that the sentence was not simply deleted; that it appears only in
+# degrade-path context is asserted in dispatch-scheduling.test.sh.
+check "parallel-dispatch guidance still present (location no longer pinned)" \
+  "$(has_fn "$STRIPPED" "dispatch a wave's agents in a single message")" "yes"
 check "4. Local merge: worktree-removal prose still present (post-archive phrasing)" \
   "$(has_fn "$SECTION_4" 'removes the unit worktree')" "yes"
 check "Unit status file: phase-commit Timeline entry still present" \
@@ -498,16 +470,13 @@ for pair in "2. Test wave|$SECTION_2_3" "3. Implementation wave|$SECTION_3_1"; d
   check "$label: rule 2 - verification runs sequentially, not concurrently" \
     "$(has_fn "$body" 'sequentially')" "yes"
 
-  # Rule 3: re-run every count, and the off-by-one counting trap that makes
-  # even an honest report's numbers wrong.
-  check "$label: rule 3 - re-run every count" \
-    "$(has_fn "$body" 'Re-run every count')" "yes"
-  check "$label: rule 3 - a reported number is a claim, not evidence" \
-    "$(has_fn "$body" 'is a claim, not evidence')" "yes"
-  check "$label: rule 3 - the counting trap is named" \
-    "$(has_fn "$body" "grep -c '^FAIL'")" "yes"
-  check "$label: rule 3 - the trap's cause (trailing FAILURES line) is named" \
-    "$(has_fn "$body" 'FAILURES')" "yes"
+  # Rule 3 (re-run every count, and the trailing-FAILURES counting trap) is
+  # SUPERSEDED by "Contract: B01 dispatch background scheduler", which names
+  # count re-runs as one of the mechanical items collapsed into
+  # scripts/wave-check.sh: the script runs the suite itself, so there is no
+  # reported number left for the orchestrator to take on trust. Rules 1 and
+  # 2 above are untouched — neither is in B01's collapsed set, and B01's own
+  # Behavior clause restates rule 2 as continuing to bind within a unit.
 done
 
 # --- B03 dispatch-chase-and-malformed-report (contract: B03) --------------

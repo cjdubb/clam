@@ -13,7 +13,7 @@
 #       <clone>/<source>/.claude-plugin/plugin.json — marketplace entries
 #       carry no version by repo convention)
 #     - clam-setup-stamps.json                  (setup stamps, format per
-#       plugins/updates/docs/setup-stamps.md; absent file = zero stamps)
+#       plugins/management/docs/setup-stamps.md; absent file = zero stamps)
 # Inputs:
 #   No arguments. Env:
 #     CLAUDE_CONFIG_DIR  root to read under (default: $HOME/.claude) — the

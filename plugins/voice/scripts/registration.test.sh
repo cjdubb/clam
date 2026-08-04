@@ -9,14 +9,14 @@
 #       "voice": source "./plugins/voice", NO version field (plugin.json
 #       is the single source of truth for version), final description.
 #   (2) README.md Plugins table — exactly one row linking plugins/voice/,
-#       status cell exactly "✅ v0.1.0", final description, not the
+#       status cell exactly "✅ v0.1.1", final description, not the
 #       table's last plugin row (last-row invariant).
 #   (3) MIGRATION.md — a "## voice — ported (from clam-code)" section
 #       recording the port (source, what came over, what stays behind, the
 #       canonical-home decision), free of STUB markers, placed before
 #       "## Unassigned".
 #   (4) .github/ISSUE_TEMPLATE/feature.yml and bug.yml — the id=plugin
-#       dropdown lists "voice" in alphabetical position (between updates
+#       dropdown lists "voice" in alphabetical position (between tracking
 #       and worktrees).
 #
 # Also asserts the B02 contract comment itself is gone from the raw
@@ -128,7 +128,7 @@ VOICE_ROW="$(grep -F '[voice](plugins/voice/)' <<<"$README_BODY" | head -n1)"
 STATUS_CELL="$(awk -F'|' '{print $3}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 DESC_CELL="$(awk -F'|' '{print $4}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-check "voice row status cell is exactly '✅ v0.1.0'" "$STATUS_CELL" "✅ v0.1.0"
+check "voice row status cell is exactly '✅ v0.1.1'" "$STATUS_CELL" "✅ v0.1.1"
 check "voice row status cell version matches plugin.json (v$VERSION)" \
   "$(grep -qF "v$VERSION" <<<"$STATUS_CELL" && echo yes || echo no)" "yes"
 check "voice row description is non-empty" \
@@ -236,13 +236,13 @@ for pair in "feature.yml:$FEATURE_YML" "bug.yml:$BUG_YML"; do
   check "$label plugin dropdown lists voice" \
     "$(grep -qE '^[[:space:]]*- voice[[:space:]]*$' <<<"$dropdown" && echo yes || echo no)" "yes"
 
-  updates_line="$(grep -nE '^[[:space:]]*- updates[[:space:]]*$' <<<"$dropdown" | head -n1 | cut -d: -f1)"
+  tracking_line="$(grep -nE '^[[:space:]]*- tracking[[:space:]]*$' <<<"$dropdown" | head -n1 | cut -d: -f1)"
   voice_line="$(grep -nE '^[[:space:]]*- voice[[:space:]]*$' <<<"$dropdown" | head -n1 | cut -d: -f1)"
   worktrees_line="$(grep -nE '^[[:space:]]*- worktrees[[:space:]]*$' <<<"$dropdown" | head -n1 | cut -d: -f1)"
 
-  check "$label dropdown: voice sits between updates and worktrees" \
-    "$([[ -n "$updates_line" && -n "$voice_line" && -n "$worktrees_line" \
-        && "$updates_line" -lt "$voice_line" && "$voice_line" -lt "$worktrees_line" ]] \
+  check "$label dropdown: voice sits between tracking and worktrees" \
+    "$([[ -n "$tracking_line" && -n "$voice_line" && -n "$worktrees_line" \
+        && "$tracking_line" -lt "$voice_line" && "$voice_line" -lt "$worktrees_line" ]] \
         && echo yes || echo no)" \
     "yes"
 done

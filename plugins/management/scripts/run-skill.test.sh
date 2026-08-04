@@ -1,5 +1,5 @@
 #!/bin/bash
-# Structural/content tests for skills/run/SKILL.md against Contract: B02
+# Structural/content tests for skills/update/SKILL.md against Contract: B02
 # updates-run-skill (see the HTML-comment docblock in that file).
 #
 # A SKILL.md is model-executed instructions, not code, so this is a
@@ -42,11 +42,11 @@
 # Hermetic: reads only this repo's own committed SKILL.md, no network, no
 # mutation, cwd-independent (path resolved from this script's own location).
 #
-# Run: bash plugins/updates/scripts/run-skill.test.sh (exits non-zero on
+# Run: bash plugins/management/scripts/run-skill.test.sh (exits non-zero on
 # failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL="$SCRIPT_DIR/../skills/run/SKILL.md"
+SKILL="$SCRIPT_DIR/../skills/update/SKILL.md"
 
 FAILED=0
 
@@ -109,7 +109,7 @@ NAME=$(printf '%s\n' "$FRONTMATTER" | grep '^name:' | sed -E 's/^name:[[:space:]
 DMI=$(printf '%s\n' "$FRONTMATTER" | grep '^disable-model-invocation:' | sed -E 's/^disable-model-invocation:[[:space:]]*//')
 DESC=$(printf '%s\n' "$FRONTMATTER" | grep '^description:' | sed -E 's/^description:[[:space:]]*//')
 
-check "frontmatter name is 'run'" "$NAME" "run"
+check "frontmatter name is 'update'" "$NAME" "update"
 check "frontmatter disable-model-invocation is 'true'" "$DMI" "true"
 check "description is non-empty" "$(nonblank "$DESC")" "yes"
 check "description states explicit user action" "$(has "$DESC" 'explicit')" "yes"
@@ -212,7 +212,7 @@ check "absent setup stamps never block or gate updates" \
 
 # --- 16. Self-update case ---------------------------------------------------
 check "self-update case: new version applies next session/reload" \
-  "$(grep -qiE 'updates.{0,20}(itself|plugin).{0,70}(next session|reload)|itself.{0,40}(next session|reload)' <<<"$BODY_FLAT" && echo yes || echo no)" "yes"
+  "$(grep -qiE 'management.{0,20}(itself|plugin).{0,70}(next session|reload)|itself.{0,40}(next session|reload)' <<<"$BODY_FLAT" && echo yes || echo no)" "yes"
 
 # --- 17. Zero clam plugins installed ---------------------------------------
 check "zero clam plugins installed: reports and stops" \

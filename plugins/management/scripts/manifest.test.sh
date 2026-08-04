@@ -2,27 +2,27 @@
 # Structural/content tests for B03 updates-plugin-manifest.
 #
 # Source of truth: the HTML-comment docblock "Contract: B03
-# updates-plugin-manifest" at the top of plugins/updates/README.md.
+# updates-plugin-manifest" at the top of plugins/management/README.md.
 #
-# Covers plugins/updates/.claude-plugin/plugin.json:
-#   - valid JSON; .name "updates"; .version well-formed semver and >= 0.1.0
+# Covers plugins/management/.claude-plugin/plugin.json:
+#   - valid JSON; .name "management"; .version well-formed semver and >= 0.1.0
 #     (a floor, not a pin: version-bump-lint requires a bump for ANY content
 #     change to the plugin, so an exact pin here would fail every such change)
-#   - .description non-empty, names /updates:run, and is a single sentence
+#   - .description non-empty, names /management:update, and is a single sentence
 #     (exactly one period, trailing)
 #   - .author byte-identical (jq -Sc) to marketplace.json's .owner (single
 #     source of truth, not a hardcoded copy)
 #
-# Covers plugins/updates/README.md against the locked template
+# Covers plugins/management/README.md against the locked template
 # (plugins/PLUGIN_README_TEMPLATE.md):
 #   - readme-lint (scripts/readme-lint.sh) reports PASS for this plugin
 #     specifically
 #   - no "NotImplemented" placeholder marker anywhere in the file
 #   - a non-empty intro paragraph before "## Getting started"
 #   - Getting started: both install commands, and an inert-until-
-#     /updates:run statement
+#     /management:update statement
 #   - What to expect: no hooks fire; nothing changes at install
-#   - Commands: documents /updates:run (incl. its "check" mode and that it
+#   - Commands: documents /management:update (incl. its "check" mode and that it
 #     is not model-invocable), scripts/check-versions.sh usage, and a
 #     pointer to docs/setup-stamps.md
 #   - Relationships to other plugins: names the five setup-stamp plugins
@@ -65,7 +65,7 @@
 # own committed files, no network, no mutation, cwd-independent (all paths
 # resolved from this script's own location).
 #
-# Run: bash plugins/updates/scripts/manifest.test.sh (exits non-zero on
+# Run: bash plugins/management/scripts/manifest.test.sh (exits non-zero on
 # failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -135,11 +135,11 @@ check "plugin.json is valid JSON" \
   "$(jq -e . "$PLUGIN_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .name is 'updates'" "$name" "updates"
+check "plugin.json .name is 'management'" "$name" "management"
 
 version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
 # A floor, not a pin — version-bump-lint requires a bump for any content
-# change to plugins/updates/, so a bump for unrelated reasons must not make
+# change to plugins/management/, so a bump for unrelated reasons must not make
 # this clause regress. Same idiom as render-budget.test.sh's clause4.
 check "plugin.json .version is well-formed semver and >= 0.1.0" \
   "$([[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -150,8 +150,8 @@ description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \
   "$([[ -n "$description" ]] && echo yes || echo no)" "yes"
 
-check "plugin.json .description names /updates:run" \
-  "$(grep -qF '/updates:run' <<< "$description" && echo yes || echo no)" "yes"
+check "plugin.json .description names /management:update" \
+  "$(grep -qF '/management:update' <<< "$description" && echo yes || echo no)" "yes"
 
 desc_sans_trailing_period="${description%.}"
 check "plugin.json .description is one sentence (single trailing period, no others)" \
@@ -172,8 +172,8 @@ check "README has no NotImplemented placeholder marker anywhere (docblock includ
   "$(grep -qi 'NotImplemented' <<< "$readme_raw" && echo present || echo absent)" "absent"
 
 readme_lint_output=$(cd "$REPO_ROOT" && bash scripts/readme-lint.sh 2>/dev/null)
-check "readme-lint reports PASS for the updates plugin" \
-  "$(grep -qx 'PASS  updates' <<< "$readme_lint_output" && echo yes || echo no)" "yes"
+check "readme-lint reports PASS for the management plugin" \
+  "$(grep -qx 'PASS  management' <<< "$readme_lint_output" && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # README.md — sections, on comment-stripped content
@@ -182,7 +182,7 @@ check "readme-lint reports PASS for the updates plugin" \
 readme_stripped=$(strip_comments "$README")
 
 intro=$(awk '
-  $0 == "# updates" {found=1; next}
+  $0 == "# management" {found=1; next}
   found && /^## / {exit}
   found {print}
 ' <<< "$readme_stripped")
@@ -193,9 +193,9 @@ getting_started=$(section_body "$readme_stripped" "## Getting started")
 check "Getting started documents the marketplace add command" \
   "$(grep -qF '/plugin marketplace add cjdubb/clam' <<< "$getting_started" && echo yes || echo no)" "yes"
 check "Getting started documents the install command" \
-  "$(grep -qF '/plugin install updates@clam' <<< "$getting_started" && echo yes || echo no)" "yes"
-check "Getting started states the plugin is inert until /updates:run" \
-  "$(grep -qi 'inert' <<< "$getting_started" && grep -qF '/updates:run' <<< "$getting_started" && echo yes || echo no)" "yes"
+  "$(grep -qF '/plugin install management@clam' <<< "$getting_started" && echo yes || echo no)" "yes"
+check "Getting started states the plugin is inert until /management:update" \
+  "$(grep -qi 'inert' <<< "$getting_started" && grep -qF '/management:update' <<< "$getting_started" && echo yes || echo no)" "yes"
 
 what_to_expect=$(section_body "$readme_stripped" "## What to expect")
 check "What to expect states no hooks fire" \
@@ -204,11 +204,11 @@ check "What to expect states nothing changes at install" \
   "$(grep -qiE 'nothing changes|changes nothing' <<< "$what_to_expect" && echo yes || echo no)" "yes"
 
 commands=$(section_body "$readme_stripped" "## Commands")
-check "Commands documents /updates:run" \
-  "$(grep -qF '/updates:run' <<< "$commands" && echo yes || echo no)" "yes"
-check "Commands documents /updates:run's 'check' mode" \
-  "$(grep -qiE '/updates:run check|\`check\`|"check"|check mode|check-only' <<< "$commands" && echo yes || echo no)" "yes"
-check "Commands states /updates:run is not model-invocable" \
+check "Commands documents /management:update" \
+  "$(grep -qF '/management:update' <<< "$commands" && echo yes || echo no)" "yes"
+check "Commands documents /management:update's 'check' mode" \
+  "$(grep -qiE '/management:update check|\`check\`|"check"|check mode|check-only' <<< "$commands" && echo yes || echo no)" "yes"
+check "Commands states /management:update is not model-invocable" \
   "$(grep -qiE 'not model-invocable|model.invocable.{0,10}(no|false)|disable-model-invocation|never invoked by (the )?model|cannot be invoked by (the )?model' <<< "$commands" && echo yes || echo no)" "yes"
 check "Commands documents scripts/check-versions.sh usage" \
   "$(grep -qF 'check-versions.sh' <<< "$commands" && echo yes || echo no)" "yes"
@@ -233,7 +233,7 @@ check "Relationships states the plugin degrades gracefully without them" \
 
 uninstalling=$(section_body "$readme_stripped" "## Uninstalling")
 check "Uninstalling documents the uninstall command" \
-  "$(grep -qF '/plugin uninstall updates@clam' <<< "$uninstalling" && echo yes || echo no)" "yes"
+  "$(grep -qF '/plugin uninstall management@clam' <<< "$uninstalling" && echo yes || echo no)" "yes"
 check "Uninstalling names the clam-setup-stamps.json stamp file" \
   "$(grep -qF 'clam-setup-stamps.json' <<< "$uninstalling" && echo yes || echo no)" "yes"
 check "Uninstalling notes the stamp file is not removed" \

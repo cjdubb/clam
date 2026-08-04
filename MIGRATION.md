@@ -441,7 +441,7 @@ No clam-code/clam-generic ancestor. Neither source repo has a skill or hook
 that locates session transcript/data files; this plugin's
 `/session-data:paths` skill is new.
 
-## updates — new (not a port)
+## management — new (not a port)
 
 No clam-code/clam-generic ancestor in the sense that matters here: clam-code
 ships an `update.sh` at its repo root, but that is a fast-forward `git pull`
@@ -449,8 +449,20 @@ followed by re-running `setup.sh` over the whole dotfiles-style `general/`
 tree — a different mechanism entirely from this plugin's per-plugin
 marketplace version diff, which only makes sense once plugins exist as
 independently versioned units (clam-code predates the plugin architecture).
-`/updates:run`'s catalog refresh, per-plugin version diff and confirm-to-apply
-flow, and setup-version-stamp tracking (`docs/setup-stamps.md`) are new.
+`/management:update`'s catalog refresh, per-plugin version diff and
+confirm-to-apply flow, and setup-version-stamp tracking
+(`docs/setup-stamps.md`) are new.
+
+Management v0.2.0 renames the plugin from `updates` to `management` and its
+`run` skill to `update`: `/updates:run` becomes `/management:update`, and
+the marketplace entry and directory become `management`. The name now states
+the concern — plugin lifecycle for this marketplace — rather than the single
+flow that currently implements it; behaviour is unchanged by the rename. A
+`renames` entry in `marketplace.json` maps `updates` → `management` so
+existing installs auto-resolve on sync (requires Claude Code v2.1.193+).
+Below that version `renames` is not honoured: the old `updates@clam` id stops
+resolving once the catalog refreshes, and the plugin has to be reinstalled as
+`management@clam` by hand.
 
 ## voice — ported (from clam-code)
 

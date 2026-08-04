@@ -9,15 +9,15 @@
 # named as this block's outputs:
 #
 #   (1) .claude-plugin/marketplace.json — exactly one plugins[] entry named
-#       "updates": source "./plugins/updates", no version field
+#       "management": source "./plugins/management", no version field
 #       (plugin.json is the single source of truth for version), and a
-#       non-empty description naming /updates:run. This landed at scaffold
+#       non-empty description naming /management:update. This landed at scaffold
 #       (marketplace-lint requires directory/entry parity from the moment
 #       the plugin directory exists), so this part of the suite is GREEN
 #       today — it pins an existing invariant rather than driving new work.
 #   (2) README.md Plugins table — a sweep restoring the whole table to
 #       agreement with plugin.json versions (the single source of truth):
-#       four new rows (updates, notifications, skill-tracker, session-data)
+#       four new rows (management, notifications, skill-tracker, session-data)
 #       inserted before the debugging row (which stays last), and seven
 #       drifted rows corrected (lego, tracking, and the five B05-bumped
 #       setup-stamp plugins: attribution, privacy, settings, statusline,
@@ -30,12 +30,12 @@
 # here touches that section; it is verified manually at acceptance.
 #
 # The B04 contract docblock quotes literal sample rows for the four new
-# plugins (e.g. "| [updates](plugins/updates/) | ✅ v0.1.0 | ... |") as part
+# plugins (e.g. "| [management](plugins/management/) | ✅ v0.1.0 | ... |") as part
 # of narrating its own Outputs — sitting in the README just below the real
 # table. A raw-text search for those exact strings would find the docblock's
 # own prose and pass vacuously before any real row is added. Every table
 # check below therefore runs against a comment-stripped copy of the README,
-# using the same per-line state machine as plugins/updates/scripts/
+# using the same per-line state machine as plugins/management/scripts/
 # manifest.test.sh (strip_comments): unlike a bare `sed '/<!--/,/-->/d'`,
 # which keeps hunting for the next "-->" and can swallow real content
 # between consecutive same-line comments, this closes a same-line comment
@@ -55,7 +55,7 @@
 # mutation, cwd-independent (all paths resolved from this script's own
 # location).
 #
-# Run: bash plugins/updates/scripts/registration.test.sh (non-zero exit on
+# Run: bash plugins/management/scripts/registration.test.sh (non-zero exit on
 # failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,7 +63,7 @@ ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 MARKETPLACE="$ROOT/.claude-plugin/marketplace.json"
 README="$ROOT/README.md"
-UPDATES_PLUGIN_JSON="$ROOT/plugins/updates/.claude-plugin/plugin.json"
+MANAGEMENT_PLUGIN_JSON="$ROOT/plugins/management/.claude-plugin/plugin.json"
 
 FAILED=0
 check() { # label got expected
@@ -76,7 +76,7 @@ check() { # label got expected
 
 # Removes HTML comments from a file's content, line by line, correctly
 # closing a comment that opens and closes on the same line. Mirrors
-# plugins/updates/scripts/manifest.test.sh's strip_comments verbatim.
+# plugins/management/scripts/manifest.test.sh's strip_comments verbatim.
 strip_comments() { # file -> stdout
   awk '
     {
@@ -128,11 +128,11 @@ check "marketplace.json exists" \
   "$([ -f "$MARKETPLACE" ] && echo yes || echo no)" "yes"
 check "README.md exists" \
   "$([ -f "$README" ] && echo yes || echo no)" "yes"
-check "updates plugin.json exists" \
-  "$([ -f "$UPDATES_PLUGIN_JSON" ] && echo yes || echo no)" "yes"
+check "management plugin.json exists" \
+  "$([ -f "$MANAGEMENT_PLUGIN_JSON" ] && echo yes || echo no)" "yes"
 
 # =====================================================================
-# (1) marketplace.json — the "updates" entry (expected GREEN: landed at
+# (1) marketplace.json — the "management" entry (expected GREEN: landed at
 #     scaffold)
 # =====================================================================
 
@@ -142,24 +142,24 @@ check "marketplace.json is valid JSON" \
 check "marketplace.json has no duplicate plugin names" \
   "$(jq '(.plugins | length) == (.plugins | map(.name) | unique | length)' "$MARKETPLACE" 2>/dev/null)" "true"
 
-UPDATES_COUNT="$(jq '[.plugins[]? | select(.name=="updates")] | length' "$MARKETPLACE" 2>/dev/null)"
-check "marketplace.json has exactly one plugins[] entry named 'updates'" \
-  "$UPDATES_COUNT" "1"
+MANAGEMENT_COUNT="$(jq '[.plugins[]? | select(.name=="management")] | length' "$MARKETPLACE" 2>/dev/null)"
+check "marketplace.json has exactly one plugins[] entry named 'management'" \
+  "$MANAGEMENT_COUNT" "1"
 
-UPDATES_ENTRY="$(jq -c '.plugins[]? | select(.name=="updates")' "$MARKETPLACE" 2>/dev/null)"
+MANAGEMENT_ENTRY="$(jq -c '.plugins[]? | select(.name=="management")' "$MARKETPLACE" 2>/dev/null)"
 
-check "updates entry source is './plugins/updates'" \
-  "$(jq -r '.source' <<<"$UPDATES_ENTRY" 2>/dev/null)" \
-  "./plugins/updates"
+check "management entry source is './plugins/management'" \
+  "$(jq -r '.source' <<<"$MANAGEMENT_ENTRY" 2>/dev/null)" \
+  "./plugins/management"
 
-check "updates entry has no version field (plugin.json is source of truth)" \
-  "$(jq -r 'has("version")' <<<"$UPDATES_ENTRY" 2>/dev/null)" "false"
+check "management entry has no version field (plugin.json is source of truth)" \
+  "$(jq -r 'has("version")' <<<"$MANAGEMENT_ENTRY" 2>/dev/null)" "false"
 
-UPDATES_MP_DESC="$(jq -r '.description // empty' <<<"$UPDATES_ENTRY" 2>/dev/null)"
-check "updates entry description is non-empty" \
-  "$([ -n "$UPDATES_MP_DESC" ] && echo yes || echo no)" "yes"
-check "updates entry description names /updates:run" \
-  "$(grep -qF '/updates:run' <<<"$UPDATES_MP_DESC" && echo yes || echo no)" "yes"
+MANAGEMENT_MP_DESC="$(jq -r '.description // empty' <<<"$MANAGEMENT_ENTRY" 2>/dev/null)"
+check "management entry description is non-empty" \
+  "$([ -n "$MANAGEMENT_MP_DESC" ] && echo yes || echo no)" "yes"
+check "management entry description names /management:update" \
+  "$(grep -qF '/management:update' <<<"$MANAGEMENT_MP_DESC" && echo yes || echo no)" "yes"
 
 # =====================================================================
 # (2) README.md Plugins table
@@ -202,11 +202,11 @@ done
 
 # --- 2b. The four new rows: content and shape. ---
 
-updates_row="$(grep -F '[updates](plugins/updates/)' <<< "$DATA_ROWS" | head -n1)"
-check "updates row names /updates:run" \
-  "$(grep -qF '/updates:run' <<< "$updates_row" && echo yes || echo no)" "yes"
-check "updates row matches the standard row shape" \
-  "$([[ "$updates_row" =~ ^\|\ \[updates\]\(plugins/updates/\)\ \|\ ✅\ v[0-9]+\.[0-9]+\.[0-9]+\ \|\ .+\ \|$ ]] && echo yes || echo no)" "yes"
+management_row="$(grep -F '[management](plugins/management/)' <<< "$DATA_ROWS" | head -n1)"
+check "management row names /management:update" \
+  "$(grep -qF '/management:update' <<< "$management_row" && echo yes || echo no)" "yes"
+check "management row matches the standard row shape" \
+  "$([[ "$management_row" =~ ^\|\ \[management\]\(plugins/management/\)\ \|\ ✅\ v[0-9]+\.[0-9]+\.[0-9]+\ \|\ .+\ \|$ ]] && echo yes || echo no)" "yes"
 
 notifications_row="$(grep -F '[notifications](plugins/notifications/)' <<< "$DATA_ROWS" | head -n1)"
 check "notifications row describes the summoning stack (per its marketplace description)" \

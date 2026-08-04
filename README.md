@@ -28,11 +28,11 @@ seed it automatically with `copyenv`.
 
 ## Update
 
-The [updates](plugins/updates/) plugin wraps this in a guided flow:
-`/updates:run` refreshes the catalog, shows which installed plugins are
+The [management](plugins/management/) plugin wraps this in a guided flow:
+`/management:update` refreshes the catalog, shows which installed plugins are
 behind, updates each on confirmation, and offers to re-run a plugin's setup
 when the update calls for it. Install it once with
-`/plugin install updates@clam`. Manually:
+`/plugin install management@clam`. Manually:
 
 ```
 /plugin marketplace update clam        # re-fetch this repo, refresh the catalog
@@ -77,8 +77,8 @@ auto-update doesn't refresh the recorded install path
 | [notifications](plugins/notifications/) | ✅ v0.1.1 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
 | [session-data](plugins/session-data/) | ✅ v0.1.2 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
-| [updates](plugins/updates/) | ✅ v0.1.2 | Guided plugin update flow: `/updates:run` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
-| [voice](plugins/voice/) | ✅ v0.1.0 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
+| [management](plugins/management/) | ✅ v0.2.0 | Guided plugin update flow: `/management:update` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
+| [voice](plugins/voice/) | ✅ v0.1.1 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
 | [debugging](plugins/debugging/) | ✅ v0.2.2 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json

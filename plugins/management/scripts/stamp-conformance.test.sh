@@ -4,7 +4,7 @@
 # Source of truth: the HTML-comment docblock "Contract: B05
 # setup-version-stamp — <plugin>" near the top of each of the five setup
 # SKILL.md files, plus the shared format contract
-# plugins/updates/docs/setup-stamps.md (read-only reference for this
+# plugins/management/docs/setup-stamps.md (read-only reference for this
 # suite; not itself under test — B05 does not touch it).
 #
 # Covers, for each of the five setup skills:
@@ -61,7 +61,7 @@
 #     0.2.0 — except statusline, which expects 0.3.0: upstream PR #123
 #     already consumed 0.2.0 for statusline's plugin.json, so B05's stamp
 #     bump for statusline lands as 0.3.0 instead).
-#   - The "does not reference the updates plugin as a prerequisite" check
+#   - The "does not reference the management plugin as a prerequisite" check
 #     is a negative invariant: true today (no such reference exists) and
 #     expected to remain true after implementation. It is GREEN at birth,
 #     same as the "plugin.json .author byte-identical" check in
@@ -75,7 +75,7 @@
 # reads only the repo's own committed files, no network, no mutation,
 # cwd-independent (all paths resolved from this script's own location).
 #
-# Run: bash plugins/updates/scripts/stamp-conformance.test.sh
+# Run: bash plugins/management/scripts/stamp-conformance.test.sh
 # (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -241,9 +241,9 @@ for name in "${PLUGINS[@]}"; do
         && grep -qi 'creat' <<< "$block" \
         && echo yes || echo no)" "yes"
 
-  # -- generic (GREEN at birth): no updates-plugin prerequisite --------------
-  check "$name: setup does not reference the updates plugin as a prerequisite (behaves identically without it)" \
-    "$(grep -qiE 'requires? (the )?updates plugin|updates plugin (is |must be )?required|needs? (the )?updates plugin( installed)?|depends on (the )?updates plugin|updates plugin.{0,10}(must|has to) be installed' <<< "$stripped" && echo no || echo yes)" "yes"
+  # -- generic (GREEN at birth): no management-plugin prerequisite --------------
+  check "$name: setup does not reference the management plugin as a prerequisite (behaves identically without it)" \
+    "$(grep -qiE 'requires? (the )?management plugin|management plugin (is |must be )?required|needs? (the )?management plugin( installed)?|depends on (the )?management plugin|management plugin.{0,10}(must|has to) be installed' <<< "$stripped" && echo no || echo yes)" "yes"
 
   # -- generic: manifest version bump ----------------------------------------
   # Floors, not pins: B05's stamp behavior shipped at 0.2.0 (statusline at

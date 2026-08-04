@@ -1,5 +1,5 @@
 ---
-name: run
+name: update
 description: "Update all installed clam plugins: refresh the marketplace catalog, show installed vs latest versions, apply per-plugin updates after one confirmation, then surface which setup skills need re-running and how to reload. Explicit user action: never runs implicitly."
 disable-model-invocation: true
 ---
@@ -7,10 +7,10 @@ disable-model-invocation: true
 # Clam Updates
 
 This is the guided, engineer-confirmed flow for updating every installed
-clam plugin. It never runs on its own — only an explicit `/updates:run`
+clam plugin. It never runs on its own — only an explicit `/management:update`
 starts it.
 
-## `/updates:run`
+## `/management:update`
 
 1. **Refresh the marketplace catalog.** Run `claude plugin marketplace
    update clam` to pull the latest catalog for the clam marketplace before
@@ -67,7 +67,7 @@ offered from the table above. A plugin whose `setup` column reads
 Never phrase an unstamped or stale plugin as needing setup: both statuses
 are informational, and neither one blocks or gates the update in step 6.
 
-## `/updates:run check`
+## `/management:update check`
 
 The optional `check` argument stops the flow after the version report
 (step 3 above) — no confirmation is asked, and nothing is updated. This
@@ -106,7 +106,7 @@ just want to see what's stale without changing anything.
   skill's behavior, only what the report is likely to show.
 - `not-installed` rows in the report are informational only — this skill
   never installs a plugin.
-- If `updates` itself is updated, the new version applies at next session
+- If `management` itself is updated, the new version applies at next session
   or reload — say so explicitly when it happens, since the running
   session keeps the old code loaded until then.
 - Zero clam plugins installed → report that and stop; there is nothing to

@@ -17,6 +17,36 @@
 #
 # Run directly: `bash pr-size-check.test.sh`. Exits 0 when every test
 # passes, 1 when any test fails.
+
+# <!--
+# Contract: B04 lego-dependency-injection (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   Supersedes B02 path-without-builtin-defork. The `path_without` helper
+#   (rebuilding a PATH-minus-jq symlink farm per call) is deleted outright:
+#   the jq-absent tests below set JQ=/nonexistent in the environment of the
+#   single invocation under test, driving pr-size-check.sh's
+#   `: "${JQ:=jq}"` seam directly instead of reconstructing PATH. This
+#   file's ASSERTIONS remain frozen — only the arrangement of the jq-absent
+#   world changes.
+#
+# Inputs:  unchanged — the same throwaway git repositories under mktemp.
+# Outputs: unchanged — `Passed: 34  Failed: 0  Total: 34`.
+#
+# Invariants:
+#   - Pass count is EXACTLY 34, failures EXACTLY 0. A changed count is a
+#     defect, not an improvement, whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - The independent awk oracle over `git diff --numstat` STAYS. It grounds
+#     assertions in real git behaviour, and replacing it with hand-computed
+#     constants to save forks would hollow out the tests it feeds.
+#
+# Edge cases:
+#   - Injected absence (JQ=/nonexistent) must reproduce the exit-2 jq-absent
+#     behaviour identically to a PATH genuinely missing jq: both are
+#     detected with `command -v "$JQ"`, which a nonexistent path fails the
+#     same way a PATH without jq does.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pr-size-check.sh"
@@ -95,11 +125,13 @@ assert_eq() {
 }
 
 # ---------------------------------------------------------------------------
-# Invocation helper: run_cmd <dir> <path-or-empty> <lego-config-or-empty>
-# <args...> — runs pr-size-check.sh with cwd <dir>, optionally overriding
-# PATH (used to exercise the no-jq path) and/or $LEGO_CONFIG (the
+# Invocation helper: run_cmd <dir> <lego-config-or-empty> <args...> — runs
+# pr-size-check.sh with cwd <dir>, optionally overriding $LEGO_CONFIG (the
 # contract's override-path redirection seam). Sets RUN_OUT / RUN_ERR /
-# RUN_EXIT / RUN_OUT_LINES.
+# RUN_EXIT / RUN_OUT_LINES. To exercise the jq-absent path, prefix the call
+# with JQ=/nonexistent (e.g. `JQ=/nonexistent run_in "$repo" ...`) — bash
+# exports a prefix assignment into the environment of everything the
+# function invokes, including the `bash "$SCRIPT"` below.
 # ---------------------------------------------------------------------------
 RUN_OUT=""
 RUN_ERR=""
@@ -107,17 +139,15 @@ RUN_EXIT=0
 RUN_OUT_LINES=0
 
 run_cmd() {
-  local dir="$1" pth="$2" cfg="$3"
-  shift 3
-  local usepath="$pth"
-  [ -n "$usepath" ] || usepath="$PATH"
+  local dir="$1" cfg="$2"
+  shift 2
   local out err ec
   out="$(mktemp)"
   err="$(mktemp)"
   if [ -n "$cfg" ]; then
-    ( cd "$dir" && PATH="$usepath" LEGO_CONFIG="$cfg" bash "$SCRIPT" "$@" ) >"$out" 2>"$err"
+    ( cd "$dir" && LEGO_CONFIG="$cfg" bash "$SCRIPT" "$@" ) >"$out" 2>"$err"
   else
-    ( cd "$dir" && PATH="$usepath" bash "$SCRIPT" "$@" ) >"$out" 2>"$err"
+    ( cd "$dir" && bash "$SCRIPT" "$@" ) >"$out" 2>"$err"
   fi
   ec=$?
   RUN_OUT="$(cat "$out")"
@@ -131,33 +161,11 @@ run_cmd() {
   rm -f "$out" "$err"
 }
 
-# run_in <dir> <args...>  (default PATH, default $LEGO_CONFIG)
+# run_in <dir> <args...>  (default $LEGO_CONFIG)
 run_in() {
   local dir="$1"
   shift
-  run_cmd "$dir" "" "" "$@"
-}
-
-# path_without <exe-name> -- prints a dir containing symlinks to every
-# executable currently resolvable on $PATH except <exe-name>.
-path_without() {
-  local exclude="$1"
-  local dir p b name
-  dir="$(mktemp -d)"
-  track_tmp "$dir"
-  local parts
-  IFS=':' read -ra parts <<< "$PATH"
-  for p in "${parts[@]}"; do
-    [ -n "$p" ] && [ -d "$p" ] || continue
-    for b in "$p"/*; do
-      [ -e "$b" ] || continue
-      name="$(basename "$b")"
-      [ "$name" = "$exclude" ] && continue
-      [ -e "$dir/$name" ] && continue
-      ln -s "$b" "$dir/$name" 2>/dev/null || true
-    done
-  done
-  printf '%s' "$dir"
+  run_cmd "$dir" "" "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -440,12 +448,11 @@ test_config_pr_size_budget_not_positive_integer() {
 # jq needed (config-sourced budget, at least one config file present, no
 # --budget) but not installed: diagnostic on stderr, exit 2.
 test_jq_required_when_config_budget_needed_but_absent() {
-  local repo path_no_jq
+  local repo
   repo="$(new_git_repo)"
   write_base_config "$repo" "$(budget_json 50)"
-  path_no_jq="$(path_without jq)"
 
-  run_cmd "$repo" "$path_no_jq" "" HEAD..HEAD
+  JQ=/nonexistent run_in "$repo" HEAD..HEAD
   [ "$RUN_EXIT" -eq 2 ] || record_fail "config present, no --budget, jq absent: expected exit 2, got $RUN_EXIT"
   case "$RUN_ERR" in
     *jq*|*JQ*) : ;;
@@ -461,16 +468,15 @@ test_jq_required_when_config_budget_needed_but_absent() {
 # needed on this path (a repo with no jq still works when --budget is
 # given, even with a config file present that would otherwise require it).
 test_budget_flag_wins_and_config_never_read_and_no_jq_needed() {
-  local repo path_no_jq head0 head1 t
+  local repo head0 head1 t
   repo="$(new_git_repo)"
   write_base_config "$repo" "$(budget_json 1)"
   head0="$(git -C "$repo" rev-parse HEAD)"
   commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
   head1="$(git -C "$repo" rev-parse HEAD)"
   t="$(expected_total "$repo" "$head0..$head1")"
-  path_no_jq="$(path_without jq)"
 
-  run_cmd "$repo" "$path_no_jq" "" --budget 1000 "$head0..$head1"
+  JQ=/nonexistent run_in "$repo" --budget 1000 "$head0..$head1"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 1000 over a config budget of 1, jq absent: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "PASS  $t lines changed (budget 1000)" "$RUN_OUT" "--budget wins: summary reflects the flag's value, not the config's"
 }
@@ -537,7 +543,7 @@ test_lego_config_env_redirects_override_path() {
   head1="$(git -C "$repo" rev-parse HEAD)"
   t="$(expected_total "$repo" "$head0..$head1")"
 
-  run_cmd "$repo" "" "custom/dir/myconfig.json" "$head0..$head1"
+  run_cmd "$repo" "custom/dir/myconfig.json" "$head0..$head1"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "LEGO_CONFIG redirect: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "PASS  $t lines changed (budget 7)" "$RUN_OUT" "LEGO_CONFIG points at custom/dir/myconfig.json (budget 7), not the default .local/config.json (budget 999)"
 }
@@ -545,14 +551,13 @@ test_lego_config_env_redirects_override_path() {
 # EC8/EC9: neither config file exists and no --budget -- the 500 default
 # applies without error and without needing jq.
 test_default_budget_500_when_no_config_no_flag_and_no_jq_needed() {
-  local repo head0 head1 path_no_jq
+  local repo head0 head1
   repo="$(new_git_repo)"
   head0="$(git -C "$repo" rev-parse HEAD)"
   commit_file "$repo" "src/exact500.txt" "$(n_lines 500)" "add exactly 500 lines"
   head1="$(git -C "$repo" rev-parse HEAD)"
-  path_no_jq="$(path_without jq)"
 
-  run_cmd "$repo" "$path_no_jq" "" "$head0..$head1"
+  JQ=/nonexistent run_in "$repo" "$head0..$head1"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "500 lines, default budget, no jq: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_eq "PASS  500 lines changed (budget 500)" "$RUN_OUT" "default budget is exactly 500 (inclusive boundary)"
 
@@ -560,7 +565,7 @@ test_default_budget_500_when_no_config_no_flag_and_no_jq_needed() {
   local head2
   commit_file "$repo" "src/exact500.txt" "$(n_lines 501)" "grow to 501 lines"
   head2="$(git -C "$repo" rev-parse HEAD)"
-  run_cmd "$repo" "$path_no_jq" "" "$head0..$head2"
+  JQ=/nonexistent run_in "$repo" "$head0..$head2"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "501 lines vs default 500: expected exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
   case "$RUN_OUT" in
     "FAIL  501 lines changed, over budget 500 by 1"*) : ;;

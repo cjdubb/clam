@@ -8,6 +8,41 @@
 # worktree.sh's internals. Run directly: `bash worktree.test.sh`.
 #
 # Exits 0 when every test passes, 1 when any test fails.
+
+# <!--
+# Contract: B04 lego-dependency-injection (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   Supersedes B02 path-without-builtin-defork. The `path_without` helper
+#   (rebuilding a PATH-minus-one-command symlink farm per call) is deleted
+#   outright: the jq-absent and gh-absent tests below set JQ=/nonexistent /
+#   GH=/nonexistent in the environment of the single invocation under test,
+#   driving worktree.sh's `: "${JQ:=jq}"` / `: "${GH:=gh}"` seams directly
+#   instead of reconstructing PATH. This file's ASSERTIONS remain frozen —
+#   only the arrangement of the dependency-absent worlds changes.
+#
+# Inputs:  unchanged — the same throwaway git fixtures under mktemp.
+# Outputs: unchanged — `Passed: 115  Failed: 0  Total: 115`.
+#
+# Invariants:
+#   - Pass count is EXACTLY 115, failures EXACTLY 0. A changed count is a
+#     defect, not an improvement, whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - Do NOT rewrite the git fixtures for speed. `new_git_repo` was measured
+#     at 1.7s across all 93 calls, 1.9% of this file's runtime; a `cp -a`
+#     template would save 1.3s and is not worth the fidelity risk.
+#
+# Edge cases:
+#   - Injected absence (JQ=/nonexistent, GH=/nonexistent) must reproduce the
+#     exit-3 "missing dependency" behaviour identically to a PATH genuinely
+#     missing jq/gh: both are detected with `command -v`, which a
+#     nonexistent path fails the same way a PATH without the binary does.
+#   - The $GH_SHIM_BIN-prepended PATH used by the deliver/PR-creation tests
+#     below (a fake `gh` that succeeds and records its invocation, not an
+#     absent one) is a separate mechanism via `run_cmd`'s PATH override and
+#     is untouched by this block.
+#   - B09 may still split this file later; that is independent of B04.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/worktree.sh"
@@ -137,7 +172,13 @@ RUN_EXIT=0
 RUN_OUT_LINES=0
 RUN_OUT_LAST=""
 
-# run_cmd <dir> <path-or-empty-for-default> <args...>
+# run_cmd <dir> <path-or-empty-for-default> <args...> — the PATH override is
+# used by the $GH_SHIM_BIN deliver/PR-creation tests further down. To
+# exercise the jq-/gh-absent seams instead, prefix the call with
+# JQ=/nonexistent or GH=/nonexistent (e.g. `JQ=/nonexistent run_in "$repo"
+# ...`) — bash exports a prefix assignment into the environment of
+# everything the function invokes, including nested function calls and the
+# subshell's `bash "$SCRIPT"` below.
 run_cmd() {
   local dir="$1" pth="$2"
   shift 2
@@ -186,28 +227,6 @@ run_realm() {
   RUN_REALM_OUT="$(cat "$out")"
   RUN_REALM_EXIT=$ec
   rm -f "$out"
-}
-
-# path_without <exe-name> -- prints a dir containing symlinks to every
-# executable currently resolvable on $PATH except <exe-name>.
-path_without() {
-  local exclude="$1"
-  local dir p b name
-  dir="$(mktemp -d)"
-  track_tmp "$dir"
-  local parts
-  IFS=':' read -ra parts <<< "$PATH"
-  for p in "${parts[@]}"; do
-    [ -n "$p" ] && [ -d "$p" ] || continue
-    for b in "$p"/*; do
-      [ -e "$b" ] || continue
-      name="$(basename "$b")"
-      [ "$name" = "$exclude" ] && continue
-      [ -e "$dir/$name" ] && continue
-      ln -s "$b" "$dir/$name" 2>/dev/null || true
-    done
-  done
-  printf '%s' "$dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -524,9 +543,7 @@ test_add_missing_dependencies() {
   write_blocks_md "$repo"
   write_contracts "$repo"
 
-  local path_no_jq
-  path_no_jq="$(path_without jq)"
-  run_cmd "$repo" "$path_no_jq" add plan1 U01 greetstuff
+  JQ=/nonexistent run_in "$repo" add plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "jq absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "jq absent"
 
@@ -814,9 +831,7 @@ test_add_succeeds_without_gh() {
   write_blocks_md "$repo"
   write_contracts "$repo"
 
-  local path_no_gh
-  path_no_gh="$(path_without gh)"
-  run_cmd "$repo" "$path_no_gh" add plan1 U01 greetstuff
+  GH=/nonexistent run_in "$repo" add plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "gh is a deliver-only dependency; add must succeed without it: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 }
 
@@ -1614,11 +1629,17 @@ test_deliver_missing_gh() {
   # require_gh fires before the manifest file is ever opened, so the
   # manifest just needs to be present as a flag; its content (and even
   # whether the path exists) is irrelevant to this error path.
-  local path_no_gh
-  path_no_gh="$(path_without gh)"
-  run_cmd "$repo" "$path_no_gh" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
+  GH=/nonexistent run_in "$repo" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "gh absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "gh absent"
+  # Exit 3 alone cannot distinguish require_gh firing from the manifest
+  # path simply not being readable (also exit 3) -- both are indistinguishable
+  # by exit code, so pin the message too, the same way
+  # pr-size-check.test.sh's jq-absent test pins "mentions jq".
+  case "$RUN_ERR" in
+    *gh*|*GH*) : ;;
+    *) record_fail "gh absent: diagnostic does not mention gh (stderr: $RUN_ERR)" ;;
+  esac
 }
 
 test_deliver_missing_dependencies() {
@@ -1631,10 +1652,14 @@ test_deliver_missing_dependencies() {
   # jq/config.json/blocks.md are all required before the manifest file is
   # read, so --manifest just needs to be present here too; content/existence
   # of the manifest path is irrelevant to these error paths.
-  local path_no_jq
-  path_no_jq="$(path_without jq)"
-  run_cmd "$repo" "$path_no_jq" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
+  JQ=/nonexistent run_in "$repo" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "jq absent: expected exit 3, got $RUN_EXIT"
+  # Same masking as the gh-absent case above: exit 3 alone also fires when
+  # the manifest just isn't readable, so pin the message too.
+  case "$RUN_ERR" in
+    *jq*|*JQ*) : ;;
+    *) record_fail "jq absent: diagnostic does not mention jq (stderr: $RUN_ERR)" ;;
+  esac
 
   local repo2
   repo2="$(new_git_repo)"

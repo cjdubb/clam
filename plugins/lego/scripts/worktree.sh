@@ -246,6 +246,19 @@
 #   causes it was, and the divergence gate names each divergent path.
 #
 # Invariants:
+#   - DEPENDENCY SEAM (B04, plan 001-speed-up-repo-ci): BOTH external CLI
+#     dependencies are reached through injectable seams — `: "${JQ:=jq}"` and
+#     `: "${GH:=gh}"` — and invoked as "$JQ" / "$GH", never bare. Absence is
+#     detected with `command -v "$JQ"` / `command -v "$GH"`, preserving the
+#     existing exit 3 "missing dependency" behaviour exactly. Tests exercise
+#     the absent-dependency paths by setting JQ=/nonexistent or
+#     GH=/nonexistent rather than mirroring PATH. Observable CLI behaviour is
+#     UNCHANGED, including every exit-3 case.
+#   - SOURCEABILITY (B05, plan 001-speed-up-repo-ci): the script guards its
+#     entry point with `[[ "${BASH_SOURCE[0]}" == "${0}" ]]` so a test can
+#     source it and call its public subcommand functions in-process rather
+#     than forking. The contract boundary is unchanged — the subcommand
+#     functions ARE the public interface; internals stay untested.
 #   - (CHANGED, plan 001-bra) TRACKED files in the invoking worktree are
 #     modified only by `merge`, and only through `git merge` itself; no
 #     subcommand edits tracked files there directly. The sole untracked
@@ -334,6 +347,8 @@
 #     is warned on stderr and does not affect the deliver exit code.
 #   - clean with no lego branches: exits 0 and prints "0".
 set -uo pipefail
+: "${JQ:=jq}"
+: "${GH:=gh}"
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
@@ -373,11 +388,11 @@ require_repo_root() {
 }
 
 require_jq() {
-  command -v jq >/dev/null 2>&1 || die 3 "jq is required"
+  command -v "$JQ" >/dev/null 2>&1 || die 3 "jq is required"
 }
 
 require_gh() {
-  command -v gh >/dev/null 2>&1 || die 3 "gh is required"
+  command -v "$GH" >/dev/null 2>&1 || die 3 "gh is required"
 }
 
 # EFFECTIVE_CONFIG holds the resolved config as a JSON string (piped into
@@ -400,15 +415,15 @@ require_config_json() {
     die 3 "missing config: neither .claude/lego.json nor .local/config.json exists"
   fi
 
-  if [ "$have_base" -eq 1 ] && ! jq -e . "$BASE_CONFIG_JSON" >/dev/null 2>&1; then
+  if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$BASE_CONFIG_JSON" >/dev/null 2>&1; then
     die 3 "invalid JSON in .claude/lego.json"
   fi
-  if [ "$have_override" -eq 1 ] && ! jq -e . "$OVERRIDE_CONFIG_JSON" >/dev/null 2>&1; then
+  if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$OVERRIDE_CONFIG_JSON" >/dev/null 2>&1; then
     die 3 "invalid JSON in .local/config.json"
   fi
 
   if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-    EFFECTIVE_CONFIG="$(jq -s '.[0] * .[1]' "$BASE_CONFIG_JSON" "$OVERRIDE_CONFIG_JSON" 2>/dev/null)"
+    EFFECTIVE_CONFIG="$("$JQ" -s '.[0] * .[1]' "$BASE_CONFIG_JSON" "$OVERRIDE_CONFIG_JSON" 2>/dev/null)"
   elif [ "$have_base" -eq 1 ]; then
     EFFECTIVE_CONFIG="$(cat "$BASE_CONFIG_JSON")"
   else
@@ -419,18 +434,18 @@ require_config_json() {
 TEST_CMD=""
 require_test_cmd() {
   local raw_type
-  raw_type="$(jq -r '.commands.test | type' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+  raw_type="$("$JQ" -r '.commands.test | type' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
 
   case "$raw_type" in
     string)
-      TEST_CMD="$(jq -r '.commands.test' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      TEST_CMD="$("$JQ" -r '.commands.test' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
       [ -n "$TEST_CMD" ] || die 3 "commands.test is an empty string in the effective config"
       ;;
     object)
       local default_key
-      default_key="$(jq -r '.commands.test.default // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      default_key="$("$JQ" -r '.commands.test.default // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
       [ -n "$default_key" ] || die 3 "commands.test is an object without a 'default' key in the effective config"
-      TEST_CMD="$(jq -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+      TEST_CMD="$("$JQ" -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
       [ -n "$TEST_CMD" ] || die 3 "commands.test.default names an absent or empty variant in the effective config"
       ;;
     *)
@@ -741,7 +756,7 @@ cmd_add() {
   require_blocks_md
 
   local worktree_dir
-  worktree_dir="$(jq -r '.delivery.worktreeDir // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
+  worktree_dir="$("$JQ" -r '.delivery.worktreeDir // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
 
   local base_dir
   if [ -z "$worktree_dir" ]; then
@@ -1009,7 +1024,7 @@ restore_and_commit() {
 manifest_field() {
   local manifest="$1" filter="$2"
   local val
-  val="$(jq -r "$filter // empty" "$manifest" 2>/dev/null)"
+  val="$("$JQ" -r "$filter // empty" "$manifest" 2>/dev/null)"
   printf '%s' "$val"
 }
 
@@ -1107,7 +1122,7 @@ cmd_deliver() {
   if [ ! -r "$manifest_path" ]; then
     die 3 "manifest file not readable: $manifest_path"
   fi
-  if ! jq empty "$manifest_path" >/dev/null 2>&1; then
+  if ! "$JQ" empty "$manifest_path" >/dev/null 2>&1; then
     die 3 "manifest file is not valid JSON: $manifest_path"
   fi
   validate_manifest_required_fields "$manifest_path" "${unit_ids[@]}"
@@ -1254,7 +1269,7 @@ cmd_deliver() {
   [ -n "$mbody" ] && pr_body="$mbody"
 
   local pr_url
-  pr_url="$(cd "$REPO_ROOT" && gh pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"
+  pr_url="$(cd "$REPO_ROOT" && "$GH" pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"
   local gh_rc=$?
 
   if [ "$gh_rc" -ne 0 ] || [ -z "$pr_url" ]; then

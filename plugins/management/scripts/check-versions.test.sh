@@ -2,8 +2,8 @@
 # Functional test for check-versions.sh: read-only catalog/installed/stamp
 # report (Contract: B01 updates-check-versions, docblock in
 # check-versions.sh; companion format contract:
-# plugins/updates/docs/setup-stamps.md).
-# Run: bash plugins/updates/scripts/check-versions.test.sh
+# plugins/management/docs/setup-stamps.md).
+# Run: bash plugins/management/scripts/check-versions.test.sh
 # (exits non-zero on failure)
 #
 # The script reads three sources under $CLAUDE_CONFIG_DIR (default

@@ -10,9 +10,17 @@
 # 001-ensure-agents-understand-architecture): every hit the lint reports
 # today, captured so existing debt does not block adoption. Fixing any of
 # these references is backlog work — remove the row when it is fixed.
+#
+# The five `path	updates` rows (the attribution, landing, privacy, settings
+# and statusline setup skills, each citing plugins/updates/docs/
+# setup-stamps.md as the stamp-format authority) were removed because those
+# references were fixed, not because the rename made them unmatchable: each
+# pointer now cites docs/protocols/setup-stamp.md instead. ARCHITECTURE.md's
+# Protocols section says a plugin cites the protocol spec, never the plugin
+# that implements it — so the cross-plugin reference is deleted rather than
+# renamed, and the baseline shrinks by five.
 plugins/ask-in-text/README.md	english	tracking
 plugins/ask-in-text/scripts/questions-context.sh	english	tracking
-plugins/attribution/skills/setup/SKILL.md	path	updates
 plugins/debugging/scripts/b10-registration.test.sh	path	decision-log
 plugins/debugging/scripts/b10-registration.test.sh	path	landing
 plugins/debugging/scripts/b10-registration.test.sh	path	lego
@@ -27,13 +35,43 @@ plugins/decision-log/scripts/rundown-render-seam.test.sh	english	render-doc
 plugins/decision-log/scripts/rundown-render-seam.test.sh	path	render-doc
 plugins/decision-log/skills/rundown/SKILL.md	english	render-doc
 plugins/landing/README.md	english	build
-plugins/landing/skills/init/SKILL.md	path	updates
 plugins/landing/skills/land/SKILL.md	english	tracking
 plugins/lego/README.md	english	landing
 plugins/lego/README.md	english	worktrees
 plugins/lego/README.md	skill-invocation	build
 plugins/lego/README.md	skill-invocation	landing
 plugins/lego/README.md	skill-invocation	tracking
+plugins/management/README.md	skill-invocation	attribution
+plugins/management/README.md	skill-invocation	landing
+plugins/management/README.md	skill-invocation	privacy
+plugins/management/README.md	skill-invocation	settings
+plugins/management/README.md	skill-invocation	statusline
+plugins/management/scripts/registration.test.sh	path	debugging
+plugins/management/scripts/registration.test.sh	path	notifications
+plugins/management/scripts/registration.test.sh	path	session-data
+plugins/management/scripts/registration.test.sh	path	skill-tracker
+plugins/management/scripts/registration.test.sh	skill-invocation	session-data
+plugins/management/scripts/registration.test.sh	skill-invocation	skill-tracker
+plugins/management/scripts/run-skill.test.sh	skill-invocation	attribution
+plugins/management/scripts/run-skill.test.sh	skill-invocation	landing
+plugins/management/scripts/run-skill.test.sh	skill-invocation	privacy
+plugins/management/scripts/run-skill.test.sh	skill-invocation	settings
+plugins/management/scripts/run-skill.test.sh	skill-invocation	statusline
+plugins/management/scripts/stamp-conformance.test.sh	path	attribution
+plugins/management/scripts/stamp-conformance.test.sh	path	landing
+plugins/management/scripts/stamp-conformance.test.sh	path	privacy
+plugins/management/scripts/stamp-conformance.test.sh	path	settings
+plugins/management/scripts/stamp-conformance.test.sh	path	statusline
+plugins/management/scripts/stamp-conformance.test.sh	skill-invocation	attribution
+plugins/management/scripts/stamp-conformance.test.sh	skill-invocation	landing
+plugins/management/scripts/stamp-conformance.test.sh	skill-invocation	privacy
+plugins/management/scripts/stamp-conformance.test.sh	skill-invocation	settings
+plugins/management/scripts/stamp-conformance.test.sh	skill-invocation	statusline
+plugins/management/skills/update/SKILL.md	skill-invocation	attribution
+plugins/management/skills/update/SKILL.md	skill-invocation	landing
+plugins/management/skills/update/SKILL.md	skill-invocation	privacy
+plugins/management/skills/update/SKILL.md	skill-invocation	settings
+plugins/management/skills/update/SKILL.md	skill-invocation	statusline
 plugins/notifications/lib/states.sh	english	tracking
 plugins/notifications/lib/states.sh	path	tracking
 plugins/notifications/README.md	english	tracking
@@ -50,7 +88,6 @@ plugins/orchestrator-handover/scripts/b02-registration.test.sh	path	tracking
 plugins/orchestrator-handover/scripts/b02-registration.test.sh	path	worktrees
 plugins/orchestrator-handover/skills/create/SKILL.md	english	tracking
 plugins/orchestrator-handover/skills/create/SKILL.md	english	worktrees
-plugins/privacy/skills/setup/SKILL.md	path	updates
 plugins/render-doc/README.md	skill-invocation	decision-log
 plugins/render-doc/scripts/migration.test.sh	english	debugging
 plugins/render-doc/scripts/migration.test.sh	skill-invocation	decision-log
@@ -59,12 +96,10 @@ plugins/render-doc/scripts/structure.test.sh	path	decision-log
 plugins/render-doc/skills/render/SKILL.md	skill-invocation	decision-log
 plugins/settings/README.md	skill-invocation	attribution
 plugins/settings/README.md	skill-invocation	privacy
-plugins/settings/skills/setup/SKILL.md	path	updates
 plugins/statusline/.claude-plugin/plugin.json	english	tracking
 plugins/statusline/lib/states.sh	english	tracking
 plugins/statusline/lib/states.sh	path	tracking
 plugins/statusline/README.md	english	tracking
-plugins/statusline/skills/setup/SKILL.md	path	updates
 plugins/tracking/lib/states.sh	english	notifications
 plugins/tracking/README.md	english	decision-log
 plugins/tracking/README.md	english	notifications
@@ -78,37 +113,6 @@ plugins/tracking/scripts/merge-manifest.test.sh	english	debugging
 plugins/tracking/scripts/merge-manifest.test.sh	path	debugging
 plugins/tracking/scripts/session-context.sh	skill-invocation	decision-log
 plugins/tracking/skills/make-progress/SKILL.md	skill-invocation	lego
-plugins/updates/README.md	skill-invocation	attribution
-plugins/updates/README.md	skill-invocation	landing
-plugins/updates/README.md	skill-invocation	privacy
-plugins/updates/README.md	skill-invocation	settings
-plugins/updates/README.md	skill-invocation	statusline
-plugins/updates/scripts/registration.test.sh	path	debugging
-plugins/updates/scripts/registration.test.sh	path	notifications
-plugins/updates/scripts/registration.test.sh	path	session-data
-plugins/updates/scripts/registration.test.sh	path	skill-tracker
-plugins/updates/scripts/registration.test.sh	skill-invocation	session-data
-plugins/updates/scripts/registration.test.sh	skill-invocation	skill-tracker
-plugins/updates/scripts/run-skill.test.sh	skill-invocation	attribution
-plugins/updates/scripts/run-skill.test.sh	skill-invocation	landing
-plugins/updates/scripts/run-skill.test.sh	skill-invocation	privacy
-plugins/updates/scripts/run-skill.test.sh	skill-invocation	settings
-plugins/updates/scripts/run-skill.test.sh	skill-invocation	statusline
-plugins/updates/scripts/stamp-conformance.test.sh	path	attribution
-plugins/updates/scripts/stamp-conformance.test.sh	path	landing
-plugins/updates/scripts/stamp-conformance.test.sh	path	privacy
-plugins/updates/scripts/stamp-conformance.test.sh	path	settings
-plugins/updates/scripts/stamp-conformance.test.sh	path	statusline
-plugins/updates/scripts/stamp-conformance.test.sh	skill-invocation	attribution
-plugins/updates/scripts/stamp-conformance.test.sh	skill-invocation	landing
-plugins/updates/scripts/stamp-conformance.test.sh	skill-invocation	privacy
-plugins/updates/scripts/stamp-conformance.test.sh	skill-invocation	settings
-plugins/updates/scripts/stamp-conformance.test.sh	skill-invocation	statusline
-plugins/updates/skills/run/SKILL.md	skill-invocation	attribution
-plugins/updates/skills/run/SKILL.md	skill-invocation	landing
-plugins/updates/skills/run/SKILL.md	skill-invocation	privacy
-plugins/updates/skills/run/SKILL.md	skill-invocation	settings
-plugins/updates/skills/run/SKILL.md	skill-invocation	statusline
 plugins/worktrees/scripts/b03-per-worker-skill.test.sh	english	lego
 plugins/worktrees/scripts/b04-registration.test.sh	english	tracking
 plugins/worktrees/scripts/b04-registration.test.sh	path	decision-log

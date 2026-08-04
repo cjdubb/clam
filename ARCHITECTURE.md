@@ -225,11 +225,11 @@ cleanup, crons. A row that names another plugin's artifact format, status
 vocabulary, or skill namespace is a layering violation regardless of how
 useful it is.
 
-### updates — marketplace-meta
+### management — marketplace-meta
 
-Updates is marketplace-meta: its domain is the catalog as data — installed
-versions, marketplace listings, and setup stamps — never any particular
-plugin's behavior. It may enumerate installed plugins by reading
+Management is marketplace-meta: its domain is the catalog as data —
+installed versions, marketplace listings, and setup stamps — never any
+particular plugin's behavior. It may enumerate installed plugins by reading
 marketplace, catalog, and stamp data at runtime, but its own docs and skills
 may not hardcode plugin names: a hardcoded name is exactly the kind of
 per-plugin knowledge a marketplace-meta plugin exists to avoid needing.

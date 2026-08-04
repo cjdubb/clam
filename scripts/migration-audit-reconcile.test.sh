@@ -240,7 +240,10 @@ check "status-vocab helper: real 'new (not a port)' heading matches (positive, r
 check "status-vocab helper: today's TBD heading does not match (negative, real content)" \
   "$(status_matches_vocab '## ask-in-text — TBD' && echo yes || echo no)" "no"
 
-for name in ask-in-text debugging session-data updates; do
+# `management` is the fourth of B02's scaffolded sections: it was scaffolded
+# as `## updates — TBD` and the plugin has since been renamed `updates` →
+# `management`, so its completed section carries the new name.
+for name in ask-in-text debugging session-data management; do
   heading_line="$(grep -E "^## ${name} — " <<<"$BODY" | head -n1)"
   check "$name section heading uses the sanctioned status vocabulary (ported (from X) or new (not a port))" \
     "$(status_matches_vocab "$heading_line" && echo yes || echo no)" "yes"

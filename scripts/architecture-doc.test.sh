@@ -181,27 +181,27 @@ assert_contains_re_i "boundary: shell scripts can't consult the skill catalog, s
   'vendor[a-z]*[^.]{0,150}(skill[[:space:]]+catalog|catalog)'
 
 # ===========================================================================
-# Behavior 5 — updates is marketplace-meta: catalog as data, may enumerate
+# Behavior 5 — management is marketplace-meta: catalog as data, may enumerate
 # installed plugins from marketplace/catalog/stamp data, never hardcodes
 # plugin names in its own docs or skills.
 # ===========================================================================
 
-updates_heading_present=$(printf '%s\n' "$DOC" | grep -ciE '^###[[:space:]]+updates\b')
-check "'updates' gets its own responsibility heading (like build/landing/lego/tracking)" \
-  "$([[ "${updates_heading_present:-0}" -ge 1 ]] && echo yes || echo no)" "yes"
+management_heading_present=$(printf '%s\n' "$DOC" | grep -ciE '^###[[:space:]]+management\b')
+check "'management' gets its own responsibility heading (like build/landing/lego/tracking)" \
+  "$([[ "${management_heading_present:-0}" -ge 1 ]] && echo yes || echo no)" "yes"
 
-# Scoped to the updates subsection itself (start at its own heading, end at
+# Scoped to the management subsection itself (start at its own heading, end at
 # the next heading of any level) so generic words like "catalog" or
 # "plugin" can't be satisfied by unrelated prose elsewhere in the document.
-UPDATES_ZONE="$(extract_zone "$DOC" '^###[[:space:]]+updates\b' '^##')"
+MANAGEMENT_ZONE="$(extract_zone "$DOC" '^###[[:space:]]+management\b' '^##')"
 
-assert_contains_re_i "updates named as marketplace-meta" "$UPDATES_ZONE" \
+assert_contains_re_i "management named as marketplace-meta" "$MANAGEMENT_ZONE" \
   'marketplace-meta|marketplace[[:space:]]+meta'
 
-assert_contains_re_i "updates' domain is the catalog AS DATA" "$UPDATES_ZONE" \
+assert_contains_re_i "management's domain is the catalog AS DATA" "$MANAGEMENT_ZONE" \
   'catalog[^.]{0,60}data'
 
-assert_contains_re_i "updates may not hardcode plugin names in its docs/skills" "$UPDATES_ZONE" \
+assert_contains_re_i "management may not hardcode plugin names in its docs/skills" "$MANAGEMENT_ZONE" \
   'hardcod[a-z]*[^.]{0,80}plugin'
 
 # ===========================================================================

@@ -87,7 +87,7 @@ this skill writes anything.
    setup in the shared stamp file so the update flow can tell this plugin's
    setup is current with the installed version:
    `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
-   in `plugins/updates/docs/setup-stamps.md`.
+   in `docs/protocols/setup-stamp.md`.
    - Read the plugin's version from the `plugin.json` at this
      installation's `installPath` (from its `installed_plugins.json`
      entry) — never from the entry's own `version` field, which can go
@@ -140,8 +140,8 @@ Reverse the change, at the same scope-detection flow as above (steps 1-2):
 4. Verify with `jq empty <target>`, then report what was removed, from
    which settings file, and at which scope.
 5. Delete this plugin's stamp for the same target from the shared stamp
-   file (`plugins/updates/docs/setup-stamps.md`); if there is no stamp for
-   this target, that's already fine — nothing to do.
+   file (`docs/protocols/setup-stamp.md`); if there is no stamp for this
+   target, that's already fine — nothing to do.
 
 ## Notes
 

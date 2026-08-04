@@ -1,6 +1,12 @@
 #!/bin/bash
-# Structural/content tests for skills/update/SKILL.md against Contract: B02
-# updates-run-skill (see the HTML-comment docblock in that file).
+# Structural/content tests for skills/update/SKILL.md against two contracts,
+# both stated as HTML-comment docblocks in that file (or, once accepted,
+# removed from it — see "Contract docblocks are not permanent" below):
+#   - Contract: B02 updates-run-skill (plan 001-update-flow-for-users) —
+#     sections 1-17 below, all GREEN: B02 is implemented and merged.
+#   - Contract: B03 prune-wiring (plan 001-stamp-staleness-actionable,
+#     issue #239) — section 18 below, the wave this suite is being extended
+#     for.
 #
 # A SKILL.md is model-executed instructions, not code, so this is a
 # structure/content suite:
@@ -23,13 +29,22 @@
 # exactly that shape (one big multi-line comment, but the technique matters
 # generally and is kept consistent with manifest.test.sh).
 #
-# RED/GREEN at birth (scaffold state, see brief 01-test-B02.md):
-#   - Frontmatter checks are GREEN already: name/disable-model-invocation/
+# Contract docblocks are not permanent: for a prose block the prose IS the
+# implementation, so each contract comment carries "(remove at acceptance)"
+# and is deleted once its block is accepted. No check in this file may
+# therefore depend on a docblock being present — every one reads the
+# comment-stripped body, which is what the reader actually sees, and is
+# unaffected by the comment's later removal.
+#
+# RED/GREEN at birth (B02 wave, scaffold state, see brief 01-test-B02.md):
+#   - Frontmatter checks were GREEN already: name/disable-model-invocation/
 #     description landed at scaffold with their full contracted content.
-#   - Every body-content check is RED against the current stub: the body is
+#   - Every body-content check was RED against the B02 stub: the body was
 #     only a "NotImplemented: B02" placeholder line (plus the stripped
-#     contract comment), so none of the contracted facts are stated in the
-#     skill's own prose yet.
+#     contract comment), so none of the contracted facts were stated in the
+#     skill's own prose yet. All of them are GREEN now — B02 is implemented,
+#     accepted and merged — and stand as regression guards for section 18's
+#     edits, which must not disturb any of them.
 #
 # Body checks are whole-body fact greps (grep for the required fact, not
 # exact phrasing), not per-section extraction: the contract does not mandate
@@ -217,6 +232,151 @@ check "self-update case: new version applies next session/reload" \
 # --- 17. Zero clam plugins installed ---------------------------------------
 check "zero clam plugins installed: reports and stops" \
   "$(grep -qiE 'no (clam )?plugins?.{0,15}installed|zero.{0,15}plugins?.{0,15}installed' <<<"$BODY_FLAT" && echo yes || echo no)" "yes"
+
+# ===========================================================================
+# 18. Contract: B03 prune-wiring (plan 001-stamp-staleness-actionable, #239)
+# ===========================================================================
+# The second contract this file is scored against. It adds no computation to
+# the skill: it makes the two capabilities B01 and B02 landed (the seventh
+# `stale_targets` column, and prune-stamp.sh) visible and offerable in the
+# skill's instructions.
+#
+# Same rules as sections 1-17: every fact must be stated in the skill's OWN
+# rendered prose, so every check reads BODY / BODY_WS (comment-stripped),
+# never the raw file. The B03 docblock narrates every fact below — scoring
+# against raw text would let the comment satisfy the check with nothing
+# written, and would then break outright when the docblock is removed at
+# acceptance.
+#
+# Three checks are scoped to a numbered step rather than the whole body,
+# because the contract specifies the change per step ("Step 2's column list
+# gains stale_targets"; "Step 3 (and step 7's after-state view) prints the
+# stale_targets value"). Whole-body greps cannot distinguish "the column is
+# named once, somewhere" from "the report actually shows it, in both views",
+# which is the whole point of those two clauses. The three structural guards
+# immediately below exist so that a step-scoped check failing always means
+# "the fact is missing", never "the step extraction silently returned
+# nothing".
+#
+# Not asserted here, deliberately: prune-stamp.sh's own exit codes and
+# argument handling. Those are the script's contract (B02) and are covered by
+# prune-stamp.test.sh; this skill never runs the script, so it never handles
+# them — see the negative check at the end of this section.
+#
+# RED/GREEN at birth (this wave):
+#   - RED, and red because the fact is absent from the skill's rendered
+#     prose: everything about `stale_targets`, the prune offer, the
+#     one-offer-per-target rule, the "-" edge case, the unstamped edge case,
+#     and the engineer's-judgement invariant. Neither "stale_targets" nor
+#     "prune-stamp" appears anywhere in the body today; both occur only
+#     inside the stripped B03 docblock.
+#   - GREEN by design, labelled inline: the three step-extraction guards,
+#     the "a stale stamp still never blocks or gates an update" survival
+#     check (the contract requires that existing statement to remain true
+#     and stated), and the negative exit-code check.
+
+# Extracts one numbered step from the flow: the line starting "<n>." plus
+# its continuation lines, up to the next numbered item, the next heading, or
+# end of body.
+step_body() { # body step_number
+  awk -v n="$2" '
+    $0 ~ ("^" n "\\. ") {found=1; print; next}
+    found && (/^[0-9]+\. / || /^#/) {exit}
+    found {print}
+  ' <<<"$1"
+}
+
+# Flattened per the same reasoning as BODY_FLAT, plus a `tr -s` squeeze of the
+# whitespace run a join leaves behind (the newline plus the continuation
+# line's three-space indent). Without the squeeze a two-word phrase matches or
+# not depending purely on where the author's ~72-column wrap fell — verified
+# empirically on a draft where "does not clear itself" wrapped after "clear"
+# and failed a `clear itself` pattern that the identical unwrapped sentence
+# passed. BODY_FLAT itself is deliberately left as it is: it is section 1-17's
+# input and those checks are not this wave's to change.
+BODY_WS=$(tr -s '[:space:]' ' ' <<<"$BODY")
+STEP2=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 2)")
+STEP3=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 3)")
+STEP7=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 7)")
+
+# --- 18a. Guards for the step-scoped checks (GREEN at birth) --------------
+check "step 2 is extractable and is the check-versions.sh step" \
+  "$(has_f "$STEP2" 'check-versions.sh')" "yes"
+check "step 3 is extractable and non-empty (the pre-change report)" \
+  "$(nonblank "$STEP3")" "yes"
+check "step 7 is extractable and non-empty (the after-state re-check)" \
+  "$(nonblank "$STEP7")" "yes"
+
+# --- 18b. Step 2 parses SEVEN columns, stale_targets among them -----------
+check "step 2's column list names the stale_targets column" \
+  "$(has_f "$STEP2" 'stale_targets')" "yes"
+check "step 2's column list enumerates all seven columns, in check-versions.sh order" \
+  "$(has "$STEP2" 'columns?.{0,40}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets')" "yes"
+
+# --- 18c. The stale_targets value is shown, in both report views ----------
+check "the report shows the stale_targets value rather than only naming the column" \
+  "$(has "$BODY_WS" '(show|print|display|surfac|list|name|report)[a-z]*.{0,140}stale_targets|stale_targets.{0,140}(shown|printed|displayed|listed|surfaced|named|reported)')" "yes"
+check "step 3's pre-change report shows the stale targets" \
+  "$(has "$STEP3" 'stale_targets|stale targets?')" "yes"
+check "step 7's after-state view shows the stale targets too" \
+  "$(has "$STEP7" 'stale_targets|stale targets?')" "yes"
+
+# --- 18d. The prune offer --------------------------------------------------
+check "the skill names prune-stamp.sh" \
+  "$(has_f "$BODY_WS" 'prune-stamp.sh')" "yes"
+check "the prune offer uses the CLAUDE_PLUGIN_ROOT-rooted script path" \
+  "$(has_f "$BODY_WS" '${CLAUDE_PLUGIN_ROOT}/scripts/prune-stamp.sh')" "yes"
+check "the prune offer is a full command carrying both the plugin and the target" \
+  "$(has "$BODY_WS" 'prune-stamp\.sh [^ ]+ [^ ]+')" "yes"
+check "the prune command is OFFERED" \
+  "$(has "$BODY_WS" 'offer.{0,200}prune-stamp|prune-stamp.{0,200}offer')" "yes"
+check "the skill states it never runs prune-stamp.sh itself" \
+  "$(has "$BODY_WS" 'prune-stamp.{0,240}never (run|invok|execut)|never (run|invok|execut).{0,240}prune-stamp')" "yes"
+# The never-runs-it rule is what makes offering a deletion safe at all, so the
+# contract requires it to hold under a blanket instruction too, not just by
+# default.
+check "the never-run rule is stated to hold even under a 'fix everything' instruction" \
+  "$(has "$BODY_WS" 'fix everything|fix (them |it )?all|do everything')" "yes"
+
+# --- 18e. One offer per target, each a full command -----------------------
+check "one offer per stale target, not one command covering several" \
+  "$(has "$BODY_WS" '(one|a separate|its own|each).{0,60}(offer|command|line).{0,40}(per|for each)|per target|for each target|each target')" "yes"
+check "each offer carries a real target, never a placeholder command" \
+  "$(has "$BODY_WS" 'placeholder|(real|actual|literal|full) (target|path|command)')" "yes"
+
+# --- 18f. Edge case: stale_targets of "-" ---------------------------------
+# Loose by necessity (the two facts are one sentence apart in any faithful
+# phrasing, but the phrasing itself is free); the binding that keeps it from
+# passing vacuously is that "stale_targets" must appear at all, which it does
+# not today.
+check "stale_targets of '-': nothing is offered and nothing is said about pruning" \
+  "$(has "$BODY_WS" 'stale_targets.{0,260}((offers?|says?) nothing|nothing (is )?(offered|said)|no (prune )?(offer|command)|nothing to (offer|prune))')" "yes"
+
+# --- 18g. Edge case: an unstamped row is not a prune candidate ------------
+check "an unstamped row is explicitly NOT a prune candidate" \
+  "$(has "$BODY_WS" 'unstamped.{0,240}(not a prune|never a prune|not.{0,25}prune candidate|no (stamp )?record to (remove|prune)|nothing to (remove|prune))|((not|never) a prune candidate|no (stamp )?record to (remove|prune)).{0,240}unstamped')" "yes"
+
+# --- 18h. Invariants ------------------------------------------------------
+# GREEN at birth: the contract requires this existing statement to survive the
+# B03 edit, so this is a regression guard, not a driver of new prose.
+check "a stale setup stamp still never blocks or gates an update" \
+  "$(has "$BODY_WS" 'stale.{0,200}(neither|never|not|no).{0,40}(block|gate)|(neither|never|does not|do not|doesn.t).{0,40}(block|gate).{0,200}stale')" "yes"
+# Two conjuncts because word order here is genuinely free ("the judgement is
+# the engineer's" and "the engineer judges" are the same fact). The first
+# conjunct carries the weight: it is the one that is false today, and it binds
+# the decision language to pruning rather than to step 8's existing setup
+# offers, which already satisfy the second conjunct on their own.
+check "the skill states no opinion on whether a stamp should be pruned — the judgement is the engineer's" \
+  "$(grep -qiE '(prune|prunin|deletion|removal).{0,240}(engineer|you)|(engineer|you).{0,240}(prune|prunin|deletion|removal)' <<<"$BODY_WS" \
+     && grep -qiE 'no opinion|(judg|decision|decide|choice|choos)[a-z]*.{0,80}(engineer|you)|(engineer|you).{0,80}(judg|decision|decide|choice|choos)' <<<"$BODY_WS" \
+     && echo yes || echo no)" "yes"
+
+# GREEN at birth, negative invariant: prune-stamp.sh's exit codes are the
+# script's contract, not this skill's. The skill never runs it, so it must
+# never grow error handling for it — unlike check-versions.sh, whose exit
+# codes section 14 above requires the skill to handle.
+check "the skill does not document prune-stamp.sh's own exit codes" \
+  "$(has "$BODY_WS" 'prune-stamp.{0,140}exit [0-9]|exit [0-9].{0,140}prune-stamp')" "no"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

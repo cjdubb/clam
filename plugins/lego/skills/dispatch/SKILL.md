@@ -131,8 +131,9 @@ brief. Bash permission allowlists match bare commands; compound
 `cd <path> && <command>` forms do not match, causing unnecessary permission
 prompts.
 
-Group only independent blocks within the unit into one wave; dispatch a
-wave's agents in a single message so they run in parallel.
+Group only independent blocks within the unit into one wave — see
+"Scheduling" below for how that wave is actually dispatched (background by
+default, with its degrade path).
 
 ## Unit status file
 
@@ -190,7 +191,8 @@ stdout — capture it; every worker brief for this unit names it.
 
 Dispatch `lego-test-writer` agents for every leaf block in the unit
 (engineer-owned blocks included; the engineer implements against the same
-tests), briefed per "Worker briefs" above.
+tests) in the background (see "Scheduling"), briefed per "Worker briefs"
+above.
 
 The wave's report is a file the worker wrote, not a message it sent: read
 `.local/reports/NN-<wave>-<blocks>.md` inside the unit worktree. An absent
@@ -200,57 +202,34 @@ tells you to chase, then escalate.
 Then verify the returned work — inside the unit worktree — against this
 checklist before accepting:
 
-1. **Clause coverage.** Open each stub's contract docblock; walk clause by
+1. **Mechanical gate, one command.** Run
+   `${CLAUDE_PLUGIN_ROOT}/scripts/wave-check.sh test [diff-range]` inside the
+   unit worktree. In test mode it proves the red run is red for the right
+   reason (pipe-safe: never piped, exit code captured directly from the bare
+   invocation) and realm-pure, in one invocation — the manual pipe-safe
+   capture recipe and the separate realm-check.sh run this checklist used to
+   spell out by hand are no longer performed that way. Any FAIL rejects the
+   wave.
+2. **Clause coverage** (the orchestrator's own non-delegable judgment — no
+   script performs this). Open each stub's contract docblock; walk clause by
    clause against the agent's clause-coverage map AND the actual test code.
    Every Behavior/Output/Error/Invariant/Edge-case clause has at least one
    real test.
-2. **Contract, not internals.** Spot-read the tests: no private state, no
+3. **Contract, not internals.** Spot-read the tests: no private state, no
    imagined implementation mirrored in assertions.
-3. **Red discipline, re-run yourself.** Run the repo's test command inside
-   the unit worktree. Failures must be assertion or NotImplemented failures;
-   import/compile/collection errors reject the wave.
-
-4. **Pipe safety.** Piping a test command (e.g. `bash "$t" 2>&1 | tail -10`)
-   replaces `$?` with the exit code of the last pipeline stage (e.g. `tail`,
-   always 0), masking the test command's real exit code.
-
-   Never pipe when the exit code matters — run the command on its own,
-   capture `$?` immediately, then inspect output separately if needed:
-
-   ```bash
-   bash "$t" >/tmp/out.log 2>&1
-   status=$?
-   tail -10 /tmp/out.log
-   ```
-
-   Output redirection (`>/dev/null 2>&1` or to a file) does not create a
-   pipe and does not affect `$?` — it is safe and unrestricted.
-
-   Do not rely on `pipefail` as the fix, since it is not guaranteed to be
-   set in ad-hoc bash commands. (`PIPESTATUS` is bash-specific and not the
-   preferred pattern here.)
-5. **Realm purity, mechanical.** Inside the unit worktree, run
-   `${CLAUDE_PLUGIN_ROOT}/scripts/realm-check.sh test` (uncommitted-changes
-   mode — the worktree holds only this unit's changes, so there's no other
-   diff it could mean). Any violation rejects the wave; this also catches
-   Bash-based writes the edit hook cannot see.
-6. **Never block on a report.** A worker that has gone idle without writing
+4. **Never block on a report.** A worker that has gone idle without writing
    its report file does not hold acceptance hostage: inspect the worktree
    diff, run this whole checklist yourself, and accept or reject on your own
    evidence. Archive a report that lands afterwards with a timing note
    saying when it arrived relative to the decision. Reports have straggled
    in after the PR merged; a session that waits for one stalls indefinitely.
-7. **Never verify concurrently with a resumed worker.** Pinging an idle
+5. **Never verify concurrently with a resumed worker.** Pinging an idle
    worker resumes it, and a resumed test-writer may re-run its own red-run
    proof — including stash-based reverts of shared files — while your run is
    in flight. Your suite then reads a mid-stash tree and reports a flake
    that is really your own doing. If you ping, say exactly what you want:
    report from memory, touch nothing. Then verify sequentially, so your run
    and the worker's never overlap.
-8. **Re-run every count.** A number in a report is a claim, not evidence:
-   re-run the command and count the failures yourself. Mind the counting
-   trap while you are there — `grep -c '^FAIL'` also matches a trailing
-   `FAILURES` summary line, so counts drift by one even in an honest report.
 
 Because the whole diff in this worktree belongs to one unit, triage is
 unambiguous — there's no sibling block's changes to sort out first.
@@ -290,9 +269,10 @@ where it does not actually terminate the teammate
 
 ### 3. Implementation wave
 
-Dispatch `lego-implementer` agents in the same worktree, briefed with the
-same absolute path per "Worker briefs" above. Engineer-owned blocks are not
-dispatched to an agent at this step — see "Engineer-owned blocks" below.
+Dispatch `lego-implementer` agents in the same worktree, in the background
+(see "Scheduling"), briefed with the same absolute path per "Worker briefs"
+above. Engineer-owned blocks are not dispatched to an agent at this step —
+see "Engineer-owned blocks" below.
 
 The wave's report is a file here too: read
 `.local/reports/NN-<wave>-<blocks>.md` inside the unit worktree rather than
@@ -304,51 +284,42 @@ outside this unit exist only as stubs with no tests of their own, so there
 are no foreign reds to reason about. Acceptance gate, checked by the
 orchestrator, inside the unit worktree:
 
-1. Repo test command green (run it yourself; also typecheck/lint if
-   configured).
-
-2. **Pipe safety (same hazard as step 2.3).** Re-run the repo test command
-   without piping it through anything (e.g. no `| tail`) before trusting
-   `$?` — a masked exit code on this green run is worse than on the red
-   run, since it produces a false acceptance of a broken implementation.
-   Follow the same pipe-safety pattern as step 2.3: never pipe when the
-   exit code matters; capture `$?` from the bare command, redirect output
-   to a file or `/dev/null` if you need it out of the way.
-3. `${CLAUDE_PLUGIN_ROOT}/scripts/realm-check.sh impl`, run over this wave's
-   diff range — zero test-family diffs, mechanically proven. Uncommitted-
-   changes mode covers the common case; if an agent left committed WIP on
-   the unit branch, pass the diff-range argument explicitly from the branch
-   point instead.
-4. **Contracts unchanged.** Diff the stub files against the scaffold commit
-   (an ancestor of every unit branch) and confirm signatures and contract
-   docblocks are untouched — bodies change, surfaces do not. By-eye in v0;
-   treat any surface change as a defect unless it went through the
-   escalation loop.
-
-   One exception: a **prose block**'s HTML-comment contract, marked
-   `(remove at acceptance)` at scaffold time, must be *gone* — the document's
-   prose is the implementation, so a surviving contract is a duplicate spec
-   every future reader of that file loads. Confirm it was deleted, and that
-   anything in it that must outlive the block was moved into the document's
-   prose first.
-5. Spot-review the diff for quality: contract clauses the tests undercover
-   are still binding (workers are told this; verify it on anything security-
-   or correctness-critical).
-6. **Never block on a report** (same rule as step 2.6). An implementer that
+1. **Mechanical gate, one command.** Run
+   `${CLAUDE_PLUGIN_ROOT}/scripts/wave-check.sh impl --scaffold-ref <scaffold
+   commit> --stub <path> [--stub <path>...] [diff-range]` inside the unit
+   worktree, naming every executable stub this wave touched. In impl mode it
+   proves the suite is genuinely green (pipe-safe, same hazard as the test
+   wave), realm-pure over this wave's diff range, and — for each named
+   `--stub` — that its contract docblock and signatures are unchanged from
+   the scaffold commit, all in one invocation. Any FAIL rejects the wave.
+   Uncommitted-changes mode covers the common case for the realm check; if an
+   agent left committed WIP on the unit branch, pass the diff-range argument
+   explicitly from the branch point instead.
+2. **Contracts unchanged, prose blocks** (the orchestrator's own
+   non-delegable judgment — wave-check.sh's CONTRACT-DIFF reaches only the
+   stub paths passed via `--stub`, i.e. executable stubs, and never an
+   HTML-comment contract). A **prose block**'s contract runs the opposite
+   check: the comment marked `(remove at acceptance)` at scaffold time must
+   be *gone* — the document's prose is the implementation, so a surviving
+   contract is a duplicate spec every future reader of that file loads.
+   Confirm it was deleted, and that anything inside it that must outlive the
+   block was moved into the document's own prose first. By-eye; treat any
+   surface change on either kind of contract as a defect unless it went
+   through the escalation loop.
+3. **Spot-review the diff for quality.** Contract clauses the tests
+   undercover are still binding (workers are told this; verify it on
+   anything security- or correctness-critical).
+4. **Never block on a report** (same rule as step 2). An implementer that
    has gone idle without writing its report file does not hold acceptance
    hostage: inspect the diff, run this whole gate yourself, and accept or
    reject on your own evidence. Archive a report that lands afterwards with
    a timing note.
-7. **Never verify concurrently with a resumed worker** (same hazard as step
-   2.7). Pinging an idle implementer resumes it, and a worker editing the
+5. **Never verify concurrently with a resumed worker** (same hazard as step
+   2). Pinging an idle implementer resumes it, and a worker editing the
    tree underneath your green run costs more than the test wave's phantom
    flake — it is how a broken implementation gets accepted. If you ping, say
    exactly what you want: report from memory, touch nothing. Then verify
    sequentially.
-8. **Re-run every count** (same rule as step 2.8). A test count a report
-   hands you — before/after, green/red — is a claim, not evidence: re-run
-   and count yourself. The same counting trap applies here: `grep -c '^FAIL'`
-   also matches a trailing `FAILURES` summary line.
 
 Rejected work goes back to a lego-implementer, in the same worktree, via a
 fresh-`NN` brief naming the specific deficiency — same rule as the test
@@ -618,6 +589,66 @@ test wave, its own implementation wave (typically thin wiring plus
 integration tests against the composition's contract) — in its own unit
 worktree. Its PR is naturally last within its subtree: composition is the
 feature-activation point.
+
+## Scheduling
+
+The per-unit pipeline above runs once per unit, but a plan is rarely one
+unit: dispatch treats every unit's pipeline as its own independent state
+machine and advances whichever one has work ready, rather than stepping
+through units one at a time.
+
+**Loop invariant.** At every scheduling moment, every runnable unit — every
+unit whose `Deps:` are all locally merged — either has its worktree created
+and its next wave in flight, or a recorded reason in its `.local/status.md`.
+A runnable unit sitting idle while the orchestrator works a sibling
+sequentially is a scheduling defect, not a style choice.
+
+**Background dispatch is the default model.** Every wave dispatch explicitly
+requests background execution — `run_in_background: true`, or the harness's
+own background-agent mechanism — never left to a harness default. The
+orchestrator never waits synchronously on one wave while any other unit has
+an actionable stage: a stage that unit can advance right now, whether that
+is creating its worktree, dispatching its next wave, verifying a finished
+one, or merging.
+
+**Completion and advancement.** A wave's completion signal is its task
+notification plus the report file on disk. On each completion, the
+orchestrator advances that unit's own pipeline — verify, dispatch the next
+wave, merge — while other units' workers run on undisturbed.
+
+**Ceremony overlaps too.** Orchestrator ceremony for one unit —
+brief-writing, wave verification, merges, map/status updates — proceeds
+while other units' workers run; it does not wait for a quiet moment. This
+cross-unit overlap is distinct from the per-unit rule to never verify
+concurrently with a resumed worker (steps 2 and 3 above), which continues to
+bind unchanged within a unit: overlapping a sibling's workers is never
+license to also verify over a resumed worker inside this unit.
+
+**Parking.** The orchestrator ends its turn parking on Awaiting Agent only
+when no unit has an actionable stage and at least one background wave is
+still outstanding. Ending the turn any earlier abandons schedulable work;
+treating any unit as unschedulable while a background wave for it is still
+outstanding is the same defect from the other direction.
+
+**Degrade path.** Background dispatch is the default model; the earlier
+instruction to dispatch a wave's agents in a single message survives only as
+the explicit degrade path for harnesses without background dispatch.
+
+**The standing question rule.** An open engineer question pauses new
+dispatches and new verifications only — it does not reach into workers
+already in flight, which run to completion regardless; their results simply
+wait unverified until every open question is answered.
+
+**Edge cases.**
+
+- A single-unit plan degenerates to the sequential flow above with no extra
+  ceremony — there is no sibling to overlap with.
+- An engineer-owned unit's implementation phase counts as an outstanding
+  wave for scheduling purposes: it never blocks sibling scheduling, exactly
+  as an agent-dispatched wave in flight would not.
+- An escalated unit parks; sibling units keep scheduling through it unless
+  the escalation opens an engineer question — then the standing question
+  rule above governs instead.
 
 ## Engineer-owned blocks
 

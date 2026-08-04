@@ -13,7 +13,8 @@
 #                   scripts/executable-lint.sh, bash scripts/readme-lint.sh,
 #                   bash scripts/version-bump-lint.sh, bash
 #                   scripts/issue-template-lint.sh, bash
-#                   scripts/architecture-lint.sh (each invoked from the
+#                   scripts/architecture-lint.sh, bash
+#                   scripts/shellcheck-lint.sh (B07) (each invoked from the
 #                   repo root; readme-lint requires root cwd).
 #     2. test     — every repo-level scripts/*.test.sh, then every
 #                   plugins/*/scripts/*.test.sh and plugins/*/lib/*.test.sh,
@@ -21,16 +22,37 @@
 #     3. validate — claude plugin validate .claude-plugin/marketplace.json,
 #                   then claude plugin validate plugins/<name> for every
 #                   plugin directory.
-#   Fail-fast: the first failing check stops the run (later checks and
-#   stages do not execute) and the runner exits 1. With --post-status, a
-#   GitHub commit status is posted for HEAD when the run concludes (pass or
-#   fail alike).
+#   Stage-level fail-fast: a failing STAGE stops the run, so later stages do
+#   not execute and the runner exits 1. Within the test and validate stages,
+#   checks run CONCURRENTLY (B03, plan 001-speed-up-repo-ci): every check in
+#   the stage runs to completion even when an earlier one fails, and the
+#   stage then reports the FIRST failure in fixed output order. Lint checks
+#   remain strictly sequential and check-level fail-fast — they total 1.0s
+#   once architecture-lint is fixed, so concurrency buys nothing there and
+#   their fixed order is load-bearing for readability.
+#   With --post-status, a GitHub commit status is posted for HEAD when the
+#   run concludes (pass or fail alike).
 #
 # Inputs:
 #   - Optional stage flag: --lint or --test runs ONLY that stage (at most
 #     one stage flag; --lint and --test together is a usage error). No
 #     stage flag runs all three stages. (validate has no solo flag; it runs
 #     only as part of the full suite.)
+#   - Optional flag: --jobs <n> (B03) — max concurrent checks within the
+#     test and validate stages. Defaults to the machine's core count as
+#     reported by nproc, falling back to 4 when nproc is unavailable.
+#     --jobs 1 caps concurrency at one check at a time and is the escape
+#     hatch for debugging an interleaving-sensitive failure. It does NOT
+#     restore intra-stage fail-fast: at ANY --jobs value, including 1, every
+#     check in a stage still runs to completion after an earlier one fails.
+#     A non-integer or <1 value is a usage error, exit 2. So is a MISSING
+#     value — `--jobs` as the final argument, or `--jobs` followed by another
+#     flag (a token beginning with `-`). The parser must check the remaining
+#     argument count before consuming the next token: aborting with a `set -u`
+#     unbound-variable error is NOT acceptable behaviour for a user-facing
+#     flag. The two outcomes are distinguishable, which is what the tests
+#     assert on — a `set -u` abort exits 1 or 127 with a bash diagnostic,
+#     whereas the contract requires exit 2 with a usage message on stderr.
 #   - Optional flag: --post-status — after the run, POST the outcome to
 #     GitHub as a commit status on HEAD's sha: context "pseudo-ci", state
 #     "success" or "failure", via gh api, repo derived from the origin
@@ -65,15 +87,58 @@
 #     optional gh status POST (never attempted without --post-status).
 #   - cwd-independent: resolves the repo root via git rev-parse and runs
 #     every check from there.
-#   - Stage order is fixed (lint, test, validate); check order within a
+#   - Stage order is fixed (lint, test, validate). OUTPUT order within a
 #     stage is fixed (lints as listed; tests sorted lexicographically,
-#     repo-level before plugins).
+#     repo-level before plugins) even though EXECUTION order is now
+#     concurrent and nondeterministic. This is the load-bearing invariant of
+#     B03: each concurrent check's stdout+stderr is buffered to a temp file
+#     and emitted whole, in the fixed order, once the stage completes. A
+#     reader diffing two transcripts sees no difference attributable to
+#     concurrency; only wall-clock changes. Interleaved or reordered output
+#     is a contract violation, not an acceptable consequence.
+#   - No check may depend on another check within the same stage, on shared
+#     mutable state, or on a fixed cwd beyond the repo root. Concurrency
+#     makes any such coupling a race. (Verified before this change: all 113
+#     test files build their own mktemp fixtures and pass at -P8.)
+#   - B10: a free concurrency slot is filled as soon as ANY in-flight check
+#     completes — never only when the OLDEST launched check completes. This
+#     is a throughput contract, and it is the reason the stage is concurrent
+#     at all. Waiting on the oldest pid still honours the cap and still
+#     produces an identical transcript, so no other clause here detects the
+#     difference; what it does is idle up to JOBS-1 slots behind a single
+#     slow check. Measured against this repo's own 113 files (serial sum
+#     142.1s, slowest file 33.5s) at --jobs 8, oldest-first takes 61.1s where
+#     fill-on-any-completion takes 37.1s, against an absolute floor of 33.5s.
+#     Launching longest-first instead does NOT fix it (41.1s) and is in any
+#     case not available, since durations are unknown before the run.
+#     Consequences that are part of this clause, not implementation detail:
+#       * The bash floor rises to 4.3 for `wait -n`. That is a smaller step
+#         than it looks: this file already requires 4.0 for mapfile, so no
+#         bash 3.2 host (stock macOS) can run it today either.
+#       * `wait -n` reports A completion, not WHICH one, and `wait -p` needs
+#         bash 5.1 — too new to require. So each check records its own exit
+#         status beside its output buffer, and the parent reads statuses by
+#         index at emission time rather than mapping pids to slots. This
+#         keeps first-failure-in-fixed-order exactly as B03 specified it:
+#         the reported failure is the first in OUTPUT order, never the first
+#         to finish.
+#       * mktemp and cat remain unusable anywhere in this path. The nproc
+#         fallback test strips PATH to bash/git/find/sort/rm, so the status
+#         files are written by plain redirection and read by builtins, the
+#         same constraint that already shapes the output buffers.
+#     Unchanged by B10: the cap itself, the fixed-order buffered transcript,
+#     stage-level fail-fast, intra-stage run-to-completion, and the --jobs
+#     parsing rules. Those tests must pass untouched.
 #   - The status POST (when requested) reflects the true outcome: success
 #     only when the run would exit 0; a fail-fast run still posts failure
 #     before exiting.
-#   - Requires only bash+git+jq for the gate itself: claude and gh are
-#     optional enhancers whose absence degrades to WARN, never to a
-#     failure or a silent skip.
+#   - Requires only bash+git+jq for the gate itself: claude, gh and
+#     shellcheck are optional enhancers whose absence degrades to WARN,
+#     never to a failure or a silent skip. Concurrency adds no dependency —
+#     it is implemented with bash job control and wait, NOT with xargs -P,
+#     GNU parallel, or any other external scheduler, precisely so this
+#     promise survives B03. nproc is read for the --jobs default and its
+#     absence falls back to 4 rather than failing.
 #
 # Edge cases:
 #   - Repo with no plugins/ dir or no test files anywhere: each empty
@@ -96,6 +161,7 @@ usage() {
 
 STAGE_ONLY=""
 POST_STATUS=0
+JOBS=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -118,6 +184,41 @@ while [ "$#" -gt 0 ]; do
     --post-status)
       POST_STATUS=1
       ;;
+    --jobs)
+      # Check the remaining argument count BEFORE consuming $2 -- with
+      # set -u, referencing $2 when it doesn't exist aborts with an
+      # unbound-variable diagnostic, which is exactly the failure mode the
+      # contract requires this flag NOT to have (exit 2 with a usage
+      # message instead).
+      if [ "$#" -lt 2 ]; then
+        echo "ci.sh: --jobs requires a value" >&2
+        usage
+        exit 2
+      fi
+      case "$2" in
+        -*)
+          # A token beginning with "-" (another flag, or a negative
+          # number) is treated as a missing value, per the docblock.
+          echo "ci.sh: --jobs requires a value" >&2
+          usage
+          exit 2
+          ;;
+      esac
+      case "$2" in
+        ''|*[!0-9]*)
+          echo "ci.sh: --jobs value must be a positive integer" >&2
+          usage
+          exit 2
+          ;;
+      esac
+      if [ "$2" -lt 1 ]; then
+        echo "ci.sh: --jobs value must be a positive integer" >&2
+        usage
+        exit 2
+      fi
+      JOBS="$2"
+      shift
+      ;;
     *)
       echo "ci.sh: unknown flag: $1" >&2
       usage
@@ -126,6 +227,11 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ -z "$JOBS" ]; then
+  JOBS="$(nproc 2>/dev/null)"
+  [ -n "$JOBS" ] || JOBS=4
+fi
 
 ROOT="$(git rev-parse --show-toplevel 2>&1)" || {
   echo "ci.sh: $ROOT" >&2
@@ -161,6 +267,72 @@ run_lint_stage() {
   return 0
 }
 
+# Runs up to $JOBS checks of the current stage concurrently via bash job
+# control and `wait` only (no xargs -P, GNU parallel, sem, or any other
+# external scheduler). The caller must first populate the global NAMES[]
+# (display name per check, used for "-- <name>" and the failure label) and
+# BUFFERS[] (a private output-file path per check) arrays, and define a
+# global run_one() that runs check $1 with its cwd already at $ROOT.
+#
+# Concurrency is capped by keeping a count of in-flight jobs: once it
+# reaches $JOBS, `wait -n` blocks until ANY one of them completes (B10) --
+# never specifically the oldest -- before a new check is launched. This
+# never lets more than $JOBS checks run at once, and a free slot is always
+# taken as soon as it opens, regardless of which check vacated it.
+#
+# Each check's stdout+stderr is redirected to its own buffer file while it
+# runs, so nothing can interleave; buffers are emitted whole, in fixed
+# NAMES[] order, only after every check in the stage has completed. Since
+# `wait -n` reports THAT a job finished but not WHICH one (and `wait -p`
+# needs bash 5.1, too new to require), each backgrounded check writes its
+# own exit status to a status file beside its buffer, by plain redirection.
+# Statuses are then read back by fixed array index at emission time, not by
+# completion order, so the reported failure is always the first one in
+# fixed order, never whichever check happened to finish first. The status
+# file is seeded with a nonzero sentinel before the check is launched, so a
+# subshell that dies before it can write its real status (OOM kill, an
+# external kill, a read-only TMPDIR) is read back as a failure, never as a
+# silent pass.
+run_concurrent() { # <stage> <n>
+  local stage="$1" n="$2"
+  local running=0
+  local i
+  for ((i = 0; i < n; i++)); do
+    : > "${BUFFERS[i]}"
+    echo 1 > "${BUFFERS[i]}.rc"  # fail-closed: overwritten by the child with the real status
+    (
+      ( cd "$ROOT" && run_one "$i" ) > "${BUFFERS[i]}" 2>&1
+      echo "$?" > "${BUFFERS[i]}.rc"
+    ) &
+    running=$((running + 1))
+    if [ "$running" -ge "$JOBS" ]; then
+      wait -n
+      running=$((running - 1))
+    fi
+  done
+  wait
+
+  local fail="" body rc
+  for ((i = 0; i < n; i++)); do
+    echo "-- ${NAMES[i]}"
+    body=""
+    IFS= read -r -d '' body < "${BUFFERS[i]}" || true
+    printf '%s' "$body"
+    rm -f "${BUFFERS[i]}"
+    rc=""
+    read -r rc < "${BUFFERS[i]}.rc" || true
+    rm -f "${BUFFERS[i]}.rc"
+    if [ -z "$fail" ] && [ "${rc:-0}" -ne 0 ]; then
+      fail="$i"
+    fi
+  done
+  if [ -n "$fail" ]; then
+    FAIL_LABEL="$stage/${NAMES[$fail]}"
+    return 1
+  fi
+  return 0
+}
+
 run_test_stage() {
   echo "== test =="
   mapfile -t repo_tests < <(find "$ROOT/scripts" -maxdepth 1 -type f -name '*.test.sh' 2>/dev/null | sort)
@@ -170,12 +342,17 @@ run_test_stage() {
     echo "no test checks to run"
     return 0
   fi
-  local abs rel
-  for abs in "${all[@]}"; do
-    rel="${abs#$ROOT/}"
-    run_check "test" "$rel" bash "$abs" || return 1
+  local tmpdir="${TMPDIR:-/tmp}" i
+  NAMES=()
+  ABS_PATHS=()
+  BUFFERS=()
+  for i in "${!all[@]}"; do
+    NAMES[i]="${all[i]#$ROOT/}"
+    ABS_PATHS[i]="${all[i]}"
+    BUFFERS[i]="$tmpdir/ci.sh.$$.test.$i.out"
   done
-  return 0
+  run_one() { bash "${ABS_PATHS[$1]}"; }
+  run_concurrent "test" "${#all[@]}"
 }
 
 run_validate_stage() {
@@ -191,11 +368,17 @@ run_validate_stage() {
   for n in "${names[@]}"; do
     targets+=("plugins/$n")
   done
-  local t
-  for t in "${targets[@]}"; do
-    run_check "validate" "$t" claude plugin validate "$t" || return 1
+  local tmpdir="${TMPDIR:-/tmp}" i
+  NAMES=()
+  TARGETS=()
+  BUFFERS=()
+  for i in "${!targets[@]}"; do
+    NAMES[i]="${targets[i]}"
+    TARGETS[i]="${targets[i]}"
+    BUFFERS[i]="$tmpdir/ci.sh.$$.validate.$i.out"
   done
-  return 0
+  run_one() { claude plugin validate "${TARGETS[$1]}"; }
+  run_concurrent "validate" "${#targets[@]}"
 }
 
 # Extracts "owner/repo" from a GitHub origin URL (https, http, ssh, or

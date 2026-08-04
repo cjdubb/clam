@@ -283,7 +283,11 @@ strategy behind it. Three things happen here, in order, with the engineer:
 1. **Estimate each block's size in changed lines** — implementation plus its
    own tests. These are explicitly rough numbers, a basis for grouping, not a
    promise the mechanical `pr-size-check.sh` gate at delivery time will later
-   hold you to.
+   hold you to. Test volume typically dominates that total — 2-4x the
+   implementation's size is a common multiple for behavioral or anchor-style
+   suites — so weigh estimates accordingly: a block's tests are real size,
+   not a rounding error on its implementation.
+
 2. **Feed the estimates back into decomposition.** Compare each block against
    the budget — `delivery.prSizeBudget` from the effective config, defaulting
    to 500 changed lines when the config doesn't set one. A block estimated

@@ -10,7 +10,7 @@
 #   transcript idle age + compaction budget), and the atomic
 #   .local/.ctx-status.json publish. Cached as ONE bundle, rebuilt at most
 #   once per TTL: git branch, PR badge, git-sync segment, TODO State
-#   segment, clam mode, and the Cost line. The background refresh-engine
+#   segment, and clam mode. The background refresh-engine
 #   kicks (pr-status / git-sync staleness checks) are evaluated only when
 #   the bundle is rebuilt, never on the warm path.
 # Inputs:
@@ -48,8 +48,8 @@
 #   bundle write, and leaves the bundle fresh so an immediately following
 #   render is warm. Cache entries are only ever replaced whole.
 # Edge cases:
-#   Missing/empty transcript_path: key falls back to cwd; cost renders as
-#     today; the bundle is still cached. TTL boundary: age < TTL is
+#   Missing/empty transcript_path: key falls back to cwd; the bundle is
+#     still cached. TTL boundary: age < TTL is
 #     fresh, age >= TTL is stale; a negative age (future-dated bundle
 #     after a clock step) reads fresh. No git worktree / no .local/:
 #     segments degrade exactly as today and the ctx-status publish is
@@ -70,15 +70,38 @@ sl_parse_input() {
   # collapse and an empty field (e.g. an absent transcript_path) silently
   # swallows the next column, misaligning every field after it. \x01 is not
   # whitespace, so empty fields between delimiters are preserved.
-  IFS=$'\x01' read -r window_size total_input transcript_path cwd model_name effort <<< "$(
-    printf '%s' "$input" | jq -r '[
-        (.context_window.context_window_size // ""),
-        (.context_window.total_input_tokens // ""),
-        (.transcript_path // ""),
-        (.workspace.current_dir // .cwd // ""),
-        (.model.display_name // ""),
-        (.effort.level // "")
-      ] | join("")'
+  #
+  # The eight burnrate fields (B04) ride this SAME jq invocation rather than
+  # a second one -- see the B04 payload-parse contract above
+  # sl_parse_burn_fields. five_hour/seven_day are each gated on their own
+  # used_percentage key: a payload using the ISO-8601 utilization/resets_at
+  # shape (a different internal surface) has no used_percentage, so both its
+  # percentage and its resets_at parse empty rather than picking up the
+  # wrong-shaped value.
+  IFS=$'\x01' read -r window_size total_input transcript_path cwd model_name effort \
+    r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id <<< "$(
+    printf '%s' "$input" | jq -r '
+        . as $p
+        | ($p.rate_limits.five_hour.used_percentage) as $u5
+        | ($p.rate_limits.seven_day.used_percentage) as $u7
+        | [
+            ($p.context_window.context_window_size // ""),
+            ($p.context_window.total_input_tokens // ""),
+            ($p.transcript_path // ""),
+            ($p.workspace.current_dir // $p.cwd // ""),
+            ($p.model.display_name // ""),
+            ($p.effort.level // ""),
+            (if $u5 == null then "" else $u5 end),
+            (if $u5 == null then "" else ($p.rate_limits.five_hour.resets_at // "") end),
+            (if $u7 == null then "" else $u7 end),
+            (if $u7 == null then "" else ($p.rate_limits.seven_day.resets_at // "") end),
+            ($p.cost.total_lines_added // ""),
+            ($p.cost.total_lines_removed // ""),
+            ($p.cost.total_cost_usd // ""),
+            ($p.session_id // "")
+          ]
+        | join("\u0001")
+      '
   )"
   [ -z "$effort" ] && effort="${CLAUDE_EFFORT:-}"
 }
@@ -90,12 +113,15 @@ sl_parse_input() {
 # Reads its cache key from transcript_path/cwd (populated by sl_parse_input)
 # and the shared "now" epoch ($_sl_now) so it never forks its own `date`.
 # On success it populates branch, pr_badge, git_sync_segment, state_segment,
-# clam_mode, cost_line from the bundle. The bundle is a plain key=value-per-
-# line file (no JSON) so a warm read never spends the render's one jq
-# invocation on cache bookkeeping. A line whose value happens to contain
-# "=" is still read correctly (only the FIRST "=" on the line separates
-# key from value); a bundle missing any of the six expected keys — e.g.
-# corrupted content that matches none of them — is treated as absent.
+# clam_mode from the bundle. The bundle is a plain key=value-per-line file
+# (no JSON) so a warm read never spends the render's one jq invocation on
+# cache bookkeeping. A line whose value happens to contain "=" is still read
+# correctly (only the FIRST "=" on the line separates key from value); a
+# bundle missing any of the five expected keys — e.g. corrupted content that
+# matches none of them — is treated as absent. An old six-key bundle from
+# the pre-B04 plugin version still carries a cost_line= line; it is simply
+# ignored (matches no case arm below, contributes no bit) rather than
+# treated as corrupt — the migration path for every already-installed user.
 sl_bundle_read() {
   local ttl key_src key file mtime age line got
   ttl="$SL_SEGMENT_TTL_SECONDS"
@@ -113,7 +139,7 @@ sl_bundle_read() {
   [ "$age" -ge "$ttl" ] && return 1
 
   got=0
-  branch=""; pr_badge=""; git_sync_segment=""; state_segment=""; clam_mode=""; cost_line=""
+  branch=""; pr_badge=""; git_sync_segment=""; state_segment=""; clam_mode=""
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       branch=*)    branch="${line#branch=}";            got=$((got | 1)) ;;
@@ -121,10 +147,10 @@ sl_bundle_read() {
       git_sync=*)  git_sync_segment="${line#git_sync=}"; got=$((got | 4)) ;;
       state_seg=*) state_segment="${line#state_seg=}";   got=$((got | 8)) ;;
       clam_mode=*) clam_mode="${line#clam_mode=}";       got=$((got | 16)) ;;
-      cost_line=*) cost_line="${line#cost_line=}";       got=$((got | 32)) ;;
+      # cost_line=* deliberately unmatched -- see the comment above.
     esac
   done < "$file"
-  [ "$got" -eq 63 ] || return 1
+  [ "$got" -eq 31 ] || return 1
 }
 
 # sl_bundle_write: atomically (temp + rename) persist the freshly rendered
@@ -143,9 +169,195 @@ sl_bundle_write() {
     printf 'git_sync=%s\n' "$git_sync_segment"
     printf 'state_seg=%s\n' "$state_segment"
     printf 'clam_mode=%s\n' "$clam_mode"
-    printf 'cost_line=%s\n' "$cost_line"
   } > "$tmp" 2>/dev/null
   mv -f "$tmp" "$SL_CACHE_DIR/$key.bundle" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+# ------------------------------------------------------------------------
+
+# --- B04 / B05 scaffold surface -------------------------------------------
+# Loud-but-safe unimplemented marker. Writes to stderr ONLY: this script's
+# stdout is the user's statusline, so a stub must never print into it. The
+# non-zero return is what callers branch on to omit an unbuilt segment.
+_sl_not_implemented() {
+  echo "NotImplemented: $1" >&2
+  return 70
+}
+
+# Contract: B04 payload-parse (plan 001-statusline-burnrate-uplift)
+#
+# Behavior:
+#   Extends the render's single-jq stdin parse to the fields the burnrate
+#   line needs, and retires the Cost line's inputs. Three changes, one
+#   block:
+#     1. sl_parse_input additionally populates the eight burnrate variables
+#        below, from the SAME single jq invocation that already yields the
+#        window size, token count, transcript path, cwd, model and effort.
+#        Adding a second jq is a contract violation, not an optimisation
+#        target.
+#     2. The cached expensive-segment bundle drops its cost_line key: six
+#        keys become five and sl_bundle_read's completeness mask goes from
+#        63 to 31. A bundle written by the previous version still has six
+#        keys; the extra one is ignored, not treated as corrupt.
+#     3. context.sh stops invoking ccost.sh entirely. The script itself
+#        stays in the plugin as a standalone CLI (bash ccost.sh day), and
+#        prices.json with it — only the render's dependency on it goes.
+#
+# Inputs:
+#   The statusLine JSON on stdin, additionally read for:
+#     .rate_limits.five_hour.used_percentage   -> r5          (0..100)
+#     .rate_limits.five_hour.resets_at         -> r5_reset    (epoch seconds)
+#     .rate_limits.seven_day.used_percentage   -> r7          (0..100)
+#     .rate_limits.seven_day.resets_at         -> r7_reset    (epoch seconds)
+#     .cost.total_lines_added                  -> lines_added
+#     .cost.total_lines_removed                -> lines_removed
+#     .cost.total_cost_usd                     -> total_cost_usd
+#     .session_id                              -> session_id
+#   Field names verified against Claude Code 2.1.220's own embedded
+#   statusline documentation: used_percentage is 0..100 and resets_at is
+#   Unix epoch SECONDS. (An ISO-8601 `utilization`/`resets_at` shape also
+#   exists in the binary; it belongs to a different internal surface and
+#   must NOT be parsed here.)
+#
+# Outputs:
+#   The eight variables above, set in the caller's scope. Each is the empty
+#   string when its payload field is absent — never 0, which would render a
+#   real "0%" meter for a session that has no quota data at all.
+#
+# Errors:
+#   None surfaced. A payload without rate_limits parses cleanly to empty
+#   strings; the segments that consume them are simply omitted downstream.
+#
+# Invariants:
+#   - EXACTLY ONE jq invocation over the stdin payload per render, unchanged
+#     from today. The settings.json compaction-budget fallback remains the
+#     only other permitted jq, and only when the env var is unset.
+#   - Fields are joined on \x01, never tab: bash `read` collapses runs of
+#     IFS whitespace, so an absent field between two present ones would
+#     swallow the next column and misalign everything after it. With eight
+#     frequently-absent fields added, this is now load-bearing rather than
+#     defensive.
+#   - The warm render still opens nothing under CLAUDE_PROJECTS_DIR and
+#     still invokes no git. It now also invokes no ccost.sh by construction
+#     rather than by cache freshness.
+#
+# Edge cases:
+#   - rate_limits absent entirely (API-key, Bedrock, Vertex, or Claude Code
+#     older than 2.1): all four rate-limit variables empty; every other
+#     field still parses correctly despite the four-column gap.
+#   - five_hour present but seven_day absent (or the reverse): only the
+#     absent pair is empty.
+#   - used_percentage arriving as a float (23.5): preserved as given; the
+#     rounding decision belongs to the renderer, not the parser.
+#   - A pre-existing six-key bundle from the previous plugin version: read
+#     as valid, its cost_line ignored.
+#   - total_lines_added/removed absent: empty, distinguishable from a real 0
+#     (a session that has genuinely changed nothing renders no +/- segment
+#     either way, but the parser must not invent the zero).
+sl_parse_burn_fields() {
+  # Superseded: sl_parse_input's single jq invocation now parses these eight
+  # fields directly (Behavior clause 1 above), so this function is no longer
+  # called from there. Left as a harmless no-op -- not re-assigning the
+  # variables to "" here matters, since a caller invoking this by name after
+  # sl_parse_input would otherwise wipe out already-parsed real values.
+  return 0
+}
+
+# Contract: B05 burnrate-line (plan 001-statusline-burnrate-uplift)
+#
+# Behavior:
+#   Assembles the entire burnrate line and echoes it as one string with no
+#   trailing newline. Replaces what were three separate rendered lines (the
+#   mode/model/effort line, the Ctx-usage line, and the Cost line) with the
+#   single line the plugin now shows beneath the path line:
+#
+#     🦄 Fable 5 high │ 🎯 32% 72%t 17%/d ▼-11 │ 🧠 10% +503/-16 │ 🔥 1% 4h54m │ 😼·
+#
+#   Five groups joined by a dim │ separator:
+#     1. model    BURN_MASCOT, the model name in its drifting rainbow, and
+#                 the effort tier in its own colour
+#     2. weekly   🎯 used%, today's remaining share (%t), sustainable pace
+#                 (%/d), and the trend arrow vs the awake even-burn line
+#     3. session  🧠 context occupancy, and lines added/removed this session
+#     4. 5-hour   🔥 used%, and the countdown to its reset
+#     5. pet      the companion glyph, moods keyed to the worst meter
+#
+#   Composes B01 (burn_metrics), B02 (burn_tick_frac), and B03 (all
+#   presentation) over B04's parsed fields. It performs no arithmetic and no
+#   colour selection of its own — every number comes from B01/B02 and every
+#   colour from B03.
+#
+# Inputs:
+#   Reads the variables B04 populates (r5, r5_reset, r7, r7_reset,
+#   lines_added, lines_removed, total_cost_usd, session_id, model_name,
+#   effort), plus used_tokens, ctx_budget and idle_seconds from the live Ctx
+#   computation, the shared $_sl_now, and the local time-of-day seconds used
+#   to derive the day-start anchor.
+#
+#   Two environment knobs, both consumed here and passed down to B01:
+#     SL_DAY_START     hour the user's day flips, 0..23  (default 2)
+#     SL_SLEEP_HOURS   hours after that counted as sleep (default 6)
+#   A non-integer or out-of-range value for either falls back to its
+#   default rather than erroring.
+#
+# Outputs:
+#   One line of text on stdout, no trailing newline, ANSI-coloured.
+#
+#   Each group is omitted ENTIRELY, along with its separator, when its data
+#   is unavailable — so the line never shows a dangling │, a stray emoji
+#   with no number, or a leading/trailing separator. A session with no
+#   rate_limits at all renders groups 1, 3 and 5 only.
+#
+#   The +N/-M sub-segment appears only once at least one of the two counts
+#   is above zero; a session that has edited nothing shows no counts rather
+#   than "+0/-0".
+#
+# Errors:
+#   Never fails the render. Any component returning non-zero — B01 unable to
+#   compute, B02's state file unwritable, a missing reset timestamp — drops
+#   that figure or its whole group and the rest of the line still renders.
+#   Nothing is ever written to stdout except the line itself.
+#
+# Invariants:
+#   - The 🧠 meter keeps this plugin's occupancy math
+#     (total_input_tokens / CLAUDE_CODE_AUTO_COMPACT_WINDOW, non-saturating,
+#     idle-aware via burn_ctx_state) rather than the upstream's
+#     .context_window.used_percentage. Decided in
+#     .local/decisions/002-context-meter-source.md: that field saturates at
+#     100 and tracks the model's full window, and the token math runs
+#     regardless to feed .local/.ctx-status.json — displaying the payload
+#     field would publish one number and show another.
+#   - The clam mode does NOT appear on this line. It renders on the path
+#     line beside the State segment, per
+#     .local/decisions/001-clam-mode-placement.md, so the burnrate line is
+#     exactly the five groups above.
+#   - The pet's stress level is the MAXIMUM of the context, 5-hour and
+#     weekly percentages, skipping any that are absent.
+#   - Warm-render process budget, raised from 10 to 12 external commands and
+#     measured by the PATH-shim harness in context.test.sh: the pre-uplift
+#     warm render measured 8, and this line adds at most three — two awk
+#     (one in B01, one in B02) and one date (local time-of-day for the
+#     day-start anchor, alongside the existing shared UTC date). Within
+#     that: exactly one jq, at most two date, at most two awk, and still no
+#     git, no ccost.sh, and nothing opened under CLAUDE_PROJECTS_DIR.
+#   - Rate-limit figures are LIVE on every render, never cached — they are
+#     server-side quota state and a stale one is worse than none.
+#
+# Edge cases:
+#   - No rate_limits in the payload: groups 2 and 4 vanish with their
+#     separators; groups 1, 3, 5 render normally.
+#   - Weekly data present but its reset timestamp absent: 🎯 used% still
+#     renders; %t, %/d and the trend do not (all three need the reset).
+#   - B01 returning NA for today's share (a degenerate slice): the %t
+#     sub-segment is omitted while pace and trend still render.
+#   - Context occupancy over 100% (an overrun): renders above 100 rather
+#     than clamping — the whole reason this plugin computes it itself.
+#   - Model name carrying a parenthesised suffix ("Opus 5 (1M context)"):
+#     trimmed at " (" before colouring, so the line stays short.
+#   - Every group empty (a payload with nothing but a cwd): echoes the empty
+#     string, and the caller prints no line at all rather than a bare
+#     newline.
+sl_render_burn_line() {
+  _sl_not_implemented "B05 burnrate-line (line not assembled)"
 }
 # ------------------------------------------------------------------------
 
@@ -172,6 +384,16 @@ _sl_dirname() {
 _LIB_DIR="$(cd "$(_sl_dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
 _STATES_LIB="$_LIB_DIR/states.sh"
 [ -f "$_STATES_LIB" ] && . "$_STATES_LIB"
+
+# Burnrate line libraries (B01 pacing math, B02 sub-tick interpolation, B03
+# presentation). `.` is a builtin, so sourcing three more files costs the
+# warm-render process budget nothing. Each is optional at load time: a
+# missing file leaves its functions undefined and sl_render_burn_line omits
+# the groups that need them, exactly as it does for absent payload data.
+for _burn_lib in burn-math.sh burn-tick.sh burn-theme.sh; do
+  [ -f "$_LIB_DIR/$_burn_lib" ] && . "$_LIB_DIR/$_burn_lib"
+done
+unset _burn_lib
 
 SCRIPT_DIR="$(cd "$(_sl_dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/platform.sh"
@@ -214,16 +436,6 @@ file_age() {
   local m
   m=$(clam_mtime_epoch "$1")
   echo $(( $(date +%s) - m ))
-}
-
-# Format USD amount: 2 decimals, thousands separators (e.g. "1,234.56").
-fmt_usd() {
-  local n="$1"
-  if [ -z "$n" ] || [ "$n" = "0" ]; then
-    echo "0.00"
-    return
-  fi
-  printf "%'.2f" "$n" 2>/dev/null || printf "%.2f" "$n"
 }
 
 # Classify a PR into its statusline emoji. Same rules as the /pr-status skill.
@@ -300,9 +512,9 @@ if [ -n "$cwd" ]; then
 fi
 
 # --- LIVE vs CACHED split ---------------------------------------------------
-# Populates branch, pr_badge, git_sync_segment, state_segment, clam_mode,
-# cost_line. On a WARM render (sl_bundle_read succeeds) these come straight
-# from the last-built bundle: no git, no ccost.sh, nothing under
+# Populates branch, pr_badge, git_sync_segment, state_segment, clam_mode. On
+# a WARM render (sl_bundle_read succeeds) these come straight from the
+# last-built bundle: no git, no ccost.sh, nothing under
 # CLAUDE_PROJECTS_DIR touched. On a COLD render they're computed exactly as
 # the pre-cache renderer did, then persisted for the next render — including
 # the background refresh-engine kicks, which per contract only ever fire
@@ -449,41 +661,6 @@ if ! sl_bundle_read; then
     clam_mode="${clam_mode:0:24}"
   fi
 
-  # Cost summary line — list-price equivalent (counterfactual to the Max plan).
-  # Computed by sibling ccost.sh against ~/.claude/projects JSONL transcripts.
-  # Rendered into a single string (rather than printed directly) so it can be
-  # cached verbatim and replayed on warm renders without re-invoking ccost.sh.
-  cost_line=""
-  ccost_script="$(dirname "$0")/ccost.sh"
-  if [ -x "$ccost_script" ]; then
-    session_cost=""
-    if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
-      session_cost=$("$ccost_script" session "$transcript_path" 2>/dev/null)
-    fi
-    day_cost=$("$ccost_script" day 2>/dev/null)
-    week_cost=$("$ccost_script" week 2>/dev/null)
-
-    if [ -n "$session_cost" ] || [ -n "$day_cost" ] || [ -n "$week_cost" ]; then
-      cost_line=$(
-        printf '\033[38;5;245mCost:\033[0m '
-        need_sep=false
-        if [ -n "$session_cost" ]; then
-          printf 'Session: \033[38;5;220m$%s\033[0m' "$(fmt_usd "$session_cost")"
-          need_sep=true
-        fi
-        if [ -n "$day_cost" ]; then
-          if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
-          printf 'Today (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$day_cost")"
-          need_sep=true
-        fi
-        if [ -n "$week_cost" ]; then
-          if [ "$need_sep" = "true" ]; then printf ' \033[38;5;245m|\033[0m '; fi
-          printf 'Week (AEST): \033[38;5;220m$%s\033[0m' "$(fmt_usd "$week_cost")"
-        fi
-      )
-    fi
-  fi
-
   sl_bundle_write
 fi
 # ------------------------------------------------------------------------
@@ -514,6 +691,17 @@ fi
 
 if [ -n "$state_segment" ]; then
   printf '%s' "$state_segment"
+fi
+
+# The burnrate line (B05). This is the seam the uplift lands in: once B05 is
+# implemented it emits the whole line and the three legacy blocks below it —
+# mode/model/effort, Ctx usage, and Cost — are deleted. While the stub
+# returns non-zero the substitution is empty and nothing is printed, so the
+# render is byte-identical to the pre-uplift output and the existing suite
+# stays green.
+burn_line=$(sl_render_burn_line 2>/dev/null)
+if [ -n "$burn_line" ]; then
+  printf '\n%s' "$burn_line"
 fi
 
 # Mode + model + effort line (its own line so the path line above stays
@@ -622,10 +810,3 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   fi
 fi
 
-# Cost summary line. CACHED (see the LIVE/CACHED split above): cost_line is
-# the fully rendered "Cost: ..." text with no leading/trailing newline,
-# computed on a cold render and replayed verbatim on a warm one.
-if [ -n "$cost_line" ]; then
-  printf '\n'
-  printf '%s' "$cost_line"
-fi

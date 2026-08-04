@@ -13,16 +13,23 @@
 # on.
 # Also covers: the warm render opens nothing under CLAUDE_PROJECTS_DIR and
 # never spawns ccost.sh at all (clause 2); a cold render produces the full,
-# correct statusline and leaves both the segment-bundle and ccost session
-# caches populated so the immediately-following render is warm (clause 3);
-# the plugin.json version floor of >= 0.2.0 (clause 4); the README documenting
-# the caching/staleness model and its env knobs (clause 5); a fully cold
-# render staying within a generous legacy-cost bound (clause 6); and
-# per-session bundle isolation under a shared cache dir (clause 7).
+# correct statusline and leaves the segment-bundle cache populated so the
+# immediately-following render is warm (clause 3); the plugin.json version
+# floor of >= 0.2.0 (clause 4); the README documenting the caching/staleness
+# model and its env knobs (clause 5); a fully cold render staying within a
+# generous legacy-cost bound (clause 6); and per-session bundle-key isolation
+# under a shared cache dir (clause 7). Under B04 context.sh stops invoking
+# ccost.sh entirely -- there is no Cost line and no ccost session cache on
+# ANY render path, cold or warm -- so clauses 2 and 3 both now assert
+# non-invocation rather than the pre-B04 cold-invokes/warm-doesn't split.
 # Composition is kept REAL throughout (no fake ccost.sh): a shadow script
 # tree symlinks the real context.sh/libs and wraps ccost.sh with a thin
-# logging shim that execs the real ccost.sh, so "ccost.sh was invoked" is
-# observable without faking its behavior.
+# logging shim that execs the real ccost.sh. Its job has inverted from B03:
+# it no longer proves ccost.sh WAS invoked on the cold path, it proves
+# ccost.sh is NEVER invoked, on any render path, from outside the render --
+# the only way to observe that, since ccost_script is resolved from
+# $(dirname "$0"), a path rather than a bare name, so a PATH shim alone
+# cannot intercept it.
 # Run: bash plugins/statusline/scripts/render-budget.test.sh   (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,9 +82,11 @@ REAL_BASH=$(type -P bash)
 # alongside a LOGGING WRAPPER around the REAL ccost.sh: it appends its args to
 # $CCOST_LOG, then execs the genuine script by absolute path (so ccost.sh's
 # own BASH_SOURCE-relative SCRIPT_DIR/PRICES_FILE resolution is unaffected).
-# This is the only way to observe "ccost.sh was invoked" from outside
-# (ccost_script is resolved from $(dirname "$0"), a path, not a bare name, so
-# a PATH shim alone can't intercept it) while keeping the composition real.
+# Under B04 context.sh never invokes ccost.sh at all, so this wrapper's job is
+# to prove that absence: it is the only way to observe "ccost.sh was NOT
+# invoked" from outside (ccost_script is resolved from $(dirname "$0"), a
+# path, not a bare name, so a PATH shim alone can't intercept it either way)
+# while keeping the composition real.
 SHADOW="$TMPROOT/shadow"; mkdir -p "$SHADOW/scripts" "$SHADOW/lib"
 ln -s "$CONTEXT" "$SHADOW/scripts/context.sh"
 ln -s "$SCRIPT_DIR/../lib/platform.sh" "$SHADOW/lib/platform.sh"
@@ -180,6 +189,7 @@ mandatory_json="$(sl_json "$MANDATORY_WD" "$MANDATORY_TRANSCRIPT")"
 render_shim "$mandatory_json" "$MANDATORY_BUNDLE_DIR" 600 "$MANDATORY_CCOST_DIR" 600 "$MANDATORY_PROJECTS_DIR"
 cold_out=$(strip_ansi < "$REND_OUT")
 cold_total=$(shim_count "$SHIM_LOG")
+cold_ccost_calls=$(shim_count "$CCOST_LOG_FILE")
 
 check "clause3: cold render includes the cwd path" \
   "$(printf '%s' "$cold_out" | grep -qF "$MANDATORY_WD" && echo yes || echo no)" "yes"
@@ -187,20 +197,23 @@ check "clause3: cold render includes the model/effort line" \
   "$(printf '%s' "$cold_out" | grep -qF "Opus" && printf '%s' "$cold_out" | grep -qF "high effort" && echo yes || echo no)" "yes"
 check "clause3: cold render includes the Ctx-usage line" \
   "$(printf '%s' "$cold_out" | grep -qF "Ctx used:" && echo yes || echo no)" "yes"
-check "clause3: cold render includes the Cost line with a real composed session cost" \
-  "$(printf '%s' "$cold_out" | grep -qF "Cost:" && printf '%s' "$cold_out" | grep -qF 'Session: $5.00' && echo yes || echo no)" "yes"
+check "clause3: cold render includes no Cost line and no Session cost figure" \
+  "$(printf '%s' "$cold_out" | grep -qE 'Cost:|Session: \$' && echo yes || echo no)" "no"
 check "clause3: cold render seeds exactly one segment-bundle cache entry" \
   "$(find "$MANDATORY_BUNDLE_DIR" -name '*.bundle' 2>/dev/null | wc -l | tr -d ' ')" "1"
-check "clause3: cold render seeds the ccost session cache" \
-  "$(find "$MANDATORY_CCOST_DIR" -name 'session-*.cache' 2>/dev/null | wc -l | tr -d ' ')" "1"
-# The mandatory scenario's cold render (worktree .local publish + real
-# session/day/week ccost scans, all three cache-cold) measures 44 external
-# commands today. 60 gives real headroom above that measured figure (not a
-# brittle exact match) while still catching a pathological regression (e.g.
-# an accidental O(n) fork loop), matching the brief's "bound it generously"
-# guidance -- the illustrative "40" there was approximate, not a target.
-check "clause6: fully cold end-to-end render stays within a generous 60-command legacy-cost bound" \
-  "$([ "${cold_total:-999}" -le 60 ] && echo yes || echo no)" "yes"
+check "clause3: cold render seeds zero ccost session cache entries" \
+  "$(find "$MANDATORY_CCOST_DIR" -name 'session-*.cache' 2>/dev/null | wc -l | tr -d ' ')" "0"
+check "clause3: cold render never spawns ccost.sh" "${cold_ccost_calls:-1}" "0"
+# The mandatory scenario's cold render (worktree .local publish, no ccost.sh
+# invocation at all under B04) measures 12 external commands today -- down
+# from the pre-B04 44, which included three cache-cold ccost.sh scans
+# (session/day/week) and their own subprocess forks. 20 keeps proportionally
+# comparable headroom over that measured figure (not a brittle exact match)
+# while still catching a pathological regression (e.g. an accidental O(n)
+# fork loop) -- a regression that reintroduced even one cache-cold ccost.sh
+# scan would already blow well past it.
+check "clause6: fully cold end-to-end render stays within a generous 20-command legacy-cost bound" \
+  "$([ "${cold_total:-999}" -le 20 ] && echo yes || echo no)" "yes"
 
 # --- Clause 1: warm render against exactly that seeded state ----------------
 render_shim "$mandatory_json" "$MANDATORY_BUNDLE_DIR" 600 "$MANDATORY_CCOST_DIR" 600 "$MANDATORY_PROJECTS_DIR"
@@ -209,8 +222,8 @@ warm_total=$(shim_count "$SHIM_LOG")
 
 check "clause1: warm render (transcript present, no compaction-window env var, worktree .local) invokes at most 10 external commands" \
   "$([ "${warm_total:-999}" -le 10 ] && echo yes || echo no)" "yes"
-check "clause1: warm render reproduces the cached Cost line" \
-  "$(printf '%s' "$warm_out" | grep -qF 'Session: $5.00' && echo yes || echo no)" "yes"
+check "clause1: warm render carries no Cost line (the replayed bundle has no cost_line key)" \
+  "$(printf '%s' "$warm_out" | grep -qE 'Cost:|Session: \$' && echo yes || echo no)" "no"
 
 # ============================================================================
 # Clause 2 -- warm render opens nothing under CLAUDE_PROJECTS_DIR and never
@@ -289,10 +302,21 @@ check "clause5: README documents the 300s day/week TTL figure outside the contra
   "$(printf '%s' "$readme_body" | grep -qE '\b300\b' && echo yes || echo no)" "yes"
 
 # ============================================================================
-# Clause 7 -- per-session bundle isolation: two renders sharing a cwd (and
-# cache dir) but with different transcript_paths must produce two distinct
-# bundle entries, and a warm render for session A must never serve session
-# B's cached segments.
+# Clause 7 -- per-session bundle KEYING: two renders sharing a cwd (and cache
+# dir) but with different transcript_paths must still land in two distinct
+# bundle cache entries, i.e. the cache key is session-scoped rather than just
+# cwd-scoped, even though nothing in the bundle's own payload is session-
+# derived. What this clause does NOT assert, post-B04: payload divergence
+# between those two entries. Session cost used to be the observable that
+# proved cross-session isolation (session A's warm render would never serve
+# session B's cost), but B04 removes cost_line from the bundle entirely, and
+# the five keys that remain -- branch, pr_badge, git_sync_segment,
+# state_segment, clam_mode -- are all cwd-derived. Two sessions sharing a cwd
+# therefore now produce byte-identical bundle payloads by construction, so
+# there is no payload-divergence observable left to assert here; manufacturing
+# one would not be testing anything real. The surviving check below is the
+# one still-true half of the old invariant: the cache key itself stays
+# session-scoped.
 # ============================================================================
 ISO_WD="$TMPROOT/iso-wd"; mk_wt "$ISO_WD"
 ISO_BUNDLE_DIR="$TMPROOT/iso-bundle-cache"
@@ -300,8 +324,8 @@ ISO_CCOST_DIR="$TMPROOT/iso-ccost-cache"
 ISO_PROJECTS_DIR="$TMPROOT/iso-projects"; mkdir -p "$ISO_PROJECTS_DIR"
 ISO_TRANSCRIPT_A="$TMPROOT/iso-transcript-a.jsonl"
 ISO_TRANSCRIPT_B="$TMPROOT/iso-transcript-b.jsonl"
-mk_transcript "$ISO_TRANSCRIPT_A" 1000000 claude-opus-4-8   # -> session cost $5.00
-mk_transcript "$ISO_TRANSCRIPT_B" 2000000 claude-opus-4-8   # -> session cost $10.00
+mk_transcript "$ISO_TRANSCRIPT_A" 1000000 claude-opus-4-8   # distinct transcript_path from B (dollar figure no longer observable)
+mk_transcript "$ISO_TRANSCRIPT_B" 2000000 claude-opus-4-8   # distinct transcript_path from A (dollar figure no longer observable)
 iso_json_a="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_A")"
 iso_json_b="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_B")"
 
@@ -310,16 +334,6 @@ render_shim "$iso_json_b" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJE
 
 check "clause7: two sessions sharing a cwd and cache dir produce two distinct bundle entries" \
   "$(find "$ISO_BUNDLE_DIR" -name '*.bundle' 2>/dev/null | wc -l | tr -d ' ')" "2"
-
-render_shim "$iso_json_a" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJECTS_DIR"   # warm: session A
-iso_warm_a=$(strip_ansi < "$REND_OUT")
-render_shim "$iso_json_b" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJECTS_DIR"   # warm: session B
-iso_warm_b=$(strip_ansi < "$REND_OUT")
-
-check "clause7: session A's warm render serves its own cost, not session B's" \
-  "$(printf '%s' "$iso_warm_a" | grep -qF 'Session: $5.00' && ! printf '%s' "$iso_warm_a" | grep -qF 'Session: $10.00' && echo yes || echo no)" "yes"
-check "clause7: session B's warm render serves its own cost, not session A's" \
-  "$(printf '%s' "$iso_warm_b" | grep -qF 'Session: $10.00' && ! printf '%s' "$iso_warm_b" | grep -qF 'Session: $5.00' && echo yes || echo no)" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

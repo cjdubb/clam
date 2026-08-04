@@ -34,11 +34,11 @@ When you do render a document:
 - A sibling `.html` file is written next to the input (`.local/PLAN.md` ->
   `.local/PLAN.html`). This is the only file render.sh itself writes.
 - With `--open` and python3 available, the shared annotation server
-  (`scripts/serve.py`) starts (or is reused if already running) and writes
-  its state to `/tmp/render-doc-serve.json`. From then on, "Add" clicks in
-  the browser composer write `@TAG: note` lines back into the source
-  markdown — the only other file this plugin modifies, and only in response
-  to an explicit annotation.
+  (`scripts/serve.py`) starts on its fixed port (or is reused if a copy is
+  already bound there). From then on, "Add" clicks in the browser composer
+  write `@TAG: note` lines back into the source markdown — the only other
+  file this plugin modifies, and only in response to an explicit
+  annotation.
 - Other plugins never see this plugin unless they choose to: automatic
   rendering at their checkpoints is gated by checking whether the
   `render-doc:render` skill is available, and skipping silently when it is
@@ -125,18 +125,28 @@ Exits non-zero with a message on stderr for any failure (missing input,
 missing template or parser, splice failure); no output is written on
 failure.
 
-**`scripts/serve.py [<state-file>]`** — the shared local annotation server
-started by `render.sh --open`. One instance serves all rendered documents on
-`127.0.0.1` (never exposed to the network); the first `--open` call starts
-it, later calls reuse it (health-checked via `/health`). State — `{"pid":
-N, "port": N}` — is written to `/tmp/render-doc-serve.json` by default (or
-the path given as the first argument) so `render.sh` can discover a running
-instance. Documents register via POST `/register` with `{html, md}` paths
-and get a deterministic ID (a sha256 prefix of the HTML path); annotations
-arrive via POST `/annotate` with `{md, section, excerpt, tag, note}` and are
-only accepted for a registered `md` path (403 otherwise). Auto-shuts down
-after 30 minutes without a request and cleans up its state file on exit. No
-user action is needed to start or stop it — it comes and goes with usage.
+**`scripts/serve.py`** — the shared local annotation server behind
+`render.sh --open`, on `127.0.0.1` only (never exposed to the network).
+Takes no arguments and needs none: it binds the fixed port 27183 (override
+with `RENDER_DOC_PORT`), and that bind is itself the singleton lock — the
+first session to reach the port owns it for every session and every agent
+on the machine afterward, and a process that loses the race just prints a
+diagnostic and exits, so nobody fights over it. Every rendered document
+lives at a deterministic address, `/doc/<absolute path to the .md>`, so a
+given file's URL never changes and survives a server restart; a request
+re-renders the sibling `.html` on demand whenever the source `.md` or
+`assets/template.html` is newer than it, and serves the existing file
+untouched otherwise. Before touching any file, `/doc` and `/annotate` both
+resolve the requested path's realpath and check it against the same scope
+rule: it must end in `.md`, must exist, must resolve under `$HOME`, and
+must sit inside a git worktree — checked on the realpath before any read,
+so a symlink cannot smuggle in a file the rule would otherwise reject.
+Every request also carries a `Host` header pinned to `127.0.0.1:<port>`;
+anything else is rejected before routing, so a page loaded from another
+origin cannot drive this server through the reader's browser. Annotations
+arrive via POST `/annotate` with `{md, section, excerpt, tag, note}` and
+are written straight into the markdown named in the request, subject to
+that same scope check.
 
 ### Failure modes
 
@@ -148,6 +158,7 @@ user action is needed to start or stop it — it comes and goes with usage.
 | `open` fails or is absent | Render still succeeds; path printed for manual viewing |
 | python3 unavailable | `--open` falls back to `file://` open; annotations are in-memory only |
 | Annotation server unreachable | "Add" still works in-memory; no save confirmation shown |
+| Port 27183 (or `RENDER_DOC_PORT`) held by another process, not this server | A stderr note names the port; `--open` falls back to `file://` |
 
 ### Maintenance
 
@@ -167,14 +178,24 @@ user action is needed to start or stop it — it comes and goes with usage.
   remain, script-element count unchanged (the `</script>` proof), no
   external resource references, and `render.sh` fails loudly on bad input.
   Run it after any template or script change.
+- `scripts/server.test.sh` and `scripts/open.test.sh` cover the annotation
+  server and the `--open` client end to end — run them after any change to
+  `serve.py` or the `--open` block in `render.sh`.
 
 ## Tests
 
 ```bash
 bash plugins/render-doc/scripts/render.test.sh
+bash plugins/render-doc/scripts/server.test.sh
+bash plugins/render-doc/scripts/server-docs.test.sh
+bash plugins/render-doc/scripts/open.test.sh
+bash plugins/render-doc/scripts/save-status.test.sh
 bash plugins/render-doc/scripts/structure.test.sh
 bash plugins/render-doc/scripts/registration.test.sh
 bash plugins/render-doc/scripts/migration.test.sh
+bash plugins/render-doc/scripts/workgraph-docs.test.sh
+bash plugins/render-doc/scripts/workgraph-graph.test.sh
+bash plugins/render-doc/scripts/workgraph-render.test.sh
 ```
 
 ## Provenance
@@ -203,9 +224,11 @@ no knowledge of decision-log in either direction.
 /plugin uninstall render-doc@clam
 ```
 
-No other cleanup needed for a normal install. If the annotation server is
-running, it shuts itself down automatically after 30 minutes of inactivity
-and removes its state file (`/tmp/render-doc-serve.json`); to stop it
-immediately, kill the PID recorded in that file. Rendered `.html` files
+No other cleanup needed for a normal install. The annotation server has no
+automatic shutdown: uninstalling the plugin does not stop it, and it keeps
+running until the machine reboots or you kill it by hand. To stop it,
+read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
+`RENDER_DOC_PORT` if you set one) — or from the pidfile at
+`/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.

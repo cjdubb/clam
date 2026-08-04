@@ -140,7 +140,10 @@ by five plugins' setup skills — `attribution`, `privacy`, `settings`,
 `statusline`, and `landing` — to know when their setup is worth re-running
 after an update. None of them need to be installed; with fewer of them
 present, `/management:update` simply has fewer setup-stamp rows to report
-on and degrades gracefully. Nothing in clam depends on this plugin.
+on and degrades gracefully. `/management:install` takes a different posture:
+it hardcodes no plugin list at all. Which setup skills it offers is worked
+out as it runs, from the skill frontmatter of whatever plugins that
+invocation just installed. Nothing in clam depends on this plugin.
 
 ## Uninstalling
 

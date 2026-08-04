@@ -43,6 +43,39 @@
 #     is untouched by this block.
 #   - B09 may still split this file later; that is independent of B04.
 # -->
+
+# <!--
+# Amendment: B06 deliver tip-restore (plan 002-fix-plan-001-followups)
+#
+# B04's freeze above is scoped to that refactor (rearranging the
+# dependency-absent worlds), not to later contracts. B06 changes deliver's
+# observable behavior, so two of B04's clauses no longer hold verbatim:
+#   - The pass count moves from 115 to 120. It is still exact: any other
+#     value is a defect.
+#   - test_deliver_divergence_from_integration_tip_blocks_push is REPLACED,
+#     not weakened. Its fixture (a path advanced on the integration branch
+#     after the unit merged) is the one B06's contract names as "plan 001's
+#     G5 abort case becomes a pass", so the same arrangement is now asserted
+#     to succeed by
+#     test_deliver_restores_integration_tip_content_not_unit_commit. Its
+#     other assertions -- nothing pushed, no PR, delivery branch cleaned up
+#     -- survive inverted in that test and unchanged in the other failure
+#     tests. No other assertion in this file is weakened, skipped, merged,
+#     or deleted.
+# -->
+
+# <!--
+# Amendment: B07 manifest extraCommits (plan 002-fix-plan-001-followups)
+#
+# Same scoping as B06's amendment above: B04's freeze covers that refactor,
+# not later contracts. B07 adds an optional manifest field, so one clause
+# moves again:
+#   - The pass count moves from 120 to 131. It is still exact: any other
+#     value is a defect, whichever direction it moves.
+# Nothing else changes. B07 appends eleven checks (in their own section after
+# the realm.sh tests) and edits, reorders, weakens and deletes nothing: every
+# assertion above them, B04's and B06's alike, is untouched.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/worktree.sh"
@@ -1905,45 +1938,257 @@ test_deliver_only_a_stamped_merge_fails_loudly() {
   fi
 }
 
-# The pre-push byte-identical gate: whatever deliver builds must equal the
-# integration tip on every path it restored, or nothing is pushed and no PR
-# is opened. Here the integration branch carries a follow-up fix to a
-# delivered path that never reached the unit branch, so the restore replays
-# an older state -- the silent content-loss shape that has shipped before
-# (stale base, reverted restore, unit contributing nothing) and that this
-# one mechanical check detects regardless of cause.
-test_deliver_divergence_from_integration_tip_blocks_push() {
-  local repo
+# ===========================================================================
+# deliver: tip-restore (B06 deliver tip-restore, plan 002)
+#
+# restore_and_commit takes every restored path's CONTENT from the integration
+# tip -- the HEAD of the worktree deliver was invoked from. The resolved unit
+# commit supplies only the subject's provenance and, when no explicit paths
+# are passed, the file list via git diff-tree. Plan 001's byte-gate abort
+# case (a path advanced on integration after the unit merged) is inverted by
+# this contract into the headline pass below; the gate itself is unchanged
+# and now passes by construction for content this function wrote.
+# ===========================================================================
+
+# The headline behavior, and the same fixture plan 001 asserted aborts at the
+# byte-gate: the integration branch carries a follow-up fix to a delivered
+# path that never reached the unit branch. Restoring from the unit commit
+# replays the older state and the gate stops the push; restoring from the tip
+# delivers the fix and the PR opens.
+test_deliver_restores_integration_tip_content_not_unit_commit() {
+  local repo head_before status_before
   repo="$(build_deliver_base)"
 
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1 (unit)" "lego(U01): implementation"
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
-  commit_file "$repo" "src/greet.sh" "greet v2 (fixed on the integration branch)" \
+  commit_file "$repo" "src/greet.sh" $'greet v2 (fixed on the integration branch)\n' \
     "fix: follow-up that never reached the unit branch"
+
+  head_before="$(git -C "$repo" rev-parse HEAD)"
+  status_before="$(git -C "$repo" status --porcelain)"
 
   make_gh_shim
   local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
-  manifest="$(write_valid_manifest "$repo" "test: divergence gate" "lego/deliver/plan1/U01" U01)"
+  manifest="$(write_valid_manifest "$repo" "test: tip restore" "lego/deliver/plan1/U01" U01)"
 
   run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "a delivery diverging from the integration tip must fail: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_one_error_line "$RUN_ERR" "divergence gate"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "a path advanced on integration after the unit merged must deliver the tip content, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
   case "$RUN_ERR" in
-    *"src/greet.sh"*) : ;;
-    *) record_fail "expected the divergent path to be named on stderr: got [$RUN_ERR]" ;;
+    *"diverges from the integration tip"*)
+      record_fail "the byte-gate must pass by construction under tip-restore: got [$RUN_ERR]" ;;
   esac
 
-  if [ -n "$(git -C "$repo" ls-remote --heads origin "lego/deliver/plan1/U01" 2>/dev/null)" ]; then
-    record_fail "expected nothing to be pushed to origin when the divergence gate fires"
-  fi
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected no PR to be opened when the divergence gate fires"
-  fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
-    record_fail "expected the local delivery branch to be cleaned up when the divergence gate fires"
+    local delivered
+    delivered="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v2 (fixed on the integration branch)" "$delivered" "restored content comes from the integration tip, not from the resolved unit commit"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+
+  if [ -z "$(git -C "$repo" ls-remote --heads origin "lego/deliver/plan1/U01" 2>/dev/null)" ]; then
+    record_fail "expected the delivery branch to be pushed to origin once the gate passes"
+  fi
+  if [ ! -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected gh pr create to have been invoked (shim log is empty)"
+  fi
+
+  assert_eq "$head_before" "$(git -C "$repo" rev-parse HEAD)" "deliver never moves the integration worktree's HEAD"
+  assert_eq "$status_before" "$(git -C "$repo" status --porcelain)" "deliver never modifies the integration worktree's files"
+}
+
+# Content comes from the tip; the FILE LIST still comes from the unit
+# commit's own diff-tree. A path that moved on integration but appears in no
+# unit commit must not be swept into the delivery, and the byte-gate stays
+# scoped to the restored union rather than the whole tree.
+test_deliver_file_list_still_comes_from_the_unit_commit() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  # Two paths move on integration after the merge; only src/greet.sh is in
+  # the unit commit's diff-tree.
+  commit_files "$repo" "fix: follow-ups on the integration branch" \
+    "src/greet.sh" $'greet v2 (integration)\n' \
+    "src/other.sh" $'other v2 (integration, in no unit commit)\n'
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: file list from the unit commit" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    local greet_delivered other_delivered
+    greet_delivered="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    other_delivered="$(git -C "$repo" show "lego/deliver/plan1/U01:src/other.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v2 (integration)" "$greet_delivered" "a path in the unit commit's diff-tree carries the tip's content"
+    assert_eq "other v0" "$other_delivered" "a path that moved on integration but is in no unit commit stays at the base branch's content -- the file list is the unit commit's, not the tip's"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
+# A restored path that is ABSENT at the integration tip and TRACKED in the
+# delivery worktree is removed, so the delivery matches the tip there too.
+test_deliver_path_absent_at_tip_is_removed_when_tracked() {
+  local repo
+  repo="$(build_deliver_base)"
+  # On master (the delivery base), so the delivery worktree tracks it.
+  commit_file "$repo" "src/doomed.sh" $'doomed v0\n' "seed a path the unit touches and integration later deletes"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/doomed.sh" $'doomed v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  git -C "$repo" rm -q -- "src/doomed.sh"
+  git -C "$repo" commit -q -m "fix: the unit's path is deleted on the integration branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: path absent at tip is removed" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "a path deleted on integration must be removed from the delivery, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  case "$RUN_ERR" in
+    *"diverges from the integration tip"*)
+      record_fail "removing a path absent at the tip must satisfy the byte-gate, not trip it: got [$RUN_ERR]" ;;
+  esac
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    if git -C "$repo" cat-file -e "lego/deliver/plan1/U01:src/doomed.sh" 2>/dev/null; then
+      record_fail "expected src/doomed.sh (absent at the integration tip, tracked in the delivery worktree) to be removed from the delivery branch"
+    fi
+    local subjects
+    subjects="$(git -C "$repo" log --format=%s master..lego/deliver/plan1/U01 2>/dev/null)"
+    if ! printf '%s\n' "$subjects" | grep -qF "test impl for U01"; then
+      record_fail "expected the removal to be a real staged change and produce the implementation commit"
+    fi
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
+# The same absent-at-tip path, but UNTRACKED in the delivery worktree (the
+# unit added it and integration dropped it again, so the base branch never
+# had it): there is nothing to remove, so it is silently skipped -- not a git
+# failure, and not restored from the unit commit either.
+test_deliver_path_absent_at_tip_and_untracked_is_skipped() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_files "$repo" "lego(U01): implementation" \
+    "src/greet.sh" $'greet v1 (unit)\n' \
+    "src/unit-only.sh" $'unit-only v1\n'
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  git -C "$repo" rm -q -- "src/unit-only.sh"
+  git -C "$repo" commit -q -m "fix: the unit's new file is dropped on the integration branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: absent and untracked is skipped" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "a path absent at the tip and untracked in the delivery worktree must be skipped, not fail: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ -z "$RUN_ERR" ] || record_fail "skipping an untracked absent path must be silent: got stderr [$RUN_ERR]"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    if git -C "$repo" cat-file -e "lego/deliver/plan1/U01:src/unit-only.sh" 2>/dev/null; then
+      record_fail "expected src/unit-only.sh (absent at the integration tip) not to be restored from the unit commit"
+    fi
+    local greet_delivered
+    greet_delivered="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v1 (unit)" "$greet_delivered" "the sibling path in the same commit still carries the tip's content"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
+# The no-op rule survives the change of content source: when the TIP's
+# content for a restored path already equals what the delivery worktree
+# holds, the restore stages nothing and no commit is created. Here
+# integration backs the unit's change out again, so the implementation
+# restore is a genuine no-op even though the unit commit does differ.
+test_deliver_noop_restore_when_tip_matches_the_delivery_base() {
+  local repo
+  repo="$(build_deliver_base)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet_test.sh" $'greet test v1\n' "lego(U01): tests"
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/greet.sh" $'greet v0\n' "revert: back the unit's change out on the integration branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n '{title: "test: no-op restore under tip content", branch: "lego/deliver/plan1/U01",
+          commits: {U01: {tests: "lego(U01): contract + tests", impl: "lego(U01): implementation"}}}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    local subjects greet_delivered
+    subjects="$(git -C "$repo" log --format=%s master..lego/deliver/plan1/U01 2>/dev/null)"
+    if ! printf '%s\n' "$subjects" | grep -qF "lego(U01): contract + tests"; then
+      record_fail "expected the tests restore (which does change content) to produce its commit"
+    fi
+    if printf '%s\n' "$subjects" | grep -qF "lego(U01): implementation"; then
+      record_fail "a restore whose tip content matches the delivery worktree must stage no diff and create no commit"
+    fi
+    greet_delivered="$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo "MISSING")"
+    assert_eq "greet v0" "$greet_delivered" "the delivered path still matches the integration tip after the no-op restore"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
+}
+
+# The empty-file-list failure is unchanged, and is still derived from the
+# UNIT COMMIT: an implementation commit that touched no files fails loudly
+# with the distinguishing diagnostic even when the integration tip is full of
+# content a tip-derived file list would have found.
+test_deliver_empty_unit_commit_still_fails_when_the_tip_has_content() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U03-nocodeslug" master
+  git -C "$repo" commit -q --allow-empty -m "lego(U03): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U03-nocodeslug"
+  commit_file "$repo" "src/other.sh" $'other v2 (integration)\n' "fix: unrelated work on the integration branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: empty commit, non-empty tip" "lego/deliver/plan1/U03" U03)"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U03 nocodeslug
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "empty implementation commit: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_one_error_line "$RUN_ERR" "empty implementation commit under tip-restore"
+  case "$RUN_ERR" in
+    *"touched no files"*) : ;;
+    *) record_fail "expected stderr to distinguish 'touched no files' from the merge-commit case: got [$RUN_ERR]" ;;
+  esac
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected no PR to be opened for a unit that restores nothing"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U03"; then
+    record_fail "expected no delivery branch to survive the failed build"
   fi
 }
 
@@ -3937,6 +4182,518 @@ test_realm_lego_config_env_overrides_only_override_location_base_fixed() {
 }
 
 # ===========================================================================
+# deliver --manifest: extraCommits (B07 manifest extraCommits, plan 002)
+#
+# An OPTIONAL top-level manifest field
+#   "extraCommits": [{"subject": <string>, "files": [<path>, ...]}, ...]
+# appends one commit per entry, in array order, AFTER every unit commit.
+# Each entry's content comes from the integration tip through the same
+# restore path B06 gave the unit commits (this is that path's explicit-paths
+# arm: the files come from the manifest, not from a commit's diff-tree), and
+# its paths join DELIVERED_PATHS so the pre-push byte-gate covers them
+# identically. Absent or empty reproduces the previous behavior; a malformed
+# field dies exit 3 in pass-1 validation.
+# ===========================================================================
+
+# build_extra_commits_fixture -- a fully valid single-unit deliver fixture:
+# unit branch with a resolvable implementation commit, integrated, plus one
+# path (src/other.sh) the integration tip advances past the delivery base and
+# no unit commit touches, so it can only reach the delivery branch through an
+# extraCommits entry. Prints the repo path.
+build_extra_commits_fixture() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/other.sh" $'other v2 (integration only)\n' \
+    "fix: integration-only follow-up no unit commit carries"
+  printf '%s' "$repo"
+}
+
+# run_deliver_with_extra_commits <raw-json> -- builds a FRESH valid fixture
+# (so extraCommits is the only possible defect, and so a run that wrongly
+# succeeds cannot contaminate the next sub-case's branches), writes a
+# manifest whose top-level "extraCommits" is the given raw JSON verbatim, and
+# runs deliver through the gh shim. Sets the RUN_* globals, GH_SHIM_LOG and
+# EXTRA_FIXTURE_REPO. Called as a plain statement, never via $(...).
+EXTRA_FIXTURE_REPO=""
+run_deliver_with_extra_commits() {
+  local extra_json="$1"
+  local repo
+  repo="$(build_extra_commits_fixture)"
+  EXTRA_FIXTURE_REPO="$repo"
+  make_gh_shim
+  mkdir -p "$repo/.local"
+  printf '{"title":"test: extraCommits validation","branch":"custom/extra-commits-validation","commits":{"U01":{"impl":"unit impl subject"}},"extraCommits":%s}' \
+    "$extra_json" > "$repo/.local/manifest.json"
+  # A malformed VALUE must still leave a syntactically valid manifest file:
+  # otherwise the expected exit 3 would come from the JSON-parse check rather
+  # than from the extraCommits validation under test -- the right code for
+  # the wrong reason.
+  if ! jq empty "$repo/.local/manifest.json" >/dev/null 2>&1; then
+    record_fail "test setup invalid: manifest built for extraCommits=$extra_json is not valid JSON, so exit 3 would be the JSON check, not the extraCommits check"
+  fi
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+}
+
+# deliver_extra_commits_outcome <extraCommits-json-or-empty-for-absent> --
+# runs one deliver over an identical fixture and prints a single line
+# summarising everything the invariant cares about: exit code, the delivered
+# tree's sha (content-addressed, so it is comparable across two throwaway
+# repos even though commit shas are not) and the delivered commit subjects in
+# order. Invoked via $(...), so it asserts nothing itself.
+deliver_extra_commits_outcome() {
+  local extra_json="$1"
+  local repo branch
+  branch="custom/extra-commits-invariant"
+  repo="$(build_extra_commits_fixture)"
+  make_gh_shim
+  mkdir -p "$repo/.local"
+  if [ -n "$extra_json" ]; then
+    jq -n --argjson e "$extra_json" --arg b "$branch" \
+      '{title: "test: extraCommits invariant", branch: $b, commits: {U01: {impl: "unit impl subject"}}, extraCommits: $e}' \
+      > "$repo/.local/manifest.json"
+  else
+    jq -n --arg b "$branch" \
+      '{title: "test: extraCommits invariant", branch: $b, commits: {U01: {impl: "unit impl subject"}}}' \
+      > "$repo/.local/manifest.json"
+  fi
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  printf 'exit=%s tree=%s subjects=%s' \
+    "$RUN_EXIT" \
+    "$(git -C "$repo" rev-parse "$branch^{tree}" 2>/dev/null)" \
+    "$(git -C "$repo" log --reverse --format=%s "master..$branch" 2>/dev/null | tr '\n' '|')"
+}
+
+# The headline behavior: one commit per entry, in manifest order, after ALL
+# unit commits of ALL units -- never merged into a unit commit. Both extra
+# paths are carried by no unit commit at all, so nothing but an extraCommits
+# entry can put them on the delivery branch; the second one contains a space,
+# the arrangement B02's Code paths already use to catch unquoted expansions.
+test_deliver_extra_commits_appended_after_unit_commits_in_order() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="custom/extra-commits-order"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet_test.sh" $'greet test v1\n' "lego(U01): tests"
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+
+  git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
+  commit_file "$repo" "src/solo.sh" $'solo v1\n' "lego(U02): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff" "lego/plan1/U02-soloslug"
+
+  commit_files "$repo" "chore: integration-only follow-ups no unit commit carries" \
+    "src/other.sh" $'other v2 (integration only)\n' \
+    "src/dir with space/file.sh" $'spacey v2 (integration only)\n'
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n --arg b "$branch" \
+    '{title: "test: extraCommits order", branch: $b,
+      commits: {U01: {tests: "unit tests subject U01", impl: "unit impl subject U01"},
+                U02: {impl: "unit impl subject U02"}},
+      extraCommits: [{subject: "chore(deps): first extra commit", files: ["src/other.sh"]},
+                     {subject: "docs: second extra commit", files: ["src/dir with space/file.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+  local manifest_before
+  manifest_before="$(cat "$repo/.local/manifest.json")"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+
+  assert_eq "$manifest_before" "$(cat "$repo/.local/manifest.json")" "the manifest file is read-only; extraCommits must not modify it"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected delivery branch $branch to exist"
+    return
+  fi
+
+  local expected actual
+  expected=$'unit tests subject U01\nunit impl subject U01\nunit impl subject U02\nchore(deps): first extra commit\ndocs: second extra commit'
+  actual="$(git -C "$repo" log --reverse --format=%s "master..$branch")"
+  assert_eq "$expected" "$actual" "one commit per extraCommits entry, in manifest order, after every unit commit of every unit"
+
+  local first_extra second_extra
+  first_extra="$(git -C "$repo" show "$branch:src/other.sh" 2>/dev/null || echo "MISSING")"
+  second_extra="$(git -C "$repo" show "$branch:src/dir with space/file.sh" 2>/dev/null || echo "MISSING")"
+  assert_eq "other v2 (integration only)" "$first_extra" "the first entry's path is delivered with the integration tip's content"
+  assert_eq "spacey v2 (integration only)" "$second_extra" "an entry path containing a space is restored, not split into two paths"
+
+  # Distinctness: the extra commit carries exactly its own manifest files, and
+  # the last unit commit carries only the unit's.
+  local extra_sha impl_sha
+  extra_sha="$(git -C "$repo" log --format='%H %s' "$branch" | grep -F ' chore(deps): first extra commit' | head -n1 | cut -d' ' -f1)"
+  impl_sha="$(git -C "$repo" log --format='%H %s' "$branch" | grep -F ' unit impl subject U02' | head -n1 | cut -d' ' -f1)"
+  if [ -n "$extra_sha" ]; then
+    assert_eq "src/other.sh" "$(git -C "$repo" diff-tree --no-commit-id --name-only -r "$extra_sha")" "the extra commit changes exactly the paths its entry lists"
+  else
+    record_fail "could not locate the first extra commit to inspect its diff"
+  fi
+  if [ -n "$impl_sha" ]; then
+    assert_eq "src/solo.sh" "$(git -C "$repo" diff-tree --no-commit-id --name-only -r "$impl_sha")" "an extraCommits path is never folded into a unit commit"
+  else
+    record_fail "could not locate U02's implementation commit to inspect its diff"
+  fi
+}
+
+# The E1 case B06 deferred: the explicit-paths arm of the restore takes its
+# content from the INTEGRATION TIP too. The path here is touched on the unit
+# branch under a subject deliver never resolves, so the tip's content differs
+# from the delivery base's AND from every version the unit branch holds --
+# only a tip-sourced restore can produce the expected content. The byte-gate
+# assertions below are the observable face of "these paths join
+# DELIVERED_PATHS": a restore from anywhere but the tip would be reported
+# divergent and nothing would be pushed.
+test_deliver_extra_commit_content_comes_from_the_integration_tip() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="custom/extra-commits-tip-content"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/needsimpl.sh" $'needsimpl v1 (unit branch)\n' \
+    "wip: unit-branch work under a subject deliver never resolves"
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/needsimpl.sh" $'needsimpl v2 (integration tip)\n' \
+    "fix: advance the path past every version the unit branch holds"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n --arg b "$branch" \
+    '{title: "test: extraCommits tip content", branch: $b,
+      commits: {U01: {impl: "unit impl subject"}},
+      extraCommits: [{subject: "chore: carry the integration-only fix", files: ["src/needsimpl.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  case "$RUN_ERR" in
+    *"diverges from the integration tip"*)
+      record_fail "an extra commit's paths join DELIVERED_PATHS and must pass the byte-gate by construction: got [$RUN_ERR]" ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected delivery branch $branch to exist"
+    return
+  fi
+
+  local delivered
+  delivered="$(git -C "$repo" show "$branch:src/needsimpl.sh" 2>/dev/null || echo "MISSING")"
+  assert_eq "needsimpl v2 (integration tip)" "$delivered" "an extra commit's content comes from the integration tip, not from any unit-branch version (v1) or the delivery base (v0)"
+
+  local gate_diff
+  gate_diff="$(git -C "$repo" diff --name-only HEAD "$branch" -- "src/needsimpl.sh" 2>/dev/null)"
+  assert_eq "" "$gate_diff" "the extra commit's path is byte-identical to the integration tip, exactly what the pre-push gate compares"
+
+  local subjects
+  subjects="$(git -C "$repo" log --format=%s "master..$branch")"
+  if ! printf '%s\n' "$subjects" | grep -qF "chore: carry the integration-only fix"; then
+    record_fail "expected the entry's subject to appear as a commit on the delivery branch"
+  fi
+  if [ -z "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
+    record_fail "expected the delivery branch to be pushed once the gate passed"
+  fi
+  if [ ! -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected gh pr create to have been invoked (shim log is empty)"
+  fi
+}
+
+# B06's removal rule reaches the explicit-paths arm: an entry file ABSENT at
+# the integration tip and TRACKED in the delivery worktree is removed, and
+# that removal is a real staged change, so the entry still produces its
+# commit.
+test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="custom/extra-commits-absent-tracked"
+  # On master (the delivery base), so the delivery worktree tracks it.
+  commit_file "$repo" "src/retired.sh" $'retired v0\n' "seed a path integration later deletes"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  git -C "$repo" rm -q -- "src/retired.sh"
+  git -C "$repo" commit -q -m "chore: delete the retired script on the integration branch"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n --arg b "$branch" \
+    '{title: "test: extraCommits absent-at-tip path", branch: $b,
+      commits: {U01: {impl: "unit impl subject"}},
+      extraCommits: [{subject: "chore: drop the retired script", files: ["src/retired.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "an entry path deleted on integration must be removed, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  case "$RUN_ERR" in
+    *"diverges from the integration tip"*)
+      record_fail "removing an entry path absent at the tip must satisfy the byte-gate, not trip it: got [$RUN_ERR]" ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected delivery branch $branch to exist"
+    return
+  fi
+  if git -C "$repo" cat-file -e "$branch:src/retired.sh" 2>/dev/null; then
+    record_fail "expected src/retired.sh (absent at the tip, tracked in the delivery worktree) to be removed from the delivery branch"
+  fi
+  local subjects
+  subjects="$(git -C "$repo" log --format=%s "master..$branch")"
+  if ! printf '%s\n' "$subjects" | grep -qF "chore: drop the retired script"; then
+    record_fail "expected the removal to be a real staged change and produce the entry's commit"
+  fi
+}
+
+# The other half of the same rule: an entry file absent at the tip and
+# UNTRACKED in the delivery worktree is silently skipped -- no git failure and
+# no fabricated content. The second entry (a path the tip really does carry)
+# is what proves the skip is a skip and not the whole field being ignored.
+test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="custom/extra-commits-absent-untracked"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/other.sh" $'other v2 (integration only)\n' "fix: integration-only follow-up"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n --arg b "$branch" \
+    '{title: "test: extraCommits untracked absent path", branch: $b,
+      commits: {U01: {impl: "unit impl subject"}},
+      extraCommits: [{subject: "chore: an entry naming a path nothing has", files: ["src/never-existed.sh"]},
+                     {subject: "chore: an entry naming a path the tip has", files: ["src/other.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "an entry path absent at the tip and untracked in the delivery worktree must be skipped, not fail: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ -z "$RUN_ERR" ] || record_fail "skipping an untracked absent entry path must be silent: got stderr [$RUN_ERR]"
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected delivery branch $branch to exist"
+    return
+  fi
+  if git -C "$repo" cat-file -e "$branch:src/never-existed.sh" 2>/dev/null; then
+    record_fail "expected src/never-existed.sh (absent at the tip) never to be created on the delivery branch"
+  fi
+
+  local expected actual
+  expected=$'unit impl subject\nchore: an entry naming a path the tip has'
+  actual="$(git -C "$repo" log --reverse --format=%s "master..$branch")"
+  assert_eq "$expected" "$actual" "the skipped entry stages nothing and creates no commit; the following entry still gets its own"
+  assert_eq "other v2 (integration only)" "$(git -C "$repo" show "$branch:src/other.sh" 2>/dev/null || echo MISSING)" "the entry after a skipped one still restores the tip's content"
+}
+
+# The no-op rule of the unit commits holds for entries: an entry whose restore
+# stages no diff creates no commit. Two ways to get there -- a later entry
+# naming a path an earlier entry already restored, and an entry naming a path
+# whose tip content already equals the delivery base's. Neither is an error,
+# and neither trips the byte-gate (their paths still join DELIVERED_PATHS,
+# where they compare equal to the tip).
+test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit() {
+  local repo branch
+  repo="$(build_deliver_base)"
+  branch="custom/extra-commits-noop-entry"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  commit_file "$repo" "src/other.sh" $'other v2 (integration only)\n' "fix: integration-only follow-up"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  # src/solo.sh is untouched everywhere, so restoring it from the tip stages
+  # nothing at all.
+  jq -n --arg b "$branch" \
+    '{title: "test: extraCommits no-op entries", branch: $b,
+      commits: {U01: {impl: "unit impl subject"}},
+      extraCommits: [{subject: "chore: the entry that does change something", files: ["src/other.sh"]},
+                     {subject: "chore: the same path a second time", files: ["src/other.sh"]},
+                     {subject: "chore: a path already at the tip content", files: ["src/solo.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  case "$RUN_ERR" in
+    *"diverges from the integration tip"*)
+      record_fail "a no-op entry's paths still join DELIVERED_PATHS and must compare equal to the tip: got [$RUN_ERR]" ;;
+  esac
+
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "expected delivery branch $branch to exist"
+    return
+  fi
+
+  local expected actual
+  expected=$'unit impl subject\nchore: the entry that does change something'
+  actual="$(git -C "$repo" log --reverse --format=%s "master..$branch")"
+  assert_eq "$expected" "$actual" "an entry whose restore stages no diff creates no commit, whether the path was already restored by an earlier entry or already matches the tip"
+  assert_eq "other v2 (integration only)" "$(git -C "$repo" show "$branch:src/other.sh" 2>/dev/null || echo MISSING)" "the duplicate entry leaves the earlier entry's restored content in place"
+}
+
+# Invariant: an ABSENT extraCommits key and an EMPTY array are the same
+# delivery -- same exit, same delivered tree, same commit subjects. The
+# non-empty arm is what makes this discriminating rather than vacuous: if a
+# non-empty array produced that same delivery too, the field would simply be
+# ignored.
+test_deliver_extra_commits_absent_and_empty_reproduce_previous_behavior() {
+  local absent empty nonempty
+  absent="$(deliver_extra_commits_outcome "")"
+  empty="$(deliver_extra_commits_outcome '[]')"
+  nonempty="$(deliver_extra_commits_outcome '[{"subject":"chore: one extra commit","files":["src/other.sh"]}]')"
+
+  case "$absent" in
+    "exit=0 tree="?*) : ;;
+    *) record_fail "test setup invalid: the baseline (no extraCommits key) deliver did not succeed: [$absent]" ;;
+  esac
+  assert_eq "$absent" "$empty" "an empty extraCommits array must reproduce the absent-key delivery exactly (same exit, delivered tree and commit subjects)"
+  if [ "$absent" = "$nonempty" ]; then
+    record_fail "a non-empty extraCommits array must change the delivery; got the same outcome as the absent-key run [$absent]"
+  fi
+}
+
+# Malformed shape: the field is present but is not an array at all.
+test_deliver_extra_commits_not_an_array_exits_3() {
+  run_deliver_with_extra_commits '{"subject":"chore: x","files":["src/other.sh"]}'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "extraCommits set to an object instead of an array: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits is an object, not an array"
+  case "$RUN_ERR" in
+    *extraCommits*) : ;;
+    *) record_fail "expected the error to name the malformed field (extraCommits): got [$RUN_ERR]" ;;
+  esac
+
+  run_deliver_with_extra_commits '"src/other.sh"'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "extraCommits set to a string instead of an array: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits is a string, not an array"
+  case "$RUN_ERR" in
+    *extraCommits*) : ;;
+    *) record_fail "expected the error to name the malformed field (extraCommits): got [$RUN_ERR]" ;;
+  esac
+}
+
+# Malformed entry: "subject" missing entirely, or present but empty (the
+# manifest-wide "empty string is absent" rule).
+test_deliver_extra_commits_entry_missing_or_empty_subject_exits_3() {
+  run_deliver_with_extra_commits '[{"files":["src/other.sh"]}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "entry missing subject: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits entry missing subject"
+  case "$RUN_ERR" in
+    *subject*) : ;;
+    *) record_fail "expected the error to name the missing key (subject): got [$RUN_ERR]" ;;
+  esac
+
+  run_deliver_with_extra_commits '[{"subject":"","files":["src/other.sh"]}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "entry with an empty subject: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits entry with an empty subject"
+  case "$RUN_ERR" in
+    *subject*) : ;;
+    *) record_fail "expected the error to name the empty key (subject): got [$RUN_ERR]" ;;
+  esac
+
+  # A well-formed first entry followed by a defective second one: the check
+  # runs over every entry, not just the first.
+  run_deliver_with_extra_commits '[{"subject":"chore: fine","files":["src/other.sh"]},{"files":["src/solo.sh"]}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "second entry missing subject after a valid first: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "second extraCommits entry missing subject"
+}
+
+# Malformed entry: "files" missing, empty, or not an array.
+test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3() {
+  run_deliver_with_extra_commits '[{"subject":"chore: no files key"}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "entry missing files: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits entry missing files"
+  case "$RUN_ERR" in
+    *files*) : ;;
+    *) record_fail "expected the error to name the missing key (files): got [$RUN_ERR]" ;;
+  esac
+
+  run_deliver_with_extra_commits '[{"subject":"chore: empty files","files":[]}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "entry with an empty files array: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits entry with an empty files array"
+  case "$RUN_ERR" in
+    *files*) : ;;
+    *) record_fail "expected the error to name the empty key (files): got [$RUN_ERR]" ;;
+  esac
+
+  run_deliver_with_extra_commits '[{"subject":"chore: files is a string","files":"src/other.sh"}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "entry whose files is a string, not an array: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "extraCommits entry whose files is not an array"
+  case "$RUN_ERR" in
+    *files*) : ;;
+    *) record_fail "expected the error to name the malformed key (files): got [$RUN_ERR]" ;;
+  esac
+}
+
+# The rejection happens in pass 1, before anything is built: no delivery
+# branch, no temporary worktree, nothing pushed, no PR -- and the unit's own
+# branch is left alone, since deliver's post-run cleanup never ran either.
+test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree() {
+  run_deliver_with_extra_commits '[{"files":["src/other.sh"]}]'
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "malformed extraCommits: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  local repo="$EXTRA_FIXTURE_REPO"
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/custom/extra-commits-validation"; then
+    record_fail "expected no delivery branch to be created before extraCommits validation"
+  fi
+  local wt_count
+  wt_count="$(git -C "$repo" worktree list | grep -c '')"
+  [ "$wt_count" -eq 1 ] || record_fail "expected no temporary delivery worktree to be created before extraCommits validation, got $wt_count worktrees"
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "custom/extra-commits-validation" 2>/dev/null)" ]; then
+    record_fail "expected nothing to be pushed when extraCommits is malformed"
+  fi
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "expected no PR to be opened when extraCommits is malformed"
+  fi
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "expected the unit branch to survive: a manifest rejection must not run deliver's post-delivery cleanup"
+  fi
+}
+
+# A valid extraCommits field does not buy a manifest out of B01's
+# required-field validation: the missing commits.<unit>.impl still wins.
+test_deliver_extra_commits_does_not_relax_required_field_validation() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  local newpath="$GH_SHIM_BIN:$PATH"
+  mkdir -p "$repo/.local"
+  jq -n '{title: "test: extraCommits does not relax required fields",
+          branch: "custom/extra-commits-required-fields",
+          extraCommits: [{subject: "chore: a perfectly valid entry", files: ["src/other.sh"]}]}' \
+    > "$repo/.local/manifest.json"
+
+  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "valid extraCommits but missing commits.U01.impl: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "required-field validation still applies alongside extraCommits"
+  case "$RUN_ERR" in
+    *impl*) : ;;
+    *) record_fail "expected the error to name the missing required field (commits.U01.impl): got [$RUN_ERR]" ;;
+  esac
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -3995,7 +4752,12 @@ run_test "deliver: stale same-subject commit inherited from base history is skip
 run_test "deliver: unit whose implementation commit touches no files fails loudly, not silently" test_deliver_unit_with_empty_commit_fails_loudly
 run_test "deliver: a merge stamped with the unit subject is skipped; the plain same-subject commit wins" test_deliver_stamped_merge_commit_is_not_resolved
 run_test "deliver: a stamped merge as the ONLY same-subject commit fails loudly instead of contributing nothing" test_deliver_only_a_stamped_merge_fails_loudly
-run_test "deliver: delivered paths diverging from the integration tip abort before any push" test_deliver_divergence_from_integration_tip_blocks_push
+run_test "deliver: restores content from the integration tip, not the resolved unit commit (B06 deliver tip-restore)" test_deliver_restores_integration_tip_content_not_unit_commit
+run_test "deliver: the restored file list still comes from the unit commit's diff-tree, not the tip (B06 deliver tip-restore)" test_deliver_file_list_still_comes_from_the_unit_commit
+run_test "deliver: a path absent at the integration tip is removed when tracked in the delivery worktree (B06 deliver tip-restore)" test_deliver_path_absent_at_tip_is_removed_when_tracked
+run_test "deliver: a path absent at the integration tip and untracked in the delivery worktree is silently skipped (B06 deliver tip-restore)" test_deliver_path_absent_at_tip_and_untracked_is_skipped
+run_test "deliver: a restore whose tip content matches the delivery worktree creates no commit (B06 deliver tip-restore)" test_deliver_noop_restore_when_tip_matches_the_delivery_base
+run_test "deliver: an empty unit commit still fails loudly when the integration tip has content (B06 deliver tip-restore)" test_deliver_empty_unit_commit_still_fails_when_the_tip_has_content
 run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
 run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists
 run_test "deliver: underlying git failure (unreachable origin) on push" test_deliver_underlying_git_failure_on_push
@@ -4069,6 +4831,18 @@ run_test "archive: a successful merge archive leaves the source worktree's .loca
 run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
 run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present
 run_test "realm.sh: \$LEGO_CONFIG overrides only the override file's location; base path is fixed (NEW)" test_realm_lego_config_env_overrides_only_override_location_base_fixed
+
+run_test "deliver --manifest: extraCommits appends one commit per entry, in manifest order, after every unit commit (B07 manifest extraCommits)" test_deliver_extra_commits_appended_after_unit_commits_in_order
+run_test "deliver --manifest: an extra commit's content comes from the integration tip, not any unit-branch version (B07 manifest extraCommits)" test_deliver_extra_commit_content_comes_from_the_integration_tip
+run_test "deliver --manifest: an entry path absent at the tip is removed when tracked in the delivery worktree (B07 manifest extraCommits)" test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked
+run_test "deliver --manifest: an entry path absent at the tip and untracked is silently skipped (B07 manifest extraCommits)" test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped
+run_test "deliver --manifest: an entry whose restore stages no diff creates no commit (B07 manifest extraCommits)" test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit
+run_test "deliver --manifest: absent and empty extraCommits reproduce the previous delivery; non-empty does not (B07 manifest extraCommits)" test_deliver_extra_commits_absent_and_empty_reproduce_previous_behavior
+run_test "deliver --manifest: extraCommits that is not an array exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_not_an_array_exits_3
+run_test "deliver --manifest: an entry with a missing or empty subject exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_entry_missing_or_empty_subject_exits_3
+run_test "deliver --manifest: an entry whose files is missing, empty or not an array exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3
+run_test "deliver --manifest: a malformed extraCommits dies before any branch, worktree, push or PR (B07 manifest extraCommits)" test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree
+run_test "deliver --manifest: a valid extraCommits does not relax the required-field validation (B07 manifest extraCommits)" test_deliver_extra_commits_does_not_relax_required_field_validation
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

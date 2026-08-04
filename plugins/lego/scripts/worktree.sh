@@ -958,10 +958,14 @@ commit_changed_files() {
 # the pathspec for the pre-push byte-identical gate.
 DELIVERED_PATHS=()
 
-# restore_and_commit <worktree> <sha> <subject> [<path>...] -- restores paths
-# from <sha> and commits with <subject> if that produced a diff. When no paths
-# are passed, derives the file list from the commit's own diff (git diff-tree).
-# Every restored path is appended to DELIVERED_PATHS.
+# restore_and_commit <worktree> <sha> <subject> [<path>...] -- restores paths'
+# CONTENT from the integration tip (REPO_ROOT's HEAD) and commits with
+# <subject> if that produced a diff. <sha> supplies only the commit subject's
+# provenance and, when no paths are passed, the file list via the commit's own
+# diff (git diff-tree). A path absent at the tip is removed (git rm) when
+# tracked in <worktree> and silently skipped when not. Every restored path
+# (including one removed because absent at the tip) is appended to
+# DELIVERED_PATHS.
 #
 # Returns 1 on an underlying git failure, and 1 when the derived path list is
 # empty: a resolved unit commit that restores nothing contributes nothing to
@@ -976,6 +980,29 @@ DELIVERED_PATHS=()
 # misleading "touched no files". Returns 0 otherwise, including the
 # legitimate no-op where a non-empty restore stages no diff and therefore
 # creates no commit.
+# Contract: B06 deliver tip-restore (plan 002-fix-plan-001-followups)
+#   Behavior: restore_and_commit restores the listed paths' CONTENT from the
+#     integration tip -- the HEAD of the worktree deliver was invoked from
+#     (REPO_ROOT) -- never from the resolved unit commit. The unit commit
+#     (<sha>) supplies only the commit subject's provenance and, when no
+#     explicit paths are passed, the file list via git diff-tree.
+#   Inputs: $1 delivery worktree; $2 resolved unit commit (file-list source
+#     only); $3 commit subject; remaining args optional explicit paths.
+#   Outputs: a commit on the delivery branch whose content on every restored
+#     path is byte-identical to the integration tip; DELIVERED_PATHS gains
+#     every restored path, including paths removed because absent at tip.
+#   Errors: unchanged -- an empty derived path list (merge commit / commit
+#     touched no files) prints the distinguishing stderr line and returns 1;
+#     underlying git failures return 1.
+#   Invariants: the pre-push byte-gate (diff vs HEAD over DELIVERED_PATHS)
+#     is unchanged and passes by construction for content this function
+#     wrote; a restore staging no diff still creates no commit and returns
+#     0; the function never modifies the integration worktree.
+#   Edge cases: a listed path ABSENT at the integration tip is removed
+#     (git rm) when tracked in the delivery worktree and silently skipped
+#     when not tracked there; a path modified on integration AFTER the unit
+#     merged restores the tip content (plan 001's G5 abort case becomes a
+#     pass); explicit-path calls follow the same tip-content rule.
 restore_and_commit() {
   local wt="$1" sha="$2" subject="$3"; shift 3
   local -a paths=("$@")
@@ -993,9 +1020,33 @@ restore_and_commit() {
 
   DELIVERED_PATHS+=("${paths[@]}")
 
-  if ! git -C "$wt" checkout -q "$sha" -- "${paths[@]}" >/dev/null 2>&1; then
-    return 1
+  local tip_sha
+  tip_sha="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+
+  local -a present=() absent=()
+  local p
+  for p in "${paths[@]}"; do
+    if git -C "$REPO_ROOT" cat-file -e "$tip_sha:$p" 2>/dev/null; then
+      present+=("$p")
+    else
+      absent+=("$p")
+    fi
+  done
+
+  if [ "${#present[@]}" -gt 0 ]; then
+    if ! git -C "$wt" checkout -q "$tip_sha" -- "${present[@]}" >/dev/null 2>&1; then
+      return 1
+    fi
   fi
+
+  for p in "${absent[@]}"; do
+    if git -C "$wt" ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
+      if ! git -C "$wt" rm -q -- "$p" >/dev/null 2>&1; then
+        return 1
+      fi
+    fi
+  done
+
   if git -C "$wt" diff --cached --quiet -- "${paths[@]}" 2>/dev/null; then
     return 0
   fi
@@ -1058,6 +1109,66 @@ validate_manifest_required_fields() {
   for uid in "$@"; do
     impl="$(manifest_field "$manifest" ".commits[\"$uid\"].impl")"
     [ -n "$impl" ] || die 3 "manifest missing required field: commits.$uid.impl"
+  done
+
+  return 0
+}
+
+# Contract: B07 manifest extraCommits (plan 002-fix-plan-001-followups)
+#   Behavior: an optional top-level manifest field
+#     "extraCommits": [{"subject": <string>, "files": [<path>, ...]}, ...]
+#     appends one commit per entry, in array order, AFTER all unit commits
+#     on the delivery branch. Each entry's content is restored from the
+#     integration tip and its paths join DELIVERED_PATHS, so the pre-push
+#     byte-gate covers them identically to unit-commit paths.
+#   Inputs: the deliver manifest JSON (already validated as JSON).
+#   Outputs: one commit per entry with the given subject; an entry whose
+#     restore stages no diff creates no commit (same no-op rule as unit
+#     commits) but still contributes its paths to DELIVERED_PATHS.
+#   Errors: a malformed field -- extraCommits present but not an array, an
+#     entry missing/empty "subject", or missing/empty/non-array "files" --
+#     dies exit 3 naming the defect during pass-1 validation, BEFORE any
+#     branch or worktree is created.
+#   Invariants: an absent or empty extraCommits field reproduces the
+#     previous behavior exactly; unit-commit build order, subjects, and
+#     required-field validation are unchanged; the manifest is never
+#     modified.
+#   Edge cases: an entry file absent at the integration tip follows B06's
+#     removal/skip rule; multiple entries may name the same path (later
+#     entries then stage no diff); entries never merge with unit commits --
+#     they are always distinct commits after them.
+validate_manifest_extra_commits() {
+  local manifest="$1"
+  local extra_type
+  extra_type="$("$JQ" -r 'if has("extraCommits") and (.extraCommits != null) then (.extraCommits | type) else "absent" end' "$manifest")"
+
+  if [ "$extra_type" = "absent" ]; then
+    return 0
+  fi
+  if [ "$extra_type" != "array" ]; then
+    die 3 "extraCommits is a $extra_type, not an array"
+  fi
+
+  local count
+  count="$("$JQ" -r '.extraCommits | length' "$manifest")"
+
+  local i=0
+  while [ "$i" -lt "$count" ]; do
+    local subject files_type files_len
+    subject="$("$JQ" -r ".extraCommits[$i].subject // empty" "$manifest")"
+    [ -n "$subject" ] || die 3 "extraCommits entry $((i + 1)) has a missing or empty subject"
+
+    files_type="$("$JQ" -r ".extraCommits[$i].files | type" "$manifest")"
+    if [ "$files_type" = "null" ]; then
+      die 3 "extraCommits entry $((i + 1)) is missing files"
+    fi
+    if [ "$files_type" != "array" ]; then
+      die 3 "extraCommits entry $((i + 1)) has a files field that is not an array"
+    fi
+    files_len="$("$JQ" -r ".extraCommits[$i].files | length" "$manifest")"
+    [ "$files_len" -gt 0 ] || die 3 "extraCommits entry $((i + 1)) has an empty files array"
+
+    i=$((i + 1))
   done
 
   return 0
@@ -1126,6 +1237,7 @@ cmd_deliver() {
     die 3 "manifest file is not valid JSON: $manifest_path"
   fi
   validate_manifest_required_fields "$manifest_path" "${unit_ids[@]}"
+  validate_manifest_extra_commits "$manifest_path"
 
   # ---- Resolve delivery branch name (from the manifest) ----
   local delivery_branch u
@@ -1215,6 +1327,25 @@ cmd_deliver() {
 
     idx=$((idx + 1))
   done
+
+  if [ "$build_failed" -eq 0 ]; then
+    local extra_count
+    extra_count="$("$JQ" -r '(.extraCommits // []) | length' "$manifest_path")"
+    local ei=0
+    while [ "$ei" -lt "$extra_count" ]; do
+      local extra_subject
+      extra_subject="$("$JQ" -r ".extraCommits[$ei].subject" "$manifest_path")"
+      local -a extra_files=()
+      mapfile -t extra_files < <("$JQ" -r ".extraCommits[$ei].files[]" "$manifest_path")
+
+      restore_and_commit "$tmp_wt" "" "$extra_subject" "${extra_files[@]}"
+      if [ "$?" -ne 0 ]; then
+        build_failed=1
+        break
+      fi
+      ei=$((ei + 1))
+    done
+  fi
 
   if [ "$build_failed" -eq 1 ]; then
     deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"

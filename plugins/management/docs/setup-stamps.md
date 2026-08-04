@@ -49,6 +49,11 @@ One file per user, all scopes and repos included. The file belongs to clam
   target (another repo, another scope) adds a record.
 - **`remove` deletes.** A setup's `remove` subcommand deletes this plugin's
   record for the target it just cleaned; no record present is silent success.
+- **Nothing is pruned automatically; removal is always explicit.** A record
+  whose target no longer corresponds to an installation does not self-clear
+  on its own — it stays until removed, either through a setup skill's
+  `remove` subcommand for a target it can still resolve, or through
+  `scripts/prune-stamp.sh` for a target it cannot.
 - **Writes are atomic:** jq to a temp file, then `mv`. Absent file is
   created as `{"version": 1, "stamps": []}` before the first record.
 - **Corrupt file never blocks setup:** if the file exists but is not valid

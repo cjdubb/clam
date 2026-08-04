@@ -56,7 +56,7 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.13.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.14.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.1.2 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
@@ -77,7 +77,7 @@ auto-update doesn't refresh the recorded install path
 | [notifications](plugins/notifications/) | ✅ v0.1.1 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
 | [session-data](plugins/session-data/) | ✅ v0.1.2 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.1 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
-| [management](plugins/management/) | ✅ v0.2.1 | Guided plugin update flow: `/management:update` refreshes the clam catalog, diffs installed vs latest versions, and applies per-plugin updates on confirmation. |
+| [management](plugins/management/) | ✅ v0.3.0 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.1.1 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
 | [debugging](plugins/debugging/) | ✅ v0.2.2 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 

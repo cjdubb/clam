@@ -62,6 +62,34 @@
 # Run: bash plugins/tracking/scripts/workgraph-docs.test.sh
 #      (exits non-zero on failure)
 
+# <!--
+# Contract: B06 mid-tier-test-defork (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   This file's ASSERTIONS are frozen; only its cost may change. It is the
+#   ODD ONE OUT among the slow tests: 11.1s from only 219 process spawns,
+#   against 22,787 read syscalls and 544 clones. Its cost is bash userspace
+#   and repeated document reads, NOT fork overhead, so the de-forking
+#   technique that fixes the lego giants does not apply here. Read each
+#   document once into a variable and reuse it; do not re-read or re-parse
+#   the same file per assertion.
+#
+# Inputs:  unchanged.
+# Outputs: unchanged — 75 PASS lines, then "All tests passed."
+#
+# Invariants:
+#   - Exactly 75 PASS lines and a zero exit. A changed count is a defect,
+#     whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - Runtime target: under 3s (from 11.1s). This is an ACCEPTANCE target
+#     verified by the orchestrator, NOT a wall-clock assertion inside the
+#     test — a stopwatch threshold in a test file flakes on slower machines
+#     and is forbidden throughout plan 001.
+#
+# Edge cases:
+#   - Fixtures that genuinely need a fresh read per test must keep it; the
+#     invariant is "no redundant reads", not "one read".
+# -->
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -103,7 +131,14 @@ sed '/<!--/,/-->/d' "$README" > "$STRIPPED_README"
 assert_contains_re_i() {
     local flat
     flat=$(printf '%s' "$2" | tr '\n' ' ')
-    if printf '%s' "$flat" | grep -qiE -- "$3"; then
+    # LC_ALL=C: glibc's regex engine takes a dramatically slower multibyte
+    # code path for bounded-repetition EREs (the '.{0,600}'-style proximity
+    # patterns below) once the haystack contains any multibyte character —
+    # this README's em dashes are enough to trigger it under a UTF-8 locale,
+    # turning a sub-millisecond match into several seconds. Every pattern
+    # matched here is plain ASCII, so byte-wise (C-locale) matching is
+    # exactly equivalent, just without the multibyte code path's cost.
+    if printf '%s' "$flat" | LC_ALL=C grep -qiE -- "$3"; then
         pass "$1"
     else
         fail "$1" "did not match regex (case-insensitive): $3"
@@ -409,8 +444,13 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # lockstep here so the two suites never pin contradictory versions.
 # ===========================================================================
 
+# Retargeted to 0.7.2 by B06 (plan 001-speed-up-repo-ci): that plan's
+# scaffold edits this file, and version-bump-lint has no docs/tests
+# exemption, so the plugin necessarily moves 0.7.1 -> 0.7.2. The pin tracks
+# the CURRENT version, so every legitimate bump retargets it — see
+# .local/FOLLOWUPS.md F05 for why that coupling is worth removing.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.7.1" "$plugin_version" "0.7.1"
+check "plugin.json version is exactly 0.7.2" "$plugin_version" "0.7.2"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

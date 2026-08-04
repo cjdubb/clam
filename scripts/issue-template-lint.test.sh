@@ -16,6 +16,35 @@
 # matched verbatim.
 #
 # Run: bash scripts/issue-template-lint.test.sh   (exits non-zero on any failure)
+
+# <!--
+# Contract: B06 mid-tier-test-defork (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   This file's ASSERTIONS are frozen; only its cost may change. 8.5s across
+#   888 process spawns — the lowest spawn count of the three B06 files, so a
+#   larger share of its cost is per-spawn latency on a small number of
+#   expensive invocations. Profile before substituting.
+#
+# Inputs:  unchanged.
+# Outputs: unchanged — 62 PASS lines, then "ALL PASS".
+#
+# Invariants:
+#   - Exactly 62 PASS lines and a zero exit. A changed count is a defect,
+#     whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - The two contract-guaranteed exact strings ("issue-template-lint: OK"
+#     and "SKIP yaml-parse (no parser)") stay matched VERBATIM. They are the
+#     only strings the linted contract actually promises; loosening them to
+#     simplify a refactor silently removes the test's whole point.
+#   - Runtime target: under 2s (from 8.5s). An ACCEPTANCE target verified by
+#     the orchestrator, never a wall-clock assertion inside the test.
+#
+# Edge cases:
+#   - The no-parser SKIP path must keep working on machines with no YAML
+#     parser installed; do not make a parser a hard requirement to save a
+#     branch.
+# -->
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -224,15 +253,25 @@ RUN_OUT=""
 RUN_ERR=""
 RUN_EXIT=0
 
+# One reusable out/err pair for every run_lint*/ call below (~two dozen of
+# them), instead of a fresh `mktemp` pair (and a matching `rm -f`) per call:
+# each call fully consumes and discards its previous content before the next
+# one writes, so a shared, overwritten-in-place path is exactly equivalent —
+# just without the per-call mktemp/rm forks. Lives under the same
+# CLEANUP_MANIFEST-tracked temp dir as the fixtures, so the EXIT trap still
+# removes it. `$(< file)` below is bash's own builtin file-read (identical
+# result to `$(cat file)`, no `cat` fork).
+RUN_TMPDIR="$(mktemp -d)"
+track_tmp "$RUN_TMPDIR"
+RUN_OUT_FILE="$RUN_TMPDIR/out"
+RUN_ERR_FILE="$RUN_TMPDIR/err"
+
 run_lint() { # <fixture_root>
   local fixture="$1"
-  local out err
-  out="$(mktemp)"; err="$(mktemp)"
-  ( cd "$fixture" && bash "$SCRIPT" >"$out" 2>"$err" )
+  ( cd "$fixture" && bash "$SCRIPT" >"$RUN_OUT_FILE" 2>"$RUN_ERR_FILE" )
   RUN_EXIT=$?
-  RUN_OUT="$(cat "$out")"
-  RUN_ERR="$(cat "$err")"
-  rm -f "$out" "$err"
+  RUN_OUT="$(< "$RUN_OUT_FILE")"
+  RUN_ERR="$(< "$RUN_ERR_FILE")"
 }
 
 # Forces the "no parser available" branch by shadowing python3 on PATH with
@@ -241,19 +280,17 @@ run_lint() { # <fixture_root>
 # tests.
 run_lint_no_parser() { # <fixture_root>
   local fixture="$1"
-  local stubdir out err
+  local stubdir
   stubdir="$(mktemp -d)"; track_tmp "$stubdir"
   cat > "$stubdir/python3" <<'STUB'
 #!/bin/bash
 exit 1
 STUB
   chmod +x "$stubdir/python3"
-  out="$(mktemp)"; err="$(mktemp)"
-  ( cd "$fixture" && PATH="$stubdir:$PATH" bash "$SCRIPT" >"$out" 2>"$err" )
+  ( cd "$fixture" && PATH="$stubdir:$PATH" bash "$SCRIPT" >"$RUN_OUT_FILE" 2>"$RUN_ERR_FILE" )
   RUN_EXIT=$?
-  RUN_OUT="$(cat "$out")"
-  RUN_ERR="$(cat "$err")"
-  rm -f "$out" "$err"
+  RUN_OUT="$(< "$RUN_OUT_FILE")"
+  RUN_ERR="$(< "$RUN_ERR_FILE")"
 }
 
 contains() { # text needle -> yes/no

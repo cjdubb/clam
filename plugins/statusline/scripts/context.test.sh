@@ -12,6 +12,40 @@
 # stripped for text, raw for colour-code checks).
 # Run: bash general/statusline/context.test.sh   (exits non-zero on failure)
 
+# <!--
+# Contract: B06 mid-tier-test-defork (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   This file's ASSERTIONS are frozen; only its cost may change. 9.7s across
+#   2,317 process spawns — mixed fork overhead and real work, so it needs
+#   per-hot-path judgement rather than one mechanical substitution. Prefer
+#   bash builtins over sed/awk/grep/cut in loops; keep them where they do
+#   genuine text processing on multi-line input.
+#
+# Inputs:  unchanged — the same synthetic statusLine JSON payloads.
+# Outputs: unchanged — 86 PASS lines, then "ALL PASS".
+#
+# Invariants:
+#   - Exactly 86 PASS lines and a zero exit. A changed count is a defect,
+#     whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#   - Hermeticity is NOT negotiable for speed: the temp cwd with no
+#     git/.local and the temp ccost dirs stay. B03 runs this file
+#     concurrently with 112 others, so any leak into a shared path becomes a
+#     race.
+#   - The "concurrency smoke" test — every concurrent render under maximum
+#     write contention still producing valid output — is the single most
+#     load-bearing assertion in this file once B03 lands. It must not be
+#     weakened or made cheaper.
+#   - Runtime target: under 3s (from 9.7s). An ACCEPTANCE target verified by
+#     the orchestrator, never a wall-clock assertion inside the test.
+#
+# Edge cases:
+#   - Colour-code assertions read raw (un-stripped) output; any refactor of
+#     the ANSI handling must keep both the stripped and raw paths intact.
+# -->
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTEXT="$SCRIPT_DIR/context.sh"
 source "$SCRIPT_DIR/../lib/platform.sh"
@@ -70,12 +104,17 @@ ctx_json() { # current_dir tokens transcript_path
     "$1" "$2" "$3"
 }
 
-# Set a file's mtime to N seconds in the past (BSD date -r / GNU date -d @), so
-# the render sees a known idle age from the transcript mtime.
+# Set a file's mtime to N seconds in the past, so the render sees a known
+# idle age from the transcript mtime. Uses bash's own strftime builtin
+# (printf '%(fmt)T') instead of forking `date` twice per call (once for
+# "now", once — BSD/GNU-fallback-style — to format the target epoch): same
+# localtime-based formatting, one process fewer, and no BSD-vs-GNU branch
+# needed since it isn't shelling out to either.
 set_mtime_ago() { # file seconds_ago
-  local f="$1" secs="$2" epoch stamp
-  epoch=$(( $(date +%s) - secs ))
-  stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null)
+  local f="$1" secs="$2" now epoch stamp
+  printf -v now '%(%s)T' -1
+  epoch=$(( now - secs ))
+  printf -v stamp '%(%Y%m%d%H%M.%S)T' "$epoch"
   touch -t "$stamp" "$f"
 }
 
@@ -116,10 +155,12 @@ mk_wt() { # dir
 # "still warm" direction is at risk: an extra second can never make an
 # already-stale bundle (age TTL) look fresh, since clocks do not run backward.
 settle_to_second() {
-  local t0
-  t0=$(date +%s)
-  while [ "$(date +%s)" = "$t0" ]; do
+  local t0 tnow
+  printf -v t0 '%(%s)T' -1
+  printf -v tnow '%(%s)T' -1
+  while [ "$tnow" = "$t0" ]; do
     sleep 0.02
+    printf -v tnow '%(%s)T' -1
   done
 }
 
@@ -128,10 +169,11 @@ settle_to_second() {
 # age in wall-clock time and without needing to know the bundle's internal
 # filename. Waits for a second boundary first -- see settle_to_second.
 backdate_all() { # dir seconds_ago
-  local dir="$1" secs="$2" epoch stamp
+  local dir="$1" secs="$2" now epoch stamp
   settle_to_second
-  epoch=$(( $(date +%s) - secs ))
-  stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null || date -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null)
+  printf -v now '%(%s)T' -1
+  epoch=$(( now - secs ))
+  printf -v stamp '%(%Y%m%d%H%M.%S)T' "$epoch"
   find "$dir" -type f -exec touch -t "$stamp" {} + 2>/dev/null
 }
 
@@ -210,7 +252,16 @@ shim_count() { # log_file [tool]
   if [ -n "${2:-}" ]; then
     grep -cxF "$2" "$1" 2>/dev/null
   else
-    wc -l < "$1" 2>/dev/null | tr -d ' '
+    # Every line the shim appends is `echo "$tool" >> "$SHIM_LOG"`, always
+    # newline-terminated, so a builtin `mapfile` line count is exactly `wc
+    # -l`'s count here — without forking wc AND tr (tr only existed to strip
+    # the leading padding `wc -l < file` prints). Missing file -> empty
+    # output, same as before (wc's failed redirection produced nothing for
+    # tr to strip either).
+    [ -f "$1" ] || return 0
+    local -a _lines
+    mapfile -t _lines < "$1"
+    printf '%s' "${#_lines[@]}"
   fi
 }
 # ------------------------------------------------------------------------

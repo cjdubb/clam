@@ -21,7 +21,11 @@
 #     every token below would already read verbatim out of the docblock and
 #     the red run would be a false green.
 #   - "Cross-file agreement": templates/blocks.md's example entry carries
-#     the same field-label set as SKILL.md's block-map entry format.
+#     the same field-label set as SKILL.md's block-map entry format — with
+#     one carve-out for `Justification:`, which the entry format documents
+#     as OPTIONAL (it is required only of a block over the per-block size
+#     ceiling), so a template example that omits it is correct, not stale.
+#     Every other divergence in either direction is still a failure.
 #   - "Isolation": neither new section references TODO.md or PLAN.md (lego
 #     never touches tracking's files).
 #   - "Invariants": the original Step 0-5 headings all survive unchanged.
@@ -239,11 +243,25 @@ check "templates/blocks.md example entry has an Est: field" \
 
 # --- 19. Cross-file agreement: the block-map field list and the template's
 # example entry name the same fields (nothing added to one without the
-# other) -------------------------------------------------------------------
+# other), except the optional `Justification:` field — see the header note.
+# The example entry shows a block that needs no justification, so carrying
+# the field there would misrepresent it as routine; the exception is that
+# one field name and nothing else, in that one direction ---------------------
 SKILL_FIELDS="$(field_labels "$STEP4_SECTION")"
 TEMPLATE_FIELDS="$(field_labels "$TEMPLATE_RAW")"
-check "block-map field list agrees with templates/blocks.md example entry" \
-  "$SKILL_FIELDS" "$TEMPLATE_FIELDS"
+TEMPLATE_ONLY="$(grep -vxF -f <(printf '%s\n' "$SKILL_FIELDS") \
+  <(printf '%s\n' "$TEMPLATE_FIELDS"))"
+SKILL_ONLY="$(grep -vxF -f <(printf '%s\n' "$TEMPLATE_FIELDS") \
+  <(printf '%s\n' "$SKILL_FIELDS"))"
+check "every templates/blocks.md field appears in the block-map field list" \
+  "$TEMPLATE_ONLY" ""
+if [[ -z "$SKILL_ONLY" || "$SKILL_ONLY" == "Justification" ]]; then
+  SKILL_ONLY_VERDICT="only the optional Justification, if anything"
+else
+  SKILL_ONLY_VERDICT="$SKILL_ONLY"
+fi
+check "block-map fields absent from the template are limited to Justification" \
+  "$SKILL_ONLY_VERDICT" "only the optional Justification, if anything"
 
 # --- 20. Isolation: neither new section references tracking's files -------
 check "Step 3a section has no TODO.md reference" \

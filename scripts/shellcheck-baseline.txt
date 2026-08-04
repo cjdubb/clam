@@ -22,7 +22,7 @@
 # new test file for no real defect, and this baseline's own rule forbids
 # adding rows to fix that.
 #
-# What remains deduplicates to the 114 (path, code) pairs below.
+# What remains deduplicates to the 115 (path, code) pairs below.
 plugins/ask-in-text/scripts/structure.test.sh	SC2016
 plugins/attribution/scripts/structure.test.sh	SC2088
 plugins/build/scripts/b03-plugin-metadata.test.sh	SC2016
@@ -132,6 +132,7 @@ scripts/architecture-doc.test.sh	SC2016
 scripts/architecture-lint.sh	SC2207
 scripts/architecture-lint.sh	SC2295
 scripts/claude-md.test.sh	SC2016
+scripts/dispatch-issues-skill.test.sh	SC2016
 scripts/marketplace-lint.test.sh	SC2034
 scripts/migration-audit-surfaces.test.sh	SC2016
 scripts/protocol-specs.test.sh	SC2016

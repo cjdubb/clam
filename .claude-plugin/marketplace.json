@@ -13,97 +13,116 @@
     {
       "name": "lego",
       "source": "./plugins/lego",
-      "description": "Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves."
+      "description": "Technology-agnostic lego workflow: contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves.",
+      "category": "delivery"
     },
     {
       "name": "decision-log",
       "source": "./plugins/decision-log",
-      "description": "Record technical decisions: one-shot DL drafting, section-by-section collaborative authoring, and pending-decision rundowns."
+      "description": "Record technical decisions: one-shot DL drafting, section-by-section collaborative authoring, and pending-decision rundowns.",
+      "category": "records"
     },
     {
       "name": "tracking",
       "source": "./plugins/tracking",
-      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection."
+      "description": "Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), and resume-after-/clear via SessionStart injection.",
+      "category": "delivery"
     },
     {
       "name": "statusline",
       "source": "./plugins/statusline",
-      "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup."
+      "description": "Statusline with context usage, session cost, effort, and tracking State. Wired explicitly via /statusline:setup.",
+      "category": "session-ux"
     },
     {
       "name": "worktrees",
       "source": "./plugins/worktrees",
-      "description": "Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents."
+      "description": "Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents.",
+      "category": "orchestration"
     },
     {
       "name": "notifications",
       "source": "./plugins/notifications",
-      "description": "Summoning stack: terminal bell, desktop notification, tmux highlight, and ntfy phone push on the transition into summoning states; silent for parked sessions."
+      "description": "Summoning stack: terminal bell, desktop notification, tmux highlight, and ntfy phone push on the transition into summoning states; silent for parked sessions.",
+      "category": "session-ux"
     },
     {
       "name": "landing",
       "source": "./plugins/landing",
-      "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.jsonc (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it."
+      "description": "The landing seam: /landing:land lands finished work per the repo's committed policy in .claude/clam-profile.jsonc (github-pr or local-merge); /landing:init detects and records the policy; SessionStart injection keeps every session aware of it.",
+      "category": "delivery"
     },
     {
       "name": "attribution",
       "source": "./plugins/attribution",
-      "description": "Suppress Claude Code co-author attribution on commits and PRs. Install changes nothing; /attribution:setup writes the setting at the plugin's installation scope."
+      "description": "Suppress Claude Code co-author attribution on commits and PRs. Install changes nothing; /attribution:setup writes the setting at the plugin's installation scope.",
+      "category": "setup"
     },
     {
       "name": "settings",
       "source": "./plugins/settings",
-      "description": "Opinionated Claude Code session defaults: agent teams, adaptive thinking, model, effort level, and permission mode. Install changes nothing; /settings:setup writes the settings at the plugin's installation scope."
+      "description": "Opinionated Claude Code session defaults: agent teams, adaptive thinking, model, effort level, and permission mode. Install changes nothing; /settings:setup writes the settings at the plugin's installation scope.",
+      "category": "setup"
     },
     {
       "name": "privacy",
       "source": "./plugins/privacy",
-      "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope."
+      "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope.",
+      "category": "setup"
     },
     {
       "name": "orchestrator-handover",
       "source": "./plugins/orchestrator-handover",
-      "description": "Orchestrator-to-orchestrator handover: write a handover document, scaffold the recipient worktree, populate its .local/, and hand off to the user."
+      "description": "Orchestrator-to-orchestrator handover: write a handover document, scaffold the recipient worktree, populate its .local/, and hand off to the user.",
+      "category": "orchestration"
     },
     {
       "name": "debugging",
       "source": "./plugins/debugging",
-      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention."
+      "description": "Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention.",
+      "category": "orchestration"
     },
     {
       "name": "skill-tracker",
       "source": "./plugins/skill-tracker",
-      "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl and reports usage stats via /skill-tracker:stats."
+      "description": "Skill invocation telemetry: logs every /skill trigger to ~/.claude/skill-triggers.jsonl and reports usage stats via /skill-tracker:stats.",
+      "category": "records"
     },
     {
       "name": "render-doc",
       "source": "./plugins/render-doc",
-      "description": "Render a planning or decision markdown file into a self-contained dark-theme HTML view, with an annotation server whose in-page composer writes feedback back into the source markdown."
+      "description": "Render a planning or decision markdown file into a self-contained dark-theme HTML view, with an annotation server whose in-page composer writes feedback back into the source markdown.",
+      "category": "records"
     },
     {
       "name": "build",
       "source": "./plugins/build",
-      "description": "High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context."
+      "description": "High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context.",
+      "category": "delivery"
     },
     {
       "name": "session-data",
       "source": "./plugins/session-data",
-      "description": "Locate the current Claude Code session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations."
+      "description": "Locate the current Claude Code session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — with sensitivity annotations.",
+      "category": "records"
     },
     {
       "name": "ask-in-text",
       "source": "./plugins/ask-in-text",
-      "description": "Kills the AskUserQuestion picker UI: a PreToolUse deny blocks the tool outright, and SessionStart context redirects Claude to ask the engineer in plain text — numbered questions, one decision per number, a recommended default each, bare-go semantics."
+      "description": "Kills the AskUserQuestion picker UI: a PreToolUse deny blocks the tool outright, and SessionStart context redirects Claude to ask the engineer in plain text — numbered questions, one decision per number, a recommended default each, bare-go semantics.",
+      "category": "session-ux"
     },
     {
       "name": "management",
       "source": "./plugins/management",
-      "description": "Guided plugin update flow: /management:update refreshes the clam catalog, diffs installed vs latest versions, applies per-plugin updates on confirmation, and surfaces which setup skills need re-running via setup version stamps."
+      "description": "Guided plugin update flow: /management:update refreshes the clam catalog, diffs installed vs latest versions, applies per-plugin updates on confirmation, and surfaces which setup skills need re-running via setup version stamps.",
+      "category": "marketplace"
     },
     {
       "name": "voice",
       "source": "./plugins/voice",
-      "description": "Injects the Voice communication spec — conclusion-first, working-memory-friendly reply structure — into every session via a SessionStart hook."
+      "description": "Injects the Voice communication spec — conclusion-first, working-memory-friendly reply structure — into every session via a SessionStart hook.",
+      "category": "session-ux"
     }
   ]
 }

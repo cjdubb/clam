@@ -4,7 +4,9 @@
 # Checks:
 #   1. Every plugin directory has a marketplace entry (and vice-versa)
 #   2. Marketplace source paths resolve to real directories
-#   3. Every renames target is a valid marketplace plugin (or null)
+#   3. Every entry carries a nonempty "category" string (the value itself is
+#      data, not code: no taxonomy list is enforced here)
+#   4. Every renames target is a valid marketplace plugin (or null)
 #
 # Run: bash scripts/marketplace-lint.sh
 
@@ -48,6 +50,13 @@ for name in "${marketplace_names[@]}"; do
   mp_source=$(jq -r --arg n "$name" '.plugins[] | select(.name == $n) | .source' "$MARKETPLACE")
   check "$name: marketplace source resolves" \
     "$([ -d "$ROOT/${mp_source#./}" ] && echo yes || echo no)" "yes"
+
+  # Presence only: a missing key, null, "", or a non-string all fail. Which
+  # categories exist is catalog data, so no allowed-value list lives here.
+  check "$name: category is a nonempty string" \
+    "$(jq -e --arg n "$name" \
+        '.plugins[] | select(.name == $n) | (.category | type == "string" and length > 0)' \
+        "$MARKETPLACE" >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
   if jq -e --arg n "$name" '.plugins[] | select(.name == $n) | has("version")' "$MARKETPLACE" >/dev/null 2>&1; then
     echo "WARN  $name: version in marketplace.json is redundant (plugin.json is the source of truth)"

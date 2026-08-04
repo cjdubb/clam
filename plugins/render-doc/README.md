@@ -65,9 +65,13 @@ three-way status pill (open, done, or dropped) per node, and a focus banner
 naming the `Focus:` node when one is set. A node missing a required field or
 shaped wrong falls back to baseline rendering for that node only — a
 per-node fallback that keeps one bad entry from breaking the rest of the
-tree. Any other H1 gets baseline rendering: TOC with scroll tracking,
-collapsible h2 sections, styled GFM tables. A topbar toggle switches to
-generic rendering at any time.
+tree. A topbar "Graph" toggle switches a Work Graph document from that card
+tree to a node-and-edge view rendered with cytoscape and a dagre layout:
+nodes are status-colored, Parent and Deps edges get distinct edge styles,
+and the Focus node gets a highlight. Clicking a node jumps back to its card,
+and the card view remains the default. Any other H1 gets baseline
+rendering: TOC with scroll tracking, collapsible h2 sections, styled GFM
+tables. A topbar toggle switches to generic rendering at any time.
 
 ### Leave feedback that writes back into the source
 
@@ -147,14 +151,22 @@ user action is needed to start or stop it — it comes and goes with usage.
 
 ### Maintenance
 
-The parser is `marked` v18.0.6 (MIT), vendored byte-identical from the npm
-tarball as `assets/marked.min.js`; the file header records provenance and
-the upgrade procedure. `scripts/render.test.sh` renders all four fixtures
-(`plan`, `decision`, `design-questions`, `work-graph`) in a temp directory
-and asserts: parser spliced, doc round-trips byte-for-byte through base64,
-no slot markers remain, script-element count unchanged (the `</script>`
-proof), no external resource references, and `render.sh` fails loudly on
-bad input. Run it after any template or script change.
+- The parser is `marked` v18.0.6 (MIT), vendored byte-identical from the npm
+  tarball as `assets/marked.min.js`; the file header records provenance and
+  the upgrade procedure.
+- The graph rendering layer is `cytoscape@3.34.0` (MIT), vendored
+  byte-identical from the npm tarball as `assets/cytoscape.min.js`; the
+  file header records provenance and the upgrade procedure.
+- The graph layout engine is `cytoscape-dagre@4.0.0` (MIT), vendored
+  byte-identical from the npm tarball as `assets/cytoscape-dagre.min.js`
+  (bundles dagre internally); the file header records provenance and the
+  upgrade procedure.
+- `scripts/render.test.sh` renders all four fixtures (`plan`, `decision`,
+  `design-questions`, `work-graph`) in a temp directory and asserts: parser
+  spliced, doc round-trips byte-for-byte through base64, no slot markers
+  remain, script-element count unchanged (the `</script>` proof), no
+  external resource references, and `render.sh` fails loudly on bad input.
+  Run it after any template or script change.
 
 ## Tests
 

@@ -49,6 +49,14 @@ fi
 TEMPLATE_SCRIPT_CLOSES="$(grep -c '</script>' "$TEMPLATE" 2>/dev/null)"
 : "${TEMPLATE_SCRIPT_CLOSES:=0}"
 
+# 229-B01 vendored-graph-libs-and-splice: the real vendored files' provenance
+# headers record these sha256(original) pins verbatim (marked.min.js-style
+# header), so a rendered output that actually spliced the real libraries
+# carries these strings; the current stub assets are never spliced at all
+# (no marker, no ENVIRON block yet), so this cannot pass until B01 lands.
+CYTOSCAPE_SHA256='9c2a3bf2592e0b14a1f7bec07c03a54f16dedf32af9cd0af155c716aa6c87bc3'
+CYTOSCAPE_DAGRE_SHA256='b9e9d704119970f4255c035baa98d778e94af4b2efd2bdba20a601a869417223'
+
 # --- Render-pipeline clauses (Behavior/Inputs/Outputs/Errors) ---------------
 
 check_render() {
@@ -84,6 +92,32 @@ check_render() {
     fail "$name: unreplaced slot marker(s) remain in output"
   else
     pass "$name: no leftover slot markers"
+  fi
+
+  # 229-B01: the two new vendored-library slot markers must not leak into
+  # output either, same discipline as the three markers above. At scaffold
+  # state the template's slot-location HTML comment still describes these
+  # marker names in prose, and that prose passes through render.sh untouched
+  # (no splice rule exists for them yet), so this correctly fails until the
+  # comment is replaced by the real script elements at implementation.
+  if grep -q '__CYTOSCAPE_SPLICE__\|__CYTOSCAPE_DAGRE_SPLICE__' "$out"; then
+    fail "$name: unreplaced cytoscape/cytoscape-dagre slot marker(s), or the slot-location comment, remain in output"
+  else
+    pass "$name: no leftover cytoscape/cytoscape-dagre slot markers"
+  fi
+
+  # 229-B01: the real vendored files' provenance headers carry these exact
+  # sha256(original) pins; their presence in output proves the real
+  # libraries (not the stubs) were spliced in verbatim.
+  if grep -qF "$CYTOSCAPE_SHA256" "$out"; then
+    pass "$name: cytoscape provenance pin present in output (real library spliced)"
+  else
+    fail "$name: cytoscape provenance pin ($CYTOSCAPE_SHA256) not found in output"
+  fi
+  if grep -qF "$CYTOSCAPE_DAGRE_SHA256" "$out"; then
+    pass "$name: cytoscape-dagre provenance pin present in output (real library spliced)"
+  else
+    fail "$name: cytoscape-dagre provenance pin ($CYTOSCAPE_DAGRE_SHA256) not found in output"
   fi
 
   # Source path spliced into an inert text/plain block, per contract.
@@ -183,6 +217,67 @@ if [ -e "$copy_out" ]; then
   fail "missing template: output was written despite the error"
 else
   pass "missing template: no output written"
+fi
+
+# 229-B01: a missing or empty vendored-graph-lib asset must die before any
+# output is written too, with a message naming the path (a [ -s ] precondition
+# beside the PARSER check, per contract). Each asset gets its own copy of the
+# plugin dir so the real repo assets are never touched. This cannot pass
+# until render.sh actually checks for these files, which it does not yet.
+check_missing_asset() { # <asset-relative-path> <label>
+  rel="$1"; label="$2"
+  copy_dir="$WORK/plugin-no-$label"
+  cp -r "$PLUGIN_DIR" "$copy_dir"
+  rm -f "$copy_dir/$rel"
+  copy_r="$copy_dir/scripts/render.sh"
+  copy_md2="$WORK/no-$label-input.md"
+  cp "$FIXTURES_DIR/plan.md" "$copy_md2"
+  copy_out2="$WORK/no-$label-input.html"
+
+  if "$copy_r" "$copy_md2" > /dev/null 2>"$WORK/missing-$label.stderr"; then
+    fail "missing $label: render.sh exited 0 with no $rel"
+  else
+    pass "missing $label: render.sh exits non-zero"
+  fi
+  if [ -s "$WORK/missing-$label.stderr" ]; then
+    pass "missing $label: message present on stderr"
+  else
+    fail "missing $label: no message on stderr"
+  fi
+  if grep -qF "$(basename "$rel")" "$WORK/missing-$label.stderr" 2>/dev/null; then
+    pass "missing $label: stderr message names the asset"
+  else
+    fail "missing $label: stderr message does not name $(basename "$rel")"
+  fi
+  if [ -e "$copy_out2" ]; then
+    fail "missing $label: output was written despite the error"
+  else
+    pass "missing $label: no output written"
+  fi
+}
+
+check_missing_asset "assets/cytoscape.min.js" "cytoscape"
+check_missing_asset "assets/cytoscape-dagre.min.js" "cytoscape-dagre"
+
+# Empty (present but zero-byte) is a distinct failure mode from missing —
+# the contract calls for a [ -s ] (non-empty) precondition, not just [ -f ].
+empty_copy="$WORK/plugin-empty-cytoscape"
+cp -r "$PLUGIN_DIR" "$empty_copy"
+: > "$empty_copy/assets/cytoscape.min.js"
+empty_render="$empty_copy/scripts/render.sh"
+empty_md="$WORK/empty-cytoscape-input.md"
+cp "$FIXTURES_DIR/plan.md" "$empty_md"
+empty_out="$WORK/empty-cytoscape-input.html"
+
+if "$empty_render" "$empty_md" > /dev/null 2>"$WORK/empty-cytoscape.stderr"; then
+  fail "empty cytoscape.min.js: render.sh exited 0 on a zero-byte asset"
+else
+  pass "empty cytoscape.min.js: render.sh exits non-zero"
+fi
+if [ -e "$empty_out" ]; then
+  fail "empty cytoscape.min.js: output was written despite the error"
+else
+  pass "empty cytoscape.min.js: no output written"
 fi
 
 # --- Docs clauses (Docs contract sections of the docblock) ------------------

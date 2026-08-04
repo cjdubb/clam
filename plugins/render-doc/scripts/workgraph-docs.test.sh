@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# workgraph-docs.test.sh — test suite for B03 (docs-and-version).
-# Verifies the render-doc README/SKILL.md prose gains the Work Graph
-# schema-aware type and the version legs land, once B03 is implemented.
-# Contract docblock lives in plugins/render-doc/README.md, "Contract: B03".
+# workgraph-docs.test.sh — test suite for B03 (docs-and-version, contract
+# label 229-B03). Verifies the render-doc README/SKILL.md prose documents
+# the Graph display mode (cytoscape+dagre node-and-edge view) and the
+# version legs land at 0.3.0, once 229-B03 is implemented. Contract
+# docblock lives in plugins/render-doc/README.md, "Contract: 229-B03"
+# (mirrored in skills/render/SKILL.md).
 
 set -uo pipefail
 
@@ -129,6 +131,53 @@ fi
 
 assert_no_sibling_reference "$readme_schema_section" "README schema-enumeration prose"
 
+# --- Clause 1b: README schema section gains the Graph display mode ----------
+# Anchors drawn from the contract's own vocabulary (topbar "Graph" toggle,
+# node-and-edge cytoscape+dagre rendering, status-colored nodes, parent vs
+# dep edge styles, Focus highlight, click-a-node back to its card, card view
+# remains default). Presence/proximity only — exact sentence is the
+# implementer's choice, same as clause 1 above.
+assert_contains "$readme_schema_section" 'cytoscape' "README: cytoscape rendering named"
+assert_contains "$readme_schema_section" 'dagre' "README: dagre named"
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'graph[^.]{0,40}toggle|toggle[^.]{0,40}graph'; then
+  pass "README: Graph toggle mentioned"
+else
+  fail "README: Graph toggle mentioned"
+fi
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'node-and-edge|node[- ]and[- ]edge'; then
+  pass "README: node-and-edge rendering mentioned"
+else
+  fail "README: node-and-edge rendering mentioned"
+fi
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'status[- ]colored'; then
+  pass "README: status-colored nodes mentioned"
+else
+  fail "README: status-colored nodes mentioned"
+fi
+
+assert_contains "$readme_schema_section" 'edge style' "README: parent vs dep edge styling mentioned"
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'focus[^.]{0,15}highlight'; then
+  pass "README: Focus highlight mentioned"
+else
+  fail "README: Focus highlight mentioned"
+fi
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'click[^.]{0,25}node[^.]{0,25}card|node[^.]{0,25}back[^.]{0,25}card'; then
+  pass "README: click-a-node back to its card mentioned"
+else
+  fail "README: click-a-node back to its card mentioned"
+fi
+
+if printf '%s' "$readme_schema_section" | grep -qiE 'card view[^.]{0,20}default|default[^.]{0,20}card view'; then
+  pass "README: card view remains default mentioned"
+else
+  fail "README: card view remains default mentioned"
+fi
+
 # Raw (unstripped) file: the contract comment itself must be gone at green —
 # its presence is what keeps this whole suite red pre-implementation, and
 # its removal is the acceptance signal for this block.
@@ -146,6 +195,18 @@ assert_contains "$readme_maint" 'work-graph' "README Maintenance: work-graph fix
 assert_contains "$readme_maint" 'four' "README Maintenance: fixture count updated to four"
 assert_no_sibling_reference "$readme_maint" "README Maintenance fixture list"
 
+# --- Clause 2b: README Maintenance gains the two vendored-library bullets ----
+assert_contains "$readme_maint" 'cytoscape@3.34.0' "README Maintenance: cytoscape version pinned"
+assert_contains "$readme_maint" 'cytoscape-dagre@4.0.0' "README Maintenance: cytoscape-dagre version pinned"
+assert_contains "$readme_maint" 'assets/cytoscape.min.js' "README Maintenance: cytoscape asset path named"
+assert_contains "$readme_maint" 'assets/cytoscape-dagre.min.js' "README Maintenance: cytoscape-dagre asset path named"
+
+if printf '%s' "$readme_maint" | grep -qiE 'bundle[^.]{0,15}dagre|dagre[^.]{0,15}bundle'; then
+  pass "README Maintenance: dagre bundling noted"
+else
+  fail "README Maintenance: dagre bundling noted"
+fi
+
 # --- Clause 3: SKILL.md Schema-aware row + Maintenance bullet -----------------
 schema_row="$(printf '%s\n' "$skill_stripped" | grep '^| Schema-aware ' || true)"
 
@@ -162,6 +223,20 @@ else
   assert_contains "$schema_row" 'focus banner' "SKILL.md Schema-aware row: focus banner mentioned"
   assert_contains "$schema_row" 'fallback' "SKILL.md Schema-aware row: per-node fallback mentioned"
   assert_no_sibling_reference "$schema_row" "SKILL.md Schema-aware row"
+
+  # --- Clause 3b: Schema-aware row gains the Graph display mode -------------
+  assert_contains "$schema_row" 'cytoscape' "SKILL.md Schema-aware row: cytoscape rendering named"
+  assert_contains "$schema_row" 'dagre' "SKILL.md Schema-aware row: dagre named"
+  if printf '%s' "$schema_row" | grep -qiE 'graph[^.]{0,40}toggle|toggle[^.]{0,40}graph'; then
+    pass "SKILL.md Schema-aware row: Graph toggle mentioned"
+  else
+    fail "SKILL.md Schema-aware row: Graph toggle mentioned"
+  fi
+  if printf '%s' "$schema_row" | grep -qiE 'card view[^.]{0,20}default|default[^.]{0,20}card view'; then
+    pass "SKILL.md Schema-aware row: card view remains default mentioned"
+  else
+    fail "SKILL.md Schema-aware row: card view remains default mentioned"
+  fi
 fi
 
 skill_maint="$(awk '/^## Maintenance$/{p=1; next} p && /^#/{exit} p' "$SKILL_MD" | strip_docblocks /dev/stdin)"
@@ -171,15 +246,25 @@ assert_contains "$skill_maint" 'work-graph' "SKILL.md Maintenance: work-graph fi
 assert_contains "$skill_maint" 'four' "SKILL.md Maintenance: fixture count updated to four"
 assert_no_sibling_reference "$skill_maint" "SKILL.md Maintenance bullet"
 
+# --- Clause 3c: SKILL.md Maintenance gains the two vendored-library bullets --
+assert_contains "$skill_maint" 'cytoscape@3.34.0' "SKILL.md Maintenance: cytoscape version pinned"
+assert_contains "$skill_maint" 'cytoscape-dagre@4.0.0' "SKILL.md Maintenance: cytoscape-dagre version pinned"
+
+if printf '%s' "$skill_maint" | grep -qiE 'bundle[^.]{0,15}dagre|dagre[^.]{0,15}bundle'; then
+  pass "SKILL.md Maintenance: dagre bundling noted"
+else
+  fail "SKILL.md Maintenance: dagre bundling noted"
+fi
+
 # --- Clause 4: version legs ---------------------------------------------------
 if ! command -v jq >/dev/null 2>&1; then
   fail "jq not found — cannot check plugin.json version/description"
 else
   pj_version="$(jq -r '.version' "$PLUGIN_JSON")"
-  if [ "$pj_version" = "0.2.0" ]; then
-    pass "plugin.json: version is exactly 0.2.0"
+  if [ "$pj_version" = "0.3.0" ]; then
+    pass "plugin.json: version is exactly 0.3.0"
   else
-    fail "plugin.json: version is '$pj_version', expected exactly 0.2.0"
+    fail "plugin.json: version is '$pj_version', expected exactly 0.3.0"
   fi
 
   # Byte-exact expected description, pinned as of the pre-B03 scaffold —
@@ -199,10 +284,19 @@ if [ -z "$root_row" ]; then
   fail "root README: render-doc plugins-table row not found"
 else
   root_row_version="$(printf '%s' "$root_row" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "$root_row_version" = "v0.2.0" ]; then
-    pass "root README: render-doc row version is v0.2.0"
+  if [ "$root_row_version" = "v0.3.0" ]; then
+    pass "root README: render-doc row version is v0.3.0"
   else
-    fail "root README: render-doc row version is '${root_row_version:-missing}', expected v0.2.0"
+    fail "root README: render-doc row version is '${root_row_version:-missing}', expected v0.3.0"
+  fi
+
+  # Description cell is pinned unchanged by the contract, parallel to the
+  # plugin.json description-unchanged check above.
+  ROOT_ROW_EXPECTED_DESC='Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code.'
+  if printf '%s' "$root_row" | grep -qF "$ROOT_ROW_EXPECTED_DESC"; then
+    pass "root README: render-doc row description byte-unchanged"
+  else
+    fail "root README: render-doc row description byte-unchanged (expected byte-unchanged)"
   fi
 fi
 

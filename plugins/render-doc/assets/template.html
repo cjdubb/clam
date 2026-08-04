@@ -477,6 +477,19 @@
   }
   .wg-focused { border-color: rgba(45, 212, 191, 0.55); box-shadow: 0 0 24px rgba(45, 212, 191, 0.1); }
 
+  /* ---------- Schema: work-graph graph view ---------- */
+  .graph-view {
+    min-height: 72vh;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--card);
+  }
+  @keyframes wg-jump-flash {
+    0% { box-shadow: 0 0 0 3px var(--border-glow); }
+    100% { box-shadow: none; }
+  }
+  .wg-jump-highlight { animation: wg-jump-flash 1.4s ease-out; }
+
   /* ---------- Feedback composer popover ---------- */
   .composer {
     margin: 0 20px 16px;
@@ -619,6 +632,7 @@
     <div class="topbar-actions">
       <span class="pill" id="doctype-pill">document</span>
       <button class="btn" id="schema-toggle" title="Switch between schema-aware and generic rendering">Schema view</button>
+      <button class="btn" id="graph-toggle" title="Toggle the node-and-edge graph view" hidden>Graph</button>
       <button class="btn" id="feedback-btn" title="Open the feedback panel">Feedback · 0</button>
     </div>
   </header>
@@ -635,6 +649,7 @@
     <main id="main">
       <div class="hero" id="hero"></div>
       <div id="doc"></div>
+      <div id="graph-view" class="graph-view" hidden></div>
     </main>
   </div>
 
@@ -660,6 +675,14 @@ __DOC_B64_SPLICE__
 
   <script type="text/plain" id="source-path">
 __SOURCE_PATH_SPLICE__
+  </script>
+
+  <script>
+__CYTOSCAPE_SPLICE__
+  </script>
+
+  <script>
+__CYTOSCAPE_DAGRE_SPLICE__
   </script>
 
   <script>
@@ -716,8 +739,15 @@ __SOURCE_PATH_SPLICE__
     var state = {
       schemaOn: docType !== "generic",
       feedback: [],
-      nextId: 1
+      nextId: 1,
+      graphOn: false
     };
+
+    /* Work Graph graph-view model (captured fresh on every render(), since
+       sectionize() rebuilds .doc-sec elements from scratch each time) and
+       the live cytoscape instance, when the graph view is active. */
+    var workGraphModel = null;
+    var cyInstance = null;
 
     /* =================================================================
        Render pipeline: markdown -> DOM -> sectionize -> decorate.
@@ -742,9 +772,18 @@ __SOURCE_PATH_SPLICE__
       sectionize(doc, scratch);
       highlightTags(doc);
       highlightTags(hero);
+      workGraphModel = (docType === "work-graph") ? captureWorkGraphModel(doc) : null;
       if (state.schemaOn && docType !== "generic") applySchema(doc);
       buildToc(doc);
       attachAnnotators(hero, doc);
+      if (state.graphOn) {
+        if (workGraphModel) {
+          activateGraphView();
+        } else {
+          deactivateGraphView();
+          state.graphOn = false;
+        }
+      }
       updateChrome();
     }
 
@@ -918,6 +957,193 @@ __SOURCE_PATH_SPLICE__
         if (pattern.test(secs[i].dataset.heading)) return secs[i];
       }
       return null;
+    }
+
+    /* Contract: 229-B02 graph-view-mode (plan 001-render-doc-graph-view)
+       Behavior:
+         An additional "Graph" display mode for docType "work-graph" ONLY:
+         a topbar button (id="graph-toggle") beside the schema toggle,
+         visible only for work-graph documents, toggles the content area
+         between the card layout (the default on load, unchanged) and a
+         node-and-edge graph of the same document rendered with the
+         vendored cytoscape + cytoscape-dagre libraries (layout name
+         "dagre", rankDir "TB") into a container that replaces/hides the
+         card content while active.
+       Inputs:
+         The node model from parseWorkGraphNode over the same sections the
+         card view uses, captured BEFORE decorateWorkGraphNode mutates the
+         section bodies (parse-then-decorate order is load-bearing);
+         effectiveParent from breakWorkGraphCycles supplies the parent
+         edges (dagre needs the cycle-broken parent graph). Dep edges come
+         from each node's Deps list; an id that names no parsed node draws
+         no edge and raises no error.
+       Outputs (visual language frozen from the approved mock):
+         - Node: round-rectangle, label = id + title (wrapped); fill and
+           border echo the card pill palette — open gold #f6c177, done
+           green #4ade80, dropped coral #ff8a6b with dotted border and a
+           " (dropped)" label suffix.
+         - Focus node: teal #2dd4bf ring (thicker border + soft underlay);
+           Focus: none, or an id with no matching node, means no ring
+           anywhere.
+         - Edges: parent->child solid gray #6e6a86 with triangle arrows;
+           dep->dependent dashed violet #c4a7e7 with vee arrows; a pair
+           connected both ways shows both edges distinctly (bezier).
+         - Pan (drag) and zoom (wheel) enabled.
+         - Tapping a node switches back to the card view and scrolls that
+           node's card into view with a transient highlight
+           (click-to-card); the toggle button's label reflects the active
+           view.
+       Errors:
+         Any throw while building or laying out the graph is caught: the
+         card view stays (or becomes) active and the page never breaks —
+         the same degrade posture as the card transform's per-node
+         try/catch.
+       Invariants:
+         - The card layout's rendering and behavior are unchanged while
+           the graph is off; graph mode is additive only.
+         - The schema toggle's two-state semantics are untouched; the
+           graph button is hidden for every other docType and in generic
+           rendering.
+         - The graph container matches no BLOCK_SEL entry (canvas content
+           is not block-annotatable); section-level annotate is
+           unaffected.
+         - No new external resources; everything works offline/file://.
+         - v1 excludes search/filter, subtree collapse, and
+           drag-to-rearrange persistence (deferred by plan 001).
+       Edge cases:
+         - Zero parseable nodes: button hidden, baseline fallback
+           untouched.
+         - A single node; multiple roots (several Parent: none nodes).
+         - Dep cycles (dagre's internal acyclic handling; must not hang).
+         - Dropped nodes stay visible in the graph (never filtered out).
+         - The same pair linked by both a parent and a dep edge.
+    */
+    function renderWorkGraphGraphView() {
+      var container = document.getElementById("graph-view");
+      container.replaceChildren();
+
+      var elements = [];
+      workGraphModel.order.forEach(function (id) {
+        var node = workGraphModel.nodesById[id];
+        var label = node.id + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "");
+        var classes = "wg-graph-" + node.statusKind + (id === workGraphModel.focusId ? " wg-graph-focus" : "");
+        elements.push({ data: { id: node.id, label: label }, classes: classes });
+      });
+      workGraphModel.order.forEach(function (id) {
+        var p = workGraphModel.effectiveParent[id];
+        if (p && workGraphModel.nodesById[p]) {
+          elements.push({
+            data: { id: "wg-parent-" + p + "-" + id, source: p, target: id },
+            classes: "wg-graph-edge-parent"
+          });
+        }
+      });
+      workGraphModel.order.forEach(function (id) {
+        workGraphModel.nodesById[id].deps.forEach(function (dep) {
+          if (workGraphModel.nodesById[dep]) {
+            elements.push({
+              data: { id: "wg-dep-" + dep + "-" + id, source: dep, target: id },
+              classes: "wg-graph-edge-dep"
+            });
+          }
+        });
+      });
+
+      var cy = cytoscape({
+        container: container,
+        elements: elements,
+        layout: { name: "dagre", rankDir: "TB", nodeSep: 36, rankSep: 64 },
+        style: [
+          {
+            selector: "node",
+            style: {
+              "shape": "round-rectangle",
+              "label": "data(label)",
+              "text-wrap": "wrap",
+              "text-max-width": "170px",
+              "width": "label",
+              "height": "label",
+              "padding": "10px",
+              "font-size": "11px",
+              "font-family": "ui-sans-serif, system-ui, sans-serif",
+              "text-valign": "center",
+              "text-halign": "center",
+              "color": "#050810",
+              "background-color": "#f6c177",
+              "border-width": 2,
+              "border-color": "#f6c177",
+              "border-style": "solid"
+            }
+          },
+          { selector: "node.wg-graph-done", style: { "background-color": "#4ade80", "border-color": "#4ade80" } },
+          { selector: "node.wg-graph-dropped", style: { "background-color": "#ff8a6b", "border-color": "#ff8a6b", "border-style": "dotted" } },
+          { selector: "node.wg-graph-focus", style: { "border-width": 4, "border-color": "#2dd4bf" } },
+          {
+            selector: "edge.wg-graph-edge-parent",
+            style: {
+              "width": 2,
+              "curve-style": "bezier",
+              "line-color": "#6e6a86",
+              "target-arrow-color": "#6e6a86",
+              "target-arrow-shape": "triangle",
+              "line-style": "solid"
+            }
+          },
+          {
+            selector: "edge.wg-graph-edge-dep",
+            style: {
+              "width": 2,
+              "curve-style": "bezier",
+              "line-color": "#c4a7e7",
+              "target-arrow-color": "#c4a7e7",
+              "target-arrow-shape": "vee",
+              "line-style": "dashed"
+            }
+          }
+        ]
+      });
+
+      cy.on("tap", "node", function (evt) {
+        var id = evt.target.id();
+        deactivateGraphView();
+        state.graphOn = false;
+        updateChrome();
+        var tapped = workGraphModel && workGraphModel.nodesById[id];
+        if (tapped && tapped.sec) {
+          tapped.sec.scrollIntoView({ behavior: "smooth", block: "center" });
+          tapped.sec.classList.add("wg-jump-highlight");
+          setTimeout(function () { tapped.sec.classList.remove("wg-jump-highlight"); }, 1600);
+        }
+      });
+
+      return cy;
+    }
+
+    /* Show the graph container and build/lay out the cytoscape instance;
+       any throw while building or laying out the graph degrades back to
+       the card view (Errors clause, 229-B02) rather than breaking the page. */
+    function activateGraphView() {
+      var docEl = document.getElementById("doc");
+      var container = document.getElementById("graph-view");
+      docEl.style.display = "none";
+      container.hidden = false;
+      try {
+        if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
+        cyInstance = renderWorkGraphGraphView();
+        state.graphOn = true;
+      } catch (err) {
+        deactivateGraphView();
+        state.graphOn = false;
+      }
+    }
+
+    function deactivateGraphView() {
+      if (cyInstance) {
+        try { cyInstance.destroy(); } catch (err) { /* already gone */ }
+        cyInstance = null;
+      }
+      document.getElementById("graph-view").hidden = true;
+      document.getElementById("doc").style.display = "";
     }
 
     /* Contract: B01 workgraph-transform (plan 001-render-doc-workgraph-transform)
@@ -1188,6 +1414,51 @@ __SOURCE_PATH_SPLICE__
         path.forEach(function (id) { if (color[id] !== 2) color[id] = 2; });
       });
       return effectiveParent;
+    }
+
+    /* Graph-view model capture (229-B02): parses every work-graph node
+       section from a DETACHED CLONE of each .doc-sec — never the live
+       section transformWorkGraph will decorate for the card view — so this
+       always succeeds regardless of schemaOn state and never interferes
+       with the card transform's own parse-then-decorate pass. Each clone is
+       parsed then decorated (mirroring the card pipeline's own order, load-
+       bearing per node: parseWorkGraphNode needs the raw field list, which
+       decorateWorkGraphNode replaces) purely to validate the node round-
+       trips cleanly; only the plain fields plus the REAL (live) .doc-sec
+       reference (for click-to-card scrolling) are kept. Returns null when
+       docType isn't work-graph or zero sections parse. */
+    var WG_FOCUS_RE = /^Focus: (N[0-9]+|none)[ \t]*$/m;
+    function captureWorkGraphModel(doc) {
+      var nodesById = {};
+      var order = [];
+      Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
+        var heading = sec.dataset.heading || "";
+        if (!WG_HEADING_RE.test(heading)) return;
+        try {
+          var clone = sec.cloneNode(true);
+          var parsed = parseWorkGraphNode(clone, heading);
+          decorateWorkGraphNode(parsed);
+          nodesById[parsed.id] = {
+            id: parsed.id,
+            title: parsed.title,
+            statusKind: parsed.statusKind,
+            statusReason: parsed.statusReason,
+            parent: parsed.parent,
+            deps: parsed.deps,
+            sec: sec
+          };
+          order.push(parsed.id);
+        } catch (err) { /* excluded from the graph, same fallback posture as the card transform */ }
+      });
+      if (!order.length) return null;
+      var fm = WG_FOCUS_RE.exec(sourceMd);
+      var focusId = fm ? fm[1] : null;
+      return {
+        nodesById: nodesById,
+        order: order,
+        effectiveParent: breakWorkGraphCycles(order, nodesById),
+        focusId: (focusId && focusId !== "none" && nodesById[focusId]) ? focusId : null
+      };
     }
 
     /* Recursively wrap a node's (already decorated) .doc-sec together with a
@@ -1990,6 +2261,16 @@ __SOURCE_PATH_SPLICE__
         toggle.textContent = state.schemaOn ? "Schema view ✓" : "Generic view ✓";
         toggle.classList.toggle("active", state.schemaOn);
       }
+
+      /* graph-toggle: visible only for work-graph docs with at least one
+         parseable node (229-B02). */
+      var graphToggle = document.getElementById("graph-toggle");
+      var graphAvailable = docType === "work-graph" && !!workGraphModel;
+      graphToggle.hidden = !graphAvailable;
+      if (graphAvailable) {
+        graphToggle.textContent = state.graphOn ? "Card view" : "Graph";
+        graphToggle.classList.toggle("active", state.graphOn);
+      }
     }
 
     document.getElementById("schema-toggle").addEventListener("click", function () {
@@ -1997,6 +2278,17 @@ __SOURCE_PATH_SPLICE__
       state.schemaOn = !state.schemaOn;
       closeComposer();
       render();
+    });
+
+    document.getElementById("graph-toggle").addEventListener("click", function () {
+      if (!workGraphModel) return;
+      if (state.graphOn) {
+        deactivateGraphView();
+        state.graphOn = false;
+      } else {
+        activateGraphView();
+      }
+      updateChrome();
     });
 
     /* ---------- Boot ---------- */

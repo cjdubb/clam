@@ -260,11 +260,19 @@ fi
 if ! command -v jq >/dev/null 2>&1; then
   fail "jq not found — cannot check plugin.json version/description"
 else
+  # De-pinned from the literal version this clause first landed with: pinning a
+  # version means every later bump fails a test about Work Graph docs. The
+  # durable assertion is that the bump this block introduced is still in
+  # effect — 0.3.0 or later, the floor raised to the version the Graph display
+  # mode landed at — not that the plugin is frozen at it. Repo precedent:
+  # #120, "de-pin tests".
   pj_version="$(jq -r '.version' "$PLUGIN_JSON")"
-  if [ "$pj_version" = "0.3.0" ]; then
-    pass "plugin.json: version is exactly 0.3.0"
+  if [ -z "$pj_version" ] || [ "$pj_version" = "null" ]; then
+    fail "plugin.json: version missing or unparseable"
+  elif [ "$(printf '0.3.0\n%s\n' "$pj_version" | sort -V | head -1)" = "0.3.0" ]; then
+    pass "plugin.json: version is $pj_version (>= 0.3.0)"
   else
-    fail "plugin.json: version is '$pj_version', expected exactly 0.3.0"
+    fail "plugin.json: version is '$pj_version', expected 0.3.0 or later"
   fi
 
   # Byte-exact expected description, pinned as of the pre-B03 scaffold —
@@ -283,11 +291,13 @@ root_row="$(grep -E '^\| *\[render-doc\]\(plugins/render-doc/\) *\|' "$ROOT_READ
 if [ -z "$root_row" ]; then
   fail "root README: render-doc plugins-table row not found"
 else
+  # Also de-pinned. The assertion that actually protects the reader is that
+  # the table agrees with plugin.json, which is what drifts in practice.
   root_row_version="$(printf '%s' "$root_row" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "$root_row_version" = "v0.3.0" ]; then
-    pass "root README: render-doc row version is v0.3.0"
+  if [ "$root_row_version" = "v$pj_version" ]; then
+    pass "root README: render-doc row version $root_row_version matches plugin.json"
   else
-    fail "root README: render-doc row version is '${root_row_version:-missing}', expected v0.3.0"
+    fail "root README: render-doc row version is '${root_row_version:-missing}', expected v$pj_version to match plugin.json"
   fi
 
   # Description cell is pinned unchanged by the contract, parallel to the

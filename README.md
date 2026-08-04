@@ -15,24 +15,71 @@ untouched.
 
 ```
 /plugin marketplace add cjdubb/clam
-/plugin install lego@clam
+/plugin install management@clam
 ```
 
-Enable per repo (or per machine) — take only the clusters you want.
+Run `/reload-plugins` to pick that up, then `/management:install`. It reads
+the catalog at runtime, offers everything you don't already have as themed
+multi-select pages, and installs the set you pick at one scope. Nothing is
+pre-selected, no scope is assumed, and it names the setup skills a new plugin
+ships rather than running them for you.
 
-Enabling **per repo** records the choice in that project directory's
-gitignored `.claude/settings.local.json`. If you work in git worktrees, that
-file does not travel: a new worktree starts with none of these plugins
-enabled. The [worktrees](plugins/worktrees/) plugin's README explains how to
-seed it automatically with `copyenv`.
+The scope question is asked once and covers the whole batch:
+
+- `local` — this repo only, recorded in the gitignored
+  `.claude/settings.local.json`. Suits a per-repo working style, and is the
+  easiest to undo.
+- `user` — every project on this machine.
+- `project` — this repo, written to the committed `.claude/settings.json`, so
+  everyone working in the repo gets the same set.
+
+A `local` choice does not travel to git worktrees: the file holding it is
+gitignored, so a new worktree starts with none of these plugins enabled. The
+[worktrees](plugins/worktrees/) plugin's README explains how to seed it
+automatically with `copyenv`.
+
+### Without the picker
+
+To take the whole catalog unattended, read the names out of the marketplace
+clone Claude Code already keeps and install each from the shell:
+
+```
+CLAM=${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/marketplaces/clam
+for p in $(jq -r '.plugins[].name' "$CLAM/.claude-plugin/marketplace.json"); do
+  claude plugin install "$p@clam" --scope local
+done
+```
+
+Pass `--scope` explicitly — the CLI defaults to `user`.
+
+A repo you own can also name the marketplace and the plugins it wants in a
+committed `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "clam": { "source": { "source": "github", "repo": "cjdubb/clam" } }
+  },
+  "enabledPlugins": {
+    "lego@clam": true,
+    "tracking@clam": true
+  }
+}
+```
+
+That declares enablement, not installation. Measured on Claude Code 2.1.220: a
+session started in such a repo installed nothing — the named plugin was still
+absent from `installed_plugins.json` afterwards, with no plugin cache entry
+written and no install offered in a non-interactive run. Use the snippet
+alongside one of the routes above, not instead of them.
 
 ## Update
 
-The [management](plugins/management/) plugin wraps this in a guided flow:
 `/management:update` refreshes the catalog, shows which installed plugins are
 behind, updates each on confirmation, and offers to re-run a plugin's setup
-when the update calls for it. Install it once with
-`/plugin install management@clam`. Manually:
+when the update calls for it. It ships in the same
+[management](plugins/management/) plugin the Install section starts with.
+Manually:
 
 ```
 /plugin marketplace update clam        # re-fetch this repo, refresh the catalog

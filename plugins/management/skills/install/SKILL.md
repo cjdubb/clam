@@ -28,12 +28,13 @@ changing, and one that is withdrawn stops being offered on its own.
 2. **Read the catalog and what's already installed.** Take the catalog
    from the clone's `.claude-plugin/marketplace.json` — each entry's
    `name`, `description`, and `category` — and what is already installed
-   from `~/.claude/plugins/installed_plugins.json`, whose `plugins` object
-   is keyed `<name>@<marketplace>` (only the `@clam` keys are this flow's
-   business; keys from other marketplaces are unrelated software that
-   happens to share the file). Drop every already-installed entry: the
-   menu is only what the user could still add. If nothing is left, say
-   every catalogued plugin is already installed and stop.
+   from `${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/installed_plugins.json`,
+   whose `plugins` object is keyed `<name>@<marketplace>` (only the `@clam`
+   keys are this flow's business; keys from other marketplaces are
+   unrelated software that happens to share the file). Drop every
+   already-installed entry: the menu is only what the user could still
+   add. If nothing is left, say every catalogued plugin is already
+   installed and stop.
 3. **Build themed pages.** Group the remaining entries by their `category`
    value, one page per category, treating the value as an opaque label
    rather than a known set. Then re-chunk at runtime so that every page

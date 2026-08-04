@@ -17,6 +17,51 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SCRIPT_DIR/../assets/template.html"
 PARSER="$SCRIPT_DIR/../assets/marked.min.js"
+CYTOSCAPE="$SCRIPT_DIR/../assets/cytoscape.min.js"
+CYTOSCAPE_DAGRE="$SCRIPT_DIR/../assets/cytoscape-dagre.min.js"
+
+# Contract: 229-B01 vendored-graph-libs-and-splice (plan 001-render-doc-graph-view)
+# Behavior:
+#   This script splices TWO additional vendored libraries into the template,
+#   exactly as the marked parser is spliced: each marker line in
+#   assets/template.html is replaced by the named asset's contents verbatim,
+#   via its own ENVIRON-backed block in the single existing awk program.
+#     __CYTOSCAPE_SPLICE__       <- assets/cytoscape.min.js
+#     __CYTOSCAPE_DAGRE_SPLICE__ <- assets/cytoscape-dagre.min.js
+#   In the template the cytoscape script element precedes the
+#   cytoscape-dagre element (the extension registers against the global
+#   cytoscape object), and both precede the app script.
+# Inputs:
+#   assets/cytoscape.min.js — cytoscape@3.34.0, file dist/cytoscape.min.js
+#     from the npm tarball, byte-identical below a marked.min.js-style
+#     provenance header; sha256(original) =
+#     9c2a3bf2592e0b14a1f7bec07c03a54f16dedf32af9cd0af155c716aa6c87bc3
+#     (original: 31 lines, 435,328 bytes; MIT).
+#   assets/cytoscape-dagre.min.js — cytoscape-dagre@4.0.0, file
+#     dist/cytoscape-dagre.min.js (bundles dagre internally; peer
+#     cytoscape ^3.2.22), same header convention; sha256(original) =
+#     b9e9d704119970f4255c035baa98d778e94af4b2efd2bdba20a601a869417223
+#     (original: 7 lines, 45,620 bytes; MIT).
+# Outputs:
+#   The rendered HTML carries both libraries inline in their own script
+#   elements; the output's closing-script-tag count equals the template's.
+# Errors:
+#   A missing or empty asset file dies before any output is written, with a
+#   message naming the path — a [ -s ] precondition beside the PARSER check.
+#   A leftover marker after the splice dies via the self-check, whose grep
+#   is extended with BOTH new marker names.
+# Invariants:
+#   The vendored files are byte-identical to the pinned npm dist artifacts
+#   below their provenance headers (header format identical to
+#   marked.min.js's, including the "To upgrade:" line). Neither file
+#   contains a closing script tag, an HTML comment opener, or any
+#   external-resource form (href/src to http(s), url(http...), @import,
+#   fonts.googleapis) — this is what keeps inline splicing and the
+#   script-count proof sound.
+# Edge cases:
+#   The provenance header records the sha256 of the ORIGINAL dist file, not
+#   of the shipped file (which prepends the header); a hash mismatch after
+#   any edit below the header is a defect, never something to re-pin.
 
 die() {
   printf 'render-doc: %s\n' "$*" >&2
@@ -51,6 +96,8 @@ DOC_ABS="$(cd "$(dirname "$DOC")" && pwd)/$(basename "$DOC")"
 [ -r "$DOC" ] || die "input not readable: $DOC"
 [ -s "$TEMPLATE" ] || die "template missing or empty: $TEMPLATE"
 [ -s "$PARSER" ] || die "vendored parser missing or empty: $PARSER"
+[ -s "$CYTOSCAPE" ] || die "vendored cytoscape library missing or empty: $CYTOSCAPE"
+[ -s "$CYTOSCAPE_DAGRE" ] || die "vendored cytoscape-dagre library missing or empty: $CYTOSCAPE_DAGRE"
 
 OUT="${DOC%.md}.html"
 [ "$OUT" != "$DOC" ] || OUT="$DOC.html"
@@ -66,7 +113,8 @@ base64 < "$DOC" > "$B64_TMP" || die "base64 encoding failed for: $DOC"
 # Slot markers each live on their own line in the template; awk replaces the
 # marker line with the file contents verbatim. Paths travel via ENVIRON so no
 # shell or awk escaping can mangle them.
-RENDER_PARSER_FILE="$PARSER" RENDER_B64_FILE="$B64_TMP" RENDER_SOURCE_PATH="$DOC_ABS" awk '
+RENDER_PARSER_FILE="$PARSER" RENDER_B64_FILE="$B64_TMP" RENDER_SOURCE_PATH="$DOC_ABS" \
+RENDER_CYTOSCAPE_FILE="$CYTOSCAPE" RENDER_CYTOSCAPE_DAGRE_FILE="$CYTOSCAPE_DAGRE" awk '
   /__MARKED_SPLICE__/ {
     f = ENVIRON["RENDER_PARSER_FILE"]
     while ((getline line < f) > 0) print line
@@ -83,11 +131,23 @@ RENDER_PARSER_FILE="$PARSER" RENDER_B64_FILE="$B64_TMP" RENDER_SOURCE_PATH="$DOC
     print ENVIRON["RENDER_SOURCE_PATH"]
     next
   }
+  /__CYTOSCAPE_SPLICE__/ {
+    f = ENVIRON["RENDER_CYTOSCAPE_FILE"]
+    while ((getline line < f) > 0) print line
+    close(f)
+    next
+  }
+  /__CYTOSCAPE_DAGRE_SPLICE__/ {
+    f = ENVIRON["RENDER_CYTOSCAPE_DAGRE_FILE"]
+    while ((getline line < f) > 0) print line
+    close(f)
+    next
+  }
   { print }
 ' "$TEMPLATE" > "$OUT_TMP" || die "template splice failed"
 
 # --- Self-check --------------------------------------------------------------
-if grep -q '__MARKED_SPLICE__\|__DOC_B64_SPLICE__\|__SOURCE_PATH_SPLICE__' "$OUT_TMP"; then
+if grep -q '__MARKED_SPLICE__\|__DOC_B64_SPLICE__\|__SOURCE_PATH_SPLICE__\|__CYTOSCAPE_SPLICE__\|__CYTOSCAPE_DAGRE_SPLICE__' "$OUT_TMP"; then
   die "splice incomplete: slot markers remain (template drift?)"
 fi
 [ -s "$OUT_TMP" ] || die "splice produced an empty file"

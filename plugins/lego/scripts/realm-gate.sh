@@ -53,6 +53,18 @@
 #   - Only lego worker agent types are ever denied; any other agent_type
 #     (including none) always passes through.
 #   - Read-only: inspects stdin only; writes nothing to disk.
+#   - DEPENDENCY SEAM (B04, plan 001-speed-up-repo-ci): the jq dependency is
+#     reached through `: "${JQ:=jq}"` and invoked as "$JQ", never as a bare
+#     `jq`. Absence is detected with `command -v "$JQ"`. This is the public
+#     seam tests use to exercise the jq-absent path — they set
+#     JQ=/nonexistent instead of constructing a PATH without jq. Observable
+#     CLI behaviour is UNCHANGED by this: same stdin contract, same stdout,
+#     same exit codes, including when jq is genuinely missing from PATH.
+#   - SOURCEABILITY (B05, plan 001-speed-up-repo-ci): the script guards its
+#     entry point with `[[ "${BASH_SOURCE[0]}" == "${0}" ]]` so a test can
+#     source it and call its public function in-process rather than forking.
+#     The contract boundary is unchanged — the public function IS the
+#     interface; tests still never reach into internals.
 #   - (#184) A worker's report file under .local/reports/ is the single
 #     writable path inside .local/, for both roles; every other path under
 #     .local/ is denied exactly as before.
@@ -85,15 +97,16 @@
 # This gate covers file tools only; Bash-based writes are caught post-hoc by
 # realm-check.sh, which the orchestrator runs at each wave boundary.
 set -euo pipefail
+: "${JQ:=jq}"
 
 input="$(cat)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if command -v jq >/dev/null 2>&1; then
-  if ! agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"; then
+if command -v "$JQ" >/dev/null 2>&1; then
+  if ! agent_type="$(printf '%s' "$input" | "$JQ" -r '.agent_type // empty' 2>/dev/null)"; then
     exit 0
   fi
-  if ! file_path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)"; then
+  if ! file_path="$(printf '%s' "$input" | "$JQ" -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)"; then
     exit 0
   fi
 else

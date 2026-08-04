@@ -12,6 +12,33 @@
 #
 # Run directly: `bash realm-gate.test.sh`. Exits 0 when every test passes,
 # 1 when any test fails.
+
+# <!--
+# Contract: B04 lego-dependency-injection (plan 001-speed-up-repo-ci)
+#
+# Behavior:
+#   Supersedes B02 path-without-builtin-defork. The `path_without` helper
+#   (rebuilding a PATH-minus-jq symlink farm per call) is deleted outright:
+#   the two dependency-absence tests below set JQ=/nonexistent in the
+#   environment of the single invocation under test, driving realm-gate.sh's
+#   `: "${JQ:=jq}"` seam directly instead of reconstructing PATH. This file's
+#   ASSERTIONS remain frozen — only the arrangement of the jq-absent world
+#   changes.
+#
+# Inputs:  unchanged — the same hook-input JSON payloads on stdin.
+# Outputs: unchanged — `Passed: 23  Failed: 0  Total: 23`.
+#
+# Invariants:
+#   - Pass count is EXACTLY 23, failures EXACTLY 0. A changed count is a
+#     defect, not an improvement, whichever direction it moves.
+#   - No assertion may be weakened, skipped, merged, or deleted.
+#
+# Edge cases:
+#   - Injected absence (JQ=/nonexistent) must reproduce the jq-absent
+#     behaviour identically to a PATH genuinely missing jq: both are detected
+#     with `command -v "$JQ"`, which a nonexistent path fails the same way a
+#     PATH without jq does.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/realm-gate.sh"
@@ -122,8 +149,10 @@ json_no_tool_input_key() {
 
 # ---------------------------------------------------------------------------
 # Invocation helper: pipes JSON on stdin to the script under test, captures
-# stdout/stderr/exit code. Optional second arg overrides PATH for the SUT
-# process only (used to exercise the no-jq fallback).
+# stdout/stderr/exit code. To exercise the jq-absent path, prefix the call
+# with JQ=/nonexistent (e.g. `JQ=/nonexistent run_gate "$json"`) — bash
+# exports a prefix assignment into the environment of everything the
+# function invokes, including the piped `bash "$SCRIPT"` below.
 # ---------------------------------------------------------------------------
 RUN_OUT=""
 RUN_ERR=""
@@ -131,13 +160,11 @@ RUN_EXIT=0
 RUN_OUT_LINES=0
 
 run_gate() {
-  local json="$1" path_override="${2:-}"
-  local usepath="$path_override"
-  [ -n "$usepath" ] || usepath="$PATH"
+  local json="$1"
   local out err ec
   out="$(mktemp)"
   err="$(mktemp)"
-  printf '%s' "$json" | PATH="$usepath" bash "$SCRIPT" >"$out" 2>"$err"
+  printf '%s' "$json" | bash "$SCRIPT" >"$out" 2>"$err"
   ec=$?
   RUN_OUT="$(cat "$out")"
   RUN_ERR="$(cat "$err")"
@@ -191,28 +218,6 @@ assert_allowed() {
   if [ -n "$RUN_OUT" ]; then
     record_fail "$label: expected no stdout on allow, got: $RUN_OUT"
   fi
-}
-
-# path_without <exe-name> -- prints a dir containing symlinks to every
-# executable currently resolvable on $PATH except <exe-name>.
-path_without() {
-  local exclude="$1"
-  local dir p b name
-  dir="$(mktemp -d)"
-  track_tmp "$dir"
-  local parts
-  IFS=':' read -ra parts <<< "$PATH"
-  for p in "${parts[@]}"; do
-    [ -n "$p" ] && [ -d "$p" ] || continue
-    for b in "$p"/*; do
-      [ -e "$b" ] || continue
-      name="$(basename "$b")"
-      [ "$name" = "$exclude" ] && continue
-      [ -e "$dir/$name" ] && continue
-      ln -s "$b" "$dir/$name" 2>/dev/null || true
-    done
-  done
-  printf '%s' "$dir"
 }
 
 # ===========================================================================
@@ -304,17 +309,39 @@ test_output_shape_deny_single_line_allow_silent_exit_zero() {
 # Errors: without jq, falls back to sed-based field extraction and produces
 # the same deny/allow decisions.
 test_no_jq_sed_fallback_field_extraction() {
-  local path_no_jq
-  path_no_jq="$(path_without jq)"
-
-  run_gate "$(json_ft lego-test-writer src/app.js)" "$path_no_jq"
+  JQ=/nonexistent run_gate "$(json_ft lego-test-writer src/app.js)"
   assert_denied "no-jq: test-writer on impl-family file" "ESCALATION"
 
-  run_gate "$(json_ft lego-implementer src/app.js)" "$path_no_jq"
+  JQ=/nonexistent run_gate "$(json_ft lego-implementer src/app.js)"
   assert_allowed "no-jq: implementer on impl-family file"
 
-  run_gate "$(json_ft orchestrator src/app.test.js)" "$path_no_jq"
+  JQ=/nonexistent run_gate "$(json_ft orchestrator src/app.test.js)"
   assert_allowed "no-jq: non-worker agent_type passes through"
+
+  # The sed fallback is output-identical to the jq path, so nothing above
+  # can tell whether JQ=/nonexistent actually took the sed branch or the
+  # script ignored $JQ and ran a real jq it found on PATH anyway -- the
+  # only observable difference the seam produces here is which binary ran.
+  # A PATH-shim jq that records its own invocation (then delegates to the
+  # real jq, so behavior is unaffected if it IS called) makes that
+  # detectable without depending on process-accounting tools.
+  local shim_dir marker real_jq
+  shim_dir="$(mktemp -d)"
+  track_tmp "$shim_dir"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  real_jq="$(command -v jq)"
+  cat > "$shim_dir/jq" <<SHIM
+#!/usr/bin/env bash
+printf 'spawned\n' >> '$marker'
+exec '$real_jq' "\$@"
+SHIM
+  chmod +x "$shim_dir/jq"
+
+  JQ=/nonexistent PATH="$shim_dir:$PATH" run_gate "$(json_ft lego-implementer src/app.test.js)"
+  if [ -s "$marker" ]; then
+    record_fail "no-jq: jq was spawned even though JQ=/nonexistent should take the sed fallback"
+  fi
 }
 
 # Errors: unparseable input passes through (exit 0, no output) rather than
@@ -546,13 +573,10 @@ test_reports_carveout_dots_within_names_are_unaffected() {
 # dot-segment hole that only opened without jq would be the worse half of the
 # same asymmetry.
 test_reports_carveout_through_no_jq_sed_fallback() {
-  local path_no_jq
-  path_no_jq="$(path_without jq)"
-
-  run_gate "$(json_ft lego-test-writer .local/reports/01-test-B01.md)" "$path_no_jq"
+  JQ=/nonexistent run_gate "$(json_ft lego-test-writer .local/reports/01-test-B01.md)"
   assert_allowed "no-jq: test-writer on its own report file"
 
-  run_gate "$(json_ft lego-implementer .local/reports/../status.md)" "$path_no_jq"
+  JQ=/nonexistent run_gate "$(json_ft lego-implementer .local/reports/../status.md)"
   assert_denied "no-jq: .. escapes the carve-out back into .local/" "orchestrator-owned" "read-only"
 }
 

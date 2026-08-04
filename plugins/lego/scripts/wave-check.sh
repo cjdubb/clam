@@ -239,6 +239,10 @@ else
     object)
       default_key="$("$JQ" -r '.commands.test.default // empty' <<<"$effective_config" 2>/dev/null)"
       [ -n "$default_key" ] || { err "commands.test is an object without a 'default' key in the effective config"; exit 2; }
+      # $k is the jq variable bound by --arg, not a shell one, so the single
+      # quotes are required. shellcheck cannot tell: it special-cases the
+      # literal command word `jq`, and "$JQ" hides that.
+      # shellcheck disable=SC2016
       TEST_CMD="$("$JQ" -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$effective_config" 2>/dev/null)"
       [ -n "$TEST_CMD" ] || { err "commands.test.default names an absent or empty variant in the effective config"; exit 2; }
       ;;

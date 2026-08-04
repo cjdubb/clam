@@ -168,6 +168,10 @@ else
       effective_config="$(cat "$override_config")"
     fi
 
+    # $b is a jq variable, not a shell one, so the single quotes are required.
+    # The linter cannot tell: it special-cases the literal command word `jq`
+    # and understands its argument is a jq program, but "$JQ" hides that.
+    # shellcheck disable=SC2016
     resolved="$("$JQ" -r '
       (.delivery.prSizeBudget) as $b
       | if $b == null then "absent"

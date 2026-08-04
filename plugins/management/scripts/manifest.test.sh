@@ -1,8 +1,18 @@
 #!/bin/bash
-# Structural/content tests for B03 updates-plugin-manifest.
+# Structural/content tests for the management plugin's manifest and its
+# reader-facing documentation.
 #
-# Source of truth: the HTML-comment docblock "Contract: B03
-# updates-plugin-manifest" at the top of plugins/management/README.md.
+# Two source-of-truth contracts, from two different plans. NOTE the block-id
+# collision: both are called B03, and they are unrelated.
+#   1. "Contract: B03 updates-plugin-manifest" (plan 001-update-flow-for-
+#      users) — plugin.json plus the README's six template sections.
+#      Implemented and merged; every check for it is GREEN and stands as a
+#      regression guard.
+#   2. "Contract: B03 prune-wiring — README" and "Contract: B03 prune-wiring
+#      — stamps doc" (plan 001-stamp-staleness-actionable, issue #239) — the
+#      two blocks at the END of this file. This suite owns the stamps-doc
+#      checks as well as the README's because it is the suite that already
+#      owns rendered-prose content checks for this plugin.
 #
 # Covers plugins/management/.claude-plugin/plugin.json:
 #   - valid JSON; .name "management"; .version well-formed semver and >= 0.1.0
@@ -30,6 +40,14 @@
 #     integrations, and states the plugin degrades gracefully without them
 #   - Uninstalling: the uninstall command, and a note that
 #     ~/.claude/clam-setup-stamps.json is not removed
+#
+# Contract docblocks are not permanent: for a prose block the prose IS the
+# implementation, so each contract comment carries "(remove at acceptance)"
+# and is deleted once its block is accepted. No check in this file may
+# therefore depend on a docblock being present. Every content check reads
+# comment-stripped text, and the "no NotImplemented marker anywhere" check
+# (which deliberately reads the raw file) keeps passing once the comments are
+# gone.
 #
 # RED/GREEN at birth (scaffold state, see brief 01-test-B03.md):
 #   - All plugin.json checks are GREEN already: the manifest landed at
@@ -238,6 +256,165 @@ check "Uninstalling names the clam-setup-stamps.json stamp file" \
   "$(grep -qF 'clam-setup-stamps.json' <<< "$uninstalling" && echo yes || echo no)" "yes"
 check "Uninstalling notes the stamp file is not removed" \
   "$(grep -qiE 'not removed|is not deleted|remains|persists|left (in place|untouched)' <<< "$uninstalling" && echo yes || echo no)" "yes"
+
+# ===========================================================================
+# Contract: B03 prune-wiring — README (plan 001-stamp-staleness-actionable)
+# ===========================================================================
+# Three edits to the README, all inside sections that already exist (the
+# plugin README template governs heading order, so nothing is added at
+# heading level): the check-versions.sh TSV column list grows to seven
+# columns, a scripts/prune-stamp.sh entry joins the Scripts subsection in the
+# same shape as the existing entry, and prune-stamp.test.sh joins the Tests
+# block.
+#
+# Scoped, like every other content check here, to the rendered text of the
+# section that must carry the fact — the contract docblock narrates all of it
+# and would otherwise satisfy these checks with no README written.
+#
+# Prose proximity patterns run against a whitespace-flattened copy of the
+# section: this README is hard-wrapped at ~76 columns, so two words that read
+# as adjacent routinely land on different raw lines, and grep matches per
+# line. Same idiom as run-skill.test.sh's BODY_FLAT, with one addition —
+# `tr -s` squeezes the run of whitespace a join leaves behind (newline plus
+# the continuation line's indent), so a two-word phrase matches the same
+# whether or not the author's wrap happens to fall between its words.
+# Verified empirically: without the squeeze, "does not clear itself" wrapped
+# after "clear" failed a `clear itself` pattern that a one-line phrasing
+# passed, i.e. the suite scored the line-wrapping rather than the prose.
+
+commands_flat=$(tr -s '[:space:]' ' ' <<< "$commands")
+
+# Extracts one script entry from the Commands section: the bold entry-lead
+# line naming $2, through the line before the next bold lead or heading.
+# Entry-scoping is what stops a prune-stamp.sh clause (exit codes, the
+# CLAUDE_CONFIG_DIR note) from being satisfied by the neighbouring
+# check-versions.sh entry, which documents both of those for itself.
+entry_body() { # section_text marker
+  awk -v m="$2" '
+    !found && /^\*\*/ && index($0, m) {found=1; print; next}
+    found && (/^\*\*/ || /^#/) {exit}
+    found {print}
+  ' <<< "$1"
+}
+
+prune_entry=$(tr -s '[:space:]' ' ' <<< "$(entry_body "$commands" 'prune-stamp.sh')")
+
+# --- The seven-column TSV description --------------------------------------
+check "Commands names the stale_targets TSV column" \
+  "$(grep -qF 'stale_targets' <<< "$commands" && echo yes || echo no)" "yes"
+check "Commands' TSV column list enumerates all seven columns, in check-versions.sh order" \
+  "$(grep -qiE 'TSV.{0,60}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets' <<< "$commands_flat" && echo yes || echo no)" "yes"
+# [^_] bounds the window so it cannot run from one "stale_targets" occurrence
+# to another (the identifier contains the word "targets", so an unbounded
+# window would let the column list satisfy this on its own).
+check "Commands says what the stale_targets column carries" \
+  "$(grep -qiE 'stale_targets[^_]{0,220}(path|behind|differ|out of date|stale stamp)' <<< "$commands_flat" && echo yes || echo no)" "yes"
+check "Commands states the stamp column reports the lowest (driving) stamp version" \
+  "$(grep -qiE 'stamp.{0,140}(lowest|driving)|(lowest|driving).{0,140}stamp' <<< "$commands_flat" && echo yes || echo no)" "yes"
+
+# --- The scripts/prune-stamp.sh entry --------------------------------------
+# Discoverable by literal script name, exactly as the existing
+# check-versions.sh check above requires.
+check "Commands documents scripts/prune-stamp.sh" \
+  "$(grep -qF 'prune-stamp.sh' <<< "$commands" && echo yes || echo no)" "yes"
+# Anchors every entry-scoped check below: if this is red they are red for the
+# same single reason (no bold entry lead), not for four independent ones.
+check "the prune-stamp.sh entry has a bold entry lead, in the same shape as check-versions.sh" \
+  "$(nonblank "$prune_entry")" "yes"
+check "the prune-stamp.sh entry gives a runnable example carrying both arguments" \
+  "$(grep -qiE 'bash .{0,80}prune-stamp\.sh [^ ]+ [^ ]+' <<< "$prune_entry" && echo yes || echo no)" "yes"
+check "the prune-stamp.sh entry documents its exit codes" \
+  "$(grep -qiE 'exit.{0,60}[0-9]' <<< "$prune_entry" && echo yes || echo no)" "yes"
+check "the prune-stamp.sh entry carries the CLAUDE_CONFIG_DIR note" \
+  "$(grep -qF 'CLAUDE_CONFIG_DIR' <<< "$prune_entry" && echo yes || echo no)" "yes"
+check "the prune-stamp.sh entry describes deleting a stamp record the engineer names" \
+  "$(grep -qiE '(delet|remov)[a-z]*.{0,80}(record|stamp)|(record|stamp).{0,80}(delet|remov)' <<< "$prune_entry" \
+     && grep -qiE 'engineer|you name|you give|name(s|d)?|specif' <<< "$prune_entry" && echo yes || echo no)" "yes"
+check "the prune-stamp.sh entry states the update skill offers this command" \
+  "$(grep -qi 'offer' <<< "$prune_entry" && echo yes || echo no)" "yes"
+check "the prune-stamp.sh entry states the skill never runs it" \
+  "$(grep -qiE 'never runs?|does not run|doesn.t run' <<< "$prune_entry" && echo yes || echo no)" "yes"
+# Negative invariant. The script deletes exactly what it is told to delete and
+# makes no liveness judgement of its own; describing it as cleanup or garbage
+# collection would advertise a judgement it deliberately does not have.
+# GREEN at birth (the entry does not exist yet) — a guard on the next wave.
+check "the prune-stamp.sh entry does not describe the script as cleanup or garbage collection" \
+  "$(grep -qiE 'clean-?up|cleans? up|garbage.{0,3}collect|sweep|reap' <<< "$prune_entry" && echo present || echo absent)" "absent"
+# GREEN at birth, edge-case guard: the stamp record format has exactly one
+# source of truth (docs/setup-stamps.md, which the existing "Commands points
+# to docs/setup-stamps.md" check requires this section to link).
+check "Commands does not restate the stamp file's record format" \
+  "$(grep -qE 'stamps\[\]|"scope":|"target":|"at":' <<< "$commands" && echo present || echo absent)" "absent"
+
+# --- The Tests block --------------------------------------------------------
+tests_block=$(section_body "$readme_stripped" "## Tests")
+check "Tests block lists prune-stamp.test.sh" \
+  "$(grep -qF 'prune-stamp.test.sh' <<< "$tests_block" && echo yes || echo no)" "yes"
+# GREEN at birth: the new entry is added to the block, not swapped in.
+check "Tests block still lists the existing manifest and check-versions suites" \
+  "$(grep -qF 'manifest.test.sh' <<< "$tests_block" \
+     && grep -qF 'check-versions.test.sh' <<< "$tests_block" && echo yes || echo no)" "yes"
+
+# ===========================================================================
+# Contract: B03 prune-wiring — stamps doc (plan 001-stamp-staleness-actionable)
+# ===========================================================================
+# docs/setup-stamps.md is a binding format contract: five separate setup
+# skills write the file it specifies, and stamp-conformance.test.sh scores
+# their docblocks against it. The addition under test is ONE semantic — that
+# records are never auto-pruned and removal is always explicit.
+#
+# Its central invariant, that the addition imposes NO new obligation on those
+# five skills, is deliberately NOT asserted here. The proof of it is that
+# stamp-conformance.test.sh keeps passing without being edited; duplicating
+# its checks here would create a second scorer of the same five docblocks and
+# a second thing to update when they change.
+#
+# RED at birth for the four semantics checks (the section says nothing about
+# automatic pruning, explicit removal, or self-clearing today); GREEN by
+# design for the two verbatim-survival checks and the two negative guards.
+
+SETUP_STAMPS_DOC="$PLUGIN_ROOT/docs/setup-stamps.md"
+stamps_stripped=$(strip_comments "$SETUP_STAMPS_DOC")
+semantics=$(section_body "$stamps_stripped" "## Semantics")
+semantics_flat=$(tr -s '[:space:]' ' ' <<< "$semantics")
+
+# Anchors the checks below, as the entry-lead check does for the README.
+check "docs/setup-stamps.md has a non-empty Semantics section" \
+  "$(nonblank "$semantics")" "yes"
+
+check "Semantics states stamp records are never pruned automatically" \
+  "$(grep -qiE '(never|not|no).{0,50}auto[a-z-]*.{0,50}(prune|pruned|removed|cleared|deleted)|(prune|pruned|removed|cleared|deleted).{0,50}auto[a-z-]*' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+check "Semantics states removal is always explicit" \
+  "$(grep -qiE 'always explicit|explicit(ly)?.{0,40}(removal|remove|deletion|delete)|(removal|removing|deletion).{0,40}explicit' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+check "Semantics names both removal routes: a setup's remove subcommand and prune-stamp.sh" \
+  "$(grep -qF 'prune-stamp.sh' <<< "$semantics_flat" \
+     && grep -qiE 'remove.{0,300}prune-stamp|prune-stamp.{0,300}remove' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+check "Semantics gives prune-stamp.sh as the route for a target a setup cannot resolve" \
+  "$(grep -qiE 'prune-stamp.{0,300}(cannot|can.t|unable|no longer)|(cannot|can.t|unable|no longer).{0,300}prune-stamp' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+# The surprise that produced issue #239: a record whose target has gone away
+# stays put. Two conjuncts, since "does not self-clear" has many faithful
+# phrasings and only the negation is load-bearing.
+check "Semantics states a record whose target no longer corresponds to an installation does not self-clear" \
+  "$(grep -qiE 'no longer' <<< "$semantics_flat" \
+     && grep -qiE '(does not|doesn.t|never|is not|are not|not).{0,60}(self.?clear|clear (itself|on its own)|disappear|go(es)? away|vanish|remove (itself|on its own))' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+
+# GREEN at birth, verbatim-survival guards: the addition sits ALONGSIDE these
+# two existing rules; it does not restate or amend either.
+check "the existing 'Key: (plugin, target)' rule survives verbatim" \
+  "$(grep -qF -- '**Key: `(plugin, target)`.**' <<< "$semantics" \
+     && grep -qF -- 'replaces that record' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+check "the existing remove-is-silent-success rule survives verbatim" \
+  "$(grep -qF -- 'no record present is silent success' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+
+# GREEN at birth, edge-case guard: prune-stamp.sh's interface belongs to the
+# script's own docblock and the README. This document specifies the FORMAT
+# contract only; duplicating the interface would create a second source of
+# truth to drift.
+check "the stamps doc does not document prune-stamp.sh's flags, exit codes, or usage" \
+  "$(grep -qiE 'exit (code|status|[0-9])|usage:|^ *usage' <<< "$stamps_stripped" && echo present || echo absent)" "absent"
+# GREEN at birth, invariant guard: reader-facing prose, not a changelog.
+check "the stamps doc body carries no issue archaeology" \
+  "$(grep -qE '#[0-9]+' <<< "$stamps_stripped" && echo present || echo absent)" "absent"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

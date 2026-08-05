@@ -1,3 +1,65 @@
+# Contract: B13 ci-workflow-job-split
+#
+# Behavior:   Runs the repo gate on every pull request against master and on
+#             every push to master. The lint stage and the test stage run
+#             CONCURRENTLY, in separate jobs on separate runners, rather than
+#             sequentially as two steps of one job. A third job named exactly
+#             `ci` depends on both and reports the single pass/fail the branch
+#             ruleset consumes.
+#
+# Inputs:     GitHub `pull_request` (branches: [master]) and `push`
+#             (branches: [master]) events. No repository variables, no
+#             secrets, no inputs of any other kind. Reads nothing from
+#             `.claude/` or `.local/`.
+#
+# Outputs:    Three check contexts: `lint`, `test`, and `ci`. The `ci` context
+#             is green if and only if BOTH `lint` and `test` succeeded.
+#             Neither stage's console output, ordering, or exit code changes;
+#             `scripts/ci.sh` is not modified by this block and still owns
+#             everything the stages print.
+#
+# Errors:     A failing lint stage fails the `lint` job and, through it, `ci`.
+#             A failing test stage does the same via `test`. A job that is
+#             cancelled or times out counts as not-success and must fail `ci`.
+#
+# Invariants:
+#   - **A job named exactly `ci` always exists and always runs.** The
+#     `Protect master` ruleset (id 19719395) requires a status check whose
+#     context is the literal string `ci`, with
+#     `strictRequiredStatusChecksPolicy` enabled. GitHub derives check contexts
+#     from job names, so renaming or removing this job deletes the required
+#     context and blocks every open pull request — including the one making
+#     the change — on a check that will never be reported.
+#   - **The `ci` job carries `if: always()` and asserts its dependencies'
+#     results explicitly.** Without `if: always()`, a failed `lint` leaves the
+#     aggregator SKIPPED rather than FAILED, and a skipped required check does
+#     not block a merge: the gate would go on reporting green while a stage
+#     was red. Checking `needs.<job>.result == 'success'` (not `!= 'failure'`)
+#     is what makes cancellation and timeout count as failure too.
+#   - **`scripts/ci.sh` is not touched.** It already accepts `--lint` and
+#     `--test` independently; this block is a workflow-file change and a test,
+#     and nothing else.
+#   - **Each stage's environment is preserved exactly as it is today**, so the
+#     split is observable only to a stopwatch: `fetch-depth: 0` on checkout and
+#     the `en_US.UTF-8` locale install in BOTH stage jobs, and
+#     `LC_ALL: en_US.UTF-8` set on the test stage only — which is precisely the
+#     environment each stage runs under now.
+#   - The two stage jobs declare no `needs` on each other. A `needs` edge
+#     between them would restore the sequential runtime this block exists to
+#     remove.
+#
+# Edge cases:
+#   - Lint fails, test passes -> `lint` red, `test` green, `ci` RED.
+#   - Lint passes, test fails -> `ci` RED.
+#   - Either job cancelled or timed out -> `ci` RED (result is neither
+#     `success` nor `failure`, and the assertion is on `success`).
+#   - Both pass -> `ci` GREEN, and it is the only context the ruleset reads.
+#
+# Note: the aggregator spends a third runner spin-up on the critical path,
+# roughly 7s. Requiring `lint` and `test` in the ruleset directly would
+# recover it, but that is a repo-settings change with a window in which
+# in-flight pull requests block; see FOLLOWUPS F27. Not this block's work.
+
 name: CI
 
 on:
@@ -7,7 +69,7 @@ on:
     branches: [master]
 
 jobs:
-  ci:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +84,30 @@ jobs:
       - name: Lint
         run: bash scripts/ci.sh --lint
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install en_US.UTF-8 locale
+        run: |
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale
+
       - name: Test
         run: bash scripts/ci.sh --test
         env:
           LC_ALL: en_US.UTF-8
+
+  ci:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check lint and test results
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
+            exit 1
+          fi

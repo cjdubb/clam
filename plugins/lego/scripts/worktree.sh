@@ -1187,6 +1187,32 @@ deliver_cleanup() {
   fi
 }
 
+# Contract: B10 deliver fresh-base resolution
+# Behavior: before any other use of <base-branch>, cmd_deliver resolves it
+#   to a fresh base ref BASE_REF: when a remote named "origin" exists and
+#   carries <base-branch>, run `git fetch origin <base-branch>` and use
+#   origin/<base-branch>; otherwise BASE_REF is the local <base-branch>
+#   (unchanged behavior). Every subsequent base-side use — the base
+#   existence verification, the newest_commit_with_subject lower bound, and
+#   the delivery-branch creation — uses BASE_REF. `gh pr create --base`
+#   keeps the plain <base-branch> NAME (it names a remote branch, not a
+#   local ref; unchanged).
+# Inputs: <base-branch> as today (already valid_token-validated).
+# Outputs: the delivery branch forks from origin/<base-branch>'s
+#   just-fetched tip whenever the remote branch exists, regardless of how
+#   stale the local <base-branch> ref is.
+# Errors: origin exists and carries <base-branch> but the fetch fails ->
+#   die 4 naming the fetch; base resolvable neither remotely nor locally ->
+#   die 4 "base branch not found" (unchanged).
+# Invariants: with no origin remote, or an origin lacking <base-branch>
+#   (hermetic test fixtures), behavior is exactly today's; manifest
+#   validation, tip-restore, extraCommits, the byte-gate, and cleanup are
+#   untouched; the REPO_ROOT worktree is never modified; no fetch of
+#   anything beyond <base-branch>.
+# Edge cases: local <base-branch> AHEAD of origin (unpushed commits) ->
+#   origin still wins (the PR target is the remote); local <base-branch>
+#   absent entirely with the remote branch present -> deliver succeeds
+#   (remote resolution suffices, local ref not required).
 cmd_deliver() {
   # ---- Parse flags (--manifest) before positional args ----
   local manifest_path=""
@@ -1247,7 +1273,21 @@ cmd_deliver() {
     die 4 "delivery branch $delivery_branch already exists"
   fi
 
-  git -C "$REPO_ROOT" rev-parse --verify --quiet "$base_branch^{commit}" >/dev/null 2>&1 || die 4 "base branch not found: $base_branch"
+  # ---- Resolve BASE_REF: a fresh origin/<base-branch> when origin carries
+  # it, otherwise the local <base-branch> unchanged (Contract: B10). ----
+  local BASE_REF="$base_branch"
+  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+    local origin_has_base
+    origin_has_base="$(git -C "$REPO_ROOT" ls-remote --heads origin "$base_branch" 2>/dev/null)"
+    if [ -n "$origin_has_base" ]; then
+      if ! git -C "$REPO_ROOT" fetch origin "$base_branch" >/dev/null 2>&1; then
+        die 4 "failed to fetch $base_branch from origin"
+      fi
+      BASE_REF="origin/$base_branch"
+    fi
+  fi
+
+  git -C "$REPO_ROOT" rev-parse --verify --quiet "$BASE_REF^{commit}" >/dev/null 2>&1 || die 4 "base branch not found: $base_branch"
 
   # ---- Pass 1: resolve and validate everything, read-only ----
   local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=()
@@ -1274,8 +1314,8 @@ cmd_deliver() {
     done
 
     local tests_sha impl_sha
-    tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests" "$base_branch")"
-    impl_sha="$(newest_commit_with_subject "$branch" "lego($u): implementation" "$base_branch")"
+    tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests" "$BASE_REF")"
+    impl_sha="$(newest_commit_with_subject "$branch" "lego($u): implementation" "$BASE_REF")"
     if [ -z "$impl_sha" ]; then
       die 4 "unit $u is missing the required implementation commit"
     fi
@@ -1289,7 +1329,7 @@ cmd_deliver() {
   tmp_parent="$(mktemp -d)"
   tmp_wt="$tmp_parent/wt"
 
-  if ! git -C "$REPO_ROOT" worktree add -q -b "$delivery_branch" "$tmp_wt" "$base_branch" >/dev/null 2>&1; then
+  if ! git -C "$REPO_ROOT" worktree add -q -b "$delivery_branch" "$tmp_wt" "$BASE_REF" >/dev/null 2>&1; then
     deliver_cleanup "" "$tmp_parent" "$delivery_branch"
     die 4 "failed to create delivery branch from $base_branch"
   fi

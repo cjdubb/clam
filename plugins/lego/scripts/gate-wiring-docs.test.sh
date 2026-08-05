@@ -34,11 +34,33 @@ BLOCKS_TEMPLATE="$PLUGIN_DIR/templates/blocks.md"
 PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 BLOCKS_LINT="$SCRIPT_DIR/blocks-lint.sh"
 
-# Retargeted 0.14.2 -> 0.14.3 by the README Update-section wave: that wave
-# edits plugins/lego/README.md, and version-bump-lint has no docs
-# exemption, so the plugin necessarily bumps. The pin tracks the CURRENT
-# version, so every legitimate bump retargets it.
-EXPECTED_VERSION="0.14.3"
+# Contract: B09 derived version expectation
+# Behavior: the suite derives its version expectation instead of pinning a
+#   literal. (1) plugin.json's .version must be well-formed plain semver
+#   (MAJOR.MINOR.PATCH, numeric fields only, no pre-release/build suffix —
+#   this repo's plugins use plain X.Y.Z). (2) When the repo-root README.md
+#   exists (PLUGIN_DIR/../../README.md), the version in the root README's
+#   lego marketplace-table row (the "✅ vX.Y.Z" cell) must equal
+#   plugin.json's .version; when that file is absent (plugin installed
+#   standalone, no repo checkout), the equality check is SKIPPED with a
+#   printed note, never failed.
+# Outputs: PASS/FAIL lines through this suite's existing check() helper;
+#   failures name got-vs-expected. No EXPECTED_VERSION literal remains in
+#   this file once implemented.
+# Errors: missing/unreadable plugin.json version -> FAIL (existing
+#   behavior); root README present but the lego row missing or carrying no
+#   parseable vX.Y.Z -> FAIL naming what was searched for.
+# Invariants: every other check in this suite is unchanged; the suite still
+#   exits non-zero on any failure; no dependency beyond what the file
+#   already uses (grep/sed and the jq-fallback version extraction).
+# Edge cases: malformed semver in plugin.json (e.g. "0.14", "v0.14.2",
+#   "0.14.2-rc1") -> FAIL the format check.
+
+# The repo-root README, present only when the plugin lives in a checkout of
+# its marketplace repo. Absent for a standalone install — see the version
+# section at the bottom of this file, which skips rather than fails then.
+ROOT_README="$PLUGIN_DIR/../../README.md"
+LEGO_ROW_LINK='[lego](plugins/lego/)'
 
 FAILED=0
 
@@ -204,7 +226,42 @@ else
     | head -1 | sed 's/.*"\(.*\)"$/\1/')
 fi
 
-check "plugin.json: version is $EXPECTED_VERSION" "$VERSION" "$EXPECTED_VERSION"
+# --- Format: plain semver, numeric fields only -----------------------------
+# The offending value goes in the label so the FAIL line names what was read
+# as well as got-vs-expected. "0.14", "v0.14.2" and "0.14.2-rc1" all fail
+# here, as does an empty VERSION (missing or unreadable .version).
+SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+check "plugin.json: .version '$VERSION' is plain semver (MAJOR.MINOR.PATCH)" \
+  "$([[ "$VERSION" =~ $SEMVER_RE ]] && echo well-formed || echo malformed)" \
+  "well-formed"
+
+# --- Agreement: the root README's marketplace row states the same version ---
+# Derived, never pinned: a version bump edits plugin.json and the root README
+# row, and this check keeps the two honest without a literal here.
+if [[ ! -f "$ROOT_README" ]]; then
+  echo "SKIP  root README not found at $ROOT_README — standalone plugin install, version agreement not checked"
+else
+  # The marketplace table row for this plugin: a table line (leading '|')
+  # carrying the row's own link. Field 3 of a leading-'|' row is the status
+  # cell ("✅ vX.Y.Z"); field 1 is the empty string before the first pipe.
+  ROOT_ROW=$(grep -F -- "$LEGO_ROW_LINK" "$ROOT_README" | grep -E '^[[:space:]]*\|' | head -1)
+
+  check "root README: marketplace row found (searched for a table row containing '$LEGO_ROW_LINK' in $ROOT_README)" \
+    "$([[ -n "$ROOT_ROW" ]] && echo found || echo missing)" "found"
+
+  if [[ -n "$ROOT_ROW" ]]; then
+    ROOT_STATUS=$(awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); print $3 }' <<<"$ROOT_ROW")
+    ROOT_VERSION=$(sed -n 's/^✅[[:space:]]*v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' <<<"$ROOT_STATUS")
+
+    check "root README: status cell of that row parses as '✅ vX.Y.Z' (searched status cell '$ROOT_STATUS')" \
+      "$([[ -n "$ROOT_VERSION" ]] && echo parsed || echo unparseable)" "parsed"
+
+    if [[ -n "$ROOT_VERSION" ]]; then
+      check "root README: marketplace row version agrees with plugin.json" \
+        "$ROOT_VERSION" "$VERSION"
+    fi
+  fi
+fi
 
 # ===========================================================================
 # Invariant: the composed docs name no other plugin (layering rule)

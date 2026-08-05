@@ -1,0 +1,72 @@
+name: bench
+
+# Throwaway: re-sweeps per-file test times on a quiet runner after four new
+# render-doc server test files landed, and times the lint stage's parts.
+# Runs only on its own branch.
+on:
+  push:
+    branches: [bench/sweep-2]
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install en_US.UTF-8 locale
+        run: sudo locale-gen en_US.UTF-8 && sudo update-locale
+
+      - name: Runner facts
+        run: |
+          echo "FACT	nproc	$(nproc)"
+          echo "FACT	loadavg	$(cut -d' ' -f1-3 /proc/loadavg)"
+          echo "FACT	sha	$(git rev-parse --short HEAD)"
+
+      # Per-file serial timing over the real suite: the pole check and the
+      # shard-balancing input in one measurement.
+      - name: Per-file serial timing sweep
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          mapfile -t files < <(find "$PWD/scripts" -maxdepth 1 -type f -name '*.test.sh' | sort)
+          mapfile -t p < <(find "$PWD/plugins" -mindepth 3 -maxdepth 3 -type f -name '*.test.sh' \
+            \( -path '*/scripts/*' -o -path '*/lib/*' \) | sort)
+          files+=("${p[@]}")
+          for f in "${files[@]}"; do
+            s=$(date +%s.%N)
+            bash "$f" >/dev/null 2>&1
+            e=$(date +%s.%N)
+            printf 'SWEEP\t%s\t%s\n' "$(echo "$e - $s" | bc)" "${f#"$PWD"/}"
+          done
+
+      - name: Stage makespans
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          for r in 1 2; do
+            s=$(date +%s.%N); bash scripts/ci.sh --test >/dev/null 2>&1; e=$(date +%s.%N)
+            printf 'MAKESPAN\ttest\t%s\n' "$(echo "$e - $s" | bc)"
+          done
+          for r in 1 2; do
+            s=$(date +%s.%N); bash scripts/ci.sh --lint >/dev/null 2>&1; e=$(date +%s.%N)
+            printf 'MAKESPAN\tlint\t%s\n' "$(echo "$e - $s" | bc)"
+          done
+
+      # Does shellcheck chunk cleanly across cores? Decision 006 measured 4.8x
+      # locally under load; this is the same experiment on a quiet 4 vCPU box.
+      - name: shellcheck chunking
+        run: |
+          mapfile -t FILES < <(git ls-files -z | tr '\0' '\n' | grep -E '\.sh$' | sort)
+          echo "FACT	shfiles	${#FILES[@]}"
+          s=$(date +%s.%N); shellcheck -f gcc --exclude=SC2317 -- "${FILES[@]}" >/dev/null 2>&1; e=$(date +%s.%N)
+          printf 'CHUNK\t1\t%s\n' "$(echo "$e - $s" | bc)"
+          for J in 2 4 8; do
+            s=$(date +%s.%N)
+            printf '%s\n' "${FILES[@]}" | xargs -P "$J" -n "$(( (${#FILES[@]} + J - 1) / J ))" \
+              shellcheck -f gcc --exclude=SC2317 -- >/dev/null 2>&1
+            e=$(date +%s.%N)
+            printf 'CHUNK\t%s\t%s\n' "$J" "$(echo "$e - $s" | bc)"
+          done

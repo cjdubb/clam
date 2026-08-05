@@ -46,6 +46,25 @@ When you do render a document:
 
 ## Common workflows
 
+<!-- Contract: B07 template docs + version bump (plan 001-render-graph-always) (remove at acceptance)
+Behavior: the workflow prose below is updated for two template changes,
+matching the contracts in assets/template.html:
+- Work Graph documents now render the node-and-edge graph view BY DEFAULT
+  (the card tree remains one toggle away) — the sentence below currently
+  reading "the card view remains the default" flips to say the graph view
+  is the default, with the card view a toggle away.
+- Pages opened through the annotation server update themselves in place
+  when the source markdown changes (polling /raw with ETag/If-None-Match;
+  ~1.5s cadence; an open annotation draft is never destroyed — updates are
+  held until the composer closes; on file:// there is no polling). A short
+  paragraph documents this under "What to expect" or beside the --open
+  workflow.
+plugin.json bumps 0.5.0 -> 0.6.0 in the same change (after B04's 0.5.0).
+Invariants: every other rendering claim in this README stays accurate;
+the card view's own description is unchanged apart from which view is
+the default.
+-->
+
 ### Render a plan or decision file for review
 
 ```bash
@@ -148,6 +167,28 @@ arrive via POST `/annotate` with `{md, section, excerpt, tag, note}` and
 are written straight into the markdown named in the request, subject to
 that same scope check.
 
+Three more routes ride the same server. `GET /raw/<path>` returns the
+*source* markdown's current bytes — never the rendered sibling — with a
+quoted `sha256` digest of those bytes as the `ETag`; a request whose
+`If-None-Match` carries that ETag (quoted or bare) gets a `304` with no
+body, so an open page can poll cheaply for live updates instead of a full
+re-fetch each time. `/raw` is checked under the identical scope rule as
+`/doc` — realpath, `.md`, under `$HOME`, inside a git worktree.
+
+Every successful `/doc` or `/raw` serve is remembered in a served-doc
+registry, persisted best-effort to `/tmp/render-doc-registry-<port>.json`
+(one file per port). `GET /docs.json` returns that registry as
+`{"docs": [...]}`, scope-pruned on every read so a path that has since
+left scope never lingers in the listing.
+
+`GET /` is the project index: one self-contained page listing every
+registered document, grouped by worktree/project into a collapsible
+`<details>` section per group (expanded by default). A group whose
+documents include a `WORKGRAPH.md` shows it as the group's headline, with
+its open-node count and Focus id read from the work-graph protocol's
+markers; every other document in the group lists as a path relative to
+the worktree root, all linking to their live `/doc` views.
+
 ### Failure modes
 
 | Scenario | Behavior |
@@ -159,6 +200,9 @@ that same scope check.
 | python3 unavailable | `--open` falls back to `file://` open; annotations are in-memory only |
 | Annotation server unreachable | "Add" still works in-memory; no save confirmation shown |
 | Port 27183 (or `RENDER_DOC_PORT`) held by another process, not this server | A stderr note names the port; `--open` falls back to `file://` |
+| `/raw` requested for a file that fails to read (permissions, vanished mid-request) | `500` with a JSON `{"error": ...}`; no traceback, no crash |
+| The registry file can't be written (`/tmp` unwritable, deleted mid-run) | Persistence is silent and best-effort; the in-memory registry and `/docs.json` keep working |
+| A registered document's `WORKGRAPH.md` (or any listed file) can't be read for the project index | That entry's open-node count and Focus id show as unavailable; the rest of the index renders normally |
 
 ### Maintenance
 
@@ -188,6 +232,9 @@ that same scope check.
 bash plugins/render-doc/scripts/render.test.sh
 bash plugins/render-doc/scripts/server.test.sh
 bash plugins/render-doc/scripts/server-docs.test.sh
+bash plugins/render-doc/scripts/server-raw.test.sh
+bash plugins/render-doc/scripts/server-registry.test.sh
+bash plugins/render-doc/scripts/server-index.test.sh
 bash plugins/render-doc/scripts/open.test.sh
 bash plugins/render-doc/scripts/save-status.test.sh
 bash plugins/render-doc/scripts/structure.test.sh

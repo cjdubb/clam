@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# server-docs.test.sh — verifies the "Contract: B05 server docs and version"
-# comment in plugins/render-doc/README.md, plus the clauses of that block that
-# land in skills/render/SKILL.md, clause by clause.
+# server-docs.test.sh — the server's prose suite. It verifies two contracts,
+# both about what README.md and skills/render/SKILL.md must SAY about
+# scripts/serve.py:
+#   - "Contract: B05 server docs and version" (README + SKILL.md), the
+#     fixed-port rewrite, in the sections up to "Invariants" below;
+#   - "Contract: B04 server docs + version bump" (README + plugin.json), the
+#     three routes the server gained afterwards — /raw, /docs.json and the
+#     project index at / — in the final section.
+# B05's assertions double as B04's invariant check: the contract requires the
+# existing route documentation to stay accurate and unchanged in meaning, and
+# every B05 clause below still holding is exactly that.
 #
 # This block's deliverable is prose, so every assertion here is a TOKEN or an
 # ANCHOR, never a sentence: the retired-design tokens must be absent, the
@@ -18,14 +26,13 @@
 # asserted individually; a section that cannot be found fails once, with its
 # own message, instead of cascading into a dozen confusing failures.
 #
-# The comment trap: BOTH contract comments quote the retired-design tokens
-# verbatim (they are telling the implementer what to delete), so a naive scan
-# of either file would go green the moment the comment is deleted even if the
-# body prose still described the retired server. Every content assertion below
-# therefore runs against a comment-stripped copy — the render.test.sh /
-# workgraph-docs.test.sh precedent, sed '/<!--/,/-->/d' — and the one check
-# that reads the RAW file is the "Contract: B05 marker is gone" pair, which is
-# this block's acceptance signal and is only meaningful unstripped.
+# The comment trap: a contract comment states, verbatim, the tokens the prose
+# beneath it must gain or lose — it is telling the implementer what to write —
+# so a naive scan of either file would go green on the comment alone. Every
+# content assertion below therefore runs against a comment-stripped copy — the
+# render.test.sh / workgraph-docs.test.sh precedent, sed '/<!--/,/-->/d' — and
+# the only checks that read the RAW files are the "the Contract marker is gone"
+# pairs, each its own block's acceptance signal and meaningful only unstripped.
 #
 # Deliberately NOT asserted here, because another suite already gates it:
 #   render.test.sh          — SKILL.md frontmatter `name: render`, the
@@ -35,12 +42,12 @@
 #                             mentions.
 #   readme-lint.sh, plugin-readme-template.test.sh — README template
 #                             conformance (headings, their order and place).
-#   workgraph-docs.test.sh  — the plugin version floor and the root README
-#                             table agreeing with plugin.json. The version
-#                             bump named in the B05 contract text landed in
-#                             the scaffold commit (version-bump-lint reads
-#                             committed state), so a version assertion here
-#                             would be vacuously green from the first run.
+#   workgraph-docs.test.sh  — the root README table agreeing with plugin.json.
+#                             B05's own version bump landed in the scaffold
+#                             commit (version-bump-lint reads committed state),
+#                             so asserting it here would be vacuously green;
+#                             B04's has not landed, so its floor IS asserted
+#                             below.
 #
 # Not asserted for a different reason — over-specification: the state file is
 # banned only as its literal path, not as the phrase "state file", because a
@@ -261,10 +268,18 @@ fi
 pass "setup: both files stripped of their HTML comments"
 
 # The strip is what makes every negative assertion below meaningful. Prove it
-# worked rather than assuming it: pre-implementation the contract comments are
-# present in the raw files and must be absent from the stripped copies.
-if grep -qF 'Contract: B05' "$README_BODY" || grep -qF 'Contract: B05' "$SKILL_BODY"; then
-  fail "sanity: the contract comment survived the strip — the sed range needs adjusting"
+# worked rather than assuming it: any contract comment present in a raw file
+# must be absent from its stripped copy. Pinned to no single block id — B05's
+# comments are long gone, and a check naming only them would be vacuously green
+# from the moment its block landed, which is exactly when the strip stops being
+# proven.
+raw_markers=0
+grep -qE 'Contract: B[0-9]+' "$README" && raw_markers=$((raw_markers + 1))
+grep -qE 'Contract: B[0-9]+' "$SKILL_MD" && raw_markers=$((raw_markers + 1))
+if [ "$raw_markers" -eq 0 ]; then
+  pass "sanity: no contract comment remains in either raw file to prove the strip against"
+elif grep -qE 'Contract: B[0-9]+' "$README_BODY" || grep -qE 'Contract: B[0-9]+' "$SKILL_BODY"; then
+  fail "sanity: a contract comment survived the strip — the sed range needs adjusting"
 else
   pass "sanity: contract comments stripped from both bodies"
 fi
@@ -468,6 +483,140 @@ if non_empty "$SK_CHECKPOINT" "SKILL.md: '## Checkpoint integration' section fou
   has "$SK_CHECKPOINT" 'render-doc:render' "SKILL Checkpoint: still gates on the skill by name"
   has "$SK_CHECKPOINT" 'available|presence|installed' \
     "SKILL Checkpoint: still gates on plugin presence"
+fi
+
+# =============================================================================
+# Contract: B04 — server docs + version bump
+#
+# The server gained three routes; this block is the prose that documents them.
+# Same method as above: tokens and anchors, never sentences. The three routes
+# are asserted under "### Scripts", which is where the serve.py entry lives and
+# where a reader looks for what the script does; the observable failure
+# behaviour they add is asserted against the "### Failure modes" table, which
+# the contract names explicitly.
+#
+# B04's invariant — "existing route documentation (health/doc/annotate, scope
+# rules, Host pinning, singleton bind) stays accurate and unchanged in meaning"
+# — needs no assertion of its own: every B05 clause above is that invariant,
+# and a rewrite that broke it reddens them.
+# =============================================================================
+
+# Acceptance signal: the contract comment itself is gone. Read RAW, on purpose.
+if grep -qF 'Contract: B04' "$README"; then
+  fail "README.md: 'Contract: B04' comment still present (deleting it is part of the work)"
+else
+  pass "README.md: 'Contract: B04' comment removed"
+fi
+
+# --- Vocabulary --------------------------------------------------------------
+# Each fact as an alternation, so a faithful rewrite is not forced into one
+# word. Multi-word alternatives spell their gap as $WS to survive a hard wrap.
+RAW_ROUTE='/raw'
+DOCS_JSON='/docs\.json'
+REGISTRY_FILE='render-doc-registry'
+CONDITIONAL="304|if-none-match|conditional|unchanged"
+DIGEST="sha-?256|digest|hash|checksum"
+POLLING="poll|live|automatic|refresh|updates?${WS}itself|in${WS}place|watch"
+SCOPE_RULE="scope|realpath|real${WS}path|same${WS}rules"
+REMEMBERED="remember|record|register|track|every${WS}(successful${WS})?serve|served"
+PRUNED="prune|scope|no${WS}longer|stale|gone|removed|drop"
+GROUPED="group|per-?project|by${WS}worktree|per${WS}worktree|project"
+COLLAPSIBLE="collaps|expand|fold|details|section${WS}per"
+# The index route is the bare "/", which is not a token a grep can pin, so the
+# page is identified by the noun the contract uses for it.
+INDEX_PAGE="index|landing${WS}page|home${WS}page"
+
+# The ETag header name as a standalone word — the same case-exact treatment
+# $HOST_HEADER gets, and for the same reason.
+ETAG_HEADER='(^|[^[:alnum:]])ETags?([^[:alnum:]]|$)'
+
+# --- The three routes, under "### Scripts" -----------------------------------
+# $RM_SCRIPTS was extracted for the B05 clauses above and is reused here.
+
+if non_empty "$RM_SCRIPTS" "README.md: '### Scripts' section still found (B04)"; then
+  has "$RM_SCRIPTS" "$RAW_ROUTE" "README Scripts: names the /raw route"
+  near "$RM_SCRIPTS" "$RAW_ROUTE" "$ETAG_HEADER" 6 \
+    "README Scripts: /raw is documented as carrying an ETag" case-exact
+  near "$RM_SCRIPTS" "$RAW_ROUTE" "$DIGEST" 6 \
+    "README Scripts: the ETag is stated to be a sha256 of the document's bytes"
+  near "$RM_SCRIPTS" "$RAW_ROUTE" "$CONDITIONAL" 6 \
+    "README Scripts: /raw is documented as honoring If-None-Match with a 304"
+  near "$RM_SCRIPTS" "$RAW_ROUTE" "$POLLING" 6 \
+    "README Scripts: /raw is named as the polling target for live-updating pages"
+  near "$RM_SCRIPTS" "$RAW_ROUTE" "$SCOPE_RULE" 8 \
+    "README Scripts: /raw is stated to be under the same scope rules as /doc"
+
+  has "$RM_SCRIPTS" "$DOCS_JSON" "README Scripts: names the /docs.json route"
+  has "$RM_SCRIPTS" "$REGISTRY_FILE" \
+    "README Scripts: names the registry's /tmp file, keyed by port"
+  near "$RM_SCRIPTS" "$DOCS_JSON|registr" "$REMEMBERED" 6 \
+    "README Scripts: the registry is described as remembering every successful serve"
+  near "$RM_SCRIPTS" "$DOCS_JSON|registr" "$PRUNED" 6 \
+    "README Scripts: /docs.json's listing is stated to be scope-pruned"
+
+  has "$RM_SCRIPTS" "$INDEX_PAGE" "README Scripts: names the project index page"
+  near "$RM_SCRIPTS" "$INDEX_PAGE" "$GROUPED" 6 \
+    "README Scripts: the index is stated to group documents by worktree/project"
+  near "$RM_SCRIPTS" "$INDEX_PAGE" "$COLLAPSIBLE" 6 \
+    "README Scripts: the index's per-project sections are stated to be collapsible"
+  near "$RM_SCRIPTS" "$INDEX_PAGE" '/doc' 8 \
+    "README Scripts: the index's entries are stated to link to their live /doc views"
+  has_exact "$RM_SCRIPTS" 'WORKGRAPH' \
+    "README Scripts: names WORKGRAPH.md as a group's headline document"
+  near "$RM_SCRIPTS" 'WORKGRAPH' 'open' 4 \
+    "README Scripts: the headline is stated to carry the open-node count"
+  near "$RM_SCRIPTS" 'WORKGRAPH' 'focus' 4 \
+    "README Scripts: the headline is stated to carry the Focus id"
+  has "$RM_SCRIPTS" 'relative' \
+    "README Scripts: other documents are stated to list as worktree-relative paths"
+fi
+
+# --- The failure-mode rows ---------------------------------------------------
+# "The Failure modes table gains rows where these routes add observable failure
+# behavior." All three do: /raw can be asked for a file it cannot read, the
+# registry's persistence is best-effort, and the index degrades per entry
+# rather than failing. Which scenario wording each row uses is the
+# implementer's; that a row exists per route is the contract's.
+
+RM_FAILMODES="$WORK/readme.failure-modes"
+section "$README_BODY" '^### Failure modes$' > "$RM_FAILMODES"
+
+if non_empty "$RM_FAILMODES" "README.md: '### Failure modes' section found"; then
+  fm_rows="$(grep -c '^|' "$RM_FAILMODES")"
+  : "${fm_rows:=0}"
+  fm_rows=$((fm_rows - 2)) # the header row and its separator
+  # Seven rows before this block; the table must have grown.
+  if [ "$fm_rows" -gt 7 ]; then
+    pass "README Failure modes: the table gained rows ($fm_rows, was 7)"
+  else
+    fail "README Failure modes: the table still has $fm_rows data rows — no row was added for the new routes"
+  fi
+  has "$RM_FAILMODES" "$RAW_ROUTE" \
+    "README Failure modes: a row covers /raw's observable failure behaviour"
+  has "$RM_FAILMODES" "$DOCS_JSON|registr" \
+    "README Failure modes: a row covers the registry's best-effort persistence"
+  has "$RM_FAILMODES" "$INDEX_PAGE" \
+    "README Failure modes: a row covers the index's per-entry degradation"
+  no_sibling_reference "$RM_FAILMODES" "README Failure modes"
+fi
+
+# --- The version bump --------------------------------------------------------
+# A FLOOR, not equality: a later block in this same plan bumps the version
+# again, and an equality assertion would redden the moment it lands. This is
+# the workgraph-docs.test.sh idiom, for the same reason.
+
+PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
+if ! command -v jq > /dev/null 2>&1; then
+  fail "jq not found — cannot check the plugin.json version bump"
+else
+  pj_version="$(jq -r '.version' "$PLUGIN_JSON" 2> /dev/null)"
+  if [ -z "$pj_version" ] || [ "$pj_version" = "null" ]; then
+    fail "plugin.json: version missing or unparseable"
+  elif [ "$(printf '0.5.0\n%s\n' "$pj_version" | sort -V | head -1)" = "0.5.0" ]; then
+    pass "plugin.json: version is $pj_version (>= 0.5.0, the bump this block owes)"
+  else
+    fail "plugin.json: version is '$pj_version', expected 0.5.0 or later"
+  fi
 fi
 
 # --- Summary -----------------------------------------------------------------

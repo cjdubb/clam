@@ -127,6 +127,7 @@ Usage: serve.py   (port from RENDER_DOC_PORT, default 27183)
 
 import errno
 import hashlib
+import html
 import http.server
 import json
 import os
@@ -135,6 +136,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 
 PORT = int(os.environ.get('RENDER_DOC_PORT', '27183'))
@@ -177,6 +179,106 @@ def scope_error(md_real):
 annotate_lock = threading.Lock()
 
 
+# Contract: B02 served-doc registry (plan 001-render-graph-always)
+#
+# DELIBERATELY UNIMPLEMENTED. The two functions below raise; implementing
+# them — and wiring registry_record into the serve paths — is the block's
+# implementation. Nothing above this comment changes for B02 except that
+# wiring.
+#
+# Behavior:
+#   The server remembers which documents it has served, so the index page
+#   (B03) can list every served document, grouped by project, with no
+#   other discovery mechanism.
+#   1. After EVERY successful serve — a 200 from /doc, or a 200 or 304 from
+#      /raw — registry_record(md_real) upserts that realpath with the
+#      current epoch seconds as its last-served time: one entry per path,
+#      newest time wins.
+#   2. The registry lives in memory and is persisted best-effort to
+#      /tmp/render-doc-registry-<port>.json after each change, as a JSON
+#      object mapping realpath -> last-served epoch (a number). A failed
+#      write is silent; the in-memory registry keeps working.
+#   3. At import/startup the file, when present and parseable as that
+#      shape, seeds the in-memory registry; a missing, corrupt, or
+#      wrong-shape file is silently treated as empty.
+#   4. registry_entries() returns the current entries as a list of dicts
+#      {"path": <realpath>, "lastServed": <epoch>}, sorted by lastServed
+#      descending, PRUNING — from both the returned list and the registry
+#      itself, persisting the prune — every path that now fails the same
+#      scope rules /doc enforces (scope_error non-None).
+#   5. GET /docs.json responds 200 application/json with exactly
+#      {"docs": <registry_entries() result>}.
+# Inputs: successful serves; the /tmp seed file; GET /docs.json requests.
+# Outputs: /docs.json body as above; the /tmp persistence file.
+# Errors: /docs.json never 500s for registry reasons — an empty or wholly
+#   pruned registry yields {"docs": []}; registry failures never fail or
+#   block a serve.
+# Invariants:
+#   - A lock serializes every registry read-modify-write (the threading
+#     server makes concurrent serves routine), like annotate_lock does for
+#     annotations.
+#   - Entries are realpaths (the same md_real the scope check ran on).
+#   - Recording is fire-and-forget from the serve paths: an exception in
+#     registry code must never turn a successful serve into an error.
+# Edge cases: concurrent serves of one doc (single entry, latest time);
+#   the /tmp file deleted while running (recreated on next change); two
+#   servers on different ports (separate files, keyed by port); a seeded
+#   entry whose file has since vanished (pruned at first
+#   registry_entries() call).
+REGISTRY_FILE = f"/tmp/render-doc-registry-{PORT}.json"
+registry_lock = threading.Lock()
+
+
+def _load_registry():
+    """Read the persisted registry file; empty dict for anything but the
+    documented shape (a missing, corrupt, or wrong-shape file is silent)."""
+    try:
+        with open(REGISTRY_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for k, v in data.items():
+        if isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = v
+    return out
+
+
+_registry = _load_registry()
+
+
+def _persist_registry():
+    """Best-effort write of the in-memory registry to disk; a failure is silent."""
+    try:
+        with open(REGISTRY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(_registry, f)
+    except OSError:
+        pass
+
+
+def registry_record(md_real):
+    try:
+        with registry_lock:
+            _registry[md_real] = time.time()
+            _persist_registry()
+    except Exception:
+        pass
+
+
+def registry_entries():
+    with registry_lock:
+        stale = [p for p in _registry if scope_error(p) is not None]
+        for p in stale:
+            del _registry[p]
+        if stale:
+            _persist_registry()
+        entries = [{"path": p, "lastServed": t} for p, t in _registry.items()]
+    entries.sort(key=lambda e: e["lastServed"], reverse=True)
+    return entries
+
+
 def strip_inline_md(text):
     """Return text with inline markdown punctuation removed."""
     return re.sub(r'[*_`~\[\]()]+', '', text).strip()
@@ -204,6 +306,135 @@ def find_insertion_point(lines, section, excerpt):
         if search in strip_inline_md(lines[j]):
             return j + 1
     return sec_idx + 1
+
+
+# --- Project index (B03) support ---------------------------------------------
+# Pure helpers behind Handler._serve_index: grouping registered documents by
+# worktree and reading a group's WORKGRAPH.md headline via the work-graph
+# protocol's machine-read markers (docs/protocols/work-graph.md).
+
+_OPEN_NODE_RE = re.compile(r'^- Status: open\s*$')
+_FOCUS_RE = re.compile(r'^Focus: (N[0-9]+|none)\s*$')
+
+
+def worktree_label(md_real):
+    """(worktree root realpath, ~-abbreviated label) for md_real's nearest
+    git-ancestor directory. (None, None) only when no ancestor carries a
+    .git entry, which scope_error already rules out for any path reaching
+    the registry."""
+    d = os.path.dirname(md_real)
+    while True:
+        if os.path.exists(os.path.join(d, '.git')):
+            root = os.path.realpath(d)
+            home = os.path.realpath(os.path.expanduser('~'))
+            if root == home or root.startswith(home + os.sep):
+                return root, '~' + root[len(home):]
+            return root, root
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None, None
+        d = parent
+
+
+def read_workgraph(path):
+    """(open_count, focus_id) read via the work-graph protocol's machine-read
+    markers, or None when the file cannot be read or carries no Focus line."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.read().split('\n')
+    except (OSError, UnicodeDecodeError):
+        return None
+    open_count = sum(1 for ln in lines if _OPEN_NODE_RE.match(ln))
+    focus = None
+    for ln in lines:
+        m = _FOCUS_RE.match(ln)
+        if m:
+            focus = m.group(1)
+            break
+    if focus is None:
+        return None
+    return open_count, focus
+
+
+def render_headline(entry):
+    """A group's WORKGRAPH.md headline: its /doc link, open-node count and
+    Focus id — or "unavailable" for both when the file can't be parsed."""
+    href = '/doc' + urllib.parse.quote(entry['path'], safe='/')
+    info = read_workgraph(entry['path'])
+    if info is None:
+        count_text, focus_text = 'unavailable', 'unavailable'
+    else:
+        open_count, focus = info
+        count_text, focus_text = str(open_count), focus
+    href_esc = html.escape(href, quote=True)
+    count_esc = html.escape(count_text)
+    focus_esc = html.escape(focus_text)
+    return (f'<div class="headline"><a href="{href_esc}">WORKGRAPH.md</a> '
+            f'<span class="meta">{count_esc} open nodes | Focus: {focus_esc}'
+            f'</span></div>')
+
+
+def render_group(root, label, entries):
+    """The <details> block for one worktree's group of registered documents:
+    the WORKGRAPH.md headline (if present) followed by every other document
+    as a worktree-relative link, expanded by default."""
+    headline = None
+    others = []
+    for e in entries:
+        if headline is None and os.path.basename(e['path']) == 'WORKGRAPH.md':
+            headline = e
+        else:
+            others.append(e)
+
+    parts = ['<details open><summary>', html.escape(label), '</summary>']
+    if headline is not None:
+        parts.append(render_headline(headline))
+    if others:
+        parts.append('<ul class="docs">')
+        for e in others:
+            rel = os.path.relpath(e['path'], root)
+            href_esc = html.escape(
+                '/doc' + urllib.parse.quote(e['path'], safe='/'), quote=True)
+            parts.append(f'<li><a href="{href_esc}">{html.escape(rel)}</a></li>')
+        parts.append('</ul>')
+    parts.append('</details>')
+    return ''.join(parts)
+
+
+INDEX_STYLE = (
+    "body{background:#12141c;color:#e8e8ec;"
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+    "margin:2rem;}"
+    "h1{font-weight:600;font-size:1.3rem;}"
+    "details{border:1px solid #2a2d3a;border-radius:8px;margin-bottom:1rem;"
+    "padding:.75rem 1rem;background:#181b26;}"
+    "summary{cursor:pointer;font-weight:600;color:#9fb4ff;}"
+    ".headline{margin:.5rem 0;padding:.5rem;border-left:3px solid #5b7fff;}"
+    ".headline a{color:#e8e8ec;text-decoration:none;font-weight:600;}"
+    ".meta{color:#9098a8;margin-left:.5rem;}"
+    "ul.docs{list-style:none;padding-left:.5rem;margin:.5rem 0 0 0;}"
+    "ul.docs li{padding:.15rem 0;}"
+    "ul.docs a{color:#c7d0e0;text-decoration:none;}"
+    "ul.docs a:hover{text-decoration:underline;}"
+    ".empty{color:#9098a8;padding:2rem 0;}"
+)
+
+
+def build_index_html(groups):
+    """The full self-contained index page for a root -> group mapping."""
+    body = ['<h1>render-doc: served documents</h1>']
+    if not groups:
+        body.append(
+            '<p class="empty">No documents have been served yet. A document '
+            'appears here after any render or serve of it through this '
+            'server.</p>')
+    else:
+        for root, g in groups.items():
+            body.append(render_group(root, g['label'], g['entries']))
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<title>render-doc served documents</title>'
+            '<style>' + INDEX_STYLE + '</style></head><body>'
+            + ''.join(body) + '</body></html>')
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -238,6 +469,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if raw.startswith('/doc/'):
             self._serve_doc(urllib.parse.unquote(raw[len('/doc'):]))
+            return
+
+        if raw == '/':
+            self._serve_index()
+            return
+
+        if raw == '/docs.json':
+            self._serve_docs_json()
+            return
+
+        if raw.startswith('/raw/'):
+            self._serve_raw(urllib.parse.unquote(raw[len('/raw'):]))
             return
 
         self.send_error(404)
@@ -278,8 +521,160 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError as e:
             self.send_json(500, {"error": f"could not read rendered html: {e}"})
             return
+        registry_record(md_real)
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    # Contract: B01 raw-doc route (plan 001-render-graph-always)
+    #
+    # DELIBERATELY UNIMPLEMENTED — the method body raises.
+    #
+    # Behavior:
+    #   GET /raw/<abs-md-path> serves the CURRENT bytes of the source
+    #   markdown file itself (never the rendered sibling), so an open page
+    #   can poll for changes and re-render client-side.
+    #   1. The path after /raw is percent-decoded and treated as an
+    #      absolute filesystem path, exactly like /doc's (the do_GET wiring
+    #      above already does this).
+    #   2. Scope rules are IDENTICAL to /doc and /annotate and run on the
+    #      realpath BEFORE any read — reuse scope_error; each violation
+    #      returns the same JSON {"error": ...} shape and status.
+    #   3. A successful response is 200 with Content-Type
+    #      text/plain; charset=utf-8, a correct Content-Length, body = the
+    #      file's raw bytes, and an ETag header whose value is the sha256
+    #      hex digest of exactly those bytes wrapped in double quotes.
+    #   4. When the request carries If-None-Match equal to the current
+    #      ETag (matched with or without the surrounding quotes), respond
+    #      304 with the same ETag header and NO body. Any other
+    #      If-None-Match value gets the full 200.
+    #   5. /raw never writes, renders, or mutates anything — the sibling
+    #      .html is not touched, not even when stale.
+    #   6. On success (200 and 304 alike) the serve is recorded via
+    #      registry_record (B02) — fire-and-forget, per B02's invariants.
+    # Inputs: GET /raw/<percent-encoded abs path>; optional If-None-Match
+    #   header. Host pinning has already run before routing.
+    # Outputs: 200 + bytes + ETag; 304 + ETag, no body; or a JSON error.
+    # Errors: scope violations per scope_error (403/404 JSON); a file that
+    #   passes scope but cannot be read -> 500 {"error": ...} naming the
+    #   OSError; no traceback may leak to the client or crash the server.
+    # Invariants: read-only; the bytes hashed for the ETag are the same
+    #   bytes sent (one read, no re-encoding); 127.0.0.1 only.
+    # Edge cases: empty .md (200, ETag of the empty hash, empty body);
+    #   file replaced between poll cycles (each request reads once —
+    #   hash and body always agree); paths with spaces/non-ASCII
+    #   (percent-decoded before realpath); query strings already stripped.
+    def _serve_raw(self, md_path):
+        md_real = os.path.realpath(md_path)
+        err = scope_error(md_real)
+        if err:
+            self.send_json(err[0], {"error": err[1]})
+            return
+
+        try:
+            with open(md_real, 'rb') as f:
+                content = f.read()
+        except OSError as e:
+            self.send_json(500, {"error": f"could not read markdown: {e}"})
+            return
+
+        digest = hashlib.sha256(content).hexdigest()
+        etag = '"' + digest + '"'
+        registry_record(md_real)
+
+        inm = self.headers.get('If-None-Match')
+        if inm is not None and inm.strip().strip('"') == digest:
+            self.send_response(304)
+            self.send_header('ETag', etag)
+            self.end_headers()
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain;charset=utf-8')
+        self.send_header('Content-Length', str(len(content)))
+        self.send_header('ETag', etag)
+        self.end_headers()
+        self.wfile.write(content)
+
+    # Contract: B02 served-doc registry — /docs.json handler; see the
+    # module-level B02 contract above registry_record for the full spec.
+    # DELIBERATELY UNIMPLEMENTED — raises.
+    def _serve_docs_json(self):
+        try:
+            docs = registry_entries()
+        except Exception:
+            docs = []
+        self.send_json(200, {"docs": docs})
+
+    # Contract: B03 project index (plan 001-render-graph-always)
+    #
+    # DELIBERATELY UNIMPLEMENTED — the method body raises.
+    #
+    # Behavior:
+    #   GET / responds 200 text/html; charset=utf-8 with ONE self-contained
+    #   page (inline CSS only; no external resources; works with scripting
+    #   disabled) listing EVERY registered document, grouped by project:
+    #   1. Source of truth: registry_entries() (B02) — already scope-pruned
+    #      and sorted by last-served descending.
+    #   2. A project is a worktree: an entry's group is the nearest
+    #      ancestor directory of the file containing a .git entry (every
+    #      in-scope path has one — the scope rules require it); the group
+    #      label is that path, abbreviated with a leading ~ when under
+    #      $HOME.
+    #   3. Groups are ordered by their most recently served member;
+    #      within a group, entries keep the registry's last-served order.
+    #   4. A group containing a document whose basename is exactly
+    #      WORKGRAPH.md shows that document as the group's headline: its
+    #      /doc link plus the open-node count and Focus id, read from the
+    #      file via the work-graph protocol's machine-read markers
+    #      (docs/protocols/work-graph.md): open nodes are lines matching
+    #      ^- Status: open[[:space:]]*$ and Focus is the line matching
+    #      ^Focus: (N[0-9]+|none)[[:space:]]*$.
+    #   5. Every other document in the group is listed beneath that as
+    #      its path relative to the worktree root, linking to
+    #      /doc/<percent-encoded realpath> (the live view).
+    #   6. Each group is independently expandable/collapsible without
+    #      scripting (details/summary), so a reader can select one
+    #      project and see only that project's documents; every group
+    #      renders expanded by default (the open attribute).
+    #   7. A listed file that cannot be read, or whose markers cannot be
+    #      parsed, is STILL listed (label + link) with its count and Focus
+    #      shown as unavailable — one bad file never drops an entry and
+    #      never produces a 500.
+    #   8. Zero registered documents -> 200 with an empty-state message
+    #      explaining that a document appears here after any render or
+    #      serve of it through this server.
+    # Inputs: GET /; the registry; the registered files on disk.
+    # Outputs: 200 text/html with a correct Content-Length.
+    # Errors: none observable beyond the per-entry degradation above; a
+    #   registry failure yields the empty state, not a 500.
+    # Invariants: read-only beyond B02's specified pruning; Host pinning
+    #   applies as on every route; ALL entry-derived text (paths, Focus
+    #   ids) is HTML-escaped — file contents and names are untrusted.
+    # Edge cases: a workgraph with zero nodes (count 0, Focus none); a
+    #   Focus id naming a missing node (shown as recorded — the protocol
+    #   tells readers to tolerate it); several worktrees of one repo (one
+    #   group each, distinct labels); a group with no workgraph (a plain
+    #   document list, no headline).
+    def _serve_index(self):
+        try:
+            entries = registry_entries()
+        except Exception:
+            entries = []
+
+        groups = {}
+        for e in entries:
+            root, label = worktree_label(e['path'])
+            if root is None:
+                continue
+            g = groups.setdefault(root, {'label': label, 'entries': []})
+            g['entries'].append(e)
+
+        content = build_index_html(groups).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html;charset=utf-8')
         self.send_header('Content-Length', str(len(content)))
         self.end_headers()
         self.wfile.write(content)

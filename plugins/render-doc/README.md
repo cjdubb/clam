@@ -43,27 +43,13 @@ When you do render a document:
   rendering at their checkpoints is gated by checking whether the
   `render-doc:render` skill is available, and skipping silently when it is
   not.
+- While the annotation server is serving a page (`--open`), the page polls
+  `/raw` (conditional on `ETag`/`If-None-Match`) roughly every 1.5s and
+  re-renders itself in place when the source markdown changes; an open
+  annotation composer draft is never destroyed by this — the update is
+  held until the composer closes. A plain `file://` open never polls.
 
 ## Common workflows
-
-<!-- Contract: B07 template docs + version bump (plan 001-render-graph-always) (remove at acceptance)
-Behavior: the workflow prose below is updated for two template changes,
-matching the contracts in assets/template.html:
-- Work Graph documents now render the node-and-edge graph view BY DEFAULT
-  (the card tree remains one toggle away) — the sentence below currently
-  reading "the card view remains the default" flips to say the graph view
-  is the default, with the card view a toggle away.
-- Pages opened through the annotation server update themselves in place
-  when the source markdown changes (polling /raw with ETag/If-None-Match;
-  ~1.5s cadence; an open annotation draft is never destroyed — updates are
-  held until the composer closes; on file:// there is no polling). A short
-  paragraph documents this under "What to expect" or beside the --open
-  workflow.
-plugin.json bumps 0.5.0 -> 0.6.0 in the same change (after B04's 0.5.0).
-Invariants: every other rendering claim in this README stays accurate;
-the card view's own description is unchanged apart from which view is
-the default.
--->
 
 ### Render a plan or decision file for review
 
@@ -88,9 +74,10 @@ tree. A topbar "Graph" toggle switches a Work Graph document from that card
 tree to a node-and-edge view rendered with cytoscape and a dagre layout:
 nodes are status-colored, Parent and Deps edges get distinct edge styles,
 and the Focus node gets a highlight. Clicking a node jumps back to its card,
-and the card view remains the default. Any other H1 gets baseline
-rendering: TOC with scroll tracking, collapsible h2 sections, styled GFM
-tables. A topbar toggle switches to generic rendering at any time.
+and the graph view is the default on load for Work Graph documents, with
+the card tree one toggle away. Any other H1 gets baseline rendering: TOC
+with scroll tracking, collapsible h2 sections, styled GFM tables. A topbar
+toggle switches to generic rendering at any time.
 
 ### Leave feedback that writes back into the source
 
@@ -243,6 +230,9 @@ bash plugins/render-doc/scripts/migration.test.sh
 bash plugins/render-doc/scripts/workgraph-docs.test.sh
 bash plugins/render-doc/scripts/workgraph-graph.test.sh
 bash plugins/render-doc/scripts/workgraph-render.test.sh
+bash plugins/render-doc/scripts/live-update.test.sh
+bash plugins/render-doc/scripts/graph-default.test.sh
+bash plugins/render-doc/scripts/graph-always-docs.test.sh
 ```
 
 ## Provenance

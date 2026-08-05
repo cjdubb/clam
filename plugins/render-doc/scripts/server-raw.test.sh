@@ -121,8 +121,7 @@ start_server() { # <port> <stderr file>
 }
 
 wait_healthy() { # <base url>
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if curl -sf --max-time 1 "$1/health" > /dev/null 2>&1; then
       return 0
     fi

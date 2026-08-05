@@ -69,17 +69,19 @@ die() {
 }
 
 usage() {
-  printf 'Usage: render.sh <doc.md> [--open]\n' >&2
+  printf 'Usage: render.sh <doc.md> [--open|--serve]\n' >&2
   exit 1
 }
 
 # --- Argument parsing -------------------------------------------------------
 DOC=""
 OPEN=0
+SERVE_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --open) OPEN=1 ;;
-    --*) die "unknown flag: $arg (only --open is supported)" ;;
+    --serve) SERVE_MODE=1 ;;
+    --*) die "unknown flag: $arg (only --open and --serve are supported)" ;;
     *)
       [ -n "$DOC" ] && usage
       DOC="$arg"
@@ -87,6 +89,11 @@ for arg in "$@"; do
   esac
 done
 [ -n "$DOC" ] || usage
+# --open and --serve are mutually exclusive (B08): --open may degrade to a
+# file:// open while --serve exists to guarantee registration; one run
+# cannot promise both. (SERVE_MODE, not SERVE: the --open block below owns
+# SERVE as the serve.py path.)
+[ "$OPEN" -eq 1 ] && [ "$SERVE_MODE" -eq 1 ] && usage
 
 # Resolve to absolute path for the source-path splice.
 DOC_ABS="$(cd "$(dirname "$DOC")" && pwd)/$(basename "$DOC")"
@@ -328,4 +335,134 @@ if [ "$OPEN" -eq 1 ]; then
   else
     open_file "$OUT"
   fi
+fi
+
+# Contract: B08 --serve registration mode (plan 001-render-graph-always)
+#
+# DELIBERATELY UNIMPLEMENTED. The block below is a stub that fails loudly;
+# the render pipeline and the --open block above are finished code and must
+# keep working unchanged.
+#
+# Behavior:
+#   render.sh <doc.md> --serve makes the document available (and
+#   registered) on the shared server WITHOUT opening anything:
+#   1. The render pipeline above has already produced the sibling .html.
+#   2. Ensure the shared server is up and current, REUSING the exact
+#      posture of the --open block: health probe with --max-time on every
+#      curl, foreign-process detection by the "app" marker,
+#      version-mismatch kill-and-respawn against serve.py's on-disk
+#      sha256, EADDRINUSE-race tolerance with one final health check.
+#   3. Trigger a server-side render + registration with one
+#      GET /doc/<percent-encoded DOC_ABS> request (curl -sf --max-time;
+#      the response body is discarded — the request existing is what
+#      renders and registers).
+#   4. Print exactly one line to stdout:
+#      serving: http://127.0.0.1:<port>/doc/<percent-encoded DOC_ABS>
+#   5. Open no browser, ever — open_file is never called on this path.
+# Inputs: $SERVE_MODE=1; $DOC_ABS; RENDER_DOC_PORT (default 27183);
+#   serve.py beside this script; python3 on PATH.
+# Outputs: the single "serving: <url>" stdout line; the server has the
+#   doc rendered and registered (serve.py B02), so a WORKGRAPH.md now
+#   appears on the index (serve.py B03).
+# Errors: unlike --open, --serve does NOT degrade to file:// — its whole
+#   point is registration. python3 missing, serve.py missing, a foreign
+#   process holding the port, a server that cannot be started or
+#   replaced, or the /doc request failing -> one stderr line naming the
+#   reason, exit 3. (Exit 3, not 1: the local render DID succeed and the
+#   sibling .html exists; capability-gated callers treat any non-zero as
+#   "skip silently".)
+# Invariants:
+#   - Mutual exclusion with --open is enforced at argument parsing
+#     (usage error, exit 1) — already wired above.
+#   - Never contacts anything but 127.0.0.1 on the configured port.
+#   - Writes no state file.
+#   - A --serve failure exits 3 AFTER the successful render; a render
+#     failure has already exited 1 long before this block.
+# Edge cases: doc path with spaces/non-ASCII (percent-encoded exactly as
+#   the --open path does); two --serve runs racing to spawn the server
+#   (one binds, both register against the winner); a doc outside $HOME or
+#   outside a git worktree (the server refuses the /doc request with 403
+#   -> stderr + exit 3 — the scope rules live server-side).
+if [ "$SERVE_MODE" -eq 1 ]; then
+  PORT="${RENDER_DOC_PORT:-27183}"
+  SERVE="$SCRIPT_DIR/serve.py"
+  BASE="http://127.0.0.1:$PORT"
+
+  # Unlike open_file's degrade-and-continue, every failure here is terminal:
+  # registration is the whole point of --serve, so there is nothing to
+  # degrade to. Exit 3 (not 1): the render above already succeeded.
+  serve_die() { # <reason>
+    printf 'render-doc: %s\n' "$*" >&2
+    exit 3
+  }
+
+  command -v python3 > /dev/null 2>&1 \
+    || serve_die "python3 is required for --serve but was not found on PATH"
+  [ -f "$SERVE" ] || serve_die "the annotation server script is missing: $SERVE"
+
+  # --- Ensure the shared server is running and current ------------------------
+  # Identical posture to the --open block above: the fixed port is the lock;
+  # a foreign process on it is left alone; an outdated version is killed and
+  # respawned; a losing EADDRINUSE racer's early exit is indistinguishable
+  # from a real crash until the final health check tells them apart.
+  HEALTH="$(curl -sf --max-time 2 "$BASE/health" 2> /dev/null || true)"
+  if [ -n "$HEALTH" ]; then
+    APP="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('app',''))" 2> /dev/null || true)"
+    if [ "$APP" != "render-doc" ]; then
+      serve_die "port $PORT is held by another, non-render-doc process; leaving it alone"
+    fi
+
+    RUNNING_SHA="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2> /dev/null || true)"
+    DISK_SHA="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$SERVE" 2> /dev/null || true)"
+    if [ "$RUNNING_SHA" != "$DISK_SHA" ]; then
+      # Outdated server: kill it, wait for the port to clear, then respawn
+      # the current code below.
+      SERVER_PID="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('pid',''))" 2> /dev/null || true)"
+      [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2> /dev/null || true
+      PIDFILE="/tmp/render-doc-serve-$PORT.pid"
+      [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2> /dev/null)" 2> /dev/null || true
+      DEAD=0
+      for _ in 1 2 3 4; do
+        sleep 0.25
+        if ! curl -sf --max-time 1 "$BASE/health" > /dev/null 2>&1; then
+          DEAD=1
+          break
+        fi
+      done
+      [ "$DEAD" -eq 1 ] || serve_die "could not replace the outdated server on port $PORT"
+      HEALTH=""
+    fi
+  fi
+
+  if [ -z "$HEALTH" ]; then
+    python3 "$SERVE" > /dev/null 2>&1 &
+    SERVE_PID=$!
+    disown "$SERVE_PID" 2> /dev/null || true
+
+    HEALTHY=0
+    for _ in 1 2 3 4 5 6 7 8; do
+      sleep 0.25
+      if curl -sf --max-time 1 "$BASE/health" > /dev/null 2>&1; then
+        HEALTHY=1
+        break
+      fi
+      # A dead spawn is either a real startup failure or a losing EADDRINUSE
+      # racer; stop polling either way and let the final check below tell
+      # them apart.
+      if ! kill -0 "$SERVE_PID" 2> /dev/null; then break; fi
+    done
+    if [ "$HEALTHY" -eq 0 ] \
+      && curl -sf --max-time 1 "$BASE/health" > /dev/null 2>&1; then
+      HEALTHY=1
+    fi
+    [ "$HEALTHY" -eq 1 ] || serve_die "the annotation server failed to start on port $PORT"
+  fi
+
+  # --- Register: the GET request IS the render + registration -----------------
+  DOC_URL_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$DOC_ABS")"
+  DOC_URL="$BASE/doc$DOC_URL_PATH"
+  curl -sf --max-time 10 "$DOC_URL" > /dev/null 2>&1 \
+    || serve_die "the server refused the request for $DOC_ABS (see its own log for the reason)"
+
+  printf 'serving: %s\n' "$DOC_URL"
 fi

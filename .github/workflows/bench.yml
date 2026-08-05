@@ -1,0 +1,48 @@
+name: bench
+on:
+  push:
+    branches: [bench/sweep-3]
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install locale
+        run: |
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale
+      - name: Facts
+        run: |
+          echo "FACT	commit	$(git rev-parse --short HEAD)"
+          echo "FACT	nproc	$(nproc)"
+          echo "FACT	cpu_cores	$(awk -F: '/^cpu cores/{print $2; exit}' /proc/cpuinfo | tr -d ' ')"
+          echo "FACT	loadavg	$(cut -d' ' -f1-3 /proc/loadavg)"
+          echo "FACT	testfiles	$(git ls-files '*.test.sh' | wc -l)"
+      - name: Per-file sweep (serial, one rep)
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          files=$( { find scripts -maxdepth 1 -type f -name '*.test.sh'; \
+                     find plugins -mindepth 3 -maxdepth 3 -type f -name '*.test.sh' \
+                       \( -path '*/scripts/*' -o -path '*/lib/*' \); } | sort )
+          for f in $files; do
+            s=$( { TIMEFORMAT=%R; time bash "$f" >/dev/null 2>&1 || true; } 2>&1 )
+            printf 'SWEEP\t%s\t%s\n' "$s" "$f"
+          done
+      - name: Full-suite makespan (two reps)
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          for rep in 1 2; do
+            s=$( { TIMEFORMAT=%R; time bash scripts/ci.sh --test >/dev/null 2>&1 || true; } 2>&1 )
+            printf 'MAKESPAN\t%s\t%s\n' "$rep" "$s"
+          done
+      - name: Lint stage timing (two reps)
+        run: |
+          for rep in 1 2; do
+            s=$( { TIMEFORMAT=%R; time bash scripts/ci.sh --lint >/dev/null 2>&1 || true; } 2>&1 )
+            printf 'LINT\t%s\t%s\n' "$rep" "$s"
+          done

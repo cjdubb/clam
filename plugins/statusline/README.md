@@ -4,10 +4,9 @@ Cam's statusline for Claude Code, in two lines: **where you are** — path, git
 branch, PR-status and git-sync badges, the clam session mode and the session
 State — and **how fast you are burning** — model and reasoning effort, your
 weekly and 5-hour plan limits paced against the hours you are actually awake,
-context-window occupancy, and a pet whose mood tracks whichever meter is
-worst. Claude Code has no plugin field for statuslines, so installing this
-plugin changes nothing by itself; you opt in explicitly with
-`/statusline:setup`.
+and context-window occupancy. Claude Code has no plugin field for
+statuslines, so installing this plugin changes nothing by itself; you opt in
+explicitly with `/statusline:setup`.
 
 ## Getting started
 
@@ -36,42 +35,40 @@ statusline refresh (each turn, and on Claude Code's `statusLine` heartbeat)
 as two lines:
 
 ```
-~/github/clam (burnrate) 🟡 #231 ↑2  Build  ⚡ In Progress
-🦄 Fable 5 high │ 🎯 32% 72%t 17%/d ▼-11 │ 🧠 10% +503/-16 │ 🔥 1% 4h54m │ 😼·
+~/github/clam (burnrate) wip #231 ↑2  Build  In Progress
+Fable 5 high │ wk 32% 100%t 23%/d ▼-25 │ ctx 10% +503/-16 │ 5h 1% (4h54m)
 ```
 
 **Line 1 — where you are.** In the order shown: the current directory (`~`
 for `$HOME`), the git branch, a PR-status badge when `.local/.pr-status.json`
-exists at the worktree root, a git ahead/behind indicator (`↓N ↑M`) when
-`.local/.git-sync.json` exists, the clam session mode from `.local/MODE`, and
-the session State (emoji + colour from the shared states manifest) read from
-`.local/TODO.md`. Every segment past the path is omitted when its source
-isn't there, so a plain directory outside a repo renders just the path. The
-two badge files are expected to come from refresher engines
-(`lib/pr-status-refresh.sh`,
+exists at the worktree root — `ok`, `queued` and `merged` collapse to counts,
+while `todo`, `wip` and `ejected` render per PR as a clickable `#N` — a git
+ahead/behind indicator (`↓N ↑M`) when `.local/.git-sync.json` exists, the
+clam session mode from `.local/MODE`, and the session State
+(colour from the shared states manifest) read from `.local/TODO.md`. Every
+segment past the path is omitted when its source isn't there, so a plain
+directory outside a repo renders just the path. The two badge files are
+expected to come from refresher engines (`lib/pr-status-refresh.sh`,
 `lib/git-sync-refresh.sh`) that `context.sh` launches in the background when
 their cache goes stale — this plugin does not currently ship those two
 scripts itself, so the badges only populate when something else writes those
 files.
 
-**Line 2 — the burnrate line.** Five groups joined by a dim `│`. A group with
+**Line 2 — the burnrate line.** Four groups joined by a dim `│`. A group with
 no data vanishes together with its separator, so the line never shows a
-dangling `│` or an emoji with no number beside it; when every group is empty
+dangling `│` or a label with no number beside it; when every group is empty
 the line is not printed at all.
 
-- **Model** — a mascot per model family (🎭 Opus, 🪶 Sonnet, 🦄 Fable,
-  🌸 Haiku, 🤖 anything else), the model's display name in a slowly drifting
-  rainbow, and the reasoning-effort tier coloured cool-to-hot.
-- **Weekly limit** — `🎯 used%` of your 7-day allowance, followed by the
+- **Model** — the model's display name in a slowly drifting rainbow, and the
+  reasoning-effort tier coloured cool-to-hot.
+- **Weekly limit** — `wk used%` of your 7-day allowance, followed by the
   three pacing figures explained below: `%t`, `%/d` and a trend arrow.
-- **Context** — `🧠 ctx%`, occupied tokens against the auto-compaction
+- **Context** — `ctx used%`, occupied tokens against the auto-compaction
   budget, coloured by occupancy and idle time, plus `+added/-removed` once
   the session has actually edited something.
-- **5-hour limit** — `🔥 used%` of the rolling 5-hour allowance and the
-  countdown to its reset (`4h54m`, or `12m` under the hour).
-- **Pet** — a cat whose mood is keyed to whichever of the three meters above
-  is worst (happy → alert → nervous → panic), animated across eight frames
-  so it visibly reacts rather than sitting still.
+- **5-hour limit** — `5h used%` of the rolling 5-hour allowance and the
+  parenthesised countdown to its reset (`(4h54m)`, or `(12m)` under the
+  hour).
 
 ### Reading the burnrate figures
 
@@ -156,11 +153,11 @@ at whichever scope you installed the plugin:
 
 Both take whole hours in `0..23`; anything else falls back to the default
 rather than erroring. `%t`, `%/d` and the trend arrow all shift with them —
-the raw `🎯 used%` does not, since that number is the server's.
+the raw `wk used%` does not, since that number is the server's.
 
 ### Align the context meter with your compaction window
 
-The `🧠` meter divides real occupancy (`total_input_tokens`) by
+The `ctx` meter divides real occupancy (`total_input_tokens`) by
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, falling back to the same setting read from
 `~/.claude/settings.json`, then to the model's full reported context window.
 If you've set a custom auto-compact window, set the matching env var in the
@@ -255,14 +252,14 @@ Both scripts source `lib/platform.sh` for OS-aware `stat`/`uname` handling,
 and `context.sh` additionally sources `lib/states.sh` and `lib/states.tsv`
 for the State segment. The state *names* in that manifest are the shared
 vocabulary specified in `docs/protocols/session-states.md`, so keep them in
-lockstep with it; the emoji and colour beside each name are this renderer's
-own mapping, which the protocol deliberately leaves private.
+lockstep with it; the colour beside each name is this renderer's own
+mapping, which the protocol deliberately leaves private.
 
 The burnrate line lives in three more libraries `context.sh` sources:
 `lib/burn-math.sh` (the awake-hours pacing model), `lib/burn-tick.sh` (the
-sub-tick interpolator behind `%t`) and `lib/burn-theme.sh` (every mascot,
-colour scale, countdown and pet frame). Any of the three being absent drops
-only the groups that need it, rather than failing the render.
+sub-tick interpolator behind `%t`) and `lib/burn-theme.sh` (colour scales and
+countdowns). Any of the three being absent drops only the groups that need
+it, rather than failing the render.
 
 | Env var | Default | Effect |
 |---------|---------|--------|
@@ -292,9 +289,9 @@ bash plugins/statusline/lib/burn-theme.test.sh
 
 The burnrate line is ported from
 [claude-statusline-burnrate](https://github.com/Gui-Gou/claude-statusline-burnrate)
-by Gui-Gou, MIT licensed. The awake-hours pacing model, the sub-tick
-interpolator that keeps `%t` moving between server ticks, and the pet are all
-that project's ideas; `lib/burn-math.sh`, `lib/burn-tick.sh` and
+by Gui-Gou, MIT licensed. The awake-hours pacing model and the sub-tick
+interpolator that keeps `%t` moving between server ticks are all that
+project's ideas; `lib/burn-math.sh`, `lib/burn-tick.sh` and
 `lib/burn-theme.sh` each carry the upstream copyright notice in full. This
 port differs in a few deliberate places — 256-colour output throughout, and
 this plugin's own idle-aware context meter in place of the upstream's — but

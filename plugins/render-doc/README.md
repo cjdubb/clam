@@ -106,6 +106,25 @@ when you just want the artifact, or when checking exit status
 programmatically — a non-zero exit means "fall back to the plain-markdown
 flow," never a reason to block review.
 
+Add `--serve` to register the document on the shared annotation server
+without opening anything:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh .local/PLAN.md --serve
+```
+
+`--serve` starts or reuses the shared server exactly as `--open` does, then
+makes one request against it so the document is rendered server-side and
+recorded in its registry — the same registry `GET /docs.json` and the
+project index at `/` read from. It prints exactly one line, `serving:
+http://127.0.0.1:<port>/doc/<absolute path of the .md>`, and opens no
+browser, ever. Unlike `--open`, `--serve` never degrades to a `file://`
+open — registration is the whole point — so any failure (missing python3,
+a missing server script, a foreign or unreplaceable process on the port, a
+spawn failure, or a request the server refuses) prints a stderr note and
+exits non-zero; callers should skip silently on that exit exactly as they
+do for any other render failure.
+
 ## Commands
 
 ### Skills
@@ -118,7 +137,7 @@ rendered view provides.
 
 ### Scripts
 
-**`scripts/render.sh <doc.md> [--open]`** — the command the `render` skill
+**`scripts/render.sh <doc.md> [--open|--serve]`** — the command the `render` skill
 wraps. Splices `assets/template.html`'s three slot lines
 (`__MARKED_SPLICE__`, `__DOC_B64_SPLICE__`, `__SOURCE_PATH_SPLICE__`) with
 the vendored parser, the base64-encoded document, and the document's
@@ -190,6 +209,7 @@ the worktree root, all linking to their live `/doc` views.
 | `/raw` requested for a file that fails to read (permissions, vanished mid-request) | `500` with a JSON `{"error": ...}`; no traceback, no crash |
 | The registry file can't be written (`/tmp` unwritable, deleted mid-run) | Persistence is silent and best-effort; the in-memory registry and `/docs.json` keep working |
 | A registered document's `WORKGRAPH.md` (or any listed file) can't be read for the project index | That entry's open-node count and Focus id show as unavailable; the rest of the index renders normally |
+| `--serve` cannot register the document (missing python3, missing `serve.py`, a foreign or unreplaceable process on the port, a spawn failure, or the server refuses the request) | Exit 3 with a stderr note naming the reason; the local render already succeeded, so callers skip silently |
 
 ### Maintenance
 
@@ -212,6 +232,10 @@ the worktree root, all linking to their live `/doc` views.
 - `scripts/server.test.sh` and `scripts/open.test.sh` cover the annotation
   server and the `--open` client end to end — run them after any change to
   `serve.py` or the `--open` block in `render.sh`.
+- `scripts/serve-mode.test.sh` covers the `--serve` registration client end
+  to end, and `scripts/serve-mode-docs.test.sh` covers this document's own
+  `--serve` prose — run both after any change to the `--serve` block in
+  `render.sh`.
 
 ## Tests
 
@@ -223,6 +247,8 @@ bash plugins/render-doc/scripts/server-raw.test.sh
 bash plugins/render-doc/scripts/server-registry.test.sh
 bash plugins/render-doc/scripts/server-index.test.sh
 bash plugins/render-doc/scripts/open.test.sh
+bash plugins/render-doc/scripts/serve-mode.test.sh
+bash plugins/render-doc/scripts/serve-mode-docs.test.sh
 bash plugins/render-doc/scripts/save-status.test.sh
 bash plugins/render-doc/scripts/structure.test.sh
 bash plugins/render-doc/scripts/registration.test.sh

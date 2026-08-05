@@ -10,11 +10,12 @@ Turn a markdown document into one self-contained HTML file the user can read in 
 ## Usage
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open|--serve]
 ```
 
 - Writes a sibling `.html` next to the input (`.local/PLAN.md` → `.local/PLAN.html`).
 - `--open` starts the shared local annotation server (if python3 is available) and opens the rendered view on `http://127.0.0.1:<port>/doc/<absolute path of the .md>`, where `<port>` is 27183 unless `RENDER_DOC_PORT` overrides it. Falls back to a plain `file://` open when python3 is unavailable. The server is a single shared instance, and the fixed port is what makes that work: the first `--open` call binds it, every later call on the machine reuses it. See "## Annotation server" below.
+- `--serve` registers the document on that same shared server without opening anything: it starts or reuses the server exactly as `--open` does, then makes one request against it so the document is rendered server-side and recorded in the server's registry. It prints exactly one line, `serving: http://127.0.0.1:<port>/doc/<absolute path of the .md>`, and opens no browser, ever. Unlike `--open`, `--serve` never degrades to `file://` — registration is the point — so any failure exits non-zero with a stderr note naming the reason, and callers should skip silently on that exit.
 - Exits non-zero with a message on stderr for any failure (missing input, missing template or parser, splice failure). Callers MUST treat a non-zero exit as "fall back to the markdown flow", never as a reason to block review.
 
 The rendered HTML is self-contained (vendored parser, no CDNs, system fonts). When served via the annotation server, the feedback composer writes `@TAG:` lines directly into the source markdown on each "Add" click; when opened as `file://`, annotations live in browser memory only and "Copy all feedback" is the export path.

@@ -1,73 +1,19 @@
 name: bench
-
-# Throwaway: how well does shellcheck chunking balance? J=4 only got 2.2x with
-# count-based splitting. Every variant writes per-chunk OUTPUT FILES rather than
-# a shared pipe -- concurrent writers to one pipe tear each other's lines
-# (F28). Runs only on its own branch.
 on:
   push:
     branches: [bench/sweep-2]
-
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-
-      - name: chunk balancing strategies
+      - name: CPU topology
         run: |
-          mapfile -t FILES < <(git ls-files -z | tr '\0' '\n' | grep -E '\.sh$' | sort)
-          N=${#FILES[@]}
           echo "FACT	nproc	$(nproc)"
-          echo "FACT	shfiles	$N"
-          mkdir -p /tmp/ck
-          SC=(shellcheck -f gcc --exclude=SC2317)
-
-          # run_chunks <label> <lists-dir>: one shellcheck per list file, each to
-          # its own output file, all concurrent; then concatenate.
-          run_chunks() {
-            local label="$1" dir="$2" s e pids=()
-            s=$(date +%s.%N)
-            local i=0
-            for lf in "$dir"/*; do
-              i=$((i+1))
-              ( mapfile -t c < "$lf"; "${SC[@]}" -- "${c[@]}" > "$dir/../out.$label.$i" 2>/dev/null ) &
-              pids+=($!)
-            done
-            for p in "${pids[@]}"; do wait "$p" || true; done
-            cat "$dir/../out.$label."* 2>/dev/null | sort > "/tmp/ck/final.$label"
-            e=$(date +%s.%N)
-            printf 'BAL\t%s\t%s\t%s\n' "$label" "$i" "$(echo "$e - $s" | bc)"
-          }
-
-          # A: by count, 4 chunks (what the last run did, now with files not a pipe)
-          mk_count() { local k="$1" d="/tmp/ck/l.$2"; rm -rf "$d"; mkdir -p "$d"
-            local per=$(( (N + k - 1) / k )); printf '%s\n' "${FILES[@]}" | split -l "$per" - "$d/c"; }
-          # B: round-robin by size rank -- biggest files dealt across chunks first
-          mk_size() { local k="$1" d="/tmp/ck/l.$2"; rm -rf "$d"; mkdir -p "$d"
-            local i=0
-            for f in $(du -b "${FILES[@]}" | sort -rn | cut -f2-); do
-              echo "$f" >> "$d/c$(( i % k ))"; i=$((i+1))
-            done; }
-
-          for rep in 1 2; do
-            mk_count 4  count4  ; run_chunks "count4"  /tmp/ck/l.count4
-            mk_count 12 count12 ; run_chunks "count12" /tmp/ck/l.count12
-            mk_size  4  size4   ; run_chunks "size4"   /tmp/ck/l.size4
-            mk_size  8  size8   ; run_chunks "size8"   /tmp/ck/l.size8
-            mk_size  16 size16  ; run_chunks "size16"  /tmp/ck/l.size16
-          done
-
-          # Identity: every strategy must produce exactly the single-invocation set.
-          "${SC[@]}" -- "${FILES[@]}" 2>/dev/null | sort > /tmp/ck/final.one || true
-          echo "FACT	findings	$(wc -l < /tmp/ck/final.one)"
-          for f in /tmp/ck/final.*; do
-            lbl="${f##*/final.}"
-            if diff -q /tmp/ck/final.one "$f" >/dev/null 2>&1; then
-              printf 'IDENT\t%s\tyes\n' "$lbl"
-            else
-              printf 'IDENT\t%s\tNO (%s lines differ)\n' "$lbl" "$(diff /tmp/ck/final.one "$f" | grep -c '^[<>]')"
-            fi
-          done
+          echo "FACT	physical_cores	$(grep -c '^core id' /proc/cpuinfo | head -1)"
+          echo "FACT	distinct_core_ids	$(awk -F: '/^core id/{print $2}' /proc/cpuinfo | sort -u | wc -l)"
+          echo "FACT	distinct_physical_ids	$(awk -F: '/^physical id/{print $2}' /proc/cpuinfo | sort -u | wc -l)"
+          echo "FACT	siblings	$(awk -F: '/^siblings/{print $2; exit}' /proc/cpuinfo | tr -d ' ')"
+          echo "FACT	cpu_cores	$(awk -F: '/^cpu cores/{print $2; exit}' /proc/cpuinfo | tr -d ' ')"
+          echo "FACT	model	$(awk -F: '/^model name/{print $2; exit}' /proc/cpuinfo | sed 's/^ *//')"
+          lscpu | grep -iE 'thread|core|socket|model name' | sed 's/^/LSCPU\t/'

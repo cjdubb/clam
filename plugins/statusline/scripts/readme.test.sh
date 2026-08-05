@@ -500,6 +500,10 @@ b11_tag_set() {
     export CLAUDE_PROJECTS_DIR="$TMP/b11-projects" CCOST_CACHE_DIR="$TMP/b11-ccost"
     export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
     export CLAM_STATUSLINE_CACHE_DIR="$TMP/b11-tag-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0
+    # This invocation runs shellcheck without -x, so even a real path hint
+    # can't be followed (that trades SC1090 for SC1091); source=/dev/null
+    # tells it there is nothing to follow and fully silences both.
+    # shellcheck source=/dev/null
     . "$CONTEXT_SH" >/dev/null 2>&1
     printf '%s\n' "$(classify_pr_tag "Open" "Changes Requested" "Pass" 0)"
     printf '%s\n' "$(classify_pr_tag "Draft" "None" "Running" 0)"

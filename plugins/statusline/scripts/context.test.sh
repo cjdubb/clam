@@ -1127,6 +1127,9 @@ B04_CACHE_DIR="$TMPROOT/b04-cache"
 # settings.json jq fallback never fires, and caching disabled (TTL 0) so
 # every call is a fresh cold parse independent of any prior call's bundle.
 parse_vars() { # json
+  # The subshell is the point: each call must be a hermetic, cold parse that
+  # leaks no env into the next, so these exports are meant to stay local.
+  # shellcheck disable=SC2030
   printf '%s' "$1" | (
     export CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache"
     export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
@@ -2408,6 +2411,10 @@ check "24d: and no '62.7' survives in the render" \
 B10_CACHE_DIR="$TMPROOT/b10-cache"
 b10_min_json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\"}"
 pr_tag() { # state reviews ci comments
+  # The subshell is the point: each call must be a hermetic, cold parse that
+  # leaks no env into the next, so these exports are meant to stay local and
+  # never be read back by a later call.
+  # shellcheck disable=SC2030,SC2031
   printf '%s' "$b10_min_json" | (
     export CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache"
     export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
@@ -2418,6 +2425,10 @@ pr_tag() { # state reviews ci comments
 }
 # fn_defined(name): whether sourcing context.sh leaves NAME defined.
 b10_fn_defined() { # name
+  # The subshell is the point: each call must be a hermetic, cold parse that
+  # leaks no env into the next, so these exports are meant to stay local and
+  # never be read back by a later call.
+  # shellcheck disable=SC2030,SC2031
   printf '%s' "$b10_min_json" | (
     export CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache"
     export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
@@ -2520,6 +2531,9 @@ check "25b: the badges carry no emoji (the six glyphs they replaced are gone)" \
 # before "#101" and closes immediately after it. Read on the RAW line, since
 # pr_line1 strips exactly the sequences under test here.
 b10_act_raw=$(pr_line1_raw "$b10_actionable")
+# The \\ below is printf's escape for one literal backslash -- the ST
+# terminator of an OSC-8 hyperlink under test -- not an unescaped quote.
+# shellcheck disable=SC1003
 check "25b: the OSC-8 hyperlink still wraps the number alone" \
   "$(printf '%s' "$b10_act_raw" \
      | grep -qaF "$(printf '\033]8;;https://x.test/101\033\\#101\033]8;;\033\\')" \

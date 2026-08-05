@@ -79,6 +79,11 @@ dependency annotations such as `[needs: N<NN>]`, a status glyph per
 node, and an arrow marking the Focus node. The markdown file remains the
 document of record; rendered views are derived and disposable.
 
+In addition to the on-request ASCII tree, an installed rendering
+capability may serve a live, automatically-updating HTML view of this
+document; the markdown file remains the document of record and every
+served view stays derived and disposable.
+
 ## Relationship to other artifacts
 
 The session tracking document (per docs/protocols/todo-format.md)

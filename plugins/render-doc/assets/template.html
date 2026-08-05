@@ -737,11 +737,40 @@ __CYTOSCAPE_DAGRE_SPLICE__
     }
 
     var docType = detectDocType(sourceMd);
+
+    /* Contract: B06 graph-view-default (plan 001-render-graph-always)
+       Behavior:
+         For docType "work-graph" the node-and-edge graph view is the
+         DEFAULT on load: state.graphOn initializes true, so the FIRST
+         render() paints the graph via its existing state.graphOn branch —
+         including that branch's fallback, which deactivates and clears
+         the flag when the document has no parseable nodes. Every other
+         docType initializes graphOn false, exactly as today. 229-B02's
+         docblock prose calling the card layout "the default on load"
+         (and its Invariants line about the card layout while "the graph
+         is off") is rewritten by this block to describe graph-as-default;
+         every other 229-B02 clause stands unchanged.
+       Inputs: docType from detectDocType(sourceMd).
+       Outputs: first paint of a parseable work-graph doc shows
+         #graph-view active and #doc hidden; the toggle button reads
+         "Card view" (updateChrome()'s existing active-view labeling,
+         unchanged).
+       Errors: a throw while building the first graph falls back to the
+         card view with graphOn false — activateGraphView()'s existing
+         catch posture; the page never breaks.
+       Invariants:
+         - The toggle still switches graph <-> card freely; card
+           rendering itself is byte-for-byte untouched by this block.
+         - Non-work-graph docTypes never initialize graph-mode.
+       Edge cases: zero parseable nodes (render() forces graphOn false,
+         toggle hidden, card/baseline view — same as today); a work-graph
+         doc opened via file:// (identical behavior — the default is not
+         server-dependent). */
     var state = {
       schemaOn: docType !== "generic",
       feedback: [],
       nextId: 1,
-      graphOn: false
+      graphOn: docType === "work-graph"
     };
 
     /* Work Graph graph-view model (captured fresh on every render(), since
@@ -965,8 +994,9 @@ __CYTOSCAPE_DAGRE_SPLICE__
          An additional "Graph" display mode for docType "work-graph" ONLY:
          a topbar button (id="graph-toggle") beside the schema toggle,
          visible only for work-graph documents, toggles the content area
-         between the card layout (the default on load, unchanged) and a
-         node-and-edge graph of the same document rendered with the
+         between the card layout (reachable via the toggle; the graph
+         view is the default on load) and a node-and-edge graph of the
+         same document rendered with the
          vendored cytoscape + cytoscape-dagre libraries (layout name
          "dagre", rankDir "TB") into a container that replaces/hides the
          card content while active.
@@ -1000,8 +1030,10 @@ __CYTOSCAPE_DAGRE_SPLICE__
          the same degrade posture as the card transform's per-node
          try/catch.
        Invariants:
-         - The card layout's rendering and behavior are unchanged while
-           the graph is off; graph mode is additive only.
+         - The card layout's rendering and behavior are byte-unchanged
+           regardless of which view is active on load; the graph view is
+           a first-class alternate presentation of the same document, not
+           a modification of the card path.
          - The schema toggle's two-state semantics are untouched; the
            graph button is hidden for every other docType and in generic
            rendering.
@@ -2017,6 +2049,10 @@ __CYTOSCAPE_DAGRE_SPLICE__
     function closeComposer() {
       if (openComposerEl) { openComposerEl.remove(); openComposerEl = null; }
       if (annotatingBlock) { annotatingBlock.classList.remove("annotating"); annotatingBlock = null; }
+      if (liveUpdatePending) {
+        liveUpdatePending = false;
+        applyLiveUpdate();
+      }
     }
 
     document.addEventListener("keydown", function (e) {
@@ -2223,6 +2259,124 @@ __CYTOSCAPE_DAGRE_SPLICE__
       });
     }
 
+    /* Contract: B05 live-update-client (plan 001-render-graph-always)
+       Behavior:
+         When the page is served by the shared render-doc server (same
+         detection as SAVE_ENABLED: window.location.protocol === "http:"),
+         poll the server for source changes and re-render in place:
+         1. Every POLL_MS (1500) send
+            GET /raw/<percent-encoded sourcePath>, carrying
+            If-None-Match: <last seen ETag> once an ETag is known.
+         2. A 304 changes nothing.
+         3. A 200 remembers the new ETag, replaces sourceMd with the
+            response text, then applies the update:
+            a. If a composer is open (openComposerEl non-null), HOLD the
+               update — a draft is never destroyed: polling continues,
+               newer content replaces the held content, and the newest
+               held update is applied the moment the composer closes.
+            b. Otherwise: record view state — the set of collapsed
+               .doc-sec ids and the window scroll position — call
+               render(), re-apply the collapsed ids that still exist,
+               and restore the scroll position. state.feedback, the
+               drawer, and docType are untouched (docType is NOT
+               re-detected; an H1 changing type mid-session is out of
+               scope). An active graph view rebuilds through render()'s
+               existing graphOn branch; a fresh dagre layout is
+               acceptable.
+         4. Poll failures (rejected fetch, or any status other than 200
+            and 304) never break the page: after 5 consecutive failures
+            the poll interval backs off to POLL_MS * 4, returning to
+            POLL_MS after the next success.
+         5. On file:// the poller never starts: zero network requests.
+       Inputs: sourcePath (embedded at splice time); the server's /raw
+         route; openComposerEl for the composer guard.
+       Outputs: the page reflects the file's current content within about
+         two poll intervals of a change, with no user action.
+       Errors: polling errors are silent to the user (no toast; console
+         at most) — the annotation save-status UI is not reused for them.
+       Invariants:
+         - Never re-renders while a composer is open.
+         - Exactly one poller per page lifetime; re-renders must not
+           stack additional timers.
+         - Polls nothing but /raw/<sourcePath> on the page's own origin;
+           no new external resources.
+         - The annotation flow is unchanged: a server-written @TAG: line
+           arrives as a normal content change on a later poll, and the
+           in-memory feedback drawer keeps working exactly as today.
+       Edge cases: empty document (renders empty, polling continues);
+         a 200 with no ETag header (treat every 200 as changed — correct,
+         merely chattier); server restarted mid-session (failures back
+         off, recovery is automatic on success); background-tab interval
+         throttling (acceptable — updates apply when the tab wakes);
+         sourcePath empty (poller never starts — nothing to poll). */
+    var POLL_MS = 1500;
+    var liveEtag = null;
+    var liveMisses = 0;
+    var liveUpdatePending = false;
+
+    function nextPollDelay() {
+      return liveMisses >= 5 ? POLL_MS * 4 : POLL_MS;
+    }
+
+    function scheduleLivePoll(delay) {
+      setTimeout(pollLiveUpdate, delay);
+    }
+
+    /* Capture the collapsed .doc-sec ids and the scroll position, call
+       render(), then restore both — the composer, drawer, docType and
+       state.feedback are never touched here. */
+    function applyLiveUpdate() {
+      var collapsedIds = [];
+      document.querySelectorAll(".doc-sec.collapsed").forEach(function (sec) {
+        collapsedIds.push(sec.id);
+      });
+      var scrollPos = window.scrollY || window.pageYOffset || 0;
+      render();
+      collapsedIds.forEach(function (id) {
+        var sec = document.getElementById(id);
+        if (sec) sec.classList.add("collapsed");
+      });
+      window.scrollTo(0, scrollPos);
+    }
+
+    function pollLiveUpdate() {
+      var headers = {};
+      if (liveEtag) headers["If-None-Match"] = liveEtag;
+      fetch("/raw/" + encodeURI(sourcePath), { headers: headers }).then(function (res) {
+        if (res.status === 304) {
+          liveMisses = 0;
+          scheduleLivePoll(nextPollDelay());
+          return;
+        }
+        if (!res.ok) {
+          liveMisses++;
+          scheduleLivePoll(nextPollDelay());
+          return;
+        }
+        var newEtag = res.headers.get("ETag") || res.headers.get("etag");
+        return res.text().then(function (text) {
+          liveMisses = 0;
+          liveEtag = newEtag;
+          sourceMd = text;
+          if (openComposerEl) {
+            liveUpdatePending = true;
+          } else {
+            applyLiveUpdate();
+          }
+          scheduleLivePoll(nextPollDelay());
+        });
+      })["catch"](function () {
+        liveMisses++;
+        scheduleLivePoll(nextPollDelay());
+      });
+    }
+
+    function startLiveUpdate() {
+      if (!SAVE_ENABLED) return;
+      if (!sourcePath) return;
+      scheduleLivePoll(POLL_MS);
+    }
+
     function showSaveStatus(msg, ok) {
       var btn = document.getElementById("feedback-btn");
       btn.textContent = msg;
@@ -2302,6 +2456,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
     }
     render();
     renderFeedback();
+    startLiveUpdate();
   })();
   </script>
 

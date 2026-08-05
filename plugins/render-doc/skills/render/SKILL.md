@@ -10,21 +10,24 @@ Turn a markdown document into one self-contained HTML file the user can read in 
 ## Usage
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open]
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/render.sh <doc.md> [--open|--serve]
 ```
 
 - Writes a sibling `.html` next to the input (`.local/PLAN.md` → `.local/PLAN.html`).
 - `--open` starts the shared local annotation server (if python3 is available) and opens the rendered view on `http://127.0.0.1:<port>/doc/<absolute path of the .md>`, where `<port>` is 27183 unless `RENDER_DOC_PORT` overrides it. Falls back to a plain `file://` open when python3 is unavailable. The server is a single shared instance, and the fixed port is what makes that work: the first `--open` call binds it, every later call on the machine reuses it. See "## Annotation server" below.
+- `--serve` registers the document on that same shared server without opening anything: it starts or reuses the server exactly as `--open` does, then makes one request against it so the document is rendered server-side and recorded in the server's registry. It prints exactly one line, `serving: http://127.0.0.1:<port>/doc/<absolute path of the .md>`, and opens no browser, ever. Unlike `--open`, `--serve` never degrades to `file://` — registration is the point — so any failure exits non-zero with a stderr note naming the reason, and callers should skip silently on that exit.
 - Exits non-zero with a message on stderr for any failure (missing input, missing template or parser, splice failure). Callers MUST treat a non-zero exit as "fall back to the markdown flow", never as a reason to block review.
 
 The rendered HTML is self-contained (vendored parser, no CDNs, system fonts). When served via the annotation server, the feedback composer writes `@TAG:` lines directly into the source markdown on each "Add" click; when opened as `file://`, annotations live in browser memory only and "Copy all feedback" is the export path.
+
+While the annotation server is serving a page, it polls `/raw` (conditional on `ETag`/`If-None-Match`) roughly every 1.5s and re-renders itself in place when the source markdown changes; an open annotation composer draft is never destroyed by this — the update is held until the composer closes. A plain `file://` open never polls.
 
 ## What the view provides
 
 | Layer | Behavior |
 |-------|----------|
 | Baseline | TOC with scroll tracking, collapsible h2 sections, styled GFM tables, `@TAG:` chips highlighted in prose (never inside `pre`/`code`) |
-| Schema-aware | Keyed on the H1: `Plan:` gets approach cards, edge-case treatment, changelog timeline; `Decision:` gets side-by-side option cards, a recommendation banner, status pills; `Design Questions:` gets, per `## DQ<n>:` section, side-by-side option cards with pros/cons and an inline recommendation banner (a non-conforming DQ falls back to baseline for that section only); `# Work Graph` gets a tree of node cards nested by Parent edges, a dependency badge per Deps entry, a three-way status pill (open, done, or dropped) per node, and a focus banner for the Focus node, with per-node fallback to baseline for a non-conforming node — a topbar "Graph" toggle switches that card tree to a node-and-edge view rendered with cytoscape and a dagre layout (status-colored nodes, distinct Parent/Deps edge styles, a Focus highlight, click-a-node back to its card), with the card view remaining the default. A topbar toggle switches to generic rendering; unrecognized H1s get baseline only |
+| Schema-aware | Keyed on the H1: `Plan:` gets approach cards, edge-case treatment, changelog timeline; `Decision:` gets side-by-side option cards, a recommendation banner, status pills; `Design Questions:` gets, per `## DQ<n>:` section, side-by-side option cards with pros/cons and an inline recommendation banner (a non-conforming DQ falls back to baseline for that section only); `# Work Graph` gets a tree of node cards nested by Parent edges, a dependency badge per Deps entry, a three-way status pill (open, done, or dropped) per node, and a focus banner for the Focus node, with per-node fallback to baseline for a non-conforming node — a topbar "Graph" toggle switches that card tree to a node-and-edge view rendered with cytoscape and a dagre layout (status-colored nodes, distinct Parent/Deps edge styles, a Focus highlight, click-a-node back to its card), with the graph view the default on load and the card tree one toggle away. A topbar toggle switches to generic rendering; unrecognized H1s get baseline only |
 | Feedback composer | Hover a section heading → `+ annotate`, or hover a paragraph/bullet/row → gutter `+`, then pick a tag and type a note. "Copy all feedback" puts a block on the clipboard, one line per item: section-anchored (`§ Proposed Approach — @CONCERN: ...`) or block-anchored with a verbatim excerpt greppable in the source (`§ Proposed Approach ¶ "..." — @CONCERN: ...`) |
 
 The composer emits exactly this annotation vocabulary: `@COMMENT:`, `@QUESTION:`, `@CONCERN:`, `@APPROVE:`, `@EVIDENCE:`. Reading without annotating requires nothing — the composer stays out of the way until used.

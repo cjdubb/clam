@@ -134,8 +134,8 @@ assert_no_sibling_reference "$readme_schema_section" "README schema-enumeration 
 # --- Clause 1b: README schema section gains the Graph display mode ----------
 # Anchors drawn from the contract's own vocabulary (topbar "Graph" toggle,
 # node-and-edge cytoscape+dagre rendering, status-colored nodes, parent vs
-# dep edge styles, Focus highlight, click-a-node back to its card, card view
-# remains default). Presence/proximity only — exact sentence is the
+# dep edge styles, Focus highlight, click-a-node back to its card, and which
+# view is the default). Presence/proximity only — exact sentence is the
 # implementer's choice, same as clause 1 above.
 assert_contains "$readme_schema_section" 'cytoscape' "README: cytoscape rendering named"
 assert_contains "$readme_schema_section" 'dagre' "README: dagre named"
@@ -172,10 +172,18 @@ else
   fail "README: click-a-node back to its card mentioned"
 fi
 
-if printf '%s' "$readme_schema_section" | grep -qiE 'card view[^.]{0,20}default|default[^.]{0,20}card view'; then
-  pass "README: card view remains default mentioned"
+# Which view is the default was inverted by plan 001-render-graph-always (B06:
+# work-graph documents first-paint the graph view, card tree one toggle away),
+# so this assertion — and its twin in the Schema-aware row below — now looks
+# for the graph-first phrasing. Every neighbouring anchor is unchanged: the
+# graph mode's own description was already correct and stays as it was.
+# Unwrapped first: the README hard-wraps its prose, and a proximity check is
+# line-scoped, so an implementer whose sentence happens to break between
+# "graph view" and "default" would fail a claim they actually made.
+if printf '%s' "$readme_schema_section" | tr '\n' ' ' | tr -s ' ' | grep -qiE 'graph view[^.]{0,60}default|default[^.]{0,60}graph view|graph[- ]first|opens? (in|with|on)[^.]{0,20}graph|graph[^.]{0,50}\b(is|as|becomes)\b[^.]{0,25}default'; then
+  pass "README: graph view is the default mentioned"
 else
-  fail "README: card view remains default mentioned"
+  fail "README: graph view is the default mentioned"
 fi
 
 # Raw (unstripped) file: the contract comment itself must be gone at green —
@@ -232,10 +240,10 @@ else
   else
     fail "SKILL.md Schema-aware row: Graph toggle mentioned"
   fi
-  if printf '%s' "$schema_row" | grep -qiE 'card view[^.]{0,20}default|default[^.]{0,20}card view'; then
-    pass "SKILL.md Schema-aware row: card view remains default mentioned"
+  if printf '%s' "$schema_row" | grep -qiE 'graph view[^.]{0,60}default|default[^.]{0,60}graph view|graph[- ]first|opens? (in|with|on)[^.]{0,20}graph|graph[^.]{0,50}\b(is|as|becomes)\b[^.]{0,25}default'; then
+    pass "SKILL.md Schema-aware row: graph view is the default mentioned"
   else
-    fail "SKILL.md Schema-aware row: card view remains default mentioned"
+    fail "SKILL.md Schema-aware row: graph view is the default mentioned"
   fi
 fi
 

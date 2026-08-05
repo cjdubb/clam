@@ -204,12 +204,17 @@ check "clause3: cold render includes the cwd path" \
 # Same two clauses the retired lines carried -- the model name with its effort
 # tier, and the context occupancy -- now read off the burnrate line's model and
 # session groups. B05 folded the standalone "Opus · high effort" and
-# "Ctx used: N / M (NN%)" lines into it (mascot + rainbow name + coloured tier,
-# and 🧠 NN%), so the strings change while the clauses do not.
-check "clause3: cold render includes the model/effort group" \
-  "$(printf '%s' "$cold_out" | grep -qE '🎭 Opus high' && echo yes || echo no)" "yes"
+# "Ctx used: N / M (NN%)" lines into it (rainbow name + coloured tier, and the
+# labelled ctx NN%), so the strings change while the clauses do not.
+#
+# Contract: B09 burn-line-labels (plan 002-statusline-emoji-removal) drops the
+# mascot that used to prefix the model group and labels the occupancy figure
+# "ctx". Read off line 2 by index and anchored, so the mascot's absence is
+# asserted rather than merely not mentioned.
+check "clause3: cold render includes the model/effort group, leading with the name" \
+  "$(printf '%s\n' "$cold_out" | sed -n '2p' | grep -qE '^Opus high( │|$)' && echo yes || echo no)" "yes"
 check "clause3: cold render includes the context-occupancy group" \
-  "$(printf '%s' "$cold_out" | grep -qE '🧠 [0-9]+%' && echo yes || echo no)" "yes"
+  "$(printf '%s' "$cold_out" | grep -qE 'ctx [0-9]+%' && echo yes || echo no)" "yes"
 check "clause3: cold render includes no Cost line and no Session cost figure" \
   "$(printf '%s' "$cold_out" | grep -qE 'Cost:|Session: \$' && echo yes || echo no)" "no"
 check "clause3: cold render seeds exactly one segment-bundle cache entry" \
@@ -411,16 +416,21 @@ OCTAL_PROJECTS_DIR="$TMPROOT/octal-projects"; mkdir -p "$OCTAL_PROJECTS_DIR"
 # below likewise keeps every render cold, so no bundle crosses a pair either.
 octal_json="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$OCTAL_WD\"},\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"\",\"session_id\":\"sess-octal\",\"rate_limits\":{\"seven_day\":{\"used_percentage\":60,\"resets_at\":$(( FROZEN_NOW + 3 * 86400 ))}}}"
 
-# The weekly group of a render whose local clock reads HMS: everything from 🎯
-# up to the next separator, trailing space trimmed. Same extraction the 🔥
-# group's clause uses in context.test.sh §23o, and for the same reason -- a
-# group that lost its derived figures reads "🎯 60%" and one that vanished
+# The weekly group of a render whose local clock reads HMS: everything from the
+# wk label up to the next separator, trailing space trimmed. Same extraction the
+# 5h group's clause uses in context.test.sh §23o, and for the same reason -- a
+# group that lost its derived figures reads "wk 60%" and one that vanished
 # reads "", so all three outcomes are distinguishable rather than collapsing
 # into a single "absent".
+#
+# Contract: B09 burn-line-labels (plan 002-statusline-emoji-removal) replaced
+# the 🎯 the extraction used to anchor on with the text label "wk". Anchored as
+# "wk " with the trailing space so it cannot also match a reset countdown --
+# the only other place two letters and a digit sit adjacent on this line.
 weekly_group_at() { # hms
   render_shim "$octal_json" "$OCTAL_BUNDLE_DIR" 0 "$OCTAL_CCOST_DIR" 0 "$OCTAL_PROJECTS_DIR" \
     "PATH=$CLOCK_BIN:$SHIM_BIN" "FAKE_LOCAL_HMS=$1"
-  strip_ansi < "$REND_OUT" | grep -oE '🎯[^│]*' | head -n1 | sed 's/[[:space:]]*$//'
+  strip_ansi < "$REND_OUT" | grep -oE 'wk [^│]*' | head -n1 | sed 's/[[:space:]]*$//'
 }
 
 # The wrapper is doing the steering, and every figure below is genuinely a
@@ -433,7 +443,7 @@ weekly_group_at() { # hms
 check "octal-clock: the faked clock really steers the render (08:15 and 13:15 differ)" \
   "$([ "$(weekly_group_at '08 15 30')" != "$(weekly_group_at '13 15 30')" ] && echo yes || echo no)" "yes"
 check "octal-clock: at 08:09:07 local the weekly group keeps %t, %/d and the trend" \
-  "$(weekly_group_at '08 09 07' | grep -qE '🎯 60% -?[0-9]+%t [0-9.]+%/d (▲|▼)' && echo yes || echo no)" "yes"
+  "$(weekly_group_at '08 09 07' | grep -qE 'wk 60% -?[0-9]+%t [0-9.]+%/d (▲|▼)' && echo yes || echo no)" "yes"
 # Each position is pinned on its own: 10# was needed on all three fields, and a
 # fix applied to only some of them is the plausible regression. The unpadded
 # twin of each pair is the same instant expressed the way `date` never spells
@@ -446,6 +456,59 @@ check "octal-clock: a padded SECOND renders byte-identically to the unpadded spe
   "$(weekly_group_at '13 15 08')" "$(weekly_group_at '13 15 8')"
 check "octal-clock: 08:09:07 -- padded in all three positions at once -- matches its unpadded twin" \
   "$(weekly_group_at '08 09 07')" "$(weekly_group_at '8 9 7')"
+
+# ============================================================================
+# B09 burn-line-labels: the process budget is UNCHANGED
+# ============================================================================
+# Contract: B09 (plan 002-statusline-emoji-removal) states that meter colours,
+# thresholds and the process budget are unchanged. The clause-1/6 scenarios
+# above cannot see that: sl_json carries no rate_limits, so their renders
+# exercise groups 1 and 3 only -- the weekly group, the 5-hour group, the reset
+# countdown and (today) the pet all go unmeasured. Every line B09 edits or
+# deletes lives in the groups those scenarios never reach.
+#
+# So the budget clause is measured here over a payload that renders all four
+# groups, including the parenthesised countdown. What this is really guarding
+# is the shape of the edit rather than its result: the labels and the parens
+# are string concatenation, and nothing in the contract asks for a new external
+# command, so an implementer reaching for `sed`/`tr`/`printf(1)` to format them
+# is the regression these two bounds catch.
+B09WD="$TMPROOT/b09-wd"; mk_wt "$B09WD"
+B09_BUNDLE_DIR="$TMPROOT/b09-bundle-cache"
+B09_CCOST_DIR="$TMPROOT/b09-ccost-cache"
+B09_PROJECTS_DIR="$TMPROOT/b09-projects"; mkdir -p "$B09_PROJECTS_DIR"
+B09_TRANSCRIPT="$TMPROOT/b09-transcript.jsonl"
+mk_transcript "$B09_TRANSCRIPT" 1000000 claude-opus-4-8
+# Both limits present WITH their resets, and a lines-touched pair, so groups
+# 1-4 all render and group 4 carries its countdown. Resets are far enough out
+# that neither can expire mid-suite and quietly drop a group.
+b09_json="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$B09WD\"},\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"$B09_TRANSCRIPT\",\"session_id\":\"sess-b09\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":1,\"resets_at\":$(( $(date +%s) + 17670 ))},\"seven_day\":{\"used_percentage\":62,\"resets_at\":$(( $(date +%s) + 300000 ))}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16}}"
+
+render_shim "$b09_json" "$B09_BUNDLE_DIR" 600 "$B09_CCOST_DIR" 600 "$B09_PROJECTS_DIR"
+b09_cold_total=$(shim_count "$SHIM_LOG")
+b09_cold_line2=$(strip_ansi < "$REND_OUT" | sed -n '2p')
+render_shim "$b09_json" "$B09_BUNDLE_DIR" 600 "$B09_CCOST_DIR" 600 "$B09_PROJECTS_DIR"
+b09_warm_total=$(shim_count "$SHIM_LOG")
+b09_warm_line2=$(strip_ansi < "$REND_OUT" | sed -n '2p')
+
+# Non-vacuity first: a bound met because the groups never rendered would be
+# no evidence at all. Four groups means exactly three separators.
+check "B09-budget: the measured render really carries all four groups" \
+  "$(printf '%s' "$b09_cold_line2" | grep -o '│' | wc -l | tr -d ' ')" "3"
+check "B09-budget: and its 5-hour group really carries the parenthesised countdown" \
+  "$(printf '%s' "$b09_cold_line2" | grep -qE '5h 1% \([^)]+\)$' && echo yes || echo no)" "yes"
+# Same bounds as clauses 6 and 1, applied to the four-group render. Generous
+# for the same reason those are: a measured figure with headroom, not a
+# brittle exact match that a platform's differing coreutils would break.
+check "B09-budget: a fully cold four-group render stays within the 20-command bound" \
+  "$([ "${b09_cold_total:-99}" -le 20 ] && echo yes || echo no)" "yes"
+check "B09-budget: a warm four-group render stays within the 12-command bound" \
+  "$([ "${b09_warm_total:-99}" -le 12 ] && echo yes || echo no)" "yes"
+# The burnrate line is LIVE, so a warm render recomputes every group from the
+# payload rather than replaying it -- which is what makes the warm bound a
+# statement about the burnrate code at all, not about the bundle.
+check "B09-budget: the warm render rebuilt the same four-group line, not a cached one" \
+  "$(printf '%s' "$b09_warm_line2" | grep -o '│' | wc -l | tr -d ' ')" "3"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

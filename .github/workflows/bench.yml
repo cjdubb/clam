@@ -1,8 +1,9 @@
 name: bench
 
-# Throwaway: re-sweeps per-file test times on a quiet runner after four new
-# render-doc server test files landed, and times the lint stage's parts.
-# Runs only on its own branch.
+# Throwaway: does shellcheck chunk cleanly across cores? Runs only on its own
+# branch. Note the `|| true` on every invocation: shellcheck exits nonzero
+# whenever it reports a finding, and GitHub runs `run:` steps under `bash -e`,
+# so without it the step dies before printing a timing.
 on:
   push:
     branches: [bench/sweep-2]
@@ -10,63 +11,46 @@ on:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install en_US.UTF-8 locale
-        run: sudo locale-gen en_US.UTF-8 && sudo update-locale
-
-      - name: Runner facts
-        run: |
-          echo "FACT	nproc	$(nproc)"
-          echo "FACT	loadavg	$(cut -d' ' -f1-3 /proc/loadavg)"
-          echo "FACT	sha	$(git rev-parse --short HEAD)"
-
-      # Per-file serial timing over the real suite: the pole check and the
-      # shard-balancing input in one measurement.
-      - name: Per-file serial timing sweep
-        env:
-          LC_ALL: en_US.UTF-8
-        run: |
-          mapfile -t files < <(find "$PWD/scripts" -maxdepth 1 -type f -name '*.test.sh' | sort)
-          mapfile -t p < <(find "$PWD/plugins" -mindepth 3 -maxdepth 3 -type f -name '*.test.sh' \
-            \( -path '*/scripts/*' -o -path '*/lib/*' \) | sort)
-          files+=("${p[@]}")
-          for f in "${files[@]}"; do
-            s=$(date +%s.%N)
-            bash "$f" >/dev/null 2>&1
-            e=$(date +%s.%N)
-            printf 'SWEEP\t%s\t%s\n' "$(echo "$e - $s" | bc)" "${f#"$PWD"/}"
-          done
-
-      - name: Stage makespans
-        env:
-          LC_ALL: en_US.UTF-8
-        run: |
-          for r in 1 2; do
-            s=$(date +%s.%N); bash scripts/ci.sh --test >/dev/null 2>&1; e=$(date +%s.%N)
-            printf 'MAKESPAN\ttest\t%s\n' "$(echo "$e - $s" | bc)"
-          done
-          for r in 1 2; do
-            s=$(date +%s.%N); bash scripts/ci.sh --lint >/dev/null 2>&1; e=$(date +%s.%N)
-            printf 'MAKESPAN\tlint\t%s\n' "$(echo "$e - $s" | bc)"
-          done
-
-      # Does shellcheck chunk cleanly across cores? Decision 006 measured 4.8x
-      # locally under load; this is the same experiment on a quiet 4 vCPU box.
       - name: shellcheck chunking
         run: |
           mapfile -t FILES < <(git ls-files -z | tr '\0' '\n' | grep -E '\.sh$' | sort)
+          echo "FACT	nproc	$(nproc)"
           echo "FACT	shfiles	${#FILES[@]}"
-          s=$(date +%s.%N); shellcheck -f gcc --exclude=SC2317 -- "${FILES[@]}" >/dev/null 2>&1; e=$(date +%s.%N)
-          printf 'CHUNK\t1\t%s\n' "$(echo "$e - $s" | bc)"
-          for J in 2 4 8; do
+          for rep in 1 2; do
             s=$(date +%s.%N)
-            printf '%s\n' "${FILES[@]}" | xargs -P "$J" -n "$(( (${#FILES[@]} + J - 1) / J ))" \
-              shellcheck -f gcc --exclude=SC2317 -- >/dev/null 2>&1
+            shellcheck -f gcc --exclude=SC2317 -- "${FILES[@]}" >/dev/null 2>&1 || true
             e=$(date +%s.%N)
-            printf 'CHUNK\t%s\t%s\n' "$J" "$(echo "$e - $s" | bc)"
+            printf 'CHUNK\t1\t%s\n' "$(echo "$e - $s" | bc)"
+            for J in 2 4 8; do
+              n=$(( (${#FILES[@]} + J - 1) / J ))
+              s=$(date +%s.%N)
+              printf '%s\n' "${FILES[@]}" \
+                | xargs -P "$J" -n "$n" shellcheck -f gcc --exclude=SC2317 -- >/dev/null 2>&1 || true
+              e=$(date +%s.%N)
+              printf 'CHUNK\t%s\t%s\n' "$J" "$(echo "$e - $s" | bc)"
+            done
           done
+
+      # Chunking must not change what the gate reports. Same finding set,
+      # sorted, from one invocation and from four.
+      - name: chunked output is identical to single-invocation output
+        run: |
+          mapfile -t FILES < <(git ls-files -z | tr '\0' '\n' | grep -E '\.sh$' | sort)
+          shellcheck -f gcc --exclude=SC2317 -- "${FILES[@]}" 2>/dev/null | sort > /tmp/one.txt || true
+          n=$(( (${#FILES[@]} + 3) / 4 ))
+          printf '%s\n' "${FILES[@]}" \
+            | xargs -P 4 -n "$n" shellcheck -f gcc --exclude=SC2317 -- 2>/dev/null | sort > /tmp/four.txt || true
+          echo "FACT	findings_one	$(wc -l < /tmp/one.txt)"
+          echo "FACT	findings_four	$(wc -l < /tmp/four.txt)"
+          if diff -q /tmp/one.txt /tmp/four.txt >/dev/null; then
+            echo "IDENTICAL	yes"
+          else
+            echo "IDENTICAL	no"
+            diff /tmp/one.txt /tmp/four.txt | head -20
+          fi

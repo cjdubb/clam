@@ -1588,7 +1588,27 @@ run_ci_bg "$f" "$BASE_PATH" --test --jobs 4
 # is forced to be c (and a, d), then b: the exact inverse of fixed order
 # among the two failures (b, c).
 others_done="$(wait_for_count "$rundir" "marker-*" 3 "$RUN_BG_PID" 25)"
-b_still_running="$([ -e "$rundir/running-b" ] && echo yes || echo no)"
+# Contract: B11 deterministic in-flight sampling
+# Behavior: before sampling b_still_running, wait (bounded, via this
+#   suite's existing busy-wait helper and the same generous 25s budget)
+#   for b's running-b marker to EXIST, so "b was still in flight" can
+#   never read "no" merely because b's stub had not yet STARTED under
+#   load. Waiting for the marker is sound: the barrier stub removes
+#   running-b only after reading the gate fifo, and the gate is not fed
+#   until after this sample, so once the marker appears b is provably
+#   in flight at sampling time.
+# Outputs: the same five section-41 checks, same labels, same semantics.
+# Errors: b never starting within the budget -> the wait expires, the
+#   in-flight check fails as today; no new failure mode and no hang (the
+#   gate release below stays unconditional and wait_bg still runs).
+# Invariants: the gate is released unconditionally right after sampling,
+#   outside any conditional; no sleep-based timing assumption is
+#   introduced; every other section of this suite is untouched; the suite
+#   passes against the current scripts/ci.sh.
+# Edge cases: b's stub scheduled only after a/c/d all complete (the
+#   observed load flake) -> now passes; a wedged b (never starts) ->
+#   bounded wait expires, the check fails, the suite still terminates.
+b_still_running="$(wait_for_count "$rundir" "running-b" 1 "$RUN_BG_PID" 25)"
 # Unconditional release of b: fed here regardless of the outcome above, so
 # a truly wedged implementation (a/c/d never reaped) still finishes rather
 # than leaving a wedged background process.

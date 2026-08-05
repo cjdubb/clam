@@ -447,11 +447,16 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # Retargeted to 0.7.2 by B06 (plan 001-speed-up-repo-ci): that plan's
 # scaffold edits this file, and version-bump-lint has no docs/tests
 # exemption, so the plugin necessarily moves 0.7.1 -> 0.7.2. Retargeted
-# again to 0.7.3 by the README Update-section wave, for the same reason.
-# The pin tracks the CURRENT version, so every legitimate bump retargets
-# it — see .local/FOLLOWUPS.md F05 for why that coupling is worth removing.
+# to 0.7.3 by the README Update-section wave, for the same reason. The pin
+# tracks the CURRENT version, so every legitimate bump retargets it — see
+# .local/FOLLOWUPS.md F05 for why that coupling is worth removing.
+# Retargeted again to 0.8.0 by B09 (plan 001-render-graph-always), whose own
+# contract states the 0.7.2 -> 0.8.0 bump. followups-docs.test.sh carries the
+# same pin and moves in lockstep, so the two suites never disagree; this is a
+# literal retarget only — no assertion added, removed, or weakened, and the
+# PASS count this file's own B06 contract freezes is unchanged.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.7.3" "$plugin_version" "0.7.3"
+check "plugin.json version is exactly 0.8.0" "$plugin_version" "0.8.0"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

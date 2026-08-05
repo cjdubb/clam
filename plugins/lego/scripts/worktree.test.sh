@@ -76,6 +76,22 @@
 # the realm.sh tests) and edits, reorders, weakens and deletes nothing: every
 # assertion above them, B04's and B06's alike, is untouched.
 # -->
+
+# <!--
+# Amendment: B10 deliver fresh-base resolution (plan 003-fix-plan-002-followups)
+#
+# Same scoping as the B06 and B07 amendments above: B04's freeze covers that
+# refactor, not later contracts. B10 changes how deliver resolves
+# <base-branch>, so one clause moves again:
+#   - The pass count moves from 131 to 140. It is still exact: any other
+#     value is a defect, whichever direction it moves.
+# Nothing else changes. B10 appends nine tests in their own section after the
+# B07 extraCommits tests and edits, reorders, weakens and deletes nothing.
+# test_deliver_underlying_git_failure_on_push (the unreachable-origin
+# fixture) is untouched and must stay green: it asserts exit 4 with a single
+# "ERROR: " line, and which of the two failures it reaches under a fresh-base
+# deliver -- the fetch or the push -- was never part of its assertions.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/worktree.sh"
@@ -2043,8 +2059,11 @@ test_deliver_file_list_still_comes_from_the_unit_commit() {
 test_deliver_path_absent_at_tip_is_removed_when_tracked() {
   local repo
   repo="$(build_deliver_base)"
-  # On master (the delivery base), so the delivery worktree tracks it.
+  # On master (the delivery base), so the delivery worktree tracks it. The
+  # push keeps the seed on origin/master too -- deliver resolves its base
+  # fresh from origin, so origin/master is the actual delivery base.
   commit_file "$repo" "src/doomed.sh" $'doomed v0\n' "seed a path the unit touches and integration later deletes"
+  git -C "$repo" push -q origin master >/dev/null 2>&1
 
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/doomed.sh" $'doomed v1 (unit)\n' "lego(U01): implementation"
@@ -4415,8 +4434,11 @@ test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-absent-tracked"
-  # On master (the delivery base), so the delivery worktree tracks it.
+  # On master (the delivery base), so the delivery worktree tracks it. The
+  # push keeps the seed on origin/master too -- deliver resolves its base
+  # fresh from origin, so origin/master is the actual delivery base.
   commit_file "$repo" "src/retired.sh" $'retired v0\n' "seed a path integration later deletes"
+  git -C "$repo" push -q origin master >/dev/null 2>&1
 
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" $'greet v1\n' "lego(U01): implementation"
@@ -4694,6 +4716,432 @@ test_deliver_extra_commits_does_not_relax_required_field_validation() {
 }
 
 # ===========================================================================
+# deliver: fresh-base resolution (B10 deliver fresh-base, plan 003)
+#
+# Before any other use of <base-branch>, cmd_deliver resolves it to a fresh
+# base ref: when a remote named "origin" exists and carries <base-branch>, it
+# fetches that branch and uses origin/<base-branch> for the base-existence
+# check, the newest_commit_with_subject lower bound and the delivery-branch
+# creation; otherwise it uses the local <base-branch> exactly as before. The
+# PR target (`gh pr create --base`) keeps the plain branch NAME either way.
+#
+# Every fixture here is hermetic: "origin" is the local bare repo
+# build_deliver_base already registers, and the commits that reach it are
+# pushed from a throwaway clone, so the fixture repo can be left genuinely
+# behind its remote -- no objects, stale tracking ref -- the way a real
+# integration checkout is when someone else has landed work in the meantime.
+# ===========================================================================
+
+# advance_origin_branch <repo> <branch> <relpath> <content> <subject> [date]
+# -- commits <relpath> onto <branch> in <repo>'s origin through a throwaway
+# clone, creating the branch off master when origin does not carry it yet.
+# The objects never pass through <repo>, so its own refs (the local <branch>
+# and refs/remotes/origin/<branch>) stay exactly where they were: only a
+# fetch can bring the new tip in. <date> (any git-parseable timestamp) fixes
+# the author and committer date, for the one test whose fixture depends on
+# the order `git log` scans two same-subject commits in. Prints the new tip's
+# sha.
+advance_origin_branch() {
+  local repo="$1" branch="$2" rel="$3" content="$4" subject="$5" date="${6:-}"
+  local url container clone
+  url="$(git -C "$repo" remote get-url origin)"
+  container="$(mktemp -d)"
+  track_tmp "$container"
+  clone="$container/clone"
+  # --branch master, never the remote's HEAD: the bare origin comes from
+  # `git init --bare`, whose HEAD follows the ambient init.defaultBranch and
+  # so may name a branch that was never pushed.
+  git clone -q --branch master "$url" "$clone" >/dev/null 2>&1
+  git -C "$clone" config user.email "lego-fixture@example.com"
+  git -C "$clone" config user.name "Lego Fixture"
+  git -C "$clone" config commit.gpgsign false
+  git -C "$clone" config core.hooksPath "$NOOP_HOOKS_DIR"
+  if [ "$branch" != "master" ]; then
+    if git -C "$clone" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      git -C "$clone" checkout -q "$branch"
+    else
+      git -C "$clone" checkout -q -b "$branch"
+    fi
+  fi
+  mkdir -p "$(dirname "$clone/$rel")"
+  printf '%s' "$content" > "$clone/$rel"
+  git -C "$clone" add -- "$rel"
+  if [ -n "$date" ]; then
+    GIT_AUTHOR_DATE="$date" GIT_COMMITTER_DATE="$date" git -C "$clone" commit -q -m "$subject"
+  else
+    git -C "$clone" commit -q -m "$subject"
+  fi
+  git -C "$clone" push -q origin "$branch" >/dev/null 2>&1
+  git -C "$clone" rev-parse HEAD
+}
+
+# build_fresh_base_fixture -- build_deliver_base plus one integrated unit
+# (U01, one resolvable implementation commit touching src/greet.sh), left in
+# the production-shaped pre-delivery state with the integration branch
+# checked out. The base-side arrangement is what each test varies. Prints the
+# repo path.
+build_fresh_base_fixture() {
+  local repo
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  printf '%s' "$repo"
+}
+
+# The core clause. The local base ref is behind origin's same-named branch by
+# a commit whose objects the fixture repo has never seen; the delivery branch
+# must still fork from that remote tip, which is only reachable by fetching.
+# The side branch is the "no fetch of anything beyond <base-branch>" tripwire.
+test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale() {
+  local repo origin_tip side_tip local_base_before head_before status_before
+  repo="$(build_deliver_base)"
+  local_base_before="$(git -C "$repo" rev-parse master)"
+  origin_tip="$(advance_origin_branch "$repo" master "docs/remote-only.md" $'remote only\n' "docs: a commit that only ever reached origin")"
+  side_tip="$(advance_origin_branch "$repo" sidebranch "docs/side-only.md" $'side only\n' "docs: a commit on a branch deliver must not fetch")"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  head_before="$(git -C "$repo" rev-parse HEAD)"
+  status_before="$(git -C "$repo" status --porcelain)"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: fresh base resolution" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "stale local base, fresh origin: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! git -C "$repo" merge-base --is-ancestor "$origin_tip" "$branch" 2>/dev/null; then
+      record_fail "the delivery branch must fork from origin/master's just-fetched tip ($origin_tip), not from the stale local master ($local_base_before)"
+    fi
+    assert_eq "remote only" "$(git -C "$repo" show "$branch:docs/remote-only.md" 2>/dev/null || echo MISSING)" "a commit carried only by origin's base branch reaches the delivery branch"
+    assert_eq "greet v1 (unit)" "$(git -C "$repo" show "$branch:src/greet.sh" 2>/dev/null || echo MISSING)" "the unit's delivered content is unaffected by the fresher base"
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
+
+  assert_eq "$origin_tip" "$(git -C "$repo" rev-parse --verify --quiet refs/remotes/origin/master || echo MISSING)" "origin/master resolves to the remote's current tip, i.e. <base-branch> was actually fetched"
+
+  if git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/sidebranch" >/dev/null 2>&1; then
+    record_fail "nothing beyond <base-branch> may be fetched: origin/sidebranch was fetched too"
+  fi
+  if git -C "$repo" cat-file -e "${side_tip}^{commit}" 2>/dev/null; then
+    record_fail "nothing beyond <base-branch> may be fetched: the side branch's objects reached the repo"
+  fi
+
+  local gh_args
+  gh_args="$(cat "$GH_SHIM_LOG")"
+  case "$gh_args" in
+    *"--base master"*) : ;;
+    *) record_fail "gh pr create must keep the plain <base-branch> NAME: got [$gh_args]" ;;
+  esac
+  case "$gh_args" in
+    *"--base origin/"*) record_fail "gh pr create must not target a remote-tracking ref: got [$gh_args]" ;;
+  esac
+
+  assert_eq "$local_base_before" "$(git -C "$repo" rev-parse master)" "the local base branch is never moved by the fetch"
+  assert_eq "$head_before" "$(git -C "$repo" rev-parse HEAD)" "deliver never moves the integration worktree's HEAD"
+  assert_eq "$status_before" "$(git -C "$repo" status --porcelain)" "deliver never modifies the integration worktree's files"
+}
+
+# No origin at all: there is nothing to fetch and nothing to push, so today's
+# behaviour is to build the delivery branch from the local ref and fail at
+# the push. Reaching THAT failure -- rather than a fetch error or an earlier
+# "base branch not found" -- is the observable proof that base resolution
+# fell through to the local ref untouched.
+test_deliver_without_an_origin_remote_uses_the_local_base_unchanged() {
+  local repo
+  repo="$(build_fresh_base_fixture)"
+  git -C "$repo" remote remove origin
+
+  make_gh_shim
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: no origin remote" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "no origin remote: expected exit 4 at the push, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "no origin remote"
+  case "$RUN_ERR" in
+    *push*) : ;;
+    *) record_fail "with no origin, base resolution must fall through to the local ref and the run must get as far as the push: got [$RUN_ERR]" ;;
+  esac
+  if [ -n "$(git -C "$repo" for-each-ref --format='%(refname)' 'refs/remotes/origin/*')" ]; then
+    record_fail "no origin remote: nothing may be fetched"
+  fi
+}
+
+# An origin that does not carry <base-branch> is the same world as no origin
+# for base resolution: the local ref wins. The base here exists only locally
+# AND carries a commit origin has never seen, so a delivery branch that
+# contains it can only have forked from the local ref.
+test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref() {
+  local repo mainline_tip
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b mainline master
+  commit_file "$repo" "docs/local-base.md" $'local base\n' "docs: a commit only the local base branch carries"
+  mainline_tip="$(git -C "$repo" rev-parse mainline)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" mainline
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q mainline
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: origin lacks the base branch" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 mainline U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "origin lacks <base-branch>: expected exit 0 on the local-ref fallback, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! git -C "$repo" merge-base --is-ancestor "$mainline_tip" "$branch" 2>/dev/null; then
+      record_fail "the delivery branch must fork from the local base ref when origin does not carry <base-branch>"
+    fi
+    assert_eq "local base" "$(git -C "$repo" show "$branch:docs/local-base.md" 2>/dev/null || echo MISSING)" "a commit only the local base carries reaches the delivery branch"
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
+
+  if git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/mainline" >/dev/null 2>&1; then
+    record_fail "origin does not carry <base-branch>; there is nothing to fetch"
+  fi
+
+  local gh_args
+  gh_args="$(cat "$GH_SHIM_LOG")"
+  case "$gh_args" in
+    *"--base mainline"*) : ;;
+    *) record_fail "gh pr create must keep the plain <base-branch> NAME: got [$gh_args]" ;;
+  esac
+}
+
+# origin is reachable and still advertises <base-branch>, so this is the
+# "carries it but the fetch fails" case, not the fallback case: the fetch
+# cannot complete because refs/remotes/origin/master is blocked by a
+# directory/file ref conflict, leaving git nowhere to write the fetched tip.
+test_deliver_fetch_failure_dies_naming_the_fetch() {
+  local repo
+  repo="$(build_fresh_base_fixture)"
+  git -C "$repo" update-ref -d refs/remotes/origin/master
+  git -C "$repo" update-ref "refs/remotes/origin/master/blocked" "$(git -C "$repo" rev-parse master)"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: fetch failure" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "origin carries <base-branch> but the fetch cannot complete: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "failed fetch of <base-branch>"
+  case "$RUN_ERR" in
+    *fetch*) : ;;
+    *) record_fail "a failed fetch must be named as such: got [$RUN_ERR]" ;;
+  esac
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    record_fail "a failed fetch must abort before the delivery branch is created"
+  fi
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
+    record_fail "nothing may be pushed when the base fetch fails"
+  fi
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "no PR may be opened when the base fetch fails"
+  fi
+}
+
+# The same clause with every signal that origin carries <base-branch> intact
+# -- reachable remote, advertised branch, and a resolvable (if stale)
+# refs/remotes/origin/master. Only `git fetch origin master` fails: origin's
+# fetch refspec is pointed at the branch this worktree has checked out, which
+# git refuses to update. A stale origin/master that still resolves is exactly
+# the state a swallowed fetch failure would deliver from.
+test_deliver_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch() {
+  local repo
+  repo="$(build_fresh_base_fixture)"
+  git -C "$repo" config remote.origin.fetch "+refs/heads/master:refs/heads/integration"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: fetch failure, tracking ref intact" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "reachable origin, advertised branch, failing fetch: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "failed fetch with an intact tracking ref"
+  case "$RUN_ERR" in
+    *fetch*) : ;;
+    *) record_fail "a failed fetch must be named as such, never silently degraded to the stale tracking ref: got [$RUN_ERR]" ;;
+  esac
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
+    record_fail "nothing may be pushed when the base fetch fails"
+  fi
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "no PR may be opened when the base fetch fails"
+  fi
+}
+
+# Unchanged behaviour, guarded: a base resolvable neither remotely nor
+# locally is still the same exit 4 with the same message.
+test_deliver_base_missing_locally_and_remotely_exits_4() {
+  local repo
+  repo="$(build_fresh_base_fixture)"
+
+  make_gh_shim
+  local manifest
+  manifest="$(write_valid_manifest "$repo" "test: base nowhere" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 nosuchbase U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "base resolvable neither remotely nor locally: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "base branch not found"
+  case "$RUN_ERR" in
+    *"base branch not found"*) : ;;
+    *) record_fail "expected the unchanged 'base branch not found' error: got [$RUN_ERR]" ;;
+  esac
+  case "$RUN_ERR" in
+    *nosuchbase*) : ;;
+    *) record_fail "expected the error to name the base branch: got [$RUN_ERR]" ;;
+  esac
+}
+
+# Edge case: the local base is AHEAD of origin (unpushed commits). The PR
+# targets the remote branch, so origin still wins -- the ahead-only commit
+# must be absent from the delivery branch.
+test_deliver_local_base_ahead_of_origin_still_forks_from_origin() {
+  local repo origin_tip ahead_sha
+  repo="$(build_deliver_base)"
+  origin_tip="$(git -C "$repo" rev-parse master)"
+  git -C "$repo" checkout -q master
+  commit_file "$repo" "docs/local-only.md" $'local only\n' "docs: an unpushed commit on the local base"
+  ahead_sha="$(git -C "$repo" rev-parse master)"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: local base ahead of origin" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "local base ahead of origin: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! git -C "$repo" merge-base --is-ancestor "$origin_tip" "$branch" 2>/dev/null; then
+      record_fail "the delivery branch must fork from origin's tip ($origin_tip)"
+    fi
+    if git -C "$repo" merge-base --is-ancestor "$ahead_sha" "$branch" 2>/dev/null; then
+      record_fail "an unpushed commit that only the local base carries must not reach the delivery branch: origin is the PR target"
+    fi
+    if git -C "$repo" show "$branch:docs/local-only.md" >/dev/null 2>&1; then
+      record_fail "the ahead-only commit's file must be absent from the delivery branch"
+    fi
+    assert_eq "greet v1 (unit)" "$(git -C "$repo" show "$branch:src/greet.sh" 2>/dev/null || echo MISSING)" "the unit's delivered content is unaffected by the older base"
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
+
+  assert_eq "$ahead_sha" "$(git -C "$repo" rev-parse master)" "the local base branch is never rewound to origin"
+}
+
+# Edge case: no local <base-branch> ref at all. Remote resolution suffices --
+# deliver succeeds where today it dies "base branch not found".
+test_deliver_local_base_absent_with_the_remote_branch_present_succeeds() {
+  local repo origin_tip
+  repo="$(build_deliver_base)"
+  origin_tip="$(advance_origin_branch "$repo" master "docs/remote-only.md" $'remote only\n' "docs: a commit that only ever reached origin")"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" $'greet v1 (unit)\n' "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+  # integration is checked out, so the local base branch can go away
+  # entirely -- as it does in a worktree that never created one.
+  git -C "$repo" branch -D master >/dev/null 2>&1
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: no local base ref" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "local base ref absent, remote branch present: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    if ! git -C "$repo" merge-base --is-ancestor "$origin_tip" "$branch" 2>/dev/null; then
+      record_fail "the delivery branch must fork from origin/master's tip when no local base ref exists"
+    fi
+    assert_eq "greet v1 (unit)" "$(git -C "$repo" show "$branch:src/greet.sh" 2>/dev/null || echo MISSING)" "the unit's content is delivered from a purely remote base"
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/master"; then
+    record_fail "deliver must not recreate a local base branch"
+  fi
+
+  local gh_args
+  gh_args="$(cat "$GH_SHIM_LOG")"
+  case "$gh_args" in
+    *"--base master"*) : ;;
+    *) record_fail "gh pr create must keep the plain <base-branch> NAME even when no local ref exists: got [$gh_args]" ;;
+  esac
+}
+
+# The lower bound handed to newest_commit_with_subject moves with the base
+# too. An older plan's commit carrying this unit's exact subject is already
+# on origin's master and reaches the unit branch through the mid-flight
+# refresh merge; it is NOT in the stale local master. Under the fresh base it
+# is below the lower bound and excluded; under the stale one it is inside the
+# scan range and -- being the newer of the two by commit date -- outranks the
+# unit's own commit, so the wrong commit's file list is delivered.
+test_deliver_subject_scan_lower_bound_uses_the_fresh_base() {
+  local repo stray_sha unit_sha
+  repo="$(build_deliver_base)"
+  stray_sha="$(advance_origin_branch "$repo" master "src/other.sh" $'other v9 (an older plan, already on origin)\n' "lego(U01): implementation" "2026-06-01T00:00:00Z")"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  mkdir -p "$repo/src"
+  printf '%s' $'greet v1 (unit)\n' > "$repo/src/greet.sh"
+  git -C "$repo" add -- "src/greet.sh"
+  GIT_AUTHOR_DATE="2026-01-01T00:00:00Z" GIT_COMMITTER_DATE="2026-01-01T00:00:00Z" \
+    git -C "$repo" commit -q -m "lego(U01): implementation"
+  unit_sha="$(git -C "$repo" rev-parse HEAD)"
+  # The mid-flight refresh every long-running unit branch does: merge the
+  # base as it stands on the remote.
+  git -C "$repo" fetch -q origin master >/dev/null 2>&1
+  git -C "$repo" merge -q --no-ff -m "lego: refresh the unit branch from the base" FETCH_HEAD >/dev/null 2>&1
+
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  # Fixture precondition: under the stale local base the stray really does
+  # outrank the unit's own commit in the scan. Without that this test cannot
+  # tell the two lower bounds apart.
+  local first_under_stale
+  first_under_stale="$(git -C "$repo" log --no-merges --format='%H' "master..lego/plan1/U01-greetstuff" | head -n1)"
+  [ "$first_under_stale" = "$stray_sha" ] || record_fail "fixture precondition: expected the stray commit ($stray_sha) to be scanned first under the stale local base, got [$first_under_stale]"
+
+  make_gh_shim
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: subject scan lower bound" "$branch" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "same-subject stray on origin's base: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    assert_eq "greet v1 (unit)" "$(git -C "$repo" show "$branch:src/greet.sh" 2>/dev/null || echo MISSING)" "the subject scan's lower bound is the fresh base, so the unit's own commit ($unit_sha) wins over the stray already on origin ($stray_sha)"
+    if ! git -C "$repo" merge-base --is-ancestor "$stray_sha" "$branch" 2>/dev/null; then
+      record_fail "the stray commit is part of origin's base branch, so the delivery branch inherits it from the base"
+    fi
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
@@ -4843,6 +5291,16 @@ run_test "deliver --manifest: an entry with a missing or empty subject exits 3 (
 run_test "deliver --manifest: an entry whose files is missing, empty or not an array exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3
 run_test "deliver --manifest: a malformed extraCommits dies before any branch, worktree, push or PR (B07 manifest extraCommits)" test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree
 run_test "deliver --manifest: a valid extraCommits does not relax the required-field validation (B07 manifest extraCommits)" test_deliver_extra_commits_does_not_relax_required_field_validation
+
+run_test "deliver: a stale local base forks the delivery branch from the freshly fetched origin/<base>, and nothing beyond it is fetched (B10 deliver fresh-base)" test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale
+run_test "deliver: no origin remote resolves the local base unchanged, failing at the push as today (B10 deliver fresh-base)" test_deliver_without_an_origin_remote_uses_the_local_base_unchanged
+run_test "deliver: an origin that does not carry <base-branch> falls back to the local ref and succeeds (B10 deliver fresh-base)" test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref
+run_test "deliver: origin carries <base-branch> but the fetch fails -> exit 4 naming the fetch (B10 deliver fresh-base)" test_deliver_fetch_failure_dies_naming_the_fetch
+run_test "deliver: a failing fetch is fatal even with a resolvable stale origin/<base> to fall back on (B10 deliver fresh-base)" test_deliver_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch
+run_test "deliver: a base resolvable neither remotely nor locally is still exit 4 'base branch not found' (B10 deliver fresh-base)" test_deliver_base_missing_locally_and_remotely_exits_4
+run_test "deliver: a local base AHEAD of origin still forks from origin; the unpushed commit is absent (B10 deliver fresh-base)" test_deliver_local_base_ahead_of_origin_still_forks_from_origin
+run_test "deliver: no local <base-branch> ref at all succeeds when origin carries it (B10 deliver fresh-base)" test_deliver_local_base_absent_with_the_remote_branch_present_succeeds
+run_test "deliver: the subject-scan lower bound moves with the base, excluding a same-subject stray already on origin (B10 deliver fresh-base)" test_deliver_subject_scan_lower_bound_uses_the_fresh_base
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

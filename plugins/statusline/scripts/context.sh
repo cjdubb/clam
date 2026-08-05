@@ -255,7 +255,8 @@ sl_parse_burn_fields() {
   return 0
 }
 
-# Contract: B05 burnrate-line (plan 001-statusline-burnrate-uplift)
+# Contract: B05 burnrate-line (plan 001-statusline-burnrate-uplift),
+#           amended by B09 burn-line-labels (plan 002-statusline-emoji-removal)
 #
 # Behavior:
 #   Assembles the entire burnrate line and echoes it as one string with no
@@ -263,16 +264,63 @@ sl_parse_burn_fields() {
 #   mode/model/effort line, the Ctx-usage line, and the Cost line) with the
 #   single line the plugin now shows beneath the path line:
 #
-#     🦄 Fable 5 high │ 🎯 32% 72%t 17%/d ▼-11 │ 🧠 10% +503/-16 │ 🔥 1% 4h54m │ 😼·
+#     Fable 5 high │ wk 32% 72%t 17%/d ▼-11 │ ctx 10% +503/-16 │ 5h 1% (4h54m)
 #
-#   Five groups joined by a dim │ separator:
-#     1. model    BURN_MASCOT, the model name in its drifting rainbow, and
-#                 the effort tier in its own colour
-#     2. weekly   🎯 used%, today's remaining share (%t), sustainable pace
+#   FOUR groups joined by a dim │ separator:
+#     1. model    the model name in its drifting rainbow, and the effort
+#                 tier in its own colour. NO mascot prefix.
+#     2. weekly   `wk` used%, today's remaining share (%t), sustainable pace
 #                 (%/d), and the trend arrow vs the awake even-burn line
-#     3. session  🧠 context occupancy, and lines added/removed this session
-#     4. 5-hour   🔥 used%, and the countdown to its reset
-#     5. pet      the companion glyph, moods keyed to the worst meter
+#     3. session  `ctx` context occupancy, and lines added/removed this session
+#     4. 5-hour   `5h` used%, and the countdown to its reset IN PARENS
+#
+# B09 amendment — this line emits no emoji:
+#   - The three meter emoji become bare ASCII labels: 🎯 -> `wk`, 🧠 -> `ctx`,
+#     🔥 -> `5h`. Each label sits INSIDE its meter's colour sequence exactly
+#     where the emoji did, so the colour still spans label and figure
+#     together and no group gains or loses a reset.
+#   - Group 1 drops the `$BURN_MASCOT ` prefix. The rainbow, the model-name
+#     trim at " (", and the effort colour are untouched.
+#   - Group 5 (the pet) is deleted outright, along with the stress-scan loop
+#     that fed it. `_sl_burn_group` already omits an absent group's
+#     separator, so the line simply ends after the 5-hour group — it must
+#     never end with a dangling │.
+#   - The 5-hour countdown is wrapped in parens: `5h 1% (4h54m)`. Without
+#     them `5h 1% 4h54m` reads as two durations rather than a meter and its
+#     reset. The parens are OUTSIDE any colour sequence burn_reset_str
+#     returns, and appear only when a countdown is actually rendered — a
+#     missing or unparseable reset drops the countdown and its parens
+#     together, never leaving an empty `()`.
+#   - Ambiguous-width non-emoji symbols are DELIBERATELY unchanged: the dim
+#     │ separator and the ▲/▼ trend arrows stay exactly as they are.
+#
+# B09 amendment 2 — the weekly and 5-hour figures render as INTEGERS:
+#   Both meters currently take the integer part for the COLOUR and then print
+#   the value exactly as the payload sent it:
+#     weekly  `$(burn_plan_color "${r7%%.*}")🎯 ${r7}%$rst`
+#     5-hour  `$(burn_plan_color "${r5%%.*}")🔥 ${r5}%$rst`
+#   B04's parse contract preserves a float used_percentage as given (see its
+#   docblock), which is correct there — the payload is the source of truth. But
+#   the payload delivers IEEE-754 noise, and the render shows it verbatim:
+#   `5h 14.000000000000002%` is a real observed render, not a hypothetical.
+#
+#   Both figures therefore print the INTEGER PART, the same value the colour
+#   already uses. Requirements:
+#     - The printed number and the colour threshold read the SAME value, so
+#       they can never disagree at a boundary. This is why the rule is
+#       truncation and not rounding: rounding 49.7 to 50 while colouring it as
+#       49 would put a figure in the wrong colour band.
+#     - A sub-1% value renders `0`, never an empty figure: `0.5` renders
+#       `5h 0%`. (`${r5%%.*}` of `0.5` is already `0`; only a leading-dot
+#       `.5` expands EMPTY. JSON number syntax requires a digit before the
+#       point, so that form is unreachable from a payload and a guard against
+#       it is defensive rather than required. Corrected from this amendment's
+#       first wording, which named `0.5` as the empty case.)
+#     - An integer-valued payload is unaffected: `14` renders `14`, and no
+#       trailing `.` or `.0` may appear.
+#     - This changes presentation ONLY. No threshold, no colour, no parse
+#       behaviour, and no other group moves. The `ctx` meter is NOT touched:
+#       its `pct` is bash integer arithmetic and cannot carry a fraction.
 #
 #   Composes B01 (burn_metrics), B02 (burn_tick_frac), and B03 (all
 #   presentation) over B04's parsed fields. It performs no arithmetic and no
@@ -300,9 +348,9 @@ sl_parse_burn_fields() {
 #   One line of text on stdout, no trailing newline, ANSI-coloured.
 #
 #   Each group is omitted ENTIRELY, along with its separator, when its data
-#   is unavailable — so the line never shows a dangling │, a stray emoji
+#   is unavailable — so the line never shows a dangling │, a stray label
 #   with no number, or a leading/trailing separator. A session with no
-#   rate_limits at all renders groups 1, 3 and 5 only.
+#   rate_limits at all renders groups 1 and 3 only.
 #
 #   The +N/-M sub-segment appears only once at least one of the two counts
 #   is above zero; a session that has edited nothing shows no counts rather
@@ -315,7 +363,7 @@ sl_parse_burn_fields() {
 #   Nothing is ever written to stdout except the line itself.
 #
 # Invariants:
-#   - The 🧠 meter keeps this plugin's occupancy math
+#   - The ctx meter keeps this plugin's occupancy math
 #     (total_input_tokens / CLAUDE_CODE_AUTO_COMPACT_WINDOW, non-saturating,
 #     idle-aware via burn_ctx_state) rather than the upstream's
 #     .context_window.used_percentage. Decided in
@@ -326,9 +374,7 @@ sl_parse_burn_fields() {
 #   - The clam mode does NOT appear on this line. It renders on the path
 #     line beside the State segment, per
 #     .local/decisions/001-clam-mode-placement.md, so the burnrate line is
-#     exactly the five groups above.
-#   - The pet's stress level is the MAXIMUM of the context, 5-hour and
-#     weekly percentages, skipping any that are absent.
+#     exactly the four groups above.
 #   - Warm-render process budget, raised from 10 to 12 external commands and
 #     measured by the PATH-shim harness in context.test.sh: the pre-uplift
 #     warm render measured 8, and this line adds at most three — two awk
@@ -341,8 +387,8 @@ sl_parse_burn_fields() {
 #
 # Edge cases:
 #   - No rate_limits in the payload: groups 2 and 4 vanish with their
-#     separators; groups 1, 3, 5 render normally.
-#   - Weekly data present but its reset timestamp absent: 🎯 used% still
+#     separators; groups 1 and 3 render normally.
+#   - Weekly data present but its reset timestamp absent: `wk` used% still
 #     renders; %t, %/d and the trend do not (all three need the reset).
 #   - B01 returning NA for today's share (a degenerate slice): the %t
 #     sub-segment is omitted while pace and trend still render.
@@ -379,20 +425,16 @@ sl_render_burn_line() {
     frame=$(burn_frame_advance "$SL_CACHE_DIR/.burn-frame")
   fi
 
-  # --- group 1: mascot, model name, effort tier -----------------------------
+  # --- group 1: model name, effort tier --------------------------------------
   g=""
   if [ -n "$model_name" ] && declare -f burn_model_style >/dev/null 2>&1; then
-    # BARE call, never $(burn_model_style ...): it sets BURN_MASCOT and
-    # BURN_HUES as globals and echoes nothing, so a subshell capture would
-    # discard exactly what the two lines below read.
+    # BARE call, never $(burn_model_style ...): it sets BURN_HUES as a global
+    # and echoes nothing, so a subshell capture would discard exactly what the
+    # line below reads.
     burn_model_style "$model_name"
-    # An ABSENT model renders no mascot at all; an unrecognised one renders
-    # B03's 🤖 fallback. Absent is not unknown -- the same "empty is not zero"
-    # distinction B04 draws for the rate-limit fields -- which is why the
-    # mascot hangs off this branch rather than off burn_model_style alone.
     # "Opus 5 (1M context)" is trimmed at " (": the suffix costs a third of
     # the line's width and says nothing the meters do not.
-    g="$BURN_MASCOT $(burn_rainbow "${model_name%% (*}" "$frame")"
+    g="$(burn_rainbow "${model_name%% (*}" "$frame")"
   fi
   if [ -n "$effort" ]; then
     [ -n "$g" ] && g="$g "
@@ -400,10 +442,10 @@ sl_render_burn_line() {
   fi
   _sl_burn_group "$g"
 
-  # --- group 2: weekly limit (🎯 used%, %t, %/d, trend) ---------------------
+  # --- group 2: weekly limit (wk used%, %t, %/d, trend) ----------------------
   g=""
   if [ -n "$r7" ]; then
-    g="$(burn_plan_color "${r7%%.*}")🎯 ${r7}%$rst"
+    g="$(burn_plan_color "${r7%%.*}")wk ${r7%%.*}%$rst"
     if [ -n "$r7_reset" ]; then
       local hour slp ds frac metrics m_today m_pace m_trend arrow
       # The awake-hours knobs, both passed straight down to B01. A
@@ -451,10 +493,10 @@ sl_render_burn_line() {
   fi
   _sl_burn_group "$g"
 
-  # --- group 3: session (🧠 occupancy, lines touched) -----------------------
+  # --- group 3: session (ctx occupancy, lines touched) -----------------------
   g=""
   if [ -n "$pct" ]; then
-    g="${esc}[38;5;${ctx_color}m🧠 ${pct}%$rst"
+    g="${esc}[38;5;${ctx_color}mctx ${pct}%$rst"
     # Only once at least one count is above zero: a session that has edited
     # nothing shows nothing, not "+0/-0".
     if [ "${lines_added:-0}" -gt 0 ] 2>/dev/null \
@@ -464,31 +506,18 @@ sl_render_burn_line() {
   fi
   _sl_burn_group "$g"
 
-  # --- group 4: 5-hour limit (🔥 used%, countdown) --------------------------
+  # --- group 4: 5-hour limit (5h used%, countdown) ---------------------------
   g=""
   if [ -n "$r5" ]; then
-    g="$(burn_plan_color "${r5%%.*}")🔥 ${r5}%$rst"
+    g="$(burn_plan_color "${r5%%.*}")5h ${r5%%.*}%$rst"
     # A missing reset drops the countdown ONLY -- the used% is live quota
-    # state, exactly as the weekly group keeps its 🎯 figure without one.
+    # state, exactly as the weekly group keeps its wk figure without one.
     if [ -n "$r5_reset" ]; then
       local countdown
       countdown=$(burn_reset_str "$r5_reset" "$_sl_now") \
-        && [ -n "$countdown" ] && g="$g $countdown"
+        && [ -n "$countdown" ] && g="$g ($countdown)"
     fi
   fi
-  _sl_burn_group "$g"
-
-  # --- group 5: the pet, keyed to the WORST meter present -------------------
-  g=""
-  local stress="" v
-  for v in "$pct" "${r5%%.*}" "${r7%%.*}"; do
-    # An absent meter is skipped, never folded in as a zero.
-    case "$v" in ''|*[!0-9]*) continue ;; esac
-    if [ -z "$stress" ] || [ "$v" -gt "$stress" ]; then
-      stress="$v"
-    fi
-  done
-  [ -n "$stress" ] && g=$(burn_pet "$stress" "$frame")
   _sl_burn_group "$g"
 
   printf '%s' "$_sl_burn_acc"
@@ -608,32 +637,57 @@ file_age() {
   echo $(( $(date +%s) - m ))
 }
 
-# Classify a PR into its statusline emoji. Same rules as the /pr-status skill.
+# Contract: B10 line1-text-tags (plan 002-statusline-emoji-removal)
+#
+# Classify a PR into its statusline TAG. Same rules as the /pr-status skill.
+# Renamed from classify_pr_emoji; the bucket logic below is unchanged
+# byte-for-byte, only what each bucket echoes changes. Callers must be
+# updated with it — no compatibility alias is kept, because a stale caller
+# comparing against an emoji would silently fall through to the actionable
+# branch and badge every PR.
+#
 # Args: $1=state $2=reviews $3=ci $4=comments
-# Echoes: ✅ | 🚂 | 🚫 | 🔴 | 🟡 | 🟢
-classify_pr_emoji() {
+# Echoes exactly one of: merged | queued | ejected | todo | wip | ok
+#   merged   was ✅   collapsed to a count
+#   queued   was 🚂   collapsed to a count
+#   ok       was 🟢   collapsed to a count
+#   todo     was 🔴   rendered per-PR, needs the user
+#   wip      was 🟡   rendered per-PR, parked but fine
+#   ejected  was 🚫   rendered per-PR, queue ejected it
+#
+# The three collapsed buckets render as "N ok", "N queued", "N merged"; the
+# three per-PR buckets render as "todo #123", "wip #123", "ejected #123",
+# keeping the OSC-8 hyperlink on the "#123" so the number stays clickable.
+# Colours are unchanged — the tag carries the same SGR the emoji did.
+#
+# SCAFFOLD STATE: the definition below still carries the OLD name and still
+# echoes emoji. That gap — contract renamed and re-specified above, code
+# unchanged beneath — is what the test wave goes red against. Renaming the
+# definition here would break the caller at once and produce a broken render
+# rather than a clean red.
+classify_pr_tag() {
   local state="$1" reviews="$2" ci="$3" comments="$4"
   if [ "$state" = "Merged" ]; then
-    echo "✅"
+    echo "merged"
   elif [ "$state" = "Queue Failed" ]; then
     # Queue ejected the PR; needs author attention before re-enqueue.
-    echo "🚫"
+    echo "ejected"
   elif [ "$state" = "In Queue" ]; then
     # Passive wait while queue CI runs against the queue head.
-    echo "🚂"
+    echo "queued"
   elif [ "$ci" = "Fail" ] \
     || [ "$reviews" = "Changes Requested" ] \
     || [ "$reviews" = "Commented" ] \
     || [ "$reviews" = "Not Requested" ] \
     || [ "${comments:-0}" -gt 0 ] \
     || { [ "$reviews" = "Approved" ] && [ "$ci" = "Pass" ]; }; then
-    echo "🔴"
+    echo "todo"
   elif [ "$state" = "Draft" ] \
     || [ "$reviews" = "Approved (stale)" ] \
     || { [ "$reviews" = "Approved" ] && [ "$ci" = "Running" ]; }; then
-    echo "🟡"
+    echo "wip"
   else
-    echo "🟢"
+    echo "ok"
   fi
 }
 
@@ -726,7 +780,15 @@ if ! sl_bundle_read; then
 
   # Compute the PR badge per the /pr-status skill's color rules.
   # Every worktree emits a `prs` array (0, 1, or N entries) via pr-status-refresh.
-  # Render actionable PRs (🔴/🟡) individually and collapse green/merged to counts.
+  #
+  # Contract: B10 line1-text-tags (plan 002-statusline-emoji-removal).
+  # Render actionable PRs individually as `todo #N` / `wip #N` / `ejected #N`,
+  # and collapse the rest to labelled counts `N ok` / `N queued` / `N merged`.
+  # The case arms below dispatch on classify_pr_emoji's return value, so they
+  # move to the tag strings in lockstep with the rename — an arm still
+  # matching an emoji would fall through to the actionable branch and badge
+  # every PR individually. CLOSED PRs remain skipped entirely, and the OSC-8
+  # hyperlink stays on the "#N" so the number is still clickable.
   pr_badge=""
   if [ -n "$pr_status_file" ]; then
     prs_count=$(jq -r '(.prs // []) | length' "$pr_status_file" 2>/dev/null)
@@ -740,19 +802,19 @@ if ! sl_bundle_read; then
         # CLOSED PRs are abandoned, not actionable — skip entirely so they
         # neither badge nor count toward the totals.
         [ "$state" = "CLOSED" ] && continue
-        emoji=$(classify_pr_emoji "$state" "$reviews" "$ci" "$comments")
-        case "$emoji" in
-          "✅") merged_count=$((merged_count + 1)) ;;
-          "🚂") queued_count=$((queued_count + 1)) ;;
-          "🟢") green_count=$((green_count + 1)) ;;
-          *)    actionable="$actionable $emoji $(osc8_link "$url" "#$number")" ;;
+        tag=$(classify_pr_tag "$state" "$reviews" "$ci" "$comments")
+        case "$tag" in
+          merged) merged_count=$((merged_count + 1)) ;;
+          queued) queued_count=$((queued_count + 1)) ;;
+          ok)     green_count=$((green_count + 1)) ;;
+          *)      actionable="$actionable $tag $(osc8_link "$url" "#$number")" ;;
         esac
       done < <(jq -r '.prs[] | [.number, .state, .reviews, .ci, (.comments // 0), (.url // "")] | @tsv' "$pr_status_file" 2>/dev/null)
 
       pr_badge="$actionable"
-      [ "$green_count" -gt 0 ]  && pr_badge="$pr_badge 🟢$green_count"
-      [ "$queued_count" -gt 0 ] && pr_badge="$pr_badge 🚂$queued_count"
-      [ "$merged_count" -gt 0 ] && pr_badge="$pr_badge ✅$merged_count"
+      [ "$green_count" -gt 0 ]  && pr_badge="$pr_badge $green_count ok"
+      [ "$queued_count" -gt 0 ] && pr_badge="$pr_badge $queued_count queued"
+      [ "$merged_count" -gt 0 ] && pr_badge="$pr_badge $merged_count merged"
     fi
   fi
 
@@ -804,13 +866,27 @@ if ! sl_bundle_read; then
   # Colour mirrors the urgency classes in system-prompt.md (red 196: summons the
   # user; yellow 214: parked but fine; green 40/34: active or done; dim 245:
   # neutral). Same $toplevel resolution as the PR-status and git-sync segments.
+  # Contract: B10 line1-text-tags (plan 002-statusline-emoji-removal).
+  # The State glyph is REMOVED — the State's own name follows it and already
+  # carries state_color's urgency colour, so the emoji labelled nothing the
+  # text beside it did not. Two consequences the implementation must honour:
+  #   - The `command -v` GATE moves from state_emoji to state_color. Today
+  #     the whole segment hangs off state_emoji being defined; leaving that
+  #     gate while dropping the call would keep an unnecessary dependency on
+  #     a function with no remaining caller.
+  #   - lib/states.tsv and lib/states.sh are NOT touched, in this plugin or
+  #     any other. state_emoji() simply keeps no caller; it stays as a
+  #     documented function of the shared States library. That is what keeps
+  #     this a one-plugin change rather than a coordinated edit across the
+  #     three byte-identical copies.
+  # Spacing: the segment keeps its two-space lead-in, so removing the glyph
+  # must not leave a double space before the State name.
   state_segment=""
   if [ -n "$toplevel" ] && [ -f "$toplevel/.local/TODO.md" ]; then
     state=$(todo_field "$toplevel/.local/TODO.md" State)
-    if [ -n "$state" ] && command -v state_emoji >/dev/null 2>&1; then
-      glyph=$(state_emoji "$state")
+    if [ -n "$state" ] && command -v state_color >/dev/null 2>&1; then
       color_seq=$(printf '\033[38;5;%sm' "$(state_color "$state")")
-      state_segment="  ${glyph} ${color_seq}${state}"$'\033[0m'
+      state_segment="  ${color_seq}${state}"$'\033[0m'
     fi
   fi
 

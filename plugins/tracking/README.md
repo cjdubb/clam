@@ -90,7 +90,13 @@ Concretely, once enabled:
   marker scheme as the other nudges; see [Commands](#commands) for the
   mechanics and the `CLAM_WORKGRAPH_GATE` escape hatch. The file is
   carried through the flush nudge, the pre-compact snapshot, and
-  post-compaction recovery alongside the other tracking docs.
+  post-compaction recovery alongside the other tracking docs. The moment
+  the file is created, agents check the skill catalog for a skill that can
+  serve it as a live, self-updating HTML view without opening a browser;
+  when one is installed, they serve `.local/WORKGRAPH.md` through it and
+  tell the engineer the resulting URL once, and with no such skill
+  installed this is skipped silently.
+
 - **A prompt arriving into a parked session** (State in the manifest's
   `parked` category, e.g. `Awaiting User Review`) gets a one-time nudge
   reminding the agent that the park may be over: set `State: In Progress`

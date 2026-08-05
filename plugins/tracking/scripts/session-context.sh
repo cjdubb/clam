@@ -119,6 +119,14 @@ never removed. When asked to show the work graph, render it as an indented
 ASCII tree: children nested under their parents, \`[needs: N<NN>]\` dependency
 annotations, a status glyph per node, and an arrow marking the Focus node.
 
+The moment \`.local/WORKGRAPH.md\` is created, check the skill catalog for a
+skill that can serve a markdown document as a live, self-updating HTML view
+without opening a browser; when one is available, serve
+\`.local/WORKGRAPH.md\` through it and tell the engineer the resulting URL
+once, in conversation. When no such skill is available, skip silently — no
+error, no mention of the missing capability — and the graph itself is never
+blocked on it.
+
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):
 

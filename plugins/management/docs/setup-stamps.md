@@ -40,7 +40,7 @@ One file per user, all scopes and repos included. The file belongs to clam
 | `stamps[].version` | The plugin version that performed the setup, read from the `plugin.json` at the installation's `installPath` (authoritative; the `version` field in `installed_plugins.json` can go stale). |
 | `stamps[].scope` | Installation scope the setup configured: `user`, `project`, or `local`. |
 | `stamps[].target` | Absolute path of the file the setup wrote (settings file, or the repo's `.claude/clam-profile.jsonc` for landing). |
-| `stamps[].at` | ISO-8601 UTC timestamp of the setup run. |
+| `stamps[].at` | ISO-8601 UTC timestamp measured when the stamp is written, via `date -u +%Y-%m-%dT%H:%M:%SZ`. |
 
 ## Semantics
 

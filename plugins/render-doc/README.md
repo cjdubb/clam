@@ -53,6 +53,11 @@ When you do render a document:
   under `.local/` across every worktree of a repo it has served, listing
   each never-served one marked "unserved" alongside what has already been
   opened.
+- A document page served through this server (not opened as `file://`)
+  grows two plain links at the start of its topbar: "Index" back to `/`,
+  and "Worktree" to that document's own per-worktree landing page (see
+  Scripts below). A page opened straight from disk shows neither — it
+  behaves exactly as it always has.
 
 ## Common workflows
 
@@ -212,6 +217,29 @@ itself fails — git is missing, `git worktree list` errors, or the
 only what the registry already has, exactly as it did before discovery
 existed.
 
+`GET /project/<worktree root>` is the per-worktree landing page: the same
+two sources as the index — `discover_docs` under that one worktree's
+`.local/` and the registry's own entries for that root — merged into a
+page scoped to that worktree alone; a linked sibling checkout's documents
+never bleed onto it, unlike the index's repo-wide scan. Documents sitting
+directly in `.local/` list flat, first; each subdirectory of `.local/`
+holding a listed document collapses into its own `<details>` group,
+labelled with the subdirectory name and collapsed by default, ordered by
+its newest member. `.local/WORKGRAPH.md`, when present, is the page's
+headline exactly as on the index. Every other document shows a one-line
+annotation read from its first 100 lines, and from nothing else: a
+todo-format `State:` line when present, otherwise a decision-file
+`Status:` line. `GET /project/for?path=<doc>` is the resolver: it 302s to
+the landing page of whichever worktree owns the given path, so a link to
+any document — served or not — always finds its way to that document's
+project page. Both routes are read-only and mirror `/doc`'s scope-error
+JSON shape for a validation failure (a root outside `$HOME`, one with no
+git worktree, or one that does not exist). A worktree with nothing under
+`.local/` still renders a page, an empty-state one naming the worktree
+rather than erroring; a document that fails to read or whose annotation
+can't be parsed still lists as a plain link, unaffected by any other
+document's failure.
+
 ### Failure modes
 
 | Scenario | Behavior |
@@ -228,6 +256,7 @@ existed.
 | A registered document's `WORKGRAPH.md` (or any listed file) can't be read for the project index | That entry's open-node count and Focus id show as unavailable; the rest of the index renders normally |
 | `--serve` cannot register the document (missing python3, missing `serve.py`, a foreign or unreplaceable process on the port, a spawn failure, or the server refuses the request) | Exit 3 with a stderr note naming the reason; the local render already succeeded, so callers skip silently |
 | Discovery scan fails (git missing, `git worktree list` errors, or the `.local` walk hits a problem) | Falls back to listing only what the registry already has — today's registry-only index |
+| A worktree landing page (`/project/<root>`) or its resolver (`/project/for`) is asked for a root that fails validation (outside `$HOME`, no git worktree, or missing) | `403`/`404` with a JSON `{"error": ...}`; a listed document that can't be read still shows as a plain link, its annotation unavailable, never a `500` |
 
 ### Maintenance
 
@@ -280,6 +309,9 @@ bash plugins/render-doc/scripts/graph-always-docs.test.sh
 bash plugins/render-doc/scripts/discovery-scan.test.sh
 bash plugins/render-doc/scripts/index-discovery.test.sh
 bash plugins/render-doc/scripts/discovery-docs.test.sh
+bash plugins/render-doc/scripts/landing-page.test.sh
+bash plugins/render-doc/scripts/topbar-nav.test.sh
+bash plugins/render-doc/scripts/landing-docs.test.sh
 ```
 
 ## Provenance
@@ -333,22 +365,6 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
-
-<!-- Contract: 002-B06 G02 docs + bump (plan 002-discovery-landing-dns) (remove at acceptance)
-Behavior: this README and skills/render/SKILL.md describe the per-worktree
-  landing page (GET /project/<root>, the /project/for?path= resolver) and
-  the doc-page topbar navigation (Index / Worktree links on http-served
-  pages, absent on file://). Phrasing references docs/protocols/
-  conventions only and names no plugin.
-Inputs: n/a (prose).
-Outputs: plugin.json version 0.8.0 -> 0.9.0; root README render-doc
-  version cell updated to match.
-Errors: n/a (prose).
-Invariants: the landing page's annotation sources are described as the
-  protocol fields (todo-format State:, decision-file Status:), nothing
-  else; degradation stated beside each feature.
-Edge cases: n/a.
--->
 
 <!-- Contract: 002-B08 G03 docs + bump (plan 002-discovery-landing-dns) (remove at acceptance)
 Behavior: this README and serve.py's header prose document the friendly

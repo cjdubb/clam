@@ -1,7 +1,7 @@
 {
   "name": "statusline",
   "description": "Cam's Claude Code statusline, in two lines: path, git branch and the tracking plugin's session State; then model, reasoning effort, weekly and 5-hour plan limits paced against your awake hours, and context-window occupancy. Wired explicitly via /statusline:setup — installing changes nothing.",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

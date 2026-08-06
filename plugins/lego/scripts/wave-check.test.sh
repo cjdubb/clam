@@ -822,6 +822,114 @@ test_collection_pattern_override_is_an_ere() {
   assert_check "$RUN_OUT" "RED-RUN" "PASS" "custom ERE with no matching alternative"
 }
 
+# ---------------------------------------------------------------------------
+# SUCCESS-line exclusion (issue #326)
+#
+# Behavior: "Scanned means every line except test-framework SUCCESS lines".
+# The regression this pins is specific: lego's own suite tests the collection
+# detector, so its PASSING output necessarily carries the detector's own
+# vocabulary, and before the exclusion `wave-check.sh test` FAILed RED-RUN on
+# every wave of every plan in this repo — tripped by the test proving the
+# detector works.
+# ---------------------------------------------------------------------------
+
+# One case per success marker the contract names. Each command emits the
+# success line carrying "collection error" AND an honest failing line, so the
+# run is genuinely red and only the classification is under test.
+test_red_run_success_lines_are_not_scanned() {
+  local repo cmd prefix
+  repo="$(new_git_repo)"
+  for prefix in \
+    "ok - " \
+    "ok 1 - " \
+    "OK: " \
+    "PASS  " \
+    "PASSED " \
+    "SUCCESS: " \
+    "✓ " \
+    "✔ " \
+    "--- PASS: " \
+    "[ OK ] " \
+    "[  PASSED  ] " \
+    "    ok - "; do
+    cmd="$(make_raw_cmd "$(printf 'printf "%%s\\n" %q\nprintf "%%s\\n" "not ok - unrelated failing test"\nexit 1' "${prefix}collection error is still detected")")"
+    run_wave "$repo" test --test-cmd "$cmd"
+    assert_check "$RUN_OUT" "RED-RUN" "PASS" "success line '${prefix}' carrying a collection token is not scanned"
+    assert_eq 0 "$RUN_EXIT" "success line '${prefix}': exit code (stderr: $RUN_ERR)"
+  done
+}
+
+# The exclusion is leading-token only and must not swallow "not ok", which
+# shares its first two characters with "ok". A FAILING assertion whose message
+# carries a collection token still FAILs conservatively — the same clause the
+# escape-hatch test above pins, asserted here for the TAP prefix specifically
+# because that is the form the exclusion could most easily over-match.
+test_red_run_not_ok_line_is_still_scanned() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_test_cmd 1 "not ok - collection error detection" "" "" "")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "'not ok' is not a success line: still scanned"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "'not ok' line: labeled COLLECTION"
+  assert_eq 1 "$RUN_EXIT" "'not ok' line: exit code"
+}
+
+# The exclusion drops lines, never the whole scan: a real collection error
+# sharing its output with passing lines must still be caught. This is the
+# check that would catch an over-broad exclusion regressing the detector to
+# useless.
+test_red_run_success_lines_do_not_mask_a_real_collection_error() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_raw_cmd "$(printf 'printf "%%s\\n" "ok - collection error is still detected"\nprintf "%%s\\n" "ModuleNotFoundError: No module named widgets"\nexit 1')")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "a real collection error alongside passing output is still caught"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "unmasked collection error: labeled COLLECTION"
+  assert_eq 1 "$RUN_EXIT" "unmasked collection error: exit code"
+}
+
+# EC: "A framework that marks success at the END of a line rather than the
+# start ... is NOT excluded". Pinned because it is a stated limitation, not an
+# accident: widening the rule to trailing markers would let a diagnostic
+# ending in "ok" escape the scan.
+test_red_run_trailing_success_marker_is_still_scanned() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_test_cmd 1 "tests/test_widgets.py::test_collection error PASSED" "" "" "")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "a trailing PASSED marker does not exclude the line"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "trailing marker: labeled COLLECTION"
+}
+
+# The scan runs on the combined output, so the exclusion must apply to stderr
+# lines too — a framework writing its progress to stderr is ordinary.
+test_red_run_success_line_exclusion_applies_to_stderr() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_test_cmd 1 "" "ok - collection error is still detected" "" "")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "a success line on stderr is excluded just as one on stdout is"
+  assert_eq 0 "$RUN_EXIT" "success line on stderr: exit code (stderr: $RUN_ERR)"
+}
+
+# The test command runs in a subshell, so an `exit` inside a --test-cmd
+# string ends the command and not wave-check itself. Before the subshell,
+# this produced no output at all and exit 1 — indistinguishable from a
+# crash, and silent enough to be diagnosed as a flake.
+test_test_cmd_containing_exit_does_not_terminate_wave_check() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_wave "$repo" test --test-cmd 'printf "%s\n" "1 test failed"; exit 1'
+  assert_shape "RED-RUN" "--test-cmd containing a bare exit: output shape"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "--test-cmd containing a bare exit is an honest red, not a crash"
+  assert_eq 0 "$RUN_EXIT" "--test-cmd containing a bare exit: exit code (stderr: $RUN_ERR)"
+}
+
 # ===========================================================================
 # Mode impl — GREEN-RUN
 # (Behavior: "FAIL unless the resolved test command exits 0")
@@ -1408,6 +1516,12 @@ run_test "RED-RUN: default collection pattern alternatives -> FAIL COLLECTION" t
 run_test "RED-RUN: collection error on stderr is still detected" test_red_run_collection_detected_on_stderr_too
 run_test "RED-RUN: conservative match, then --collection-pattern escape hatch" test_collection_pattern_conservative_then_overridden
 run_test "RED-RUN: --collection-pattern replaces the default and is an ERE" test_collection_pattern_override_is_an_ere
+run_test "RED-RUN: test-framework success lines are excluded from the scan" test_red_run_success_lines_are_not_scanned
+run_test "RED-RUN: a 'not ok' line is not a success line" test_red_run_not_ok_line_is_still_scanned
+run_test "RED-RUN: passing output does not mask a real collection error" test_red_run_success_lines_do_not_mask_a_real_collection_error
+run_test "RED-RUN: a trailing success marker does not exclude the line" test_red_run_trailing_success_marker_is_still_scanned
+run_test "RED-RUN: the success-line exclusion applies to stderr too" test_red_run_success_line_exclusion_applies_to_stderr
+run_test "RED-RUN: a --test-cmd containing exit does not terminate wave-check" test_test_cmd_containing_exit_does_not_terminate_wave_check
 
 run_test "GREEN-RUN: green suite -> PASS" test_green_run_pass_on_green
 run_test "GREEN-RUN: non-zero -> FAIL" test_green_run_fail_on_nonzero

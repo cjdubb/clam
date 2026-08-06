@@ -12,10 +12,15 @@
 #     RED-RUN: runs the resolved test command pipe-safely (never piped; exit
 #       code captured directly from the bare invocation). FAIL if it exits 0
 #       (nothing red — the wave produced no failing tests). If it exits
-#       non-zero: PASS when no line of the combined output matches the
-#       collection-error pattern; FAIL labeled COLLECTION when any line
-#       matches — import/parse/collection breakage is never a right-reason
-#       red.
+#       non-zero: PASS when no SCANNED line of the combined output matches
+#       the collection-error pattern; FAIL labeled COLLECTION when any
+#       scanned line matches — import/parse/collection breakage is never a
+#       right-reason red. Scanned means every line except test-framework
+#       SUCCESS lines: a line whose leading token marks a passing assertion
+#       (`ok`, `OK`, `PASS`, `PASSED`, `SUCCESS`, `✓`, `✔`, `--- PASS:`, or
+#       a bracketed `[ OK ]`/`[ PASSED ]`) is the framework naming a test
+#       that ran and succeeded, so its text is a test DESCRIPTION and never
+#       a runtime diagnostic.
 #     REALM: delegates to realm-check.sh test [diff-range]; any VIOLATION
 #       line FAILs this check.
 #   Mode `impl` (implementation-wave gate) proves the suite is genuinely
@@ -82,7 +87,13 @@
 #   - Test command exits non-zero with empty output: RED-RUN PASS in test
 #     mode (a silent red is still red), GREEN-RUN FAIL in impl mode.
 #   - Collection pattern matching inside a legitimate assertion message:
-#     FAILs conservatively; --collection-pattern is the escape hatch.
+#     FAILs conservatively; --collection-pattern is the escape hatch. This
+#     applies to a FAILING assertion's message — a PASSING one is excluded
+#     per the SUCCESS-line rule above and does not FAIL the check.
+#   - A framework that marks success at the END of a line rather than the
+#     start (pytest -v's "test_x.py::test_y PASSED") is NOT excluded: the
+#     SUCCESS rule is leading-token only, so such a line is still scanned.
+#     Conservative in the same direction as everything else here.
 #   - Empty diff-range (no commits between refs): passed to realm-check.sh
 #     verbatim; its verdict is passed through.
 #   - A --stub path that does not exist at <ref> (new file since scaffold):
@@ -96,6 +107,18 @@ set -uo pipefail
 
 USAGE_MSG="usage: wave-check.sh <test|impl> [--test-cmd \"<command>\"] [--scaffold-ref <ref>] [--stub <path>]... [--collection-pattern \"<ERE>\"] [diff-range]"
 DEFAULT_COLLECTION_PATTERN="SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|ParseError|collection error"
+
+# Lines excluded from the collection-error scan: test-framework output
+# announcing a test that PASSED. Every alternative of the default collection
+# pattern is a phrase a test description can legitimately contain, so a suite
+# that tests a collection detector carries the detector's own vocabulary in
+# its passing output and tripped the scan on itself — for lego's own suite,
+# on every wave of every plan (issue #326). A passing line cannot be evidence
+# that the suite failed to collect, so dropping it costs no detection.
+# Deliberately narrower than "any framework line": FAILING lines stay in
+# scope, because a wrong-reason red is exactly what this check exists to
+# catch.
+SUCCESS_LINE_PATTERN='^[[:space:]]*(---[[:space:]]+)?(\[[[:space:]]*(OK|PASS|PASSED)[[:space:]]*\]|ok|OK|PASS|PASSED|SUCCESS|✓|✔)([[:space:]:]|$)'
 
 # Signature-line detection pattern (CONTRACT-DIFF): a "signature line present
 # at <ref>" is any non-comment line matching a shell function definition
@@ -263,7 +286,9 @@ CAPTURED_OUTPUT_FILE=""
 run_captured() {
   local tmp
   tmp="$(mktemp "${TMPDIR:-/tmp}/wave-check.XXXXXX")"
-  eval "$1" >"$tmp" 2>&1
+  # Subshell, not a bare eval: a command containing `exit` would otherwise
+  # terminate wave-check itself, silently and with no check lines printed.
+  ( eval "$1" ) >"$tmp" 2>&1
   local ec=$?
   CAPTURED_OUTPUT_FILE="$tmp"
   return "$ec"
@@ -320,11 +345,17 @@ if [ "$mode" = "test" ]; then
   if [ "$run_ec" -eq 0 ]; then
     run_status="FAIL"
     run_detail="(test command exited 0 -- nothing red; output: $CAPTURED_TMP )"
-  elif grep -Eq -- "$collection_pattern" "$CAPTURED_TMP"; then
-    run_status="FAIL"
-    run_detail="(COLLECTION -- combined output matches the collection-error pattern; see $CAPTURED_TMP )"
   else
-    run_status="PASS"
+    # Two steps rather than one pipeline: under `set -o pipefail` the
+    # pipeline's status would come from whichever grep exited non-zero last,
+    # which is not the question being asked here.
+    scanned_output="$(grep -Ev -- "$SUCCESS_LINE_PATTERN" "$CAPTURED_TMP")" || scanned_output=""
+    if printf '%s\n' "$scanned_output" | grep -Eq -- "$collection_pattern"; then
+      run_status="FAIL"
+      run_detail="(COLLECTION -- combined output matches the collection-error pattern; see $CAPTURED_TMP )"
+    else
+      run_status="PASS"
+    fi
   fi
 else
   run_captured "$TEST_CMD"

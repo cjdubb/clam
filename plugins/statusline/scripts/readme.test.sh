@@ -124,6 +124,69 @@
 # carried (the render's group inventory is described accurately) still exists,
 # and what changed is that the pet is no longer one of the groups.
 #
+# --- B17 docs-colour-refresh (sections 17-21) -------------------------------
+# B17 brings three passages of this README into agreement with the colours
+# B13-B16 now render: the Context bullet, the "Reading the burnrate figures"
+# section, and the upstream-attribution paragraph. Prose is the implementation
+# again, so the assertions are textual over the file — but every NUMBER in
+# them is DERIVED from lib/burn-theme.sh. That is the clause this block exists
+# for: the failure it prevents is a README naming a threshold the source does
+# not have, and a hard-coded 60 in this file would be that same defect wearing
+# a test's clothes.
+#
+# The three derivations, and what each buys:
+#
+#   - THE CTX BANDS. burn_ctx_color's body is read out of lib/burn-theme.sh,
+#     its `(( pct >= N ))` arms parsed into (threshold, colour code) pairs and
+#     its fallthrough arm read as the floor colour. The Context bullet's own
+#     colour words and percentages are then extracted IN ORDER OF APPEARANCE
+#     and compared against that scale as SEQUENCES. Sequences rather than
+#     per-band proximity, because a band list is a dense comma list in which
+#     every number sits within a few characters of two different colour words:
+#     "yellow at 20%, orange at 40%" would satisfy a proximity check for
+#     (20, orange) as readily as for (20, yellow). Order is what actually
+#     distinguishes a correct list from a shuffled one, and it survives any
+#     phrasing that walks the scale monotonically. A band moved from 60 to 55
+#     fails by name, in both directions of the comparison.
+#   - THE TREND SCALE. burn_trend_color yields the dead-band magnitude and its
+#     colour, the bands above it, and the one below the line. The prose is
+#     asked for the dead band's number paired with its colour, the word "warm"
+#     for the bands above, and the below-the-line colour tied to running
+#     behind — which is what the contract asks that section to gain, and no
+#     more. 8 and 15 are deliberately NOT required in the prose: a threshold
+#     the README never names cannot drift, and demanding it would be this
+#     file inventing a clause.
+#   - THE DIFFSTAT PAIR. burn_diff_color's two arms give the colours "add" and
+#     "del" take, and the prose has to pair each with the right half of
+#     `+added/-removed`.
+#
+# Three guards stop those derivations from passing vacuously. Each parse
+# asserts HOW MANY arms it found, so an empty parse (function renamed, the
+# `(( pct >= N ))` shape rewritten) is a red test rather than a green one that
+# compares nothing. Every colour code the source emits must resolve to a name
+# this file can look for, so a recoloured band fails here by code rather than
+# dropping silently out of the comparison. And every band above the trend's
+# dead band must really be a warm colour, since "warm colours" is the claim
+# the prose is made to carry.
+#
+# The one thing NOT derived is the code -> English name map (40 -> green, and
+# so on): no amount of parsing turns 208 into the word a reader sees. It is
+# not a threshold, and it is guarded — an unmapped code fails by name.
+#
+# NOT asserted, deliberately: that every percentage the Context bullet names
+# is one of the thresholds — the reverse direction of the check above, which
+# is the shape section 2 uses on the env-var table. The bullet may
+# legitimately name 100% as the point compaction fires, which is not a band
+# boundary, so the reverse direction would fail on correct prose. The forward
+# direction is what the contract's Errors clause asks for.
+#
+# The edge case rides on SENTENCE scoping. "Idle time" has to stay in the
+# README in its non-colour sense (the published `level`, the .ctx-status.json
+# schema), so a blanket "the README no longer says idle" would be wrong and
+# would force the implementer to delete true documentation. What is asserted
+# instead is that no sentence making a COLOUR claim names idle, while a
+# sentence naming `level` still does.
+#
 # Run: bash plugins/statusline/scripts/readme.test.sh (non-zero exit on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -792,6 +855,367 @@ check "plugin.json's description keeps the reference the baseline covers" \
 
 check "the env-var table's row count still equals the derivation's" \
   "$(wc -l < "$TMP/documented" | tr -d ' ')" "$(wc -l < "$TMP/derived" | tr -d ' ')"
+
+# ===========================================================================
+# B17 docs-colour-refresh
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 17. Helpers, and the colour scales derived from lib/burn-theme.sh
+# ---------------------------------------------------------------------------
+
+BURN_THEME="$PLUGIN_DIR/lib/burn-theme.sh"
+check "lib/burn-theme.sh exists (the colour oracle for sections 18-20)" \
+  "$([ -f "$BURN_THEME" ] && echo yes || echo no)" "yes"
+
+# b17_fn_body(name): one function's body from lib/burn-theme.sh, from its
+# `name() {` line to the closing brace in column 1. Reading the SOURCE rather
+# than sourcing the file and calling the function is deliberate: the
+# thresholds are what this section is about, and a function only ever hands
+# back the colour for the value you already chose to ask about.
+b17_fn_body() { # name
+  awk -v fn="$1" '
+    $0 == fn "() {" { inb = 1; next }
+    inb && /^\}/ { exit }
+    inb { print }
+  ' "$BURN_THEME"
+}
+
+# b17_colour_name(code): the English word this README is expected to use for a
+# 256-colour code. The only hard-coded map here, and not a threshold — a
+# number cannot yield a colour word. Unmapped codes print nothing, which the
+# guards below turn into a named failure rather than a silent skip.
+b17_colour_name() { # code
+  case "$1" in
+    40)  printf 'green'  ;;
+    214) printf 'yellow' ;;
+    208) printf 'orange' ;;
+    196) printf 'red'    ;;
+    245) printf 'grey'   ;;
+    *)   printf ''       ;;
+  esac
+}
+
+# b17_word(word): an ERE matching WORD on its own, so `red` is not found
+# inside `coloured`; `grey` also answers to the American spelling.
+b17_word() { # word
+  case "$1" in
+    grey) printf '(^|[^A-Za-z])gre[ay]([^A-Za-z]|$)' ;;
+    *)    printf '(^|[^A-Za-z])%s([^A-Za-z]|$)' "$1" ;;
+  esac
+}
+
+# b17_num(n): an ERE matching the integer N with no digit either side, so a
+# threshold of 60 is not found inside 160.
+b17_num() { printf '(^|[^0-9])%s([^0-9]|$)' "$1"; }
+
+# b17_near(text a b gap): yes when EREs A and B occur within GAP characters of
+# each other, either order, on TEXT flattened to one line. Flattened because
+# the README wraps at 76 columns and every real claim spans a line break.
+b17_near() { # text a b gap
+  local flat; flat="$(one_line "$1")"
+  if grep -qiE "($2).{0,$4}($3)|($3).{0,$4}($2)" <<<"$flat"; then echo yes; else echo no; fi
+}
+
+# b17_sentences(text): TEXT flattened and split into sentences on ". ". The
+# README's dotted identifiers (`.local/.ctx-status.json`, `.effort.level`)
+# carry no space after the dot, so they survive the split intact.
+b17_sentences() { # text
+  one_line "$1" | awk '{ n = split($0, s, /\. /); for (i = 1; i <= n; i++) print s[i] }'
+}
+# b17_claims(text ere): just the sentences of TEXT matching ERE — the unit a
+# claim is made in, and the scope the colour/idle edge case needs.
+b17_claims() { # text ere
+  b17_sentences "$1" | grep -iE "$2"
+}
+
+# b17_ordered(text listfile): the whole words and whole digit runs of TEXT that
+# appear in LISTFILE, in order of appearance, lowercased, consecutive repeats
+# collapsed. Whole tokens only, so `red` is not found inside `coloured` and 60
+# is not found inside 160; consecutive repeats collapsed so "green below 20%,
+# yellow at 20%" reads as one boundary rather than two.
+b17_ordered() { # text listfile
+  one_line "$1" | grep -oE '[A-Za-z]+|[0-9]+' | tr '[:upper:]' '[:lower:]' \
+    | grep -xF -f "$2" \
+    | awk '$0 != prev { print } { prev = $0 }' \
+    | tr '\n' ' ' | sed -e 's/  *$//'
+}
+
+# b17_item(text pat): one top-level "- ..." list item, from the line matching
+# ERE PAT to the next item, heading or fence. bullet_in() above stops at a
+# blank line as well; this one does not, because B17's Context bullet has to
+# carry two claims and a second paragraph inside the item is legitimate
+# markdown that would otherwise be silently cut off mid-assertion.
+b17_item() { # text pat
+  awk -v pat="$2" '
+    !inb && $0 ~ pat { inb = 1; print; next }
+    inb && (/^- / || /^#/ || /^```/) { exit }
+    inb { print }
+  ' <<<"$1"
+}
+
+# b17_subsection(heading): the body of an H3 up to the next heading of any
+# level. section() above only cuts on "## ", and "Reading the burnrate
+# figures" is an H3 inside "## What to expect".
+b17_subsection() { # exact "### Heading" line
+  awk -v heading="$1" '
+    $0 == heading { flag = 1; next }
+    flag && /^#+[[:space:]]/ { exit }
+    flag { print }
+  ' <<<"$BODY"
+}
+
+# --- the ctx scale ---------------------------------------------------------
+# Each band is one source line carrying both halves:
+#   if (( pct >= 60 )); then printf '\033[38;5;196m'; return 0; fi
+# and the floor colour is the first arm with no comparison on it — the one
+# every value below the lowest threshold falls through to.
+
+B17_CTX_BODY="$(b17_fn_body burn_ctx_color)"
+check "burn_ctx_color's body is readable (the ctx threshold oracle is not empty)" \
+  "$([ -n "$B17_CTX_BODY" ] && echo yes || echo no)" "yes"
+
+printf '%s\n' "$B17_CTX_BODY" \
+  | sed -nE 's/.*pct >= ([0-9]+).*38;5;([0-9]+)m.*/\1 \2/p' > "$TMP/ctx-bands"
+B17_CTX_FLOOR="$(printf '%s\n' "$B17_CTX_BODY" | grep -v 'pct >=' \
+  | sed -nE 's/.*38;5;([0-9]+)m.*/\1/p' | head -1)"
+
+# Non-vacuity for every ctx check below: a parse that finds nothing would
+# compare an empty sequence against an empty expectation and pass silently.
+check "the ctx derivation found all three of burn_ctx_color's bands" \
+  "$(wc -l < "$TMP/ctx-bands" | tr -d ' ')" "3"
+check "the ctx derivation found burn_ctx_color's floor colour (code ${B17_CTX_FLOOR:-none})" \
+  "$([ -n "$B17_CTX_FLOOR" ] && echo yes || echo no)" "yes"
+
+# Both directions of the scale. The source lists bands hot-to-cold, and prose
+# may walk the scale either way; the sequence checks normalise on that.
+B17_CTX_HOT_COL=""; B17_CTX_HOT_NUM=""
+B17_CTX_COLD_COL=""; B17_CTX_COLD_NUM=""
+B17_CTX_UNMAPPED=""
+: > "$TMP/ctx-thresh"; : > "$TMP/ctx-colours"
+while read -r _pct _code; do
+  [ -n "$_pct" ] || continue
+  _name="$(b17_colour_name "$_code")"
+  [ -n "$_name" ] || B17_CTX_UNMAPPED="$B17_CTX_UNMAPPED $_code"
+  B17_CTX_HOT_COL="$B17_CTX_HOT_COL $_name"; B17_CTX_COLD_COL="$_name $B17_CTX_COLD_COL"
+  B17_CTX_HOT_NUM="$B17_CTX_HOT_NUM $_pct";  B17_CTX_COLD_NUM="$_pct $B17_CTX_COLD_NUM"
+  printf '%s\n' "$_pct" >> "$TMP/ctx-thresh"
+  printf '%s\n' "$_name" >> "$TMP/ctx-colours"
+done < "$TMP/ctx-bands"
+B17_CTX_FLOOR_NAME="$(b17_colour_name "$B17_CTX_FLOOR")"
+if [ -n "$B17_CTX_FLOOR_NAME" ]; then
+  printf '%s\n' "$B17_CTX_FLOOR_NAME" >> "$TMP/ctx-colours"
+else
+  B17_CTX_UNMAPPED="$B17_CTX_UNMAPPED $B17_CTX_FLOOR"
+fi
+B17_CTX_HOT_COL="$(trim "$B17_CTX_HOT_COL $B17_CTX_FLOOR_NAME")"
+B17_CTX_COLD_COL="$(trim "$B17_CTX_FLOOR_NAME $B17_CTX_COLD_COL")"
+B17_CTX_HOT_NUM="$(trim "$B17_CTX_HOT_NUM")"
+B17_CTX_COLD_NUM="$(trim "$B17_CTX_COLD_NUM")"
+
+check "every colour code burn_ctx_color emits has a name this test can look for" \
+  "$(trim "$B17_CTX_UNMAPPED")" ""
+
+# --- the trend scale -------------------------------------------------------
+
+B17_TREND_BODY="$(b17_fn_body burn_trend_color)"
+check "burn_trend_color's body is readable (the trend oracle is not empty)" \
+  "$([ -n "$B17_TREND_BODY" ] && echo yes || echo no)" "yes"
+
+B17_DEAD="$(printf '%s\n' "$B17_TREND_BODY" | sed -nE 's/.*abs <= ([0-9]+).*/\1/p' | head -1)"
+B17_DEAD_CODE="$(printf '%s\n' "$B17_TREND_BODY" \
+  | sed -nE 's/.*abs <= [0-9]+.*38;5;([0-9]+)m.*/\1/p' | head -1)"
+printf '%s\n' "$B17_TREND_BODY" \
+  | sed -nE 's/.*trend >=? ([0-9]+).*38;5;([0-9]+)m.*/\1 \2/p' > "$TMP/trend-ahead"
+B17_BEHIND_CODE="$(printf '%s\n' "$B17_TREND_BODY" | grep -vE 'trend (>=|>|<)|abs <=' \
+  | sed -nE 's/.*38;5;([0-9]+)m.*/\1/p' | head -1)"
+B17_DEAD_NAME="$(b17_colour_name "$B17_DEAD_CODE")"
+B17_BEHIND_NAME="$(b17_colour_name "$B17_BEHIND_CODE")"
+
+check "the trend derivation found the dead band (${B17_DEAD:-none}) and its colour (code ${B17_DEAD_CODE:-none})" \
+  "$([ -n "$B17_DEAD" ] && [ -n "$B17_DEAD_NAME" ] && echo yes || echo no)" "yes"
+check "the trend derivation found all three bands above the dead band" \
+  "$(wc -l < "$TMP/trend-ahead" | tr -d ' ')" "3"
+check "the trend derivation found the behind-the-line colour (code ${B17_BEHIND_CODE:-none})" \
+  "$([ -n "$B17_BEHIND_NAME" ] && echo yes || echo no)" "yes"
+
+# The prose is made to claim WARM colours above the dead band. That claim is
+# only true while every band up there really is warm, so it is pinned to the
+# source rather than taken on trust: a future band in grey or blue fails here
+# by code and sends someone back to the paragraph.
+B17_COLD_AHEAD=""
+while read -r _trend _code; do
+  [ -n "$_code" ] || continue
+  case "$(b17_colour_name "$_code")" in
+    red|orange|yellow) ;;
+    *) B17_COLD_AHEAD="$B17_COLD_AHEAD $_code" ;;
+  esac
+done < "$TMP/trend-ahead"
+check "every trend band above the dead band really is a warm colour" \
+  "$(trim "$B17_COLD_AHEAD")" ""
+
+# --- the diffstat pair -----------------------------------------------------
+
+B17_DIFF_BODY="$(b17_fn_body burn_diff_color)"
+B17_ADD_CODE="$(printf '%s\n' "$B17_DIFF_BODY" \
+  | sed -nE 's/^[[:space:]]*add\).*38;5;([0-9]+)m.*/\1/p' | head -1)"
+B17_DEL_CODE="$(printf '%s\n' "$B17_DIFF_BODY" \
+  | sed -nE 's/^[[:space:]]*del\).*38;5;([0-9]+)m.*/\1/p' | head -1)"
+B17_ADD_NAME="$(b17_colour_name "$B17_ADD_CODE")"
+B17_DEL_NAME="$(b17_colour_name "$B17_DEL_CODE")"
+B17_DIFF_UNMAPPED=""
+[ -n "$B17_ADD_NAME" ] || B17_DIFF_UNMAPPED="$B17_DIFF_UNMAPPED add=${B17_ADD_CODE:-none}"
+[ -n "$B17_DEL_NAME" ] || B17_DIFF_UNMAPPED="$B17_DIFF_UNMAPPED del=${B17_DEL_CODE:-none}"
+check "burn_diff_color's two arms are readable and named (add=$B17_ADD_NAME del=$B17_DEL_NAME)" \
+  "$(trim "$B17_DIFF_UNMAPPED")" ""
+
+# ---------------------------------------------------------------------------
+# 18. The Context bullet: colour by occupancy alone, `level` still idle-aware
+# ---------------------------------------------------------------------------
+
+B17_CTX_B="$(b17_item "$WTE" '^- [*][*]Context[*][*]')"
+check "the Context bullet is identifiable" \
+  "$([ -n "$B17_CTX_B" ] && echo yes || echo no)" "yes"
+
+# Half one: the colour claim. Scoped to the SENTENCES that make one, which is
+# what lets the bullet go on to say — correctly — that the published `level`
+# is still the idle-aware tier.
+B17_CTX_COLOUR_CLAIM="$(b17_claims "$B17_CTX_B" 'colou?r')"
+check "the Context bullet still makes a colour claim (scoping oracle is not empty)" \
+  "$([ -n "$B17_CTX_COLOUR_CLAIM" ] && echo yes || echo no)" "yes"
+check "the Context bullet's colour claim no longer names idle time" \
+  "$(has_re '(^|[^A-Za-z])idle' "$B17_CTX_COLOUR_CLAIM")" "no"
+check "the Context bullet's colour claim names occupancy as what drives it" \
+  "$(has_re '(^|[^A-Za-z])occupancy' "$B17_CTX_COLOUR_CLAIM")" "yes"
+
+# The bands themselves, as sequences against the derived scale.
+B17_CTX_COL_SEQ="$(b17_ordered "$B17_CTX_B" "$TMP/ctx-colours")"
+B17_CTX_NUM_SEQ="$(b17_ordered "$B17_CTX_B" "$TMP/ctx-thresh")"
+B17_CTX_COL_DIR=cold-to-hot
+B17_CTX_NUM_DIR=cold-to-hot
+if [ "$B17_CTX_COL_SEQ" = "$B17_CTX_HOT_COL" ]; then
+  B17_CTX_COL_SEQ="$B17_CTX_COLD_COL"; B17_CTX_COL_DIR=hot-to-cold
+fi
+if [ "$B17_CTX_NUM_SEQ" = "$B17_CTX_HOT_NUM" ]; then
+  B17_CTX_NUM_SEQ="$B17_CTX_COLD_NUM"; B17_CTX_NUM_DIR=hot-to-cold
+fi
+
+check "the Context bullet names every colour burn_ctx_color emits, in the scale's order" \
+  "$B17_CTX_COL_SEQ" "$B17_CTX_COLD_COL"
+check "the Context bullet names every threshold burn_ctx_color has, in the same order" \
+  "$B17_CTX_NUM_SEQ" "$B17_CTX_COLD_NUM"
+check "the bullet's colours and its thresholds run the same way (each band with its own colour)" \
+  "$B17_CTX_COL_DIR" "$B17_CTX_NUM_DIR"
+
+# Half two: the idle-aware tier survives as the published `level`, and the
+# bullet is where a reader of that JSON is told so.
+check "the Context bullet names the file the idle-aware tier survives in" \
+  "$(has_fixed '.ctx-status.json' "$B17_CTX_B")" "yes"
+B17_CTX_LEVEL_CLAIM="$(b17_claims "$B17_CTX_B" '(^|[^A-Za-z])level([^A-Za-z]|$)')"
+check "the Context bullet names that surviving field as level" \
+  "$([ -n "$B17_CTX_LEVEL_CLAIM" ] && echo yes || echo no)" "yes"
+check "and still describes level as the idle-aware / staleness tier" \
+  "$(has_re '(^|[^A-Za-z])(idle|stale)' "$B17_CTX_LEVEL_CLAIM")" "yes"
+
+# The contract's edge case, from the other side: "idle" keeps its non-colour
+# home in the file. A blanket "the README no longer says idle time" would have
+# forced the implementer to delete this, which is true documentation. Read
+# flattened, because the phrase falls across a line break where it is written.
+B17_JSON_P="$(paragraph_in "$COMMANDS" '.ctx-status.json')"
+check "the .ctx-status.json paragraph is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$B17_JSON_P" ] && echo yes || echo no)" "yes"
+check "the README keeps documenting the idle fields .ctx-status.json publishes" \
+  "$(has_re 'idle[[:space:]]+seconds' "$(one_line "$B17_JSON_P")")" "yes"
+check "and keeps the staleness level among them" \
+  "$(has_re 'staleness[[:space:]]+level' "$(one_line "$B17_JSON_P")")" "yes"
+
+# ---------------------------------------------------------------------------
+# 19. "Reading the burnrate figures" gains what each colour means
+# ---------------------------------------------------------------------------
+
+FIGURES="$(b17_subsection '### Reading the burnrate figures')"
+check "the 'Reading the burnrate figures' section survives and is identifiable" \
+  "$([ -n "$FIGURES" ] && echo yes || echo no)" "yes"
+check "the figures section says what the colours mean at all" \
+  "$(has_re 'colou?r' "$FIGURES")" "yes"
+
+check "the figures section names burn_trend_color's dead-band magnitude ($B17_DEAD)" \
+  "$(has_re "$(b17_num "$B17_DEAD")" "$FIGURES")" "yes"
+check "the figures section pairs that dead band with the colour it takes ($B17_DEAD_NAME)" \
+  "$(b17_near "$FIGURES" "$(b17_word "$B17_DEAD_NAME")" "$(b17_num "$B17_DEAD")" 80)" "yes"
+check "the figures section says the dead band reads as on track" \
+  "$(has_re 'on[- ]track' "$FIGURES")" "yes"
+check "the figures section calls the bands above it warm" \
+  "$(b17_near "$FIGURES" '(^|[^A-Za-z])warm' 'ahead|above' 80)" "yes"
+
+check "the figures section names the colour for running behind the line ($B17_BEHIND_NAME)" \
+  "$(has_re "$(b17_word "$B17_BEHIND_NAME")" "$FIGURES")" "yes"
+check "the figures section ties that colour to being behind the line" \
+  "$(b17_near "$FIGURES" "$(b17_word "$B17_BEHIND_NAME")" 'behind|below' 80)" "yes"
+check "the figures section says the allowance going unused there is not a hazard" \
+  "$(b17_near "$FIGURES" "$(b17_word "$B17_BEHIND_NAME")" 'hazard|unused|nothing to act on' 140)" "yes"
+
+check "the figures section explains the +added/-removed pair" \
+  "$(has_re '[+]added/-removed' "$FIGURES")" "yes"
+check "the figures section names the diffstat convention it takes" \
+  "$(has_re '(^|[^A-Za-z])diffstat' "$FIGURES")" "yes"
+check "the figures section gives added burn_diff_color's colour for it ($B17_ADD_NAME)" \
+  "$(b17_near "$FIGURES" '(^|[^A-Za-z])added' "$(b17_word "$B17_ADD_NAME")" 60)" "yes"
+check "the figures section gives removed burn_diff_color's colour for it ($B17_DEL_NAME)" \
+  "$(b17_near "$FIGURES" '(^|[^A-Za-z])removed' "$(b17_word "$B17_DEL_NAME")" 60)" "yes"
+
+# plan 003 constraint 2: the upstream's on-track ✓ glyph is deliberately NOT
+# adopted — the dead-band colour is what replaced it. Section 9 already fails
+# any new non-ASCII in $BODY; this names the one glyph the new prose about an
+# on-track trend is most likely to reach for.
+check "the figures section does not adopt the upstream's on-track glyph" \
+  "$(has_fixed '✓' "$FIGURES")" "no"
+
+# ---------------------------------------------------------------------------
+# 20. The attribution says which half of the ctx meter is whose
+# ---------------------------------------------------------------------------
+
+check "the attribution no longer claims the whole context meter in place of the upstream's" \
+  "$(has_re '(context|ctx) meter in place of the upstream' "$ATTRIB")" "no"
+check "the attribution says the ctx colour bands are the upstream's" \
+  "$(b17_near "$ATTRIB" '(^|[^A-Za-z])(bands?|tiers?)([^A-Za-z]|$)' '(^|[^A-Za-z])upstream' 100)" "yes"
+check "the attribution keeps the ctx numerator on this plugin's side" \
+  "$(has_re '(^|[^A-Za-z])numerator' "$ATTRIB")" "yes"
+check "the attribution keeps the non-saturating division on this plugin's side" \
+  "$(has_re 'saturat' "$ATTRIB")" "yes"
+check "and attributes those two to this plugin rather than to the upstream" \
+  "$(has_re "this plugin|our own|(^|[^A-Za-z])ours([^A-Za-z]|$)" \
+     "$(b17_claims "$ATTRIB" 'numerator')")" "yes"
+
+# The contract's edge case: only the ctx BANDS may carry a matching claim. A
+# sentence that says this port matches the upstream without naming them is the
+# general claim the paragraph must not be rewritten into.
+check "no sentence claims the port matches the upstream generally" \
+  "$(one_line "$(b17_claims "$ATTRIB" 'match|identical|same as the upstream' \
+     | grep -viE 'band|tier|ctx|context|colou?r')")" ""
+
+B17_DIVERGE_CLAIM="$(b17_claims "$ATTRIB" 'differs|divergen|deliberate')"
+check "the attribution still lists the port's deliberate divergences" \
+  "$([ -n "$B17_DIVERGE_CLAIM" ] && echo yes || echo no)" "yes"
+check "and the 256-colour divergence stays in that same sentence" \
+  "$(has_re '256.colou?r' "$B17_DIVERGE_CLAIM")" "yes"
+
+# ---------------------------------------------------------------------------
+# 21. The invariant across all three passages: a description, not a changelog
+# ---------------------------------------------------------------------------
+# "The file keeps describing the render as it IS after this plan lands, never
+# as a changelog of what moved." Mechanically: none of the three rewritten
+# passages may reach for the tense that only makes sense to a reader who saw
+# the old render. Emoji are covered file-wide by section 9, which reads $BODY
+# and therefore covers every word this block adds.
+
+B17_CHANGELOG='(^|[^A-Za-z])(used to|formerly|previously|no longer|instead of what|has changed|changed from)'
+check "the Context bullet describes the render as it is, not as a changelog" \
+  "$(has_re "$B17_CHANGELOG" "$B17_CTX_B")" "no"
+check "the figures section describes the render as it is, not as a changelog" \
+  "$(has_re "$B17_CHANGELOG" "$FIGURES")" "no"
+check "the attribution describes the port as it is, not as a changelog" \
+  "$(has_re "$B17_CHANGELOG" "$ATTRIB")" "no"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

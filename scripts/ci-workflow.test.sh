@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # ci-workflow.test.sh — contract tests for .github/workflows/ci.yml
-# (B13 ci-workflow-job-split, plan 001-speed-up-repo-ci).
+# (B13 ci-workflow-job-split, plan 001-speed-up-repo-ci; B19 ci-bash3-gate,
+# plan 003-statusline-meter-colour).
 #
 # Subject: the workflow file itself. The "Contract: B13 ci-workflow-job-split"
-# docblock at the top of .github/workflows/ci.yml is the source of truth.
+# and "Contract: B19 ci-bash3-gate" docblocks at the top of
+# .github/workflows/ci.yml are the source of truth. B19 adds a fourth job and
+# widens the aggregator to three dependencies; B13's invariants are unchanged
+# by it and are still asserted here exactly as they were.
 #
 # WHY THIS SUITE PARSES YAML BY HAND
 #
@@ -17,13 +21,15 @@
 #
 # TWO TRAPS THIS SUITE AVOIDS
 #
-# 1. A wrong-reason pass off the contract comment. The docblock quotes nearly
+# 1. A wrong-reason pass off the contract comment. The docblocks quote nearly
 #    every string worth asserting — `if: always()`, `fetch-depth: 0`,
 #    `LC_ALL: en_US.UTF-8`, `bash scripts/ci.sh --lint`, even the job name
-#    `ci`. A grep over the raw file goes green on the comment alone. So every
-#    assertion runs against $YAML: the file with all comment lines stripped.
-#    A parse-sanity check below asserts the stripped view really is
-#    comment-free, so an all-red suite can never be an empty-parse artefact.
+#    `ci`; B19's adds `bison`, all four `-Wno-*` CFLAGS, `3.2.57`,
+#    `scripts/bash3-gate.sh` and `== 'success'`. A grep over the raw file goes
+#    green on the comment alone. So every assertion runs against $YAML: the
+#    file with all comment lines stripped. A parse-sanity check below asserts
+#    the stripped view really is comment-free, so an all-red suite can never be
+#    an empty-parse artefact.
 #
 # 2. Executing the real gate. The aggregator's guard is SIMULATED: a result
 #    value is substituted into the `ci` job's `${{ needs.<job>.result }}`
@@ -261,6 +267,16 @@ job_context() {
   if [ -n "$nm" ]; then printf '%s' "$nm"; else printf '%s' "$1"; fi
 }
 
+# BASH3_JOB -- the job key that is neither lint, test nor ci: the bash-3 stage
+# B19 adds. Its docblock says "a fourth job" without fixing the key, so the key
+# is DERIVED rather than hardcoded — renaming the stage is not a failure, its
+# absence is. When it is absent (or when a fifth job muddies the derivation)
+# the sentinel below stands in, and every helper answers "no such job" for it,
+# which fails the B19 assertions rather than satisfying the negative ones.
+BASH3_JOB="$(job_names | grep -vFx -e lint -e test -e ci || true)"
+BASH3_JOB_COUNT="$(printf '%s\n' "$BASH3_JOB" | grep -c . || true)"
+if [ "$BASH3_JOB_COUNT" -ne 1 ]; then BASH3_JOB="__no_bash3_job__"; fi
+
 # ---------------------------------------------------------------------------
 # Steps.
 # ---------------------------------------------------------------------------
@@ -396,16 +412,24 @@ job_uses_checkout() { # <job>
 # would recurse into the whole gate.
 # ---------------------------------------------------------------------------
 
-# subst_results <text> <lint result> <test result>
+# subst_results <text> <lint result> <test result> [<bash-3 result>]
 # `${{ needs.x.result }}` is interpolated into shell text, so it becomes the
 # bare value; a bare `needs.x.result` is expression context, so it becomes a
 # quoted literal the expression evaluator can compare.
+#
+# The bash-3 stage (B19) is substituted under its DERIVED key and defaults to
+# `success`, so the two-argument callers below are unaffected: a workflow with
+# no fourth job has no `needs.<bash3>.result` for the extra rules to match, and
+# a workflow with one gets a neutral value unless the caller says otherwise.
 subst_results() {
+  local b3="${4:-success}"
   printf '%s\n' "$1" | sed -E \
     -e "s/\\\$\{\{[[:space:]]*needs\.lint\.result[[:space:]]*\}\}/$2/g" \
     -e "s/\\\$\{\{[[:space:]]*needs\.test\.result[[:space:]]*\}\}/$3/g" \
+    -e "s/\\\$\{\{[[:space:]]*needs\.$BASH3_JOB\.result[[:space:]]*\}\}/$b3/g" \
     -e "s/needs\.lint\.result/'$2'/g" \
-    -e "s/needs\.test\.result/'$3'/g"
+    -e "s/needs\.test\.result/'$3'/g" \
+    -e "s/needs\.$BASH3_JOB\.result/'$b3'/g"
 }
 
 # gh_expr_true <substituted expression> -- yes / no / unsupported.
@@ -436,12 +460,13 @@ gh_expr_true() {
   esac
 }
 
-# simulate_ci <lint result> <test result> -- pass / fail / unsupported:
-# the verdict the `ci` job's own guard steps reach for those dependency
-# results. "unsupported" means no guard was found, or one was found in a shape
-# this evaluator will not guess at — never a silent pass.
+# simulate_ci <lint result> <test result> [<bash-3 result>] -- pass / fail /
+# unsupported: the verdict the `ci` job's own guard steps reach for those
+# dependency results. "unsupported" means no guard was found, or one was found
+# in a shape this evaluator will not guess at — never a silent pass.
+# The third result defaults to `success`; see subst_results.
 simulate_ci() {
-  local lr="$1" tr_="$2" n i step ifexpr run gate sif srun evaluated=0
+  local lr="$1" tr_="$2" b3="${3:-success}" n i step ifexpr run gate sif srun evaluated=0
   n="$(n_steps ci)"
   if [ "$n" -eq 0 ]; then printf 'unsupported'; return; fi
   for ((i = 1; i <= n; i++)); do
@@ -453,8 +478,8 @@ simulate_ci() {
       *) continue ;;
     esac
     evaluated=1
-    sif="$(subst_results "$ifexpr" "$lr" "$tr_")"
-    srun="$(subst_results "$run" "$lr" "$tr_")"
+    sif="$(subst_results "$ifexpr" "$lr" "$tr_" "$b3")"
+    srun="$(subst_results "$run" "$lr" "$tr_" "$b3")"
     # A `${{ }}` left in the SCRIPT is a context this suite did not
     # substitute (`github.*`, `steps.*`): bash would choke on it, so the run
     # is not simulatable. An `if:` may legitimately still be wrapped in
@@ -508,10 +533,17 @@ check "parse: a top-level jobs: mapping is present" \
 # context `ci`, so both halves of that are asserted.
 # ===========================================================================
 
-check "jobs: the workflow declares exactly three jobs" \
-  "$(job_names | grep -c . || true)" "3"
-check "jobs: the job keys are exactly ci, lint and test" \
-  "$(job_names | sort | tr '\n' ' ')" "ci lint test "
+# B19 supersedes B13's job count: "a fourth job runs the statusline plugin's
+# test suites under a bash 3.2 interpreter". The count and the key set are
+# therefore restated for four jobs. Its key is not asserted, because no
+# docblock fixes one; what is asserted is that there is exactly one job beyond
+# the three B13 named, so a fifth job is still caught.
+check "jobs: the workflow declares exactly four jobs" \
+  "$(job_names | grep -c . || true)" "4"
+check "jobs: ci, lint and test are still three of the four job keys" \
+  "$(job_names | grep -Fx -e ci -e lint -e test | sort | tr '\n' ' ')" "ci lint test "
+check "jobs: exactly one job key beyond ci, lint and test — the bash-3 stage (B19)" \
+  "$BASH3_JOB_COUNT" "1"
 
 check "jobs: a job whose key is the literal string 'ci' exists (the required status check)" \
   "$(has_job ci)" "yes"
@@ -557,8 +589,11 @@ check "aggregator: the ci job needs the lint job" \
   "$(job_needs ci lint)" "yes"
 check "aggregator: the ci job needs the test job" \
   "$(job_needs ci test)" "yes"
-check "aggregator: the ci job needs exactly those two jobs" \
-  "$(job_list ci needs | sort | tr '\n' ' ')" "lint test "
+# B19 widens this from two dependencies to three: the new job JOINS `needs:`,
+# and nothing else may.
+check "aggregator: the ci job needs exactly lint, test and the bash-3 stage" \
+  "$(job_list ci needs | sort | tr '\n' ' ')" \
+  "$(printf '%s\n' lint test "$BASH3_JOB" | sort | tr '\n' ' ')"
 
 # ===========================================================================
 # Invariant — `if: always()` on the ci job, at JOB level.
@@ -692,6 +727,132 @@ check "inputs: no repository variables are referenced" "$(yaml_grep '(^|[^A-Za-z
 check "inputs: no workflow inputs are declared" "$(yaml_grep '^[[:space:]]*inputs:')" "no"
 check "inputs: nothing is read from .claude/" "$(yaml_grep '\.claude/')" "no"
 check "inputs: nothing is read from .local/" "$(yaml_grep '\.local/')" "no"
+
+# ===========================================================================
+# Contract: B19 ci-bash3-gate — the fourth job.
+#
+# Everything below asserts against $BASH3_JOB, derived above as the job key
+# that is neither lint, test nor ci. While no such job exists, the helpers
+# answer "no such job" rather than "no", so a negative assertion cannot be
+# satisfied by the job's absence.
+#
+# B19's Inputs clause ("the same pull_request and push events, no repository
+# variables, no secrets, nothing from .claude/ or .local/") is asserted
+# file-wide by the Inputs section above and is not restated here. Nor is
+# "the lint and test jobs are untouched": their steps, `fetch-depth: 0`,
+# locale install and `LC_ALL` are each already asserted by the preservation
+# section, and B19 changes none of those claims.
+# ===========================================================================
+
+check "b19: a fourth job exists, distinct from lint, test and ci" \
+  "$(has_job "$BASH3_JOB")" "yes"
+check "b19: the bash-3 job declares its own runner" \
+  "$(job_grep "$BASH3_JOB" '^[[:space:]]*runs-on:')" "yes"
+check "b19: the bash-3 job runs on ubuntu (macos-latest ships a real 3.2.57 but costs ten times the minutes and brings a BSD userland)" \
+  "$(case "$(job_inline "$BASH3_JOB" runs-on)" in *ubuntu*) echo yes ;; *) echo no ;; esac)" "yes"
+check "b19: the bash-3 job's check context is its own key — no name: override stealing another context" \
+  "$(job_context "$BASH3_JOB")" "$BASH3_JOB"
+check "b19: the bash-3 job checks out the repo (it runs a script from it)" \
+  "$(job_uses_checkout "$BASH3_JOB")" "yes"
+
+# ---------------------------------------------------------------------------
+# Invariant — the new job runs CONCURRENTLY with the other two stages. A needs
+# edge in either direction serialises what is deliberately concurrent.
+# ---------------------------------------------------------------------------
+
+check "b19: the bash-3 job does not name lint in needs" \
+  "$(job_needs "$BASH3_JOB" lint)" "no"
+check "b19: the bash-3 job does not name test in needs" \
+  "$(job_needs "$BASH3_JOB" test)" "no"
+check "b19: the bash-3 job declares no needs at all" \
+  "$(job_grep "$BASH3_JOB" '^[[:space:]]*needs:')" "no"
+check "b19: the bash-3 job exists and neither lint nor test declares a needs edge onto it" \
+  "$(
+    if [ "$(has_job "$BASH3_JOB")" = yes ] \
+      && [ "$(job_needs lint "$BASH3_JOB")" = no ] \
+      && [ "$(job_needs test "$BASH3_JOB")" = no ]; then echo yes; else echo no; fi
+  )" "yes"
+
+# ---------------------------------------------------------------------------
+# Invariant — the gate script is standalone and is called directly;
+# scripts/ci.sh is not invoked by this job. (The file-wide check above already
+# proves every scripts/ci.sh invocation in the workflow is one of the two
+# stage commands; this scopes the claim to the new job's own lines.)
+# ---------------------------------------------------------------------------
+
+check "b19: the bash-3 job invokes scripts/bash3-gate.sh" \
+  "$(job_grep "$BASH3_JOB" 'scripts/bash3-gate\.sh')" "yes"
+check "b19: the bash-3 job does not invoke scripts/ci.sh" \
+  "$(job_grep "$BASH3_JOB" 'scripts/ci\.sh')" "no"
+check "b19: the bash-3 job hands the built interpreter to the gate with --bash" \
+  "$(job_grep "$BASH3_JOB" '--bash([[:space:]]|=)')" "yes"
+
+# ---------------------------------------------------------------------------
+# Invariant — the build prerequisites. These are not decoration: without
+# `bison` the build dies at `yacc -d ./parse.y`, and that is a red `ci` on
+# every pull request until someone diagnoses it. The four -Wno-* flags are what
+# let 3.2-era C compile under a modern gcc.
+# ---------------------------------------------------------------------------
+
+check "b19: the bash-3 job installs bison (without it make dies at 'yacc -d ./parse.y')" \
+  "$(job_grep "$BASH3_JOB" '(^|[^A-Za-z0-9_-])bison([^A-Za-z0-9_-]|$)')" "yes"
+check "b19: the build sets CFLAGS" \
+  "$(job_grep "$BASH3_JOB" 'CFLAGS')" "yes"
+check "b19: CFLAGS carries -Wno-implicit-function-declaration" \
+  "$(job_grep "$BASH3_JOB" '-Wno-implicit-function-declaration')" "yes"
+check "b19: CFLAGS carries -Wno-implicit-int" \
+  "$(job_grep "$BASH3_JOB" '-Wno-implicit-int')" "yes"
+check "b19: CFLAGS carries -Wno-return-mismatch" \
+  "$(job_grep "$BASH3_JOB" '-Wno-return-mismatch')" "yes"
+check "b19: CFLAGS carries -Wno-int-conversion" \
+  "$(job_grep "$BASH3_JOB" '-Wno-int-conversion')" "yes"
+check "b19: the job builds bash 3.2.57 specifically" \
+  "$(job_grep "$BASH3_JOB" '3\.2\.57')" "yes"
+check "b19: the built interpreter is cached (a miss is a ~90s build, a hit is a restore)" \
+  "$(job_grep "$BASH3_JOB" 'actions/cache')" "yes"
+check "b19: the bash-3 job exists and runs on the runner, not in the bash:3.2 container (that image keeps bash off /bin/bash and brings a busybox userland)" \
+  "$(
+    if [ "$(has_job "$BASH3_JOB")" = yes ] \
+      && [ "$(job_grep "$BASH3_JOB" '^[[:space:]]*container:')" = no ] \
+      && [ "$(yaml_grep 'bash:3\.2')" = no ]; then echo yes; else echo no; fi
+  )" "yes"
+
+# ---------------------------------------------------------------------------
+# Invariant — the aggregator gains the new job and asserts its result on
+# `== 'success'`, so a cancelled or skipped bash-3 stage counts as failure
+# exactly as the other two do. The `ci` job itself is neither renamed nor
+# replaced: ruleset 19719395 requires that literal context, and the checks
+# asserting has_job ci / job_context ci / if: always() above are unchanged.
+# ---------------------------------------------------------------------------
+
+check "b19: the ci job needs the bash-3 job" \
+  "$(job_needs ci "$BASH3_JOB")" "yes"
+check "b19: the ci job compares the bash-3 job's result against the literal 'success'" \
+  "$(job_grep ci "needs\.$BASH3_JOB\.result[^=!]*(==|!=|=)[^=]*success|success[^=!]*(==|!=|=)[^=]*needs\.$BASH3_JOB\.result")" "yes"
+
+# ---------------------------------------------------------------------------
+# Errors / Edge cases — the guard's actual verdict for the three-input case,
+# evaluated for real rather than asserted on the string 'success' appearing.
+# GitHub reports a job that exceeds its timeout as `failure`; `cancelled` and
+# `skipped` are the results that ONLY an `== 'success'` test catches.
+# ---------------------------------------------------------------------------
+
+check "b19 edge case: all three stages succeed -> the ci guard passes" \
+  "$(
+    if [ "$(job_needs ci "$BASH3_JOB")" = yes ]; then
+      simulate_ci success success success
+    else
+      printf 'ci does not depend on the bash-3 job'
+    fi
+  )" "pass"
+check "b19 edge case: the bash-3 stage fails (a timeout is reported as failure) -> the ci guard fails" \
+  "$(simulate_ci success success failure)" "fail"
+check "b19 edge case: the bash-3 stage is CANCELLED -> the ci guard fails" \
+  "$(simulate_ci success success cancelled)" "fail"
+check "b19 edge case: the bash-3 stage is SKIPPED -> the ci guard fails" \
+  "$(simulate_ci success success skipped)" "fail"
+check "b19 edge case: lint fails and the bash-3 stage succeeds -> the ci guard still fails" \
+  "$(simulate_ci failure success success)" "fail"
 
 # ===========================================================================
 echo "----"

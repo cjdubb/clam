@@ -21,15 +21,38 @@
 # that named the old glyph now names the label or the absence that replaced it,
 # never deleted.
 #
+# Under B18 (plan 003-statusline-meter-colour) the fourteen payload fields are
+# joined and split on \x1f instead of \x01, because bash 3.2 reserves \x01 as its
+# quoting sentinel and its `read` cannot split on it at all -- so on macOS, whose
+# /bin/bash is 3.2.57, every field lands in window_size and the statusline
+# renders empty. Under bash 5 the two bytes behave identically, so section 27
+# does NOT re-check the rendered output: it decouples the two ends of the round
+# trip and asserts each byte separately. Nothing else in this file can see the
+# change, which is why nothing else in it moves.
+#
+# Under B16 (plan 003-statusline-meter-colour) every value on the burnrate line
+# carries colour, and the line's SHAPE does not move at all: same four groups,
+# same dim separators, same omission rules, same figures. The ONLY observable
+# difference is which SGR bytes appear, which is why almost every check in this
+# file is untouched -- they read the ANSI-STRIPPED line and cannot see the
+# change. The three that CAN see it are retargeted, by the same rule as before:
+# section 9's ctx-colour cases (the meter's colour now answers "how full", not
+# "how stale" -- #306), 24a's ctx-label case (same clause, new colour source)
+# and 24b's paren case (the parens are still outside the METER's colour and are
+# now inside the countdown's own). Section 26 carries what B16 adds outright.
+#
 # Covers: the burnrate line's four groups, their vanishing separators and their
 # degradation (section 23); the removal of the per-turn "Turn:" row; the
 # ~-for-$HOME path shortening; clean block termination (no trailing decorative
-# "$" prompt, no dangling blank line); the tri-state context colour
-# (green/orange/red by occupancy + idle staleness) now carried by the ctx group;
-# the atomic .local/.ctx-status.json publish; the clam-mode segment sourced
+# "$" prompt, no dangling blank line); the context meter's occupancy-driven
+# colour (section 9) and the idle-aware tri-state that still publishes beside
+# it; the atomic .local/.ctx-status.json publish; the clam-mode segment sourced
 # from .local/MODE (line-1 placement, teal colour, sanitization); the
 # emoji-free burnrate line and its parenthesised 5-hour countdown (section 24);
-# and line 1's text PR tags and glyph-free State segment (section 25).
+# line 1's text PR tags and glyph-free State segment (section 25); the
+# fully-coloured line B16 wires up, byte for byte (section 26); and the payload
+# delimiter B18 moves off bash 3.2's quoting sentinel, asserted at each end of
+# the round trip independently (section 27).
 # Renders context.sh against synthetic statusLine JSON payloads (hermetic: temp
 # cwd with no git/.local, temp ccost dirs) and asserts on the output (ANSI
 # stripped for text, raw for colour-code checks).
@@ -49,12 +72,13 @@
 # Outputs: unchanged — one PASS line per assertion, then "ALL PASS".
 #
 # Invariants:
-#   - Exactly 381 PASS lines and a zero exit. A changed count is a defect,
+#   - Exactly 497 PASS lines and a zero exit. A changed count is a defect,
 #     whichever direction it moves. (Was 86 when this contract was written;
-#     the burnrate uplift raised it to 277, and B09/B10's sections 24 and 25
+#     the burnrate uplift raised it to 277, B09/B10's sections 24 and 25
+#     raised it to 381, B16's section 26 raised it to 459, and B18's section 27
 #     raised it again. The rule is the frozen count, not the number, so the
-#     number moves when a deliberate change to the suite lands and stays
-#     frozen in between.)
+#     number moves when a deliberate change to the suite lands and stays frozen
+#     in between.)
 #   - No assertion may be weakened, skipped, merged, or deleted.
 #   - Hermeticity is NOT negotiable for speed: the temp cwd with no
 #     git/.local and the temp ccost dirs stay. B03 runs this file
@@ -157,9 +181,7 @@ set_mtime_ago() { # file seconds_ago
 }
 
 # Assert the ctx session group's occupancy renders in an expected 256-colour
-# code. Same clause the retired "Ctx used:" line carried (tri-state by
-# occupancy + idle staleness), now sourced from B03's burn_ctx_state and
-# expressed as a percentage rather than a token count.
+# code.
 #
 # Under B09 the label is INSIDE the colour sequence, exactly where the 🧠 it
 # replaced was, so the escape is matched immediately followed by "ctx " and the
@@ -168,6 +190,12 @@ set_mtime_ago() { # file seconds_ago
 # does say ("Each label sits INSIDE its meter's colour sequence exactly where
 # the emoji did ... so the colour still spans label and figure together"), so
 # the tolerance goes and the position is pinned.
+#
+# Under B16 the CODE this is called with changes source: it is burn_ctx_color's
+# band for the occupancy, not burn_ctx_state's tier for the idle age. The helper
+# itself is unchanged -- what it asserts is still "label and figure together
+# inside one 256-colour sequence" -- and section 9's callers below carry the
+# retargeting.
 ctx_color_is() { # json color pct label
   check "$4" \
     "$(render_raw "$1" | grep -qaE "${ESC}\\[38;5;$2mctx $3%" && echo yes || echo no)" "yes"
@@ -524,52 +552,70 @@ check "status block ends on a real line (no trailing blank line)" \
 check "the line the block ends on is the burnrate line" \
   "$(printf '%s\n' "$out" | tail -n1 | grep -qE '^Opus max' && echo yes || echo no)" "yes"
 
-# 9. Tri-state context colour by occupancy + idle staleness, now carried by the
-#    burnrate line's ctx group and sourced from B03's burn_ctx_state. Budget is
-#    300000 (the render/render_raw env). Colours: 40 green (small, or
-#    big-but-warm), 208 orange (big & cooling >=30 min), 196 red (big & cold
-#    >=45 min, or over budget). Idle is driven by a real transcript file's
-#    mtime. The thresholds and their boundary-inclusiveness are unchanged from
-#    the retired "Ctx used:" line -- the whole point of routing this through
-#    burn_ctx_state is that the tier and the .ctx-status.json `level` field
-#    cannot disagree (section 10 pins the published side).
+# 9. The ctx group's on-screen colour, carried by the burnrate line and — since
+#    B16 — sourced from B03's burn_ctx_color, a function of HOW FULL the context
+#    is. Budget is 300000 (the render/render_raw env). Bands are burn_ctx_color's
+#    and are boundary-inclusive: >=60 red 196, >=40 orange 208, >=20 yellow 214,
+#    else green 40.
+#
+#    These cases used to assert the idle-aware TRI-STATE (green / orange as a
+#    big session cools / red once the prompt cache is nearly lapsed), sourced
+#    from burn_ctx_state. That clause is not deleted and the call that computes
+#    it is not removed: burn_ctx_state still runs on every render and its LEVEL
+#    is still what .local/.ctx-status.json publishes. What B16 changes is that
+#    the tier stopped deciding the COLOUR — which is #306, a meter that read
+#    green at every occupancy because it was answering "how stale is this
+#    session" while appearing to answer "how full is this context".
+#
+#    So each case below keeps its idle fixture and its occupancy, and now
+#    asserts the colour the OCCUPANCY implies; the staleness tier it used to
+#    assert is re-pinned, on the same fixtures, against the published `level`
+#    in section 26c. The pair 9b/9d is what makes this more than a relabelling:
+#    same occupancy, idle 0 vs ~50 minutes, and under B16 the same colour.
 TR="$TMPROOT/tr.jsonl"; echo '{}' > "$TR"
 
-# 9a. Small (145,230/300,000 = 48% < 60% floor): green regardless of idle.
+# 9a. 145,230/300,000 = 48%, transcript fresh: the 40..59 band, orange. Was
+#     green under the staleness tier (small session, idle irrelevant).
 touch "$TR"
-ctx_color_is "$(ctx_json "$WD" 145230 "$TR")" 40 48 \
-  "ctx green (40) when occupancy is small (pct<60)"
+ctx_color_is "$(ctx_json "$WD" 145230 "$TR")" 208 48 \
+  "ctx orange (208) at 48% occupancy (the >=40 band)"
 
-# 9b. Big but warm (200,000 = 66%, transcript fresh so idle ~0): still green —
-#     staleness only escalates a big session once it starts cooling.
+# 9b. 200,000 = 66%, transcript fresh so idle ~0: red. THE #306 SHAPE — a
+#     nearly-full context on a session that is actively being used is exactly
+#     the render that read green before B16, because burn_ctx_state escalates
+#     only once a big session starts COOLING. Section 26b states the regression
+#     in full; this is the case that used to say the wrong thing.
 touch "$TR"
-ctx_color_is "$(ctx_json "$WD" 200000 "$TR")" 40 66 \
-  "ctx green (40) when big but warm (pct>=60, idle<1800)"
+ctx_color_is "$(ctx_json "$WD" 200000 "$TR")" 196 66 \
+  "ctx red (196) at 66% occupancy on a freshly-active session (#306)"
 
-# 9c. Big and cooling (66%, ~33 min idle): orange.
+# 9c. 66%, ~33 min idle: red, on occupancy alone. Was orange.
 set_mtime_ago "$TR" 2000
-ctx_color_is "$(ctx_json "$WD" 200000 "$TR")" 208 66 \
-  "ctx orange (208) when big and cooling (idle>=1800)"
+ctx_color_is "$(ctx_json "$WD" 200000 "$TR")" 196 66 \
+  "ctx red (196) at 66% occupancy, cooling (idle>=1800) — same band as 9b"
 
-# 9d. Big and cold (66%, ~50 min idle): red.
+# 9d. 66%, ~50 min idle: red. The one case whose colour B16 does NOT move, and
+#     the reason 9b is the sharp one: it and 9b now agree.
 set_mtime_ago "$TR" 3000
 ctx_color_is "$(ctx_json "$WD" 200000 "$TR")" 196 66 \
-  "ctx red (196) when big and cold (idle>=2700)"
+  "ctx red (196) at 66% occupancy, cold (idle>=2700) — same band as 9b"
 
-# 9e. Over budget (350,000 > 300,000) with a FRESH transcript: red regardless of
-#     idle — over-budget is always cold.
+# 9e. Over budget (350,000 > 300,000 = 116%) with a FRESH transcript: red, via
+#     the same >=60 tier as any lesser overrun. Nothing clamps.
 touch "$TR"
 ctx_color_is "$(ctx_json "$WD" 350000 "$TR")" 196 116 \
-  "ctx red (196) when over budget (any idle)"
+  "ctx red (196) on an overrun (116%), via the same >=60 tier"
 
-# 9f. Empty transcript ("") must NOT read as infinitely cold: a big session
-#     (66%) with no transcript stays green (idle forced to 0), not red.
-ctx_color_is "$(ctx_json "$WD" 200000 "")" 40 66 \
-  "ctx green (40) when big with an empty transcript (no false cold)"
+# 9f. Empty transcript (""): the idle guard that stops a missing transcript
+#     reading as infinitely cold is untouched and still feeds the published
+#     level (26c) — the colour simply no longer depends on it, so a 66% session
+#     is red here exactly as it is in 9b.
+ctx_color_is "$(ctx_json "$WD" 200000 "")" 196 66 \
+  "ctx red (196) at 66% with an empty transcript (colour does not read idle)"
 
-# 9g. Missing transcript file (path set, file absent): same guard → green.
-ctx_color_is "$(ctx_json "$WD" 200000 "$TMPROOT/does-not-exist.jsonl")" 40 66 \
-  "ctx green (40) when big with a missing transcript file (no false cold)"
+# 9g. Missing transcript file (path set, file absent): same.
+ctx_color_is "$(ctx_json "$WD" 200000 "$TMPROOT/does-not-exist.jsonl")" 196 66 \
+  "ctx red (196) at 66% with a missing transcript file (colour does not read idle)"
 
 # 9h. The ctx percentage is the integer floor of 100*used/budget and is NOT
 #     clamped at 100 (350,000/300,000 = 116%) — the entire reason this plugin
@@ -580,21 +626,22 @@ check "ctx percentage is the unclamped floor (116%) on overrun" \
   "$(burn_of "$out" | grep -qE 'ctx 116%' && echo yes || echo no)" "yes"
 
 # 9i. Exact-budget boundary (300,000 tokens == 300,000 budget, exactly 100%)
-#     with a FRESH transcript: red. Contrasts with 9e's used > budget case and
-#     pins the `>=` comparison in burn_ctx_state — a regression to `>` would
-#     leave this exact-equal case green instead of red.
+#     with a FRESH transcript: red, well inside the >=60 band. Under
+#     burn_ctx_state this case pinned that tier's `used >= budget` comparison;
+#     that comparison still runs and section 26c pins it on the published level,
+#     where it now lives.
 touch "$TR"
 ctx_color_is "$(ctx_json "$WD" 300000 "$TR")" 196 100 \
   "ctx red (196) at the exact-budget boundary (used == budget)"
 
-# 9j. Occupancy floor gates staleness: small occupancy (145,230/300,000 = 48%
-#     < 60% floor) with an OLD transcript (~50 min idle, same age as 9d's red
-#     case) stays green. Extends 9a's "regardless of idle" claim by actually
-#     driving idle into the cold band, proving small sessions can't be pushed
-#     into orange/red by staleness alone.
+# 9j. The mirror of 9b, and the other half of "the colour tracks occupancy, not
+#     idle": a SMALL session (48%) with an OLD transcript (~50 min idle, the
+#     same age as 9d) is orange, not red — staleness cannot push a half-empty
+#     context into the top band any more than freshness can keep a full one out
+#     of it.
 set_mtime_ago "$TR" 3000
-ctx_color_is "$(ctx_json "$WD" 145230 "$TR")" 40 48 \
-  "ctx green (40) when occupancy is small despite an old/stale transcript"
+ctx_color_is "$(ctx_json "$WD" 145230 "$TR")" 208 48 \
+  "ctx orange (208) at 48% occupancy despite an old/stale transcript"
 
 # 10. Atomic .local/.ctx-status.json publish in a git worktree with a .local dir.
 GWD="$TMPROOT/gitwd"; mkdir -p "$GWD/.local"; git -C "$GWD" init -q >/dev/null 2>&1
@@ -2265,8 +2312,13 @@ b24_meter_case "green tier"  29 "wk 29%"
 b24_5h_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" 88 "" "" "" "" "")")
 check "24a: the 5-hour meter wraps '5h 88%' in burn_plan_color's sequence too" \
   "$(printf '%s' "$b24_5h_raw" | grep -qaF "$(burn_plan_color 88)5h 88%" && echo yes || echo no)" "yes"
-check "24a: the ctx label is inside burn_ctx_state's colour (145,230/300,000 = 48%, green 40)" \
-  "$(printf '%s' "$b24_5h_raw" | grep -qaF "$(printf '\033[38;5;40m')ctx 48%" && echo yes || echo no)" "yes"
+# The ctx meter's label sits inside its colour on exactly the same terms as the
+# two plan meters above. B16 moves only WHERE that colour comes from — B03's
+# burn_ctx_color rather than burn_ctx_state's COLOR field — so the expectation
+# is derived from the helper the renderer must now call, and the clause (label
+# and figure together inside one sequence) is unchanged.
+check "24a: the ctx label is inside the ctx meter's colour (145,230/300,000 = 48%)" \
+  "$(printf '%s' "$b24_5h_raw" | grep -qaF "$(burn_ctx_color 48)ctx 48%" && echo yes || echo no)" "yes"
 
 # A decimal used% colours off its integer part -- the ${r7%%.*} trim that feeds
 # burn_plan_color is untouched by B09 -- and, per amendment 2 below, PRINTS
@@ -2275,11 +2327,15 @@ b24_float_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 
 check "24a: a decimal used% colours and prints the same integer part" \
   "$(printf '%s' "$b24_float_raw" | grep -qaF "$(burn_plan_color 62)wk 62%" && echo yes || echo no)" "yes"
 
-# --- 24b. The countdown's parens are OUTSIDE the colour ---------------------
+# --- 24b. The countdown's parens are OUTSIDE the METER's colour -------------
 # burn_reset_str returns plain text, so "outside any colour sequence it
 # returns" resolves to: the group's closing reset comes FIRST, then " (", then
-# the countdown, then ")" -- with no escape anywhere between the brackets.
-# Bracketed over [t0,t1] for burn_reset_str's minute roll, exactly as 23a is.
+# the countdown, then ")". B16 then dims the whole parenthesised clause with
+# burn_countdown_color, PARENS INCLUDED, so what follows the meter's reset is
+# the countdown's own opener and then "(" -- the parens are still outside the
+# 5-hour meter's colour run, which is what this clause is about and what the
+# second check below rules out the opposite of. Bracketed over [t0,t1] for
+# burn_reset_str's minute roll, exactly as 23a is.
 b24_t0=$(date +%s)
 b24_raw=$(burn_render_raw "$b5_full")
 b24_t1=$(date +%s)
@@ -2287,12 +2343,12 @@ b24_paren_ok=no
 b24_inside_ok=no
 for (( _n = b24_t0; _n <= b24_t1; _n++ )); do
   _cd=$(burn_reset_str "$B5_R5_RESET" "$_n")
-  printf '%s' "$b24_raw" | grep -qaF "$(printf '\033[0m') ($_cd)" && b24_paren_ok=yes
+  printf '%s' "$b24_raw" | grep -qaF "$(printf '\033[0m') $(burn_countdown_color)($_cd)" && b24_paren_ok=yes
   # The failure this rules out is the mirror image: parens emitted INSIDE the
   # meter's colour run, which reads "<plan colour>5h 1% (4h54m)<reset>".
   printf '%s' "$b24_raw" | grep -qaF "$(burn_plan_color 1)5h 1% ($_cd)" && b24_inside_ok=yes
 done
-check "24b: the parens sit outside the group's colour (reset, then ' (countdown)')" \
+check "24b: the parens sit outside the meter's colour (its reset, then the dimmed '(countdown)')" \
   "$b24_paren_ok" "yes"
 check "24b: the parens are NOT inside the meter's colour run" "$b24_inside_ok" "no"
 check "24b: exactly one pair of parens on the whole line" \
@@ -2761,6 +2817,976 @@ check "25h: and still answers from the manifest's emoji column" \
 check "25h: and keeps its unknown-State fallback" \
   "$(. "$SCRIPT_DIR/../lib/states.sh" 2>/dev/null; state_emoji "Not A Real State")" "•"
 rm -f "$STWD/.local/TODO.md"
+
+# === 26. B16 burn-line-colour-wiring ========================================
+# Contract: the B16 amendment to sl_render_burn_line's docblock, its four
+# numbered bullets and the "last hand-typed escape" consequence beneath them,
+# together with the B16-specific entries the Edge-cases list gained.
+#
+# B16 is a COMPOSITION block: the four colours it wires -- burn_trend_color,
+# burn_ctx_color, burn_diff_color and burn_countdown_color -- are B03's, each
+# with its own accepted suite in lib/burn-theme.test.sh. Nothing here re-tests a
+# threshold. What is tested here is what only a rendered line can show: which
+# helper the renderer ASKS for each value, where the sequence it returns opens
+# and closes, and that the line's shape is otherwise untouched.
+#
+# That distinction is the whole reason #306's regression test lives in this
+# section and nowhere else. burn_ctx_color maps occupancy to colour correctly in
+# burn-theme.sh and always has; the defect was that the renderer asked
+# burn_ctx_state -- the session-STALENESS tri-state -- for the ctx meter's
+# colour, which is why the meter read green at every occupancy. No assertion
+# inside burn-theme.sh can see that. 26b is the one that can.
+#
+# Expected values are DERIVED by calling B03's helpers rather than written out
+# as escape codes, per this file's standing rule: the bands are burn-theme's
+# clause, and what is under test is that context.sh routes each value through
+# the right one of them.
+
+B16_RST=$(printf '\033[0m')
+B16_SEP=$(printf '\033[2m│\033[0m')
+
+# b16_join(group...): assemble groups exactly as _sl_burn_group does -- an empty
+# group contributes nothing at all, and the dim separator goes only BETWEEN
+# present groups, with one space either side. Expected lines are built with this
+# rather than written out, so a case states which GROUPS it expects and the join
+# rule is applied once, in one place, the way the renderer applies it.
+b16_join() { # group...
+  local acc="" g
+  for g in "$@"; do
+    [ -z "$g" ] && continue
+    [ -n "$acc" ] && acc="$acc $B16_SEP "
+    acc="$acc$g"
+  done
+  printf '%s' "$acc"
+}
+
+# The RAW burnrate line (line 2, escapes intact) of a payload.
+b16_raw_line() { # json [env...]
+  line_of "$(burn_render_raw "$@")" 2
+}
+
+# b16_in_source(json, bash_code): source context.sh against a payload -- safe,
+# for the reason section 22's parse_vars gives -- and run BASH_CODE in the same
+# shell, so an assertion can read a variable the ctx computation leaves behind
+# or a function body bash itself parsed. Run in a FRESH bash under `env` rather
+# than in a subshell of this one, so nothing this harness has defined can be
+# mistaken for something context.sh left, and the hermetic env is passed the
+# same way every other render helper here passes it.
+b16_in_source() { # json bash_code
+  printf '%s' "$1" \
+    | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b16-src-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        bash -c '. "$1" >/dev/null 2>&1; eval "$2"' _ "$CONTEXT" "$2"
+}
+
+# --- 26a. The whole line, byte for byte -------------------------------------
+# The strongest available statement of "the shape does not move and only SGR
+# changes": an EQUALITY over every byte of the rendered line, against an
+# expectation assembled from B03's own helpers. A grep for one colour code
+# cannot tell a correctly-coloured line from one that also gained a stray reset,
+# lost a space, coloured the separator, or wrapped the wrong span; this can.
+#
+# The fixture is deliberately free of every quantity that moves with the clock:
+# no model name (so no rainbow, whose palette offset advances one frame per
+# render) and no reset timestamp on either rate limit (so no pacing figures and
+# no countdown). What is left is exactly reproducible. The two groups that do
+# move are pinned byte for byte too, in 26d and 26f, bracketed over the render
+# interval the way section 23 brackets them.
+b16_static_json=$(burn_json "$B5_WD" 145230 "" "max" 1 "" 62 "" 503 16)
+b16_static_raw=$(b16_raw_line "$b16_static_json")
+b16_static_expected=$(b16_join \
+  "$(burn_effort_color max)max$B16_RST" \
+  "$(burn_plan_color 62)wk 62%$B16_RST" \
+  "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+503$B16_RST/$(burn_diff_color del)-16$B16_RST" \
+  "$(burn_plan_color 1)5h 1%$B16_RST")
+check "26a: the whole four-group line is byte-identical to the assembled expectation, SGR included" \
+  "$b16_static_raw" "$b16_static_expected"
+
+# The other half of "only SGR changes": the same render with the escapes taken
+# out is the line this plugin already shipped, to the byte. Written as a literal
+# rather than derived, because the point is that nothing about the TEXT is
+# computed from anything B16 touches.
+check "26a: and its ANSI-stripped text is exactly the line that shipped before B16" \
+  "$(burn_of "$(burn_render "$b16_static_json")")" "max │ wk 62% │ ctx 48% +503/-16 │ 5h 1%"
+
+# Without this, the equality above would pass just as happily against a renderer
+# that still sourced the ctx colour from the staleness tier -- if the two
+# happened to agree on this payload. At 48% occupancy and zero idle they do not.
+check "26a: the occupancy band and the staleness tier genuinely disagree here, so that equality discriminates" \
+  "$([ "$(burn_ctx_color 48)" \
+      != "$(printf '\033[38;5;%sm' "$(burn_ctx_state 145230 300000 0 | awk '{print $2}')")" ] \
+     && echo yes || echo no)" "yes"
+
+# A session that has edited nothing: the +N/-M pair does not render, so
+# burn_diff_color is never called and group 3 is `ctx` alone. Byte-exact, which
+# is what makes "never called" assertable -- at a green occupancy
+# burn_diff_color add returns the very sequence the ctx meter itself would, so
+# an absence check on its bytes would be meaningless.
+b16_nocounts_json=$(burn_json "$B5_WD" 145230 "" "max" 1 "" 62 "" 0 0)
+check "26a: a session that has edited nothing renders group 3 as ctx alone, byte for byte" \
+  "$(b16_raw_line "$b16_nocounts_json")" \
+  "$(b16_join "$(burn_effort_color max)max$B16_RST" "$(burn_plan_color 62)wk 62%$B16_RST" \
+      "$(burn_ctx_color 48)ctx 48%$B16_RST" "$(burn_plan_color 1)5h 1%$B16_RST")"
+
+# --- 26b. THE #306 REGRESSION TEST ------------------------------------------
+# The ctx meter warns as the context fills. This is the single case the plan
+# cannot ship without: the defect is not in the mapping (burn-theme.sh has
+# mapped occupancy to colour correctly since B13, with its own 93 assertions)
+# but in WHICH question the renderer asks, and that is observable only through a
+# rendered line.
+B16TR="$TMPROOT/b16-tr.jsonl"; echo '{}' > "$B16TR"
+
+# i. The regression itself. 285,000/300,000 = 95% of the compaction window on a
+#    session whose transcript was appended to a moment ago -- the exact shape
+#    that renders GREEN in the shipped plugin, because burn_ctx_state escalates
+#    a big session only once it has been idle for half an hour. A user two
+#    thousand tokens from compaction sees the same colour as one who has just
+#    started.
+touch "$B16TR"
+ctx_color_is "$(ctx_json "$WD" 285000 "$B16TR")" 196 95 \
+  "26b: #306 REGRESSION -- a nearly-full context on a freshly-active session renders RED"
+
+# ii. The other end of the scale, so the case above cannot pass by the meter
+#     having simply been painted red unconditionally.
+ctx_color_is "$(ctx_json "$WD" 15000 "$B16TR")" 40 5 \
+  "26b: a nearly-empty context (5%) renders GREEN"
+
+# iii. The colour tracks OCCUPANCY, not idle time. Stated as two sweeps that
+#      cross: idle varied across its whole meaningful range at one occupancy
+#      answers the SAME, and occupancy varied at one idle answers DIFFERENTLY.
+#      Either sweep alone is satisfiable by an implementation that still reads
+#      the wrong input.
+b16_idle_case() { # idle_seconds label
+  if [ "$1" = "0" ]; then touch "$B16TR"; else set_mtime_ago "$B16TR" "$1"; fi
+  ctx_color_is "$(ctx_json "$WD" 285000 "$B16TR")" 196 95 \
+    "26b: 95% occupancy is red $2 -- idle does not move the meter"
+}
+b16_idle_case 0    "on a freshly-active session"
+b16_idle_case 600  "after ten minutes idle"
+b16_idle_case 2000 "after the tier's cooling threshold (~33 min)"
+b16_idle_case 3000 "after the tier's cold threshold (~50 min)"
+
+touch "$B16TR"
+b16_occ_case() { # tokens pct color label
+  ctx_color_is "$(ctx_json "$WD" "$1" "$B16TR")" "$3" "$2" \
+    "26b: $2% occupancy on an equally-fresh session renders $4"
+}
+b16_occ_case 57000  19  40  "green (below the 20 band)"
+b16_occ_case 60000  20  214 "yellow (the 20 boundary, inclusive)"
+b16_occ_case 117000 39  214 "yellow (below the 40 band)"
+b16_occ_case 120000 40  208 "orange (the 40 boundary, inclusive)"
+b16_occ_case 177000 59  208 "orange (below the 60 band)"
+b16_occ_case 180000 60  196 "red (the 60 boundary, inclusive)"
+
+# iv. The defect named directly. burn_ctx_state's answer for the regression
+#     fixture is still the green tier -- correctly, since it answers a different
+#     question -- and the rendered meter must no longer carry it. The pair is
+#     what distinguishes "the colour source moved" from "burn_ctx_state's
+#     thresholds were quietly changed to fix the symptom", which would break the
+#     published level for every consumer of .ctx-status.json.
+touch "$B16TR"
+check "26b: burn_ctx_state still answers the green tier for that fixture (its own clause is unchanged)" \
+  "$(burn_ctx_state 285000 300000 0 | awk '{print $2}')" "40"
+check "26b: and the rendered meter no longer carries that tier's sequence" \
+  "$(render_raw "$(ctx_json "$WD" 285000 "$B16TR")" \
+     | grep -qaF "$(printf '\033[38;5;40m')ctx 95%" && echo present || echo absent)" "absent"
+
+# --- 26c. burn_ctx_state still runs, and its LEVEL still publishes ----------
+# The call is not deleted with its colour: the tri-state is what
+# .local/.ctx-status.json's `level` field carries, it has a consumer outside
+# this plugin, and B16's whole framing is that the published tier and the
+# on-screen colour now answer different questions ON PURPOSE -- "how stale" and
+# "how full". Each case asserts both answers on ONE render, so the two cannot be
+# collapsed back into one.
+B16GWD="$TMPROOT/b16-gitwd"; mk_wt "$B16GWD"
+B16GTR="$B16GWD/transcript.jsonl"; echo '{}' > "$B16GTR"
+B16CJ="$B16GWD/.local/.ctx-status.json"
+
+b16_publish_case() { # label tokens idle pct level
+  local raw
+  if [ "$3" = "0" ]; then touch "$B16GTR"; else set_mtime_ago "$B16GTR" "$3"; fi
+  raw=$(render_raw "$(ctx_json "$B16GWD" "$2" "$B16GTR")")
+  check "26c: $1 -> .ctx-status.json still publishes level '$5'" \
+    "$(jq -r '.level' "$B16CJ" 2>/dev/null)" "$5"
+  check "26c: $1 -> and the meter on screen is burn_ctx_color's band for $4%" \
+    "$(printf '%s' "$raw" | grep -qaF "$(burn_ctx_color "$4")ctx $4%" && echo yes || echo no)" "yes"
+}
+b16_publish_case "66% occupancy, freshly active"        200000 0    66 "ok"
+b16_publish_case "66% occupancy, cooling (~33 min)"     200000 2000 66 "warn"
+b16_publish_case "66% occupancy, cold (~50 min)"        200000 3000 66 "cold"
+b16_publish_case "48% occupancy, cold (~50 min)"        145230 3000 48 "ok"
+
+# The last fixture above is the divergence stated on its own: a session the
+# staleness tier calls fine, showing an orange meter because it is nearly half
+# full. If the two ever agreed everywhere, the split would be pointless and
+# every case above would pass vacuously.
+check "26c: on that fixture the published tier and the on-screen colour genuinely differ" \
+  "$([ "$(burn_ctx_color 48)" \
+      != "$(printf '\033[38;5;%sm' "$(burn_ctx_state 145230 300000 3000 | awk '{print $2}')")" ] \
+     && echo yes || echo no)" "yes"
+
+# The ctx computation's own variables, which no rendered byte can show. Two
+# clauses meet here:
+#   - `level` is still SET, so burn_ctx_state is still called. Every colour
+#     assertion above would pass just as well with the call deleted outright,
+#     and .ctx-status.json would then ship the "ok" default forever.
+#   - `ctx_color` is UNSET. The contract deletes the `ctx_color=40` default and
+#     turns `read -r level ctx_color` into `read -r level _`, explicitly
+#     "rather than left unread" -- and a variable left set behind an unused
+#     read is the one form of this edit no render can distinguish.
+set_mtime_ago "$B16GTR" 3000
+check "26c: sourcing a render leaves burn_ctx_state's level set (cold here) and no ctx_color at all" \
+  "$(b16_in_source "$(ctx_json "$B16GWD" 200000 "$B16GTR")" \
+      'printf "level=%s ctx_color=%s\n" "${level-<unset>}" "${ctx_color+<set>}"')" \
+  "level=cold ctx_color="
+touch "$B16GTR"
+check "26c: and the same on a freshly-active session (level ok, still no ctx_color)" \
+  "$(b16_in_source "$(ctx_json "$B16GWD" 200000 "$B16GTR")" \
+      'printf "level=%s ctx_color=%s\n" "${level-<unset>}" "${ctx_color+<set>}"')" \
+  "level=ok ctx_color="
+
+# --- 26d. Group 2's trend: B14's colour, the renderer's arrow ---------------
+# The arrow STAYS. B14's +/-3 dead band is expressed as the green tier and the
+# upstream's on-track glyph is deliberately not adopted (26g pins its absence),
+# so `▲`/`▼` are still chosen here, by the same sign test, and only the colour
+# around them is new.
+#
+# The fixtures are SOLVED, not guessed. burn_metrics' trend is `used% minus the
+# ideal line's value at NOW`, and that line's value is
+# 100 * awake(week_start, now) / awake(week_start, reset) -- computable from
+# B01's own shared primitive. A used% set to that value plus TARGET plus a
+# quarter point therefore produces exactly TARGET, with a quarter-point margin
+# on both sides; the line moves about 0.0002 points per second, so the fixture
+# holds for some twenty minutes and cannot flake on the seconds between this
+# arithmetic and the render.
+#
+# Solving also reaches the one magnitude an INTEGER used% cannot: a trend of
+# exactly 0, which the contract names as an edge case (`▲0`, green, inside the
+# dead band). The ideal line sits at a fractional value, so the integers either
+# side of it round to -0 and +1 rather than to 0.
+b16_ws=$(( B5_R7_RESET - 604800 ))
+b16_aw=$(burn_awake_seconds "$b16_ws" "$B5_R7_RESET" "$b5_ds2" 21600)
+b16_ae=$(burn_awake_seconds "$b16_ws" "$B5_NOW" "$b5_ds2" 21600)
+check "26d: the awake-seconds solve resolved (the trend fixtures are computable)" \
+  "$([ "${b16_aw:-0}" -gt 0 ] && [ "${b16_ae:-0}" -gt 0 ] && echo yes || echo no)" "yes"
+
+# b16_trend_used(target): the used% that puts the trend at exactly TARGET.
+b16_trend_used() { # target
+  awk -v ae="$b16_ae" -v aw="$b16_aw" -v t="$1" 'BEGIN{printf "%.4f", ae/aw*100 + t + 0.25}'
+}
+
+# b16_trend_case(label, target): render a weekly-only line -- no context tokens,
+# no five-hour limit -- so the trend ENDS the line and its closing reset is the
+# line's last byte. Asserted as a SUFFIX equality rather than a substring match,
+# which is what makes "wrapped in burn_trend_color ... $rst" a real statement:
+# an unclosed sequence, a second reset, or a colour that also swallowed the
+# following separator all fail it.
+b16_trend_case() { # label target
+  local used raw frag arrow got
+  used=$(b16_trend_used "$2")
+  got=$(burn_metrics "$used" 0 "$B5_NOW" "$B5_R7_RESET" "$b5_ds2" 21600 | awk '{print $3}')
+  check "26d: $1 -- the fixture really produces a trend of $2" "$got" "$2"
+  case "$2" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
+  raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$used" "$B5_R7_RESET" "" "")")
+  frag="$(burn_trend_color "$2")$arrow$2$B16_RST"
+  check "26d: $1 -- the line ends on '$arrow$2' wrapped in burn_trend_color's sequence" \
+    "$([ "$raw" != "${raw%"$frag"}" ] && echo yes || echo no)" "yes"
+}
+b16_trend_case "a trend of exactly 0 (the dead band, and the arrow is still up)" 0
+b16_trend_case "a trend of +5 (just past the dead band)"                         5
+b16_trend_case "a trend of +10"                                                  10
+b16_trend_case "a trend of +20 (far ahead of the even-burn line)"                20
+b16_trend_case "a trend of -10 (behind the line, so the tier that says 'nothing to act on')" -10
+
+# Five cases are worth running only if the five tiers are five different
+# sequences; otherwise a renderer that always emitted green would pass most of
+# them.
+check "26d: those five trends really do select five distinct sequences" \
+  "$(printf '%s\n' "$(burn_trend_color 0)" "$(burn_trend_color 5)" "$(burn_trend_color 10)" \
+      "$(burn_trend_color 20)" "$(burn_trend_color -10)" | sort -u | grep -c '' | tr -d ' ')" "5"
+
+# The whole weekly group, byte for byte: four figures, four colours, four
+# resets, and the three spaces between them. %t is pinned exactly (it does not
+# move with the render's clock -- see burn_expect_today); pace is bracketed over
+# the interval the render's own clock provably fell inside, exactly as 23i
+# brackets it. This is also where the trend's colour is pinned as part of a
+# whole group rather than as a suffix, so a colour that leaked backwards over
+# `%/d` fails here even though it would satisfy the suffix check above.
+b16_g2_used=$(b16_trend_used 20)
+b16_g2_today=$(burn_expect_today "$b16_g2_used" "$B5_R7_RESET" 2 6)
+b16_g2_t0=$(date +%s)
+b16_g2_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$b16_g2_used" "$B5_R7_RESET" "" "")")
+b16_g2_t1=$(date +%s)
+b16_g2_ok=no
+for _p in $(burn_metric_candidates 2 "$b16_g2_used" "$B5_R7_RESET" "$b5_ds2" 21600 "$b16_g2_t0" "$b16_g2_t1"); do
+  [ "$b16_g2_raw" = "$(b16_join "$(burn_effort_color max)max$B16_RST" \
+      "$(burn_plan_color "${b16_g2_used%%.*}")wk ${b16_g2_used%%.*}%$B16_RST\
+ $(burn_today_color "$b16_g2_today")${b16_g2_today}%t$B16_RST\
+ $(burn_pace_color "$_p")${_p}%/d$B16_RST\
+ $(burn_trend_color 20)▲20$B16_RST")" ] && b16_g2_ok=yes
+done
+check "26d: the whole weekly group renders byte for byte -- four figures, four colours, four resets" \
+  "$b16_g2_ok" "yes"
+# The same line with the escapes taken out is the weekly group this plugin
+# already shipped, decimal used% truncated to its integer part and all.
+check "26d: and its stripped text still carries all four figures in order, the used% truncated" \
+  "$(burn_of "$(burn_render "$(burn_json "$B5_WD" "" "" "max" "" "" "$b16_g2_used" "$B5_R7_RESET" "" "")")" \
+     | grep -qE "^max │ wk ${b16_g2_used%%.*}% -?[0-9]+%t [0-9.]+%/d ▲20$" && echo yes || echo no)" "yes"
+
+# --- 26e. Group 3's counts: two colours, two resets, a bare slash -----------
+# 26a already pins the segment byte for byte. Separated out here is the clause a
+# byte-equality could satisfy for the wrong reason if the two halves shared one
+# sequence: each half is closed with its OWN reset, so neither can bleed into
+# the other, and the `/` between them carries no colour at all.
+check "26e: the added count closes before the slash, and the slash is uncoloured" \
+  "$(printf '%s' "$b16_static_raw" \
+     | grep -qaF "$(burn_diff_color add)+503$B16_RST/$(burn_diff_color del)" && echo yes || echo no)" "yes"
+check "26e: the removed count closes with its own reset" \
+  "$(printf '%s' "$b16_static_raw" \
+     | grep -qaF "$(burn_diff_color del)-16$B16_RST" && echo yes || echo no)" "yes"
+check "26e: add and del are different colours, so neither check above is vacuous" \
+  "$([ "$(burn_diff_color add)" != "$(burn_diff_color del)" ] && echo yes || echo no)" "yes"
+# The pair is gated on at least one count being above zero, never on each half
+# separately: a half at zero still renders, and still carries its colour.
+check "26e: '+5/-0' -- the zero half is rendered and coloured like the other" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" 5 0)")" \
+  "$(b16_join "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+5$B16_RST/$(burn_diff_color del)-0$B16_RST")"
+check "26e: '+0/-7' -- likewise in the other direction" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" 0 7)")" \
+  "$(b16_join "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+0$B16_RST/$(burn_diff_color del)-7$B16_RST")"
+
+# --- 26f. Group 4's countdown dims WITH its parens --------------------------
+# `($countdown)` entire, not `(` + dim + `)`: the whole subordinate clause dims
+# together so the eye reaches `5h 20%` first. Bracketed over [t0,t1] for
+# burn_reset_str's minute roll, as 23a and 24b are.
+b16_cd_t0=$(date +%s)
+b16_cd_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 "$B5_R5_RESET" "" "" "" "")")
+b16_cd_t1=$(date +%s)
+b16_cd_ok=no
+b16_cd_openparen=no
+for (( _n = b16_cd_t0; _n <= b16_cd_t1; _n++ )); do
+  _cd=$(burn_reset_str "$B5_R5_RESET" "$_n")
+  [ "$b16_cd_raw" = "$(burn_plan_color 20)5h 20%$B16_RST $(burn_countdown_color)($_cd)$B16_RST" ] \
+    && b16_cd_ok=yes
+  printf '%s' "$b16_cd_raw" | grep -qaF "($(burn_countdown_color)$_cd" && b16_cd_openparen=yes
+done
+check "26f: the five-hour group renders byte for byte, the countdown dimmed WITH its parens" \
+  "$b16_cd_ok" "yes"
+check "26f: the opening paren is not left outside the dim sequence" "$b16_cd_openparen" "no"
+# A missing reset drops the countdown and its parens together -- and now the
+# colour that wrapped them too, since an opener left behind by a segment that
+# did not render is exactly the leak the closing-reset convention exists to
+# stop. Byte-exact on the whole line, so a leftover dim opener shows up.
+check "26f: five_hour without its reset renders the meter alone, no leftover dim opener" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 "" "" "" "" "")")" \
+  "$(burn_plan_color 20)5h 20%$B16_RST"
+# An UNPARSEABLE reset (a JSON string where an epoch belongs) takes the same
+# path: burn_reset_str returns non-zero, so countdown, parens and colour drop
+# together.
+check "26f: an unparseable reset drops the countdown, its parens and its colour alike" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 '"not-an-epoch"' "" "" "" "")")" \
+  "$(burn_plan_color 20)5h 20%$B16_RST"
+
+# --- 26g. No hand-typed 38;5; survives in sl_render_burn_line ---------------
+# The contract states this outright as the consequence of the four wirings: with
+# group 3's colour coming from burn_ctx_color, the last `${esc}[38;5;Nm` typed
+# into this function goes, and any that reappears is a colour decision made in
+# the renderer instead of in burn-theme.sh. It is the cheapest check in this
+# section and the one that would catch a future regression soonest.
+#
+# Scanned against BASH'S OWN PARSE of the function rather than the file's text,
+# so the docblock -- which quotes the sequence, legitimately, while explaining
+# that it is gone -- is out of scope by construction rather than by pattern.
+# The two escape shapes that remain, the dim separator and the reset, are not
+# false positives: neither spells 38;5;.
+b16_fn_body=$(b16_in_source "$b16_static_json" 'declare -f sl_render_burn_line')
+check "26g: the scan really sees the function body (not vacuous)" \
+  "$([ -n "$b16_fn_body" ] && echo yes || echo no)" "yes"
+check "26g: no 38;5; sequence is typed anywhere inside sl_render_burn_line" \
+  "$(printf '%s\n' "$b16_fn_body" | grep -c '38;5;' | tr -d ' ')" "0"
+check "26g: the same pattern does fire elsewhere in context.sh, so that check is falsifiable" \
+  "$([ "$(grep -c '38;5;' "$CONTEXT")" -gt 0 ] && echo yes || echo no)" "yes"
+# B14 expresses the dead band as the green tier precisely so the upstream's
+# on-track glyph need not be adopted; no new codepoint appears on this line.
+check "26g: the upstream's on-track check mark appears nowhere in the function" \
+  "$(printf '%s\n' "$b16_fn_body" | grep -qF '✓' && echo present || echo absent)" "absent"
+check "26g: nor on a rendered line that carries a trend inside the dead band" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$(b16_trend_used 0)" "$B5_R7_RESET" "" "")" \
+     | grep -qF '✓' && echo present || echo absent)" "absent"
+
+# --- 26h. Degradation: lib/burn-theme.sh absent from the install ------------
+# 23m-iii covers an install missing ALL THREE burnrate libraries, which leaves
+# the line with no derived figures at all. B16's degradation clause is narrower
+# and sharper: burn-math and burn-tick present, burn-theme absent, so every
+# FIGURE still computes and only colour is gone. That is the install whose line
+# must come out as today's uncoloured render -- no partial sequence, no colour
+# picked locally as a fallback, nothing broken.
+#
+# It is also the case that pins the DELETED `ctx_color=40` default from the
+# other side. Today that default is what makes the ctx meter the one group still
+# emitting a 256-colour sequence on an install with no theme at all; once the
+# default is gone and the call is guarded, not one survives.
+B16NOTHEME="$TMPROOT/b16-notheme"; mkdir -p "$B16NOTHEME/scripts" "$B16NOTHEME/lib"
+ln -s "$CONTEXT" "$B16NOTHEME/scripts/context.sh"
+for _f in platform.sh states.sh states.tsv burn-math.sh burn-tick.sh; do
+  ln -s "$SCRIPT_DIR/../lib/$_f" "$B16NOTHEME/lib/$_f"
+done
+unset _f
+
+b16_deg_render() { # json outfile errfile cachedir [cwd_env...]
+  printf '%s' "$1" \
+    | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$4" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        bash "$B16NOTHEME/scripts/context.sh" > "$2" 2>"$3"
+}
+b16_strip() { printf '%s' "$1" | sed -E "s/${ESC}\\[[0-9;]*m//g"; }
+
+b16_deg_out="$TMPROOT/b16-deg.out"; b16_deg_err="$TMPROOT/b16-deg.err"
+b16_deg_render "$b16_static_json" "$b16_deg_out" "$b16_deg_err" "$TMPROOT/b16-deg-cache"
+b16_deg_ec=$?
+b16_deg_raw=$(line_of "$(<"$b16_deg_out")" 2)
+check "26h: burn-theme absent -> the render still exits 0" "$b16_deg_ec" "0"
+check "26h: burn-theme absent -> nothing is written to stderr" \
+  "$(wc -c < "$b16_deg_err" | tr -d ' ')" "0"
+check "26h: burn-theme absent -> no diagnostic text reaches stdout" \
+  "$(grep -qiE 'command not found|no such file|syntax error' "$b16_deg_out" && echo present || echo absent)" "absent"
+check "26h: burn-theme absent -> not one 256-colour sequence survives on the line" \
+  "$(printf '%s' "$b16_deg_raw" | grep -c '38;5;' | tr -d ' ')" "0"
+check "26h: burn-theme absent -> the line's TEXT is exactly the coloured render's" \
+  "$(b16_strip "$b16_deg_raw")" "max │ wk 62% │ ctx 48% +503/-16 │ 5h 1%"
+# "No partial sequence": every ESC on the line opens a complete SGR. Strip the
+# complete ones and no ESC byte may be left standing -- a truncated `\033[38;5;`
+# with no terminator would survive the strip and be caught here.
+check "26h: burn-theme absent -> every escape on the line is a complete SGR sequence" \
+  "$(b16_strip "$b16_deg_raw" | grep -c "$ESC" | tr -d ' ')" "0"
+check "26h: burn-theme absent -> the line stays well-formed" \
+  "$(burn_wellformed "$(b16_strip "$b16_deg_raw")")" "yes"
+check "26h: burn-theme absent -> the line carries no emoji" \
+  "$(burn_no_emoji "$(b16_strip "$b16_deg_raw")")" "yes"
+
+# The same install with a payload carrying both resets, so the two figures the
+# static fixture omits are in play. The trend is B01's, so it still renders and
+# must render UNCOLOURED. The countdown is not: burn_reset_str lives in the
+# missing file too, so it drops -- and the clause that matters is that it takes
+# its parens with it exactly as an absent reset does, rather than leaving the
+# empty `()` the contract forbids or a dim opener with nothing behind it.
+b16_deg2_out="$TMPROOT/b16-deg2.out"
+b16_deg_render "$(burn_json "$B5_WD" 145230 "" "max" 1 "$B5_R5_RESET" 62 "$B5_R7_RESET" 503 16)" \
+  "$b16_deg2_out" "$b16_deg_err" "$TMPROOT/b16-deg2-cache"
+b16_deg2_raw=$(line_of "$(<"$b16_deg2_out")" 2)
+b16_deg2_line=$(b16_strip "$b16_deg2_raw")
+check "26h: burn-theme absent -> the trend arrow and magnitude still render" \
+  "$(printf '%s' "$b16_deg2_line" | grep -qE '(▲|▼)-?[0-9]+' && echo yes || echo no)" "yes"
+check "26h: burn-theme absent -> the countdown drops with its parens, leaving no empty pair" \
+  "$(printf '%s' "$b16_deg2_line" | grep -qE '[()]' && echo present || echo absent)" "absent"
+check "26h: burn-theme absent -> and the five-hour meter itself still renders" \
+  "$(printf '%s' "$b16_deg2_line" | grep -qE '5h 1%' && echo yes || echo no)" "yes"
+check "26h: burn-theme absent -> still not one 256-colour sequence on that line" \
+  "$(printf '%s' "$b16_deg2_raw" | grep -c '38;5;' | tr -d ' ')" "0"
+check "26h: burn-theme absent -> that line stays well-formed too" \
+  "$(burn_wellformed "$b16_deg2_line")" "yes"
+
+# burn_ctx_state lives in the missing file, so `level` falls back to the safe
+# tier -- and the publish must still happen. The .ctx-status.json consumer is
+# not allowed to lose its file because a PRESENTATION library is absent, which
+# is the same reason the thresholds are not restated in context.sh.
+B16DEGWD="$TMPROOT/b16-deg-wd"; mk_wt "$B16DEGWD"
+b16_deg_render "$(ctx_json "$B16DEGWD" 200000 "")" "$TMPROOT/b16-deg3.out" "$b16_deg_err" \
+  "$TMPROOT/b16-deg3-cache"
+check "26h: burn-theme absent -> .ctx-status.json is still published" \
+  "$([ -f "$B16DEGWD/.local/.ctx-status.json" ] && echo yes || echo no)" "yes"
+check "26h: burn-theme absent -> it publishes the safe tier rather than a private duplicate of the rules" \
+  "$(jq -r '.level' "$B16DEGWD/.local/.ctx-status.json" 2>/dev/null)" "ok"
+check "26h: burn-theme absent -> and the occupancy it publishes is unaffected" \
+  "$(jq -r '.used_percentage' "$B16DEGWD/.local/.ctx-status.json" 2>/dev/null)" "66"
+
+# --- 26i. The shape does not move -------------------------------------------
+# Most of this clause is already pinned, uncoloured, in section 23: the group
+# count and the vanishing separators (23a/23b), the omission rules (23b/23o),
+# the integer truncation of r5 and r7 (24d), the one string with no trailing
+# newline (23g), and the warm-render process budget (23l) -- which B16 cannot
+# move, since every helper it adds is pure bash builtins and forks nothing. What
+# is added here is the same statement made against the COLOURED line, where a
+# sequence wrapped around the wrong span changes the shape without changing a
+# byte of the stripped text.
+check "26i: the fully-coloured line still carries exactly three dim separators" \
+  "$(printf '%s' "$b16_static_raw" | grep -oaF "$B16_SEP" | wc -l | tr -d ' ')" "3"
+check "26i: the fully-coloured line carries no emoji" \
+  "$(burn_no_emoji "$(b16_strip "$b16_static_raw")")" "yes"
+check "26i: and it stays well-formed" \
+  "$(burn_wellformed "$(b16_strip "$b16_static_raw")")" "yes"
+# An overrun renders above 100 rather than clamping -- the whole reason this
+# plugin computes occupancy itself -- and takes the top band by the same >=60
+# rule as any lesser overrun, with no special case for it in the renderer.
+check "26i: an overrun (350,000/300,000 = 116%) renders in burn_ctx_color's top band" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" 350000 "" "" "" "" "" "" "" "")")" \
+  "$(burn_ctx_color 116)ctx 116%$B16_RST"
+check "26i: and that is the same band a 60% context takes -- nothing clamps, nothing special-cases" \
+  "$([ "$(burn_ctx_color 116)" = "$(burn_ctx_color 60)" ] && echo yes || echo no)" "yes"
+
+# === 27. B18 statusline-bash3-payload-delimiter =============================
+# Contract: the `Contract: B18 statusline-bash3-payload-delimiter` docblock
+# above sl_parse_input. One byte changes -- \x01 to \x1f -- at BOTH ends of the
+# payload round trip: the `join` closing the jq filter and the `IFS=` prefix on
+# the `read`. Nothing else about the function moves.
+#
+# THE PROBLEM THIS SECTION HAS TO SOLVE. Under bash 5 the two bytes behave
+# identically, so a test that renders the statusline and compares output passes
+# before and after the fix and proves nothing. The contract says so outright:
+# "a regression test must distinguish the two BYTES rather than re-check today's
+# rendered output, which is identical either way". And no bash 3.2 interpreter
+# is available here, or in ci.sh's environment, to make the difference show
+# itself the way it shows itself on macOS.
+#
+# The way out is that the bytes only look alike while BOTH ENDS USE THE SAME
+# ONE. Decouple the ends and each becomes independently observable under bash 5:
+#
+#   - the READ end (27a/27b): shadow `jq` with a shell FUNCTION, so the test
+#     chooses the exact bytes the `read` is handed. Feed it a 0x1f-joined
+#     payload and today's `IFS=$'\x01' read` does not split it -- every field
+#     lands in window_size and the other thirteen come back empty, which is
+#     precisely the shape macOS renders, reproduced here on bash 5.
+#   - the JQ end (27c): shadow `jq` with a function that CAPTURES the filter and
+#     delegates to the real binary, then execute that captured filter and look
+#     at the byte it actually put between the fields.
+#
+# So a fix at one end only is NAMED (27a or 27c goes red on its own) rather than
+# merely failing somewhere. 27d pins the other half of that: with the ends
+# disagreeing the render really is broken, so "both ends" is load-bearing and
+# not a stylistic preference.
+#
+# Nothing here re-tests what sl_parse_input parses OUT of the JSON -- that is
+# B04's clause and section 22 owns it. What is tested here is the byte between
+# the fields, at each end, and that everything else stands still.
+
+B18_SOH=$(printf '\001')      # 0x01: bash 3.2's CTLESC, the byte being retired
+B18_US=$(printf '\037')       # 0x1f: ASCII US, the byte the contract names
+B18_RS=$(printf '\036')       # 0x1e: a THIRD non-whitespace byte, for 27e
+B18_DEL=$(printf '\177')      # 0x7f: bash 3.2's CTLNUL, unusable for the same reason
+B18_TAB=$(printf '\t')
+
+B18_WD="$TMPROOT/b18-wd"; mkdir -p "$B18_WD"
+# Every b18 render and probe runs with its PROCESS cwd here: a plain temp dir,
+# no git, no .local. The half-swapped renderers in 27d parse an EMPTY cwd out of
+# their payload, and a renderer with no cwd falls back to wherever it happens to
+# be standing -- which, run bare, is this repo. Standing it somewhere inert
+# keeps that fallback hermetic instead of forking git against the real worktree.
+B18_RUN="$TMPROOT/b18-run"; mkdir -p "$B18_RUN"
+
+# The payload every probe pipes in at SOURCE time, so the top-level render that
+# sourcing context.sh performs is as hermetic as every other helper's here.
+B18_JSON="{\"workspace\":{\"current_dir\":\"$B18_WD\"},\"transcript_path\":\"\",$ctx}"
+
+# The fourteen variables sl_parse_input's `read` names, in contract order.
+B18_SHOW='printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" \
+  "$window_size" "$total_input" "$transcript_path" "$cwd" "$model_name" "$effort" \
+  "$r5" "$r5_reset" "$r7" "$r7_reset" "$lines_added" "$lines_removed" \
+  "$total_cost_usd" "$session_id"'
+B18_UNSET='unset window_size total_input transcript_path cwd model_name effort \
+  r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id'
+# "s" per name still ASSIGNED after the read. Paired with B18_UNSET above it is
+# the difference between "fourteen empty fields" and "thirteen unset variables":
+# `read` assigns every name it is given, so a name dropped from the read list
+# stays unset here rather than merely reading empty.
+B18_SETCHK='printf "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" \
+  "${window_size+s}" "${total_input+s}" "${transcript_path+s}" "${cwd+s}" \
+  "${model_name+s}" "${effort+s}" "${r5+s}" "${r5_reset+s}" "${r7+s}" \
+  "${r7_reset+s}" "${lines_added+s}" "${lines_removed+s}" \
+  "${total_cost_usd+s}" "${session_id+s}"'
+
+B18_JQ_LOG="$TMPROOT/b18-jq-calls"
+
+# b18_read(jq_stdout, bash_code, [NAME=VALUE...]): source context.sh, REPLACE
+# `jq` with a shell function emitting JQ_STDOUT verbatim, unset the fourteen
+# names, call sl_parse_input, then run BASH_CODE in the same shell.
+#
+# A function shadows an external command for every unqualified call, so this
+# hands the `read` an exact byte sequence of the test's choosing without
+# touching context.sh -- the whole reason the two bytes stop looking alike. The
+# function is defined AFTER the source, so the full render that sourcing
+# performs still goes through the REAL jq and the call log below counts only
+# sl_parse_input's own invocation. Fresh bash under `env`, like b16_in_source,
+# so nothing this harness defines can be mistaken for something context.sh left.
+b18_read() { # jq_stdout bash_code [env...]
+  local out="$1" code="$2"; shift 2
+  ( cd "$B18_RUN" || return 1
+    printf '%s' "$B18_JSON" \
+      | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+          CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b18-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+          B18_JQ_OUT="$out" B18_JQ_LOG="$B18_JQ_LOG" "$@" \
+          bash -c '
+            . "$1" >/dev/null 2>&1
+            jq() { printf "x" >> "$B18_JQ_LOG"; printf "%s" "$B18_JQ_OUT"; }
+            : > "$B18_JQ_LOG"
+            input="{}"
+            eval "$3"
+            sl_parse_input
+            eval "$2"
+          ' _ "$CONTEXT" "$code" "$B18_UNSET" )
+}
+
+# The candidate bytes sl_parse_input's `read` DOES treat as a field separator,
+# as a comma-separated list of hex names. Two fields either side of each byte:
+# split -> window_size is "A" alone, no split -> window_size is the whole
+# string. So this is the read end's IFS membership OBSERVED rather than read off
+# the source, and the assertion over it reads "got '01', expected '1f'" -- the
+# diagnostic names the defect itself.
+#
+# All six candidates are probed inside ONE sourced shell, re-pointing the jq
+# shadow between calls: sl_parse_input is a pure function of $input and what jq
+# hands back, and B06 froze this file's COST as well as its assertions, so six
+# whole renders to read six bytes would be five renders wasted.
+b18_read_delims() {
+  b18_read "" '
+    _b18_out=""
+    for _b18_h in 01 1e 1f 7f 09 20; do
+      case "$_b18_h" in
+        01) _b18_b=$(printf "\001") ;; 1e) _b18_b=$(printf "\036") ;;
+        1f) _b18_b=$(printf "\037") ;; 7f) _b18_b=$(printf "\177") ;;
+        09) _b18_b=$(printf "\011") ;;  *) _b18_b=" " ;;
+      esac
+      B18_JQ_OUT="A${_b18_b}B"
+      sl_parse_input
+      if [ "$window_size" = "A" ]; then
+        [ -n "$_b18_out" ] && _b18_out="$_b18_out,"
+        _b18_out="$_b18_out$_b18_h"
+      fi
+    done
+    printf "%s" "$_b18_out"
+  '
+}
+
+b18_byte_of() { # hex_name
+  case "$1" in
+    01) printf '%s' "$B18_SOH" ;; 1e) printf '%s' "$B18_RS" ;;
+    1f) printf '%s' "$B18_US"  ;; 7f) printf '%s' "$B18_DEL" ;;
+    09) printf '%s' "$B18_TAB" ;; 20) printf ' ' ;;
+  esac
+}
+
+# Control bytes rendered legibly, so a failing check's "got ..." names the byte
+# it found instead of printing it invisibly.
+b18_visible() { # string
+  local s="$1"
+  s="${s//"$B18_SOH"/<01>}"; s="${s//"$B18_RS"/<1e>}"
+  s="${s//"$B18_US"/<1f>}";  s="${s//"$B18_DEL"/<7f>}"
+  s="${s//"$B18_TAB"/<09>}"
+  printf '%s' "$s"
+}
+
+# Occurrences of BYTE in STRING, builtin-only (B06: no fork in a helper called
+# per assertion).
+b18_count_byte() { # string byte
+  local s="$1" b="$2" n=0
+  while [ -n "$s" ]; do
+    case "$s" in
+      *"$b"*) s="${s#*"$b"}"; n=$(( n + 1 )) ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$n"
+}
+
+# --- 27a. The READ end: which byte does `read` actually split on? -----------
+# Probed ONCE and reused here and in 27f: each b18_read call is a whole render
+# (context.sh is a script, so sourcing it renders one), and B06 froze this
+# file's cost alongside its assertions.
+B18_READ_DELIMS=$(b18_read_delims)
+b18_delims_have() { # hex_name
+  case ",$B18_READ_DELIMS," in *",$1,"*) printf 'yes' ;; *) printf 'no' ;; esac
+}
+check "27a: control -- the probe observes an unsplit single field (the harness is not vacuous)" \
+  "$(b18_read "A" 'printf "%s" "$window_size"')" "A"
+check "27a: the read end splits on exactly one candidate byte, and it is 0x1f" \
+  "$B18_READ_DELIMS" "1f"
+# The two halves of that, stated separately, so a fix applied at one end only is
+# NAMED. This is the pair that goes red on a jq-end-only fix.
+check "27a: a 0x1f-joined payload splits -- the new byte is the read's IFS" \
+  "$(b18_delims_have 1f)" "yes"
+check "27a: a 0x01-joined payload does NOT -- the retired byte is no longer the read's IFS" \
+  "$(b18_delims_have 01)" "no"
+# The macOS failure shape, reproduced on bash 5: hand the read a payload joined
+# on the byte the FIXED jq end emits and, unfixed, all fourteen fields land in
+# window_size with the other thirteen empty. Exit 0, nothing on stderr, a
+# statusline with an empty cwd -- exactly what the Why clause describes.
+b18_head="A${B18_US}B${B18_US}C"
+check "27a: three 0x1f-separated fields do not all collapse into window_size" \
+  "$(b18_visible "$(b18_read "$b18_head" 'printf "%s/%s/%s" "$window_size" "$total_input" "$transcript_path"')")" \
+  "A/B/C"
+
+# --- 27b. The READ end: fourteen fields, in order, empties preserved --------
+# Field ORDER gets its own assertion because a fourteen-name positional read is
+# exactly the kind of thing a careless edit reorders, and every value here is
+# distinct so a transposition cannot hide.
+b18_ordered="f01"
+for _i in 02 03 04 05 06 07 08 09 10 11 12 13 14; do
+  b18_ordered="$b18_ordered${B18_US}f$_i"
+done
+unset _i
+check "27b: fourteen 0x1f-separated fields land one per variable, in contract order" \
+  "$(b18_visible "$(b18_read "$b18_ordered" "$B18_SHOW")")" \
+  "f01|f02|f03|f04|f05|f06|f07|f08|f09|f10|f11|f12|f13|f14"
+check "27b: and the read still assigns all fourteen names (none dropped from its list)" \
+  "$(b18_read "$b18_ordered" "$B18_SETCHK")" "ssssssssssssss"
+
+# The invariant \x01 was chosen over @tsv's tab for, restated on the new byte:
+# an absent transcript_path (field 3) must parse EMPTY and shift nothing after
+# it. With a whitespace delimiter the run of two collapses and every later field
+# moves up one column.
+b18_gap="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}42${B18_US}1700000000${B18_US}17${B18_US}1700500000${B18_US}503${B18_US}16${B18_US}12.34${B18_US}sess-gap"
+check "27b: an empty middle field parses empty and shifts nothing after it" \
+  "$(b18_visible "$(b18_read "$b18_gap" "$B18_SHOW")")" \
+  "1000000|145230||/cwd|Opus|high|42|1700000000|17|1700500000|503|16|12.34|sess-gap"
+
+# Edge case: every optional field absent. jq joins fourteen empty strings, so
+# what reaches the read is thirteen delimiters and nothing else. Fourteen empty
+# fields -- not one field holding thirteen bytes and thirteen empties, which is
+# what today's read makes of it.
+b18_allempty=""
+for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do b18_allempty="$b18_allempty$B18_US"; done
+unset _i
+check "27b: a payload with every field absent parses as fourteen empty fields" \
+  "$(b18_visible "$(b18_read "$b18_allempty" "$B18_SHOW")")" "|||||||||||||"
+
+# The `effort` fallback to CLAUDE_EFFORT is "same fallbacks" in the Behavior
+# clause: it applies AFTER the split, so it must neither stop firing nor start
+# overriding. model_name rides both assertions so neither can pass on the
+# unsplit string (where effort is empty and the fallback fires for the wrong
+# reason).
+b18_eff_empty="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
+check "27b: the CLAUDE_EFFORT fallback still fires after the split when the field is empty" \
+  "$(b18_visible "$(b18_read "$b18_eff_empty" 'printf "%s/%s" "$model_name" "$effort"' CLAUDE_EFFORT=medium)")" \
+  "Opus/medium"
+b18_eff_set="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
+check "27b: and still does not override an effort the payload carried" \
+  "$(b18_visible "$(b18_read "$b18_eff_set" 'printf "%s/%s" "$model_name" "$effort"' CLAUDE_EFFORT=medium)")" \
+  "Opus/high"
+
+# --- 27c. The JQ end: which byte does the filter actually emit? -------------
+# Capture the filter sl_parse_input hands to jq, then EXECUTE it with the real
+# binary and look at what came out. Structural in how it gets hold of the
+# filter, behavioural in what it asserts: not "the source says \u001f" but "the
+# filter this function runs puts 0x1f between the fields".
+B18_FILTER="$TMPROOT/b18-filter.jq"
+( cd "$B18_RUN" || exit 1
+  printf '%s' "$B18_JSON" \
+    | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b18-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        B18_FILTER_OUT="$B18_FILTER" \
+        bash -c '
+          . "$1" >/dev/null 2>&1
+          jq() { printf "%s" "${@: -1}" > "$B18_FILTER_OUT"; command jq "$@"; }
+          input="$2"
+          sl_parse_input
+        ' _ "$CONTEXT" "$B18_JSON" ) >/dev/null 2>&1
+
+check "27c: control -- the captured filter really is sl_parse_input's own (not an empty file)" \
+  "$( { [ -s "$B18_FILTER" ] && grep -q 'context_window_size' "$B18_FILTER" \
+        && grep -q 'join(' "$B18_FILTER"; } && echo yes || echo no)" "yes"
+
+# Fourteen distinguishable values, field 1 a known seven characters wide so the
+# separator is the byte at offset 7 -- read positionally rather than by scanning
+# for "the non-printable one", so a delimiter that IS printable is caught too.
+b18_pay="{\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"/tp\",\"workspace\":{\"current_dir\":\"/cw\"},\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"session_id\":\"sess-abc\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":1700000000},\"seven_day\":{\"used_percentage\":17,\"resets_at\":1700500000}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
+b18_joined=$(printf '%s' "$b18_pay" | jq -r "$(<"$B18_FILTER")")
+check "27c: the filter's own output separates the fields with 0x1f" \
+  "$(b18_visible "${b18_joined:7:1}")" "<1f>"
+check "27c: thirteen of them -- one per gap between the fourteen fields" \
+  "$(b18_count_byte "$b18_joined" "$B18_US")" "13"
+check "27c: and not one 0x01 byte survives in what jq emits" \
+  "$(b18_count_byte "$b18_joined" "$B18_SOH")" "0"
+# Order and count at the JQ end, independently of the read end: the same
+# fourteen fields, the same order, on the new byte.
+check "27c: the fourteen fields come out in the contract's order, on the new byte" \
+  "$(b18_visible "$b18_joined")" \
+  "1000000<1f>145230<1f>/tp<1f>/cw<1f>Opus<1f>high<1f>42<1f>1700000000<1f>17<1f>1700500000<1f>503<1f>16<1f>12.34<1f>sess-abc"
+# "Same single jq invocation." Section 22i owns the per-RENDER budget through
+# the PATH-shim harness; this is the narrower statement the delimiter clause
+# needs -- one jq inside sl_parse_input itself -- counted by the same function
+# shadow the rest of 27a/27b uses, so it duplicates nothing.
+b18_read "$b18_allempty" 'true' >/dev/null
+check "27c: sl_parse_input spends exactly one jq invocation" \
+  "$(b18_count_byte "$(<"$B18_JQ_LOG")" x)" "1"
+
+# --- 27d. Both ends, or neither: the half-fix renders the defect ------------
+# Copies of context.sh with the delimiter rewritten at ONE end only. The seds
+# match \x<any two hex> / \u00<any two hex> rather than \x01 specifically, so
+# they stay half-swaps in both directions -- before the fix and after it. Each
+# is then a live demonstration that the ends must agree, and the control that
+# stops all of 27a/27c from being a statement about a byte nothing depends on.
+b18_shadow() { # name sed_arg...
+  local name="$1"; shift
+  local d="$TMPROOT/b18-$name" f
+  mkdir -p "$d/scripts" "$d/lib"
+  sed "$@" "$CONTEXT" > "$d/scripts/context.sh"
+  for f in platform.sh states.sh states.tsv burn-math.sh burn-tick.sh burn-theme.sh; do
+    ln -s "$SCRIPT_DIR/../lib/$f" "$d/lib/$f"
+  done
+  printf '%s' "$d/scripts/context.sh"
+}
+B18_SED_READ='/IFS=\$/ s/\\x[0-9a-fA-F]{2}/\\x1e/'
+B18_SED_JQ='s/join\("\\u00[0-9a-fA-F]{2}"\)/join("\\u001e")/'
+B18_HALF_READ=$(b18_shadow half-read -E -e "$B18_SED_READ")
+B18_HALF_JQ=$(b18_shadow half-jq -E -e "$B18_SED_JQ")
+B18_BOTH=$(b18_shadow both -E -e "$B18_SED_READ" -e "$B18_SED_JQ")
+
+b18_render() { # script cache_dir json
+  ( cd "$B18_RUN" || return 1
+    printf '%s' "$3" \
+      | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+          CLAM_STATUSLINE_CACHE_DIR="$2" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+          bash "$1" 2>/dev/null )
+}
+# No model name (no rainbow, whose palette offset advances one frame per render)
+# and no reset on either limit (no countdown), for 26a's reason: what is left is
+# exactly reproducible across two renders.
+B18_RENDER_JSON=$(burn_json "$B18_WD" 145230 "" "max" 1 "" 62 "" 503 16)
+b18_carries_cwd() { # script cache_dir
+  if b18_render "$1" "$2" "$B18_RENDER_JSON" | grep -qF "$B18_WD"; then
+    printf 'yes'
+  else
+    printf 'no'
+  fi
+}
+# Exactly ONE line moved in each half-swap and exactly TWO in the both-swap,
+# which is only possible if the two seds hit DIFFERENT lines -- i.e. these
+# really are the two ends, and neither sed silently caught a third site.
+b18_changed_lines() { # file
+  diff "$CONTEXT" "$1" | grep -c '^< '
+}
+check "27d: control -- each half-swap rewrote exactly one end, and a different one" \
+  "$(b18_changed_lines "$B18_HALF_READ")/$(b18_changed_lines "$B18_HALF_JQ")/$(b18_changed_lines "$B18_BOTH")" \
+  "1/1/2"
+check "27d: the real renderer parses the payload's cwd and renders it" \
+  "$(b18_carries_cwd "$CONTEXT" "$TMPROOT/b18-c-real")" "yes"
+check "27d: swapping ONLY the read end renders the defect -- an empty cwd" \
+  "$(b18_carries_cwd "$B18_HALF_READ" "$TMPROOT/b18-c-hr")" "no"
+check "27d: swapping ONLY the jq end renders the defect too -- the ends must agree" \
+  "$(b18_carries_cwd "$B18_HALF_JQ" "$TMPROOT/b18-c-hj")" "no"
+
+# --- 27e. Outputs: byte-identical under bash 5 ------------------------------
+# The Outputs clause is an INVARIANCE clause, so its check is green before the
+# change and green after -- that is what it means. It is not vacuous: the
+# comparison is against a renderer joined and split on a THIRD byte (0x1e), so
+# what it pins is "the rendered line does not depend on which non-whitespace
+# byte carries the payload", which stays a real statement once \x1f lands. A
+# fix that also reordered a field, dropped one, or moved a fallback breaks it.
+check "27e: control -- the 0x1e renderer really carries neither candidate byte at either end" \
+  "$(grep -vE '^[[:space:]]*#' "$B18_BOTH" | grep -cE '\\x01|\\u0001|\\x1f|\\u001f')" "0"
+check "27e: a renderer carrying the payload on 0x1e instead renders byte-identical output" \
+  "$([ "$(b18_render "$CONTEXT" "$TMPROOT/b18-p-real" "$B18_RENDER_JSON")" \
+     = "$(b18_render "$B18_BOTH" "$TMPROOT/b18-p-both" "$B18_RENDER_JSON")" ] && echo yes || echo no)" "yes"
+
+# --- 27f. The negative: a whitespace delimiter is not substitutable ---------
+# The reason the delimiter is a control byte at all. bash treats tab and space
+# as "IFS whitespace" even when IFS is set to only one of them, so runs of the
+# delimiter collapse -- an absent field between two present ones swallows the
+# next column and misaligns everything after it. The first check applies the
+# byte DERIVED in 27a, so it is a statement about the delimiter the code uses,
+# not about a byte named here; the other two are the negative it is measured
+# against.
+b18_split_shape() { # byte
+  local a b c d
+  IFS="$1" read -r a b c d <<< "A$1$1C$1D"
+  printf '[%s][%s][%s][%s]' "$a" "$b" "$c" "$d"
+}
+B18_DELIM=$(b18_byte_of "$B18_READ_DELIMS")
+check "27f: the byte sl_parse_input's read splits on preserves an empty middle field" \
+  "$(b18_split_shape "$B18_DELIM")" "[A][][C][D]"
+check "27f: a tab does not -- the run collapses and the next column is swallowed" \
+  "$(b18_split_shape "$B18_TAB")" "[A][C][D][]"
+check "27f: nor does a space, for the same reason" \
+  "$(b18_split_shape " ")" "[A][C][D][]"
+
+# --- 27g. The in-function comment explains BOTH reasons ---------------------
+# A structural assertion over the source text, and deliberately so: `declare -f`
+# drops comments, so bash's own parse cannot see this clause. The contract makes
+# the comment load-bearing -- a reader who knows only the tab reason will
+# "simplify" \x1f back to \x01, since \x01 answers the tab problem just as well.
+# Only the comment lines INSIDE the function are read, so the docblock above it
+# (which legitimately spells both bytes while explaining them) is out of scope.
+b18_fn_comment=$(sed -n '/^sl_parse_input() {$/,/^  IFS=/p' "$CONTEXT" \
+  | grep -E '^[[:space:]]*#')
+check "27g: control -- there is an in-function comment to read at all" \
+  "$([ "$(printf '%s\n' "$b18_fn_comment" | grep -c '#')" -ge 3 ] && echo yes || echo no)" "yes"
+check "27g: it names the byte actually in use (0x1f)" \
+  "$(printf '%s\n' "$b18_fn_comment" | grep -qiE '\\x1f|\\u001f|0x1f|001f' && echo yes || echo no)" "yes"
+check "27g: it explains the bash 3.2 reason, by version" \
+  "$(printf '%s\n' "$b18_fn_comment" | grep -qE 'bash 3|3\.2' && echo yes || echo no)" "yes"
+check "27g: and says what 3.2 does with the byte (sentinel / CTLESC)" \
+  "$(printf '%s\n' "$b18_fn_comment" | grep -qiE 'sentinel|ctlesc|quoting' && echo yes || echo no)" "yes"
+check "27g: while still explaining the ORIGINAL tab/whitespace reason" \
+  "$(printf '%s\n' "$b18_fn_comment" | grep -qiE 'whitespace|tab' && echo yes || echo no)" "yes"
+
+# --- 27h. Neither byte appears anywhere else in the plugin ------------------
+# Two scans, because the byte can arrive two ways. The first is over ESCAPE
+# SPELLINGS on non-comment lines of the plugin's non-test shell sources: prose
+# explaining \x01 is exactly what the contract asks for and must not trip it,
+# and the test file legitimately builds both bytes as fixture data, which is why
+# neither is scanned. That leaves executable use, which is what the invariant is
+# about. The second is over LITERAL bytes and covers every file including this
+# one -- this suite constructs its control bytes with printf at runtime and so
+# contains none.
+B18_PLUGIN="$SCRIPT_DIR/.."
+B18_ESCAPES='\\x01|\\u0001|\\x7[fF]|\\u007[fF]|\\001|\\177'
+b18_code_hits() {
+  local f n=0 c
+  for f in "$B18_PLUGIN"/lib/*.sh "$B18_PLUGIN"/scripts/*.sh; do
+    case "$f" in *.test.sh) continue ;; esac
+    [ -f "$f" ] || continue
+    c=$(grep -vE '^[[:space:]]*#' "$f" | grep -cE "$B18_ESCAPES")
+    n=$(( n + c ))
+  done
+  printf '%s' "$n"
+}
+check "27h: no executable line of any non-test plugin script spells 0x01 or 0x7f" \
+  "$(b18_code_hits)" "0"
+check "27h: control -- that pattern does match where the bytes are legitimately spelled, so it is falsifiable" \
+  "$([ "$(grep -cE "$B18_ESCAPES" "$SCRIPT_DIR/context.test.sh")" -gt 0 ] && echo yes || echo no)" "yes"
+check "27h: and no plugin file carries a literal 0x01 or 0x7f byte, this suite included" \
+  "$(LC_ALL=C grep -rl "[$B18_SOH$B18_DEL]" "$B18_PLUGIN" 2>/dev/null | grep -c . | tr -d ' ')" "0"
+B18_PLANT="$TMPROOT/b18-planted-byte"
+printf 'before%safter\n' "$B18_SOH" > "$B18_PLANT"
+check "27h: control -- that byte scan does find a planted 0x01, so it is falsifiable too" \
+  "$(LC_ALL=C grep -rl "[$B18_SOH$B18_DEL]" "$B18_PLANT" 2>/dev/null | grep -c . | tr -d ' ')" "1"
+
+# --- 27i. Edge case: a field whose VALUE contains the delimiter -------------
+# The contract calls this "the same theoretical hazard the old byte carried and
+# no more likely", so these pin today's behaviour rather than demanding escaping
+# the contract does not ask for. Both run end to end through the REAL jq, and
+# the pair moves together: the hazard transfers from one byte to the other, it
+# does not appear or disappear. A \x1f inside a model name splits it (as a \x01
+# inside one splits it today); a \x01 inside one becomes harmless.
+b18_parse() { # json bash_code
+  ( cd "$B18_RUN" || return 1
+    printf '%s' "$B18_JSON" \
+      | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+          CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b18-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+          bash -c '
+            . "$1" >/dev/null 2>&1
+            input="$2"
+            sl_parse_input
+            eval "$3"
+          ' _ "$CONTEXT" "$1" "$2" )
+}
+b18_val_us="{\"workspace\":{\"current_dir\":\"$B18_WD\"},\"transcript_path\":\"\",$ctx,\"model\":{\"display_name\":\"Op\\u001fus\"},\"effort\":{\"level\":\"high\"}}"
+check "27i: a 0x1f inside a field value misparses -- the hazard the new byte inherits" \
+  "$(b18_visible "$(b18_parse "$b18_val_us" 'printf "%s/%s" "$model_name" "$effort"')")" "Op/us"
+b18_val_soh="{\"workspace\":{\"current_dir\":\"$B18_WD\"},\"transcript_path\":\"\",$ctx,\"model\":{\"display_name\":\"Op\\u0001us\"},\"effort\":{\"level\":\"high\"}}"
+check "27i: while a 0x01 inside one is now harmless, where today it splits the field" \
+  "$(b18_visible "$(b18_parse "$b18_val_soh" 'printf "%s/%s" "$model_name" "$effort"')")" "Op<01>us/high"
+# And the same round trip with nothing unusual in it: real jq, real read, every
+# optional field absent. Green either side of the change by construction -- both
+# bytes split correctly on bash 5 -- and there to catch a fix that dropped or
+# reordered a field while it was in the neighbourhood.
+check "27i: a fully-absent payload still round-trips through real jq as fourteen empty fields" \
+  "$(b18_visible "$(b18_parse '{}' "$B18_SHOW")")" "|||||||||||||"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -18,14 +18,20 @@ starts it.
    clone — it does not touch any installed plugin.
 2. **Build the version report.** Run
    `${CLAUDE_PLUGIN_ROOT}/scripts/check-versions.sh` and parse its
-   eight-column TSV output (columns: `plugin`, `installed`, `latest`,
-   `update`, `stamp`, `setup`, `stale_targets`, `scope`).
+   nine-column TSV output (columns: `plugin`, `installed`, `latest`,
+   `update`, `stamp`, `setup`, `stale_targets`, `scope`,
+   `stale_installs`). The report describes THIS repo: install records
+   belonging to other repositories on the machine are excluded from every
+   column, so what it says is what applies here.
 3. **Present the report before anything changes.** Show the table as a
    readable summary — what's current, what's stale, what's unstamped —
    and for any row whose `setup` is `stale`, show its `stale_targets`
    value too, so the reader can see which target is behind without
-   opening the stamp file. Nothing has changed yet; this step is purely
-   informational.
+   opening the stamp file. For any row whose `update` is `stale`, show its
+   `stale_installs` value the same way: it names the project paths in this
+   repo whose records are behind, which is the difference between one
+   worktree being out of date and all of them. Nothing has changed yet;
+   this step is purely informational.
 4. **Nothing stale?** If no row's `update` column is `stale`, say plainly
    that nothing is stale and stop — there is nothing to update. (Setup
    re-run offers below can still apply even here, if a stamp is stale
@@ -50,8 +56,17 @@ starts it.
    plugin does not abort the rest — keep going through the remaining
    confirmed plugins and collect every failure to report at the end.
 7. **Re-run the check after updating.** Run `check-versions.sh` again and
-   show the after state — including each row's `stale_targets` value —
-   next to the before state, so the before/after change is visible.
+   show the after state — including each row's `stale_targets` and
+   `stale_installs` values — next to the before state, so the before/after
+   change is visible.
+
+   A row can legitimately stay `stale` here even though its update command
+   succeeded. `installed` reports the LOWEST version among this repo's
+   records, so a plugin recorded in several project paths goes green only
+   once every one of them is updated, and `claude plugin update` resolves a
+   single record per run. When that happens, say so plainly and show the
+   remaining `stale_installs` paths rather than reporting the update as
+   failed or re-running it blindly — it did what it could reach.
 8. **Offer setup re-runs — never run them.** Using the `setup` column from
    the after-state check, offer the matching setup command (see the
    mapping below) for every plugin whose `setup` status is `stale`.
@@ -125,6 +140,14 @@ just want to see what's stale without changing anything.
   command used is not where that plugin is actually installed. Re-read
   that plugin's row and its `scope` column in the report, then re-run the
   command with `-s <scope>` using the value found there for that plugin.
+- **A row is still `stale` after its update command reported success.**
+  Not a failure, and not a reason to retry: `installed` is the LOWEST
+  version among this repo's install records, and one `claude plugin
+  update` run resolves a single record. Read that row's `stale_installs`
+  value — it names the project paths still behind — and report them. The
+  CLI exposes no per-project target, so a record for a project path other
+  than the current one may only be reachable by running the update from
+  that project. Say that plainly rather than looping the same command.
 
 ## Notes
 

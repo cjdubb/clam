@@ -9,10 +9,17 @@
 #   #276): an eighth column scope reports where each plugin is installed, so
 #   the update skill can pass the right -s flag instead of defaulting to user
 #   scope. Specified in Outputs below.
+#   Amended again by plan 001-repo-scoped-report (issues #324, #325): the
+#   report is scoped to the repo it is run from — entries belonging to other
+#   repositories no longer contribute to any column — installed reports the
+#   LOWEST of this repo's versions rather than the highest, and a ninth
+#   column stale_installs names the projectPaths still behind. Specified in
+#   Outputs below, which remains the single authoritative statement of this
+#   script's contract.
 # Behavior:
-#   Read-only report of every clam-marketplace plugin: installed version vs
-#   latest available vs setup stamp. Reads three sources under the Claude
-#   config dir:
+#   Read-only report of every clam-marketplace plugin INSTALLED IN THIS REPO:
+#   installed version vs latest available vs setup stamp. Reads three sources
+#   under the Claude config dir:
 #     - plugins/installed_plugins.json          (what is installed, keyed
 #       "<plugin>@<marketplace>"; installed version is read from the
 #       plugin.json at each entry's installPath when resolvable, falling
@@ -30,9 +37,38 @@
 #     CLAM_MARKETPLACE   marketplace name (default: clam)
 # Outputs:
 #   TSV on stdout: header
-#   "plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope",
-#   then one row per catalog plugin, sorted by plugin name:
-#     installed: version | "-" (not installed)
+#   "plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope
+#    \tstale_installs",
+#   then one row per catalog plugin, sorted by plugin name.
+#
+#   WHICH ENTRIES COUNT (issue #324). installed_plugins.json is machine-wide:
+#   it holds one entry per projectPath, including projects in OTHER
+#   repositories. Every column below describes ONLY the entries belonging to
+#   the repo the script is run from, because the report exists to drive
+#   /management:update for THIS repo. An entry counts when:
+#     - it carries no projectPath — a user-scope install applies to every
+#       repo, including this one; or
+#     - its projectPath resolves to the same git common dir as the cwd.
+#       Comparing common dirs rather than paths is what makes this
+#       worktree-proof: sibling worktrees of one repo share a common dir; or
+#     - its projectPath no longer exists but sat under this repo's container
+#       directory — a deleted worktree's record, which is exactly the kind
+#       that goes silently stale.
+#   Run outside any git repository there is nothing to attribute against, so
+#   no filtering happens and the report stays machine-wide.
+#   Without this filter a sibling repo's entry — usually the NEWEST on the
+#   machine — won the installed collapse and the row read `current` while
+#   this repo ran a version several releases behind.
+#     installed: the LOWEST version among THIS REPO's entries by `sort -V`
+#                | "-" (not installed here). Lowest, not highest, for the
+#                same reason the stamp column reports the lowest: the row
+#                exists to say whether anything here still needs updating,
+#                and ONE behind record is enough to mean yes (issue #325).
+#                Reporting the highest let an already-updated record mask a
+#                behind one — `claude plugin update` resolves a single
+#                record, so a repo with several local entries updates them
+#                one at a time and spends most of that time in exactly the
+#                mixed state the highest collapse hid.
 #     latest:    version | "?" (source or plugin.json unresolvable)
 #     update:    current | stale | not-installed | unknown
 #                (stale = installed and latest both known and different;
@@ -72,8 +108,21 @@
 #                because a plugin installed at two scopes needs an update
 #                run at each; collapsing to one would leave the other
 #                silently stale. Note this is independent of the installed
-#                column: scope covers all entries, not just the entry whose
-#                version won the `highest` collapse.
+#                column: scope covers all of this repo's entries, not just
+#                the entry whose version won the `lowest` collapse.
+#     stale_installs:
+#                the projectPath of every one of THIS REPO's entries whose
+#                version differs from latest, joined by ";" in entry order |
+#                "-" whenever the row is not stale, or latest is unknown. A
+#                user-scope entry has no projectPath and is named "user".
+#                This is what keeps a stale row actionable (issue #325).
+#                Because installed reports the LOWEST version, a repo whose
+#                records disagree stays `stale` until every record is
+#                updated; without naming them, that row says work is needed
+#                but not where, and `claude plugin update` may not be able
+#                to reach a given record at all — it resolves one record per
+#                run and exposes no per-projectPath target. Same role for
+#                install records that stale_targets plays for stamps.
 #   Plugins installed from OTHER marketplaces are out of scope and never
 #   appear. Version comparison is string (in)equality — the marketplace
 #   only moves forward; no semver ordering is attempted. NOTE the two
@@ -94,8 +143,33 @@
 #   - Deterministic: same inputs -> same output bytes and exit code.
 #   - Header line is always printed, even for an empty catalog.
 # Edge cases:
-#   - Plugin installed at multiple scopes: one row; installed = highest
-#     version among entries by `sort -V`; setup column is the worst status
+#   - Plugin installed in ANOTHER repo but not this one: the row reads
+#     not-installed, exactly as if the foreign entry were absent. It is not
+#     this repo's install and no command run here can update it.
+#   - Plugin installed in several worktrees of THIS repo at DIFFERENT
+#     versions (the ordinary mid-update state): one row; installed is the
+#     lowest of them, update reads stale, and stale_installs names every
+#     projectPath still behind latest.
+#   - Every entry for a plugin belongs to another repo: the row is
+#     not-installed and scope is "-", never the foreign entry's scope —
+#     passing a foreign record's scope to `-s` fails outright.
+#   - A projectPath that no longer exists: counted when it sat under this
+#     repo's container directory, ignored otherwise. A deleted worktree's
+#     record cannot be resolved through git, and its container is the only
+#     evidence left of which repo it belonged to.
+#   - SETUP STAMPS ARE NOT REPO-FILTERED. The repo scoping above applies to
+#     installation entries only; the stamp/setup/stale_targets columns still
+#     consider every stamp for the plugin, so stale_targets can name a path
+#     in another repository. A stamp records a `target` settings file rather
+#     than a project root, so attributing one to a repo is a different
+#     problem than attributing an install entry, and it is deliberately left
+#     to its own change rather than guessed at here.
+#   - Not inside a git repository: no attribution is possible, so no
+#     filtering happens and every entry counts (machine-wide, the pre-#324
+#     behaviour). The report is still internally consistent; it simply
+#     describes the machine rather than a repo.
+#   - Plugin installed at multiple scopes: one row; installed = lowest
+#     version among this repo's entries by `sort -V`; setup column is the worst status
 #     across that plugin's stamps (stale beats current); stamp column is
 #     the LOWEST stamp version by `sort -V` (the one driving that status);
 #     stale_targets lists every differing stamp's target, not just one;
@@ -117,6 +191,12 @@
 #     the setup skills, so this is out of contract: no escaping is
 #     performed and none is expected.
 #   - setup=unstamped or "-": stale_targets is "-", never empty.
+#   - update=current, not-installed, or unknown: stale_installs is "-",
+#     never empty. A row needing no update names no path.
+#   - A projectPath containing a ";" or a tab would corrupt the joined
+#     stale_installs field. Same standing as stale_targets: these are
+#     absolute filesystem paths written by the CLI, so no escaping is
+#     performed and none is expected.
 #   - Catalog entry whose source path resolves but has no plugin.json:
 #     latest "?", update unknown (if installed).
 #   - Empty stamps array / absent stamp file: setup = unstamped or "-".
@@ -175,21 +255,54 @@ resolve_installed_version() {
     fi
 }
 
-# highest_of prints the highest of its arguments per `sort -V` (never plain
-# lexicographic sort — the contract calls this out explicitly for
-# multi-install "highest" selection).
-highest_of() {
-    printf '%s\n' "$@" | sort -V | tail -n1
-}
-
-# lowest_of prints the lowest of its arguments per `sort -V` — the stamp
-# column reports the LOWEST stamp version (issue #239: reporting the
-# highest made the stamp and setup columns contradict each other).
+# lowest_of prints the lowest of its arguments per `sort -V` (never plain
+# lexicographic sort). Both multi-value columns take the lowest: the stamp
+# column since #239 (reporting the highest made the stamp and setup columns
+# contradict each other) and the installed column since #325 (reporting the
+# highest let an updated record mask a behind one).
 lowest_of() {
     printf '%s\n' "$@" | sort -V | head -n1
 }
 
-printf 'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope\n'
+# This repo's git common dir, resolved absolutely so sibling worktrees of the
+# same repo compare equal (they share one common dir; their working-tree paths
+# differ). Empty when the script is run outside a git repository, which turns
+# the entry filter off rather than emptying the report.
+REPO_COMMON=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+REPO_CONTAINER=""
+[[ -n "$REPO_COMMON" ]] && REPO_CONTAINER=$(dirname "$REPO_COMMON")
+
+# Resolving a projectPath costs a git invocation, and the same handful of
+# paths recur across every plugin in the catalog, so each verdict is cached.
+declare -A REPO_MATCH_CACHE=()
+
+# entry_in_this_repo projectPath
+# Succeeds when an installation entry belongs to the repo being reported on.
+# See "WHICH ENTRIES COUNT" in the contract above for why each case counts.
+entry_in_this_repo() {
+    local pp="$1" cached common verdict
+    [[ -n "$pp" ]] || return 0
+    [[ -n "$REPO_COMMON" ]] || return 0
+
+    cached="${REPO_MATCH_CACHE[$pp]:-}"
+    if [[ -n "$cached" ]]; then
+        [[ "$cached" == "1" ]]
+        return
+    fi
+
+    verdict=0
+    if [[ -d "$pp" ]]; then
+        common=$(git -C "$pp" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+        [[ -n "$common" && "$common" == "$REPO_COMMON" ]] && verdict=1
+    elif [[ -n "$REPO_CONTAINER" && "$pp" == "$REPO_CONTAINER"/* ]]; then
+        verdict=1
+    fi
+
+    REPO_MATCH_CACHE["$pp"]="$verdict"
+    [[ "$verdict" == "1" ]]
+}
+
+printf 'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope\tstale_installs\n'
 
 any_stale=0
 
@@ -206,15 +319,22 @@ while IFS=$'\t' read -r name source; do
 
     installed="-"
     scope="-"
+    # Reset per row: a plugin with no entries in THIS repo must report as
+    # not-installed, never inherit the previous row's records.
+    versions=()
+    version_paths=()
+    # scopes: the DISTINCT scope of every one of THIS REPO's entries, in the
+    # entries' own (file) order, deduplicated as they are collected — never
+    # sorted, and independent of which entry's version wins the `installed`
+    # lowest-of collapse below.
+    scopes=()
     if [[ -n "$entries_json" && "$entries_json" != "null" ]]; then
-        versions=()
-        # scopes: the DISTINCT scope of every entry, in the entries' own
-        # (file) order, deduplicated as they are collected — never sorted,
-        # and independent of which entry's version wins the `installed`
-        # highest-of collapse below.
-        scopes=()
-        while IFS=$'\t' read -r install_path entry_version entry_scope; do
+        while IFS=$'\t' read -r install_path entry_version entry_scope project_path; do
+            entry_in_this_repo "$project_path" || continue
             versions+=("$(resolve_installed_version "$install_path" "$entry_version")")
+            # A user-scope entry has no projectPath; name it so stale_installs
+            # can still point at something a reader can act on.
+            version_paths+=("${project_path:-user}")
             if [[ -n "$entry_scope" ]]; then
                 already_seen=0
                 for seen in "${scopes[@]}"; do
@@ -225,9 +345,9 @@ while IFS=$'\t' read -r name source; do
                 done
                 [[ "$already_seen" -eq 1 ]] || scopes+=("$entry_scope")
             fi
-        done < <(jq -r '.[] | [.installPath, .version, (.scope // "")] | @tsv' <<<"$entries_json")
+        done < <(jq -r '.[] | [.installPath, .version, (.scope // ""), (.projectPath // "")] | @tsv' <<<"$entries_json")
         if [[ ${#versions[@]} -gt 0 ]]; then
-            installed=$(highest_of "${versions[@]}")
+            installed=$(lowest_of "${versions[@]}")
         fi
         if [[ ${#scopes[@]} -gt 0 ]]; then
             scope=$(IFS=';'; printf '%s' "${scopes[*]}")
@@ -288,7 +408,24 @@ while IFS=$'\t' read -r name source; do
         stale_targets=$(IFS=';'; printf '%s' "${differing[*]}")
     fi
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$installed" "$latest" "$update" "$stamp" "$setup" "$stale_targets" "$scope"
+    # stale_installs: which of THIS repo's install records are still behind
+    # latest, in entry order; "-" whenever the row needs no update. Compared
+    # against latest rather than against installed, because installed is the
+    # lowest and comparing to it would name the records that are AHEAD.
+    stale_installs="-"
+    if [[ "$update" == "stale" ]]; then
+        behind=()
+        for i in "${!versions[@]}"; do
+            if [[ "${versions[$i]}" != "$latest" ]]; then
+                behind+=("${version_paths[$i]}")
+            fi
+        done
+        if [[ ${#behind[@]} -gt 0 ]]; then
+            stale_installs=$(IFS=';'; printf '%s' "${behind[*]}")
+        fi
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$installed" "$latest" "$update" "$stamp" "$setup" "$stale_targets" "$scope" "$stale_installs"
 done < <(jq -r '(.plugins // []) | sort_by(.name)[] | [.name, (.source | ltrimstr("./"))] | @tsv' "$MKT_JSON")
 
 if [[ "$any_stale" -eq 1 ]]; then

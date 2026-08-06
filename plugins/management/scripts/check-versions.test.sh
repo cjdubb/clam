@@ -101,7 +101,7 @@
 #     (no ";;" segment, no trailing ";")                       -> SCOPECOL
 #   installed but no entry carries a usable scope -> "-", never
 #     empty                                                    -> SCOPECOL
-#   every data row carries exactly 8 tab-separated fields      -> check_row
+#   every data row carries exactly 9 tab-separated fields      -> check_row
 #     (so a missing or extra column is caught at every call site)
 #   ";" or tab inside a stamp target, and likewise inside a scope
 #     value                                                    -> explicitly
@@ -127,7 +127,7 @@ check_true() { # label yes/no
   check "$1" "$2" "yes"
 }
 
-HEADER=$'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope'
+HEADER=$'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope\tstale_installs'
 
 # --- Fixture-building helpers ------------------------------------------------
 
@@ -222,15 +222,20 @@ field_of() {
 nfields_of() {
   awk -F'\t' '{print NF}' <<<"$1"
 }
-# check_row <label> <tsv> <plugin> <installed> <latest> <update> <stamp> <setup> <stale_targets> <scope>
+# check_row <label> <tsv> <plugin> <installed> <latest> <update> <stamp> <setup> <stale_targets> <scope> [stale_installs]
+#
+# stale_installs defaults to "-" rather than being required at all 35 call
+# sites. That default is safe BECAUSE it is the not-stale value: any row that
+# actually carries drift produces a non-"-" field and fails this assertion
+# loudly, so an omitted expectation is caught rather than waved through.
 check_row() {
-  local label="$1" tsv="$2" plugin="$3" exp_installed="$4" exp_latest="$5" exp_update="$6" exp_stamp="$7" exp_setup="$8" exp_stale_targets="$9" exp_scope="${10}"
+  local label="$1" tsv="$2" plugin="$3" exp_installed="$4" exp_latest="$5" exp_update="$6" exp_stamp="$7" exp_setup="$8" exp_stale_targets="$9" exp_scope="${10}" exp_stale_installs="${11:--}"
   local row; row=$(row_of "$tsv" "$plugin")
   check_true "$label: row present" "$([[ -n "$row" ]] && echo yes || echo no)"
-  # Arity as well as content: an 8-field row with an empty scope and a
-  # 7-field row with no scope at all are different failures, and the row
-  # must never be wider than the header.
-  check "$label: row has exactly 8 tab-separated fields" "$(nfields_of "$row")" "8"
+  # Arity as well as content: a 9-field row with an empty stale_installs and
+  # an 8-field row with no stale_installs at all are different failures, and
+  # the row must never be wider than the header.
+  check "$label: row has exactly 9 tab-separated fields" "$(nfields_of "$row")" "9"
   check "$label: installed column" "$(field_of "$row" 2)" "$exp_installed"
   check "$label: latest column" "$(field_of "$row" 3)" "$exp_latest"
   check "$label: update column" "$(field_of "$row" 4)" "$exp_update"
@@ -238,6 +243,7 @@ check_row() {
   check "$label: setup column" "$(field_of "$row" 6)" "$exp_setup"
   check "$label: stale_targets column" "$(field_of "$row" 7)" "$exp_stale_targets"
   check "$label: scope column" "$(field_of "$row" 8)" "$exp_scope"
+  check "$label: stale_installs column" "$(field_of "$row" 9)" "$exp_stale_installs"
 }
 
 # A stub PATH with common coreutils (including bash) symlinked in, but
@@ -310,9 +316,9 @@ run_check "$CFG_MAIN"
 OUT1="$OUT"; RC1="$RC"
 
 check "MAIN: header line exact text" "$(head -n1 <<<"$OUT1")" "$HEADER"
-check "MAIN: header has exactly 8 columns" "$(nfields_of "$(head -n1 <<<"$OUT1")")" "8"
-check "MAIN: header's last column is 'scope'" \
-  "$(field_of "$(head -n1 <<<"$OUT1")" 8)" "scope"
+check "MAIN: header has exactly 9 columns" "$(nfields_of "$(head -n1 <<<"$OUT1")")" "9"
+check "MAIN: header's last column is 'stale_installs'" \
+  "$(field_of "$(head -n1 <<<"$OUT1")" 9)" "stale_installs"
 check "MAIN: row names in order match sorted catalog names" \
   "$(tail -n +2 <<<"$OUT1" | cut -f1)" "$(printf 'alpha\nbeta\ndelta\nepsilon\ngamma\nzeta')"
 check "MAIN: exactly 7 lines total (header + 6 rows)" "$(wc -l <<<"$OUT1" | tr -d ' ')" "7"
@@ -324,7 +330,10 @@ check "MAIN: exactly 7 lines total (header + 6 rows)" "$(wc -l <<<"$OUT1" | tr -
 # inst_entry default scope "user", so scope is that entry's own scope; gamma
 # is not installed and so gets "-".
 check_row "MAIN alpha (current/current)"        "$OUT1" alpha   1.0.0 1.0.0 current       1.0.0 current   "-" user
-check_row "MAIN beta (stale-update/current-setup)" "$OUT1" beta 1.0.0 2.0.0 stale         1.0.0 current   "-" user
+# beta is the one stale row here, so it is also the one row whose
+# stale_installs is not "-": its single record is behind latest, named by the
+# no-projectPath fallback.
+check_row "MAIN beta (stale-update/current-setup)" "$OUT1" beta 1.0.0 2.0.0 stale         1.0.0 current   "-" user user
 check_row "MAIN delta (unknown-latest/unstamped)"  "$OUT1" delta 1.5.0 "?"  unknown       "-"   unstamped "-" user
 check_row "MAIN epsilon (current/unstamped)"    "$OUT1" epsilon 1.0.0 1.0.0 current       "-"   unstamped "-" user
 check_row "MAIN gamma (not installed, all dashes)" "$OUT1" gamma "-"   3.0.0 not-installed "-"   "-"       "-" "-"
@@ -420,21 +429,26 @@ check_row "LATEST gone-and-uninstalled (not installed wins over unknown latest)"
 echo ""
 echo "=== Fixture MULTI: multiple installations of one plugin (sort -V, worst-setup-wins) ==="
 # ============================================================================
-# - multi: two installations, versions "2.9.0" and "2.10.0". A naive
-#   lexicographic sort would pick "2.9.0" as "highest"; sort -V must pick
-#   "2.10.0". Stamps: one matches the highest (2.10.0, target /y), one
-#   doesn't (2.9.0, target /x) -> setup must be "stale" (worst wins), and
-#   stale_targets must be exactly "/x" -- the differing stamp only, never
-#   the matching one.
-#   The same 2.9.0/2.10.0 pair pins the stamp column in the other
-#   direction: it reports the LOWEST stamp version by sort -V, i.e. the one
-#   driving setup=stale, so stamp is "2.9.0". Lexicographic ordering would
-#   answer "2.10.0" and the old contract's "highest" would answer "2.10.0"
-#   too, so this single assertion separates all three.
-# - multi-current: same two-installation shape, but BOTH stamps match the
-#   highest version -> setup must be "current" (proves worst-wins isn't
+# - multi: two installations, versions "2.9.0" and "2.10.0". installed
+#   reports the LOWEST by sort -V (issue #325), so it must be "2.9.0" -- and
+#   this pair is what separates that from a lexicographic sort, which would
+#   answer "2.10.0" as the lower string. The old contract's "highest" would
+#   also have answered "2.10.0", so this one assertion separates all three
+#   rules at once.
+#   The consequence rides along: with installed at 2.9.0 and latest 2.10.0
+#   the row reads update=stale even though one of the two records is already
+#   at latest. That is the whole point of the lowest collapse -- one record
+#   still behind means this repo still needs work -- and stale_installs
+#   names which record it is.
+#   Stamps: one matches installed (2.9.0, target /x), one doesn't (2.10.0,
+#   target /y) -> setup "stale" (worst wins) and stale_targets exactly "/y",
+#   the differing stamp only, never the matching one. The stamp column
+#   reports the LOWEST stamp version by sort -V, so stamp is "2.9.0".
+# - multi-current: same two-installation shape, but every install AND every
+#   stamp sits at 2.10.0 -> setup must be "current" (proves worst-wins isn't
 #   simply "always stale with >1 install"), stamp is 2.10.0 (with every
-#   stamp equal, lowest and highest coincide), and stale_targets is "-"
+#   value equal, lowest and highest coincide, so this row is deliberately
+#   blind to the collapse rule), and stale_targets is "-"
 #   even though the plugin has two stamps with real targets.
 #
 # Both rows are installed at two scopes, entry order user then project, so
@@ -479,8 +493,8 @@ write_stamps "$CFG_MULTI" '{
 }'
 
 run_check "$CFG_MULTI"
-check_row "MULTI multi (installed=highest 2.10.0 via sort -V; stamp=lowest 2.9.0; worst setup=stale; only the differing stamp's target; scope=both entries in entry order, not just the winning entry's 'project')" \
-  "$OUT" multi 2.10.0 2.10.0 current 2.9.0 stale /x 'user;project'
+check_row "MULTI multi (installed=lowest 2.9.0 via sort -V, not the lexicographic or the old 'highest' answer; one behind record keeps update=stale; stamp=lowest 2.9.0; worst setup=stale; only the differing stamp's target; scope=both entries in entry order; stale_installs names the record behind latest)" \
+  "$OUT" multi 2.9.0 2.10.0 stale 2.9.0 stale /y 'user;project' user
 check_row "MULTI multi-current (all installs+stamps agree -> setup=current, no stale targets; scope still lists both scopes in entry order)" \
   "$OUT" multi-current 2.10.0 2.10.0 current 2.10.0 current "-" 'user;project'
 
@@ -489,7 +503,7 @@ echo "=== Fixture SCOPECOL: the scope column (dedup, entry order, absent/empty s
 # ============================================================================
 # No stamp file at all here, so stamp/setup/stale_targets are constant across
 # every row and only the scope column varies. Every plugin's installed equals
-# its latest, so the exit code must be 0.
+# its latest EXCEPT sc-order, whose records disagree, so the exit code is 10.
 #
 # - sc-single:      one entry, scope "local" -> scope is exactly that entry's
 #                   scope. Deliberately NOT the "user" that inst_entry
@@ -503,10 +517,16 @@ echo "=== Fixture SCOPECOL: the scope column (dedup, entry order, absent/empty s
 #                   readings at once: sorted-unique would answer
 #                   "local;project;user", un-deduplicated entry order would
 #                   answer "user;project;local;project", and taking the scope
-#                   of the entry whose version won the `installed` highest
-#                   collapse (3.0.0, the second entry) would answer
-#                   "project". Its versions 1.0.0/3.0.0/1.0.0/1.0.0 make that
-#                   winning entry the middle one, not the first or last.
+#                   of whichever single entry won the `installed` collapse
+#                   would answer one bare scope rather than a joined list, so
+#                   that reading fails on the whole string however the
+#                   collapse is defined. Its versions 1.0.0/3.0.0/1.0.0/1.0.0
+#                   also make the row's records disagree, which under the
+#                   lowest collapse (#325) is what makes it stale.
+#                   stale_installs is "user;user;user" -- three records
+#                   behind latest, each named by the no-projectPath fallback
+#                   rather than by a path, because these fixture entries
+#                   carry no projectPath.
 # - sc-blank:       six entries; a scope-less one, two empty-string ones and
 #                   a second scope-less one are interleaved around the two
 #                   usable scopes (local, then user) so that a naive join
@@ -582,15 +602,18 @@ write_installed "$CFG_SCOPECOL" "{
 SCOPECOL_DIGEST_BEFORE=$(tree_digest "$CFG_SCOPECOL")
 run_check "$CFG_SCOPECOL"
 
-check "SCOPECOL: exit 0 (every row is update=current)" "$RC" "0"
+# sc-order's four entries do not agree on a version, so under the lowest
+# collapse (#325) that row reads stale and the fixture exits 10. Every other
+# row here is current; the exit code is driven by sc-order alone.
+check "SCOPECOL: exit 10 (sc-order's records disagree, so one row is stale)" "$RC" "10"
 check "SCOPECOL: no stderr output (fixture is well-formed)" "$ERR" ""
 
 check_row "SCOPECOL sc-single (one entry -> that entry's own scope, not the 'user' default)" \
   "$OUT" sc-single 1.0.0 1.0.0 current "-" unstamped "-" local
 check_row "SCOPECOL sc-dup (three entries all at one scope -> one value, never 'local;local;local')" \
   "$OUT" sc-dup 1.0.0 1.0.0 current "-" unstamped "-" local
-check_row "SCOPECOL sc-order (every distinct scope, in entry order, deduplicated; not sorted and not the winning entry's scope)" \
-  "$OUT" sc-order 3.0.0 3.0.0 current "-" unstamped "-" 'user;project;local'
+check_row "SCOPECOL sc-order (every distinct scope, in entry order, deduplicated; not sorted and not any single entry's scope; installed is the lowest of the four, so the row is stale and stale_installs names all three records behind latest)" \
+  "$OUT" sc-order 1.0.0 3.0.0 stale "-" unstamped "-" 'user;project;local' 'user;user;user'
 check_row "SCOPECOL sc-blank (absent and empty scopes contribute nothing)" \
   "$OUT" sc-blank 1.0.0 1.0.0 current "-" unstamped "-" 'local;user'
 check_row "SCOPECOL sc-noscope (installed, but no entry carries a usable scope -> '-')" \
@@ -933,6 +956,161 @@ write_installed "$HOME_DEFAULT/.claude" "{
 run_check_home "$HOME_DEFAULT"
 check "HOMEDEFAULT: CLAUDE_CONFIG_DIR unset -> reads \$HOME/.claude, exit 0" "$RC" "0"
 check_row "HOMEDEFAULT defp (found via default config dir)" "$OUT" defp 1.0.0 1.0.0 current "-" unstamped "-" user
+
+echo ""
+echo "=== Fixture REPOSCOPE: entries are attributed to the repo being reported on ==="
+# ============================================================================
+# Issues #324 and #325. installed_plugins.json is machine-wide -- one entry
+# per projectPath, across every repo on the machine -- so the report must
+# decide which entries are THIS repo's before computing any column.
+#
+# Three real git repositories are built for this:
+#   RA      the repo under test
+#   RA_WT   a linked worktree of RA. It has a DIFFERENT working-tree path and
+#           the SAME git common dir, which is exactly why attribution compares
+#           common dirs rather than paths -- a path-prefix test would call
+#           this a different repo.
+#   RB      an unrelated repo, standing in for "some other project on this
+#           machine"
+#
+# Every entry below omits the plugin.json under its installPath, so versions
+# come from each entry's own version field (that fallback has its own coverage
+# in the FALLBACK fixture; here it just keeps the fixture small).
+# ============================================================================
+
+REPOS="$TMPROOT/repos"
+mkdir -p "$REPOS"
+RA="$REPOS/alpha"
+RB="$REPOS/beta"
+RA_WT="$REPOS/alpha-linked-worktree"
+for r in "$RA" "$RB"; do
+  mkdir -p "$r"
+  git -C "$r" init -q
+  git -C "$r" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+done
+git -C "$RA" -c user.email=t@example.com -c user.name=t worktree add -q "$RA_WT" -b linked 2>/dev/null
+
+# A projectPath that no longer exists but sat INSIDE RA's container directory
+# (dirname of RA's git common dir, i.e. RA itself for a standard .git layout):
+# a deleted worktree of this repo. Never created on disk.
+RA_GONE="$RA/deleted-worktree"
+# A path that neither exists nor sits under RA's container: another machine's
+# or another project's deleted checkout.
+FOREIGN_GONE="$REPOS/nowhere/deleted-worktree"
+
+# inst_entry_at <installPath> <version> <scope> <projectPath>
+inst_entry_at() {
+  printf '{"scope":"%s","projectPath":"%s","installPath":"%s","version":"%s","installedAt":"2026-01-01T00:00:00.000Z","lastUpdated":"2026-01-01T00:00:00.000Z"}' \
+    "$3" "$4" "$1" "$2"
+}
+
+# run_check_in <cwd> <cfg> -- the report describes the repo it is RUN FROM, so
+# the working directory is an input and every case below varies it.
+run_check_in() {
+  ( cd "$1" && CLAUDE_CONFIG_DIR="$2" bash "$SCRIPT" ) >"$STDOUT" 2>"$STDERR"
+  RC=$?
+  OUT=$(cat "$STDOUT")
+  ERR=$(cat "$STDERR")
+}
+
+CFG_RS="$TMPROOT/cfg-reposcope"
+init_marketplace "$CFG_RS" clam '[
+  {"name":"rs-here","source":"./plugins/rs-here","description":"d"},
+  {"name":"rs-foreign","source":"./plugins/rs-foreign","description":"d"},
+  {"name":"rs-mixed","source":"./plugins/rs-mixed","description":"d"},
+  {"name":"rs-two-worktrees","source":"./plugins/rs-two-worktrees","description":"d"},
+  {"name":"rs-gone-here","source":"./plugins/rs-gone-here","description":"d"},
+  {"name":"rs-gone-foreign","source":"./plugins/rs-gone-foreign","description":"d"},
+  {"name":"rs-userwide","source":"./plugins/rs-userwide","description":"d"}
+]'
+for pl in rs-here rs-foreign rs-mixed rs-two-worktrees rs-gone-here rs-gone-foreign rs-userwide; do
+  clone_source_plugin "$CFG_RS" clam "./plugins/$pl" 2.0.0 "$pl"
+done
+RS_CACHE="$CFG_RS/plugins/cache/clam"
+
+write_installed "$CFG_RS" "{
+  \"rs-here@clam\":          [$(inst_entry_at "$RS_CACHE/rs-here/a" 1.0.0 local "$RA")],
+  \"rs-foreign@clam\":       [$(inst_entry_at "$RS_CACHE/rs-foreign/b" 1.0.0 project "$RB")],
+  \"rs-mixed@clam\": [
+    $(inst_entry_at "$RS_CACHE/rs-mixed/a" 1.0.0 local "$RA"),
+    $(inst_entry_at "$RS_CACHE/rs-mixed/b" 2.0.0 project "$RB")
+  ],
+  \"rs-two-worktrees@clam\": [
+    $(inst_entry_at "$RS_CACHE/rs-two/a" 1.0.0 local "$RA"),
+    $(inst_entry_at "$RS_CACHE/rs-two/b" 2.0.0 local "$RA_WT")
+  ],
+  \"rs-gone-here@clam\":     [$(inst_entry_at "$RS_CACHE/rs-gone-here/a" 1.0.0 local "$RA_GONE")],
+  \"rs-gone-foreign@clam\":  [$(inst_entry_at "$RS_CACHE/rs-gone-foreign/a" 1.0.0 local "$FOREIGN_GONE")],
+  \"rs-userwide@clam\":      [$(inst_entry "$RS_CACHE/rs-userwide/a" 1.0.0 user)]
+}"
+
+run_check_in "$RA" "$CFG_RS"
+check "REPOSCOPE: no stderr output (fixture is well-formed)" "$ERR" ""
+check "REPOSCOPE: exit 10 (rows installed here are behind latest)" "$RC" "10"
+
+check_row "REPOSCOPE rs-here (entry belongs to this repo -> counted)" \
+  "$OUT" rs-here 1.0.0 2.0.0 stale "-" unstamped "-" local "$RA"
+
+# The #324 defect in isolation: before the fix this row read installed=1.0.0
+# from a repo that is not this one.
+check_row "REPOSCOPE rs-foreign (the ONLY entry belongs to another repo -> not-installed, and scope is '-' rather than that entry's 'project')" \
+  "$OUT" rs-foreign "-" 2.0.0 not-installed "-" "-" "-" "-"
+
+# The #324 defect in its damaging form: the foreign entry is NEWER, so before
+# the fix it won the collapse and the row read 2.0.0/current while this repo
+# actually ran 1.0.0. It must now contribute to no column at all -- not to
+# installed, and not to scope, which stays "local" rather than "local;project".
+check_row "REPOSCOPE rs-mixed (a NEWER foreign entry no longer masks this repo's stale one, and contributes nothing to scope)" \
+  "$OUT" rs-mixed 1.0.0 2.0.0 stale "-" unstamped "-" local "$RA"
+
+# The #325 defect: two records in THIS repo, one already updated. Reporting
+# the highest read `current` and hid the record still at 1.0.0.
+check_row "REPOSCOPE rs-two-worktrees (two records in one repo, one already at latest -> lowest wins, row stays stale, and only the behind record is named)" \
+  "$OUT" rs-two-worktrees 1.0.0 2.0.0 stale "-" unstamped "-" local "$RA"
+
+check_row "REPOSCOPE rs-gone-here (deleted worktree under this repo's container -> still this repo's record)" \
+  "$OUT" rs-gone-here 1.0.0 2.0.0 stale "-" unstamped "-" local "$RA_GONE"
+check_row "REPOSCOPE rs-gone-foreign (deleted path outside this repo's container -> ignored)" \
+  "$OUT" rs-gone-foreign "-" 2.0.0 not-installed "-" "-" "-" "-"
+check_row "REPOSCOPE rs-userwide (no projectPath -> a user-scope install applies to every repo, named 'user')" \
+  "$OUT" rs-userwide 1.0.0 2.0.0 stale "-" unstamped "-" user user
+
+# Worktree-proof: the same repo reported from a linked worktree must give the
+# same answers. Its working-tree path differs; its git common dir does not.
+if [[ -d "$RA_WT" ]]; then
+  RA_OUT="$OUT"
+  run_check_in "$RA_WT" "$CFG_RS"
+  check "REPOSCOPE: a linked worktree reports byte-identical output to its main worktree" "$OUT" "$RA_OUT"
+  check_row "REPOSCOPE rs-two-worktrees from the linked worktree (still one repo)" \
+    "$OUT" rs-two-worktrees 1.0.0 2.0.0 stale "-" unstamped "-" local "$RA"
+else
+  fail "REPOSCOPE: linked worktree fixture could not be created"
+fi
+
+# From the unrelated repo the attribution flips: RB's own entries count and
+# RA's do not. This is what proves the filter reads the CWD rather than
+# hardcoding anything about the fixture.
+run_check_in "$RB" "$CFG_RS"
+check_row "REPOSCOPE rs-foreign from repo B (B's own entry now counts, at ITS scope and ITS version)" \
+  "$OUT" rs-foreign 1.0.0 2.0.0 stale "-" unstamped "-" project "$RB"
+check_row "REPOSCOPE rs-here from repo B (A's entry is foreign here -> not-installed)" \
+  "$OUT" rs-here "-" 2.0.0 not-installed "-" "-" "-" "-"
+check_row "REPOSCOPE rs-mixed from repo B (only B's entry counts -> current, scope 'project')" \
+  "$OUT" rs-mixed 2.0.0 2.0.0 current "-" unstamped "-" project
+
+# Outside any git repository there is nothing to attribute against, so the
+# filter turns off and every entry counts -- the pre-#324 machine-wide
+# behaviour, kept deliberately so the report degrades to something coherent
+# rather than reporting everything as uninstalled.
+NON_REPO="$TMPROOT/not-a-repo"
+mkdir -p "$NON_REPO"
+run_check_in "$NON_REPO" "$CFG_RS"
+check_true "REPOSCOPE: outside a git repo, cwd is genuinely not in a worktree" \
+  "$( ( cd "$NON_REPO" && git rev-parse --is-inside-work-tree >/dev/null 2>&1 ) && echo no || echo yes )"
+check_row "REPOSCOPE rs-mixed outside any repo (no filtering: both entries count, so both scopes appear)" \
+  "$OUT" rs-mixed 1.0.0 2.0.0 stale "-" unstamped "-" 'local;project' "$RA"
+check_row "REPOSCOPE rs-foreign outside any repo (counted, since nothing is excluded)" \
+  "$OUT" rs-foreign 1.0.0 2.0.0 stale "-" unstamped "-" project "$RB"
 
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then

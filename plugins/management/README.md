@@ -115,15 +115,45 @@ bash plugins/management/scripts/check-versions.sh
 ```
 
 Prints a TSV (`plugin  installed  latest  update  stamp  setup
-stale_targets  scope`) to stdout, one row per marketplace plugin. `stamp`
-reports the lowest — i.e. driving — version among that plugin's stamps,
-the one setting its `setup` status; `stale_targets` names the absolute
-path of each stamp target that is behind, or `-` when the row isn't
-stale. `scope` carries the distinct scopes of the plugin's installation
-entries (not one per entry), `;`-joined, and `-` when the plugin isn't
-installed; it's what lets the update flow pass `-s <scope>` to `claude
-plugin update` rather than take the CLI's own `user` default, which fails
-outright for a local-scope install. Exit `0` when nothing is stale, `10`
+stale_targets  scope  stale_installs`) to stdout, one row per marketplace
+plugin.
+
+The report describes **the repo you run it in**. Claude Code's install
+records are machine-wide — one record per project path, across every repo
+on the machine — so entries belonging to other repositories are excluded
+from every column. Without that filter a sibling repo's record, usually
+the newest on the machine, decided the `installed` value and a plugin
+several versions behind here read as `current`. An entry counts when it
+has no project path (a user-scope install applies everywhere), when its
+project path resolves to the same git common dir as your working
+directory (so sibling worktrees of one repo count as one repo), or when
+its project path is gone but sat inside this repo's container directory.
+Run outside a git repo, there is nothing to attribute against and the
+report stays machine-wide.
+
+`installed` is the **lowest** version among this repo's records, so a repo
+whose worktrees disagree stays `stale` until every one of them is updated
+— one behind record is enough to mean there is work to do. `stamp` reports
+the lowest — i.e. driving — version among that plugin's stamps, the one
+setting its `setup` status; `stale_targets` names the absolute path of
+each stamp target that is behind, or `-` when the row isn't stale. `scope`
+carries the distinct scopes of the plugin's installation entries (not one
+per entry), `;`-joined, and `-` when the plugin isn't installed; it's what
+lets the update flow pass `-s <scope>` to `claude plugin update` rather
+than take the CLI's own `user` default, which fails outright for a
+local-scope install. `stale_installs` names the project paths whose
+records are still behind `latest`, `;`-joined, or `-` when the row needs
+no update — which is what keeps a row that stays stale after a successful
+update diagnosable, since `claude plugin update` resolves one record per
+run and offers no per-project target.
+
+Setup stamps are **not** repo-filtered: the `stamp`, `setup` and
+`stale_targets` columns still consider every stamp for the plugin, so a
+stale target in another repo can appear. A stamp records a target settings
+file rather than a project root, so attributing one to a repo is a
+different problem, left to its own change.
+
+Exit `0` when nothing is stale, `10`
 when at least one plugin is; `2`/`3`/`4` on missing or malformed
 installed-plugin data, a missing marketplace clone, and a missing `jq`,
 respectively (see the script's own header for the full contract). Honors

@@ -1,12 +1,20 @@
 #!/bin/bash
 #
-# Presentation layer for the statusline's burnrate line: mascots, hue
-# families, meter colour scales, reset countdowns, and the companion pet.
+# Presentation layer for the statusline's burnrate line: hue families, meter
+# colour scales, and reset countdowns.
 #
 # Ported from claude-statusline-burnrate — MIT © Gui-Gou
 # https://github.com/Gui-Gou/claude-statusline-burnrate
 #
-# Contract: B03 burn-theme (plan 001-statusline-burnrate-uplift)
+# Contract: B03 burn-theme (plan 001-statusline-burnrate-uplift),
+#           amended by B08 burn-theme-deemoji (plan 002-statusline-emoji-removal)
+#
+# B08 amendment: this file emits NO emoji. The two that lived here — the
+# per-model mascot and the companion pet — are gone, because the render they
+# fed depends on colour-emoji font coverage the terminal may not have. What
+# replaced them is nothing: the model name already names the model, and the
+# pet's mood only ever restated the worst of three meters printed beside it.
+# Colour is untouched; the rainbow still drifts.
 #
 # Behavior:
 #   Every visual decision the burnrate line makes lives here, so the
@@ -24,19 +32,24 @@
 #   burn_frame_advance FRAME_FILE
 #     Reads the integer in FRAME_FILE, increments it, writes it back, and
 #     echoes the new value. Absent, empty, or non-numeric content restarts
-#     at 1. Drives both the rainbow drift and the pet, so a render advances
-#     the animation exactly one frame. Echoes 1 and returns 0 when the file
-#     cannot be written — the animation freezes, nothing breaks.
+#     at 1. Drives the rainbow drift, so a render advances the animation
+#     exactly one frame. Echoes 1 and returns 0 when the file cannot be
+#     written — the animation freezes, nothing breaks. SURVIVES the pet's
+#     removal: the rainbow is its other consumer, so deleting the counter
+#     alongside burn_pet would silently freeze the model name's colour.
 #
 #   burn_model_style MODEL
-#     Sets two globals from the model's display name, matched
-#     case-insensitively on a substring: BURN_MASCOT (one emoji) and
-#     BURN_HUES (an 8-element array of 256-colour codes). Echoes nothing.
-#       *opus*   -> 🎭  warm reds and golds   (196 202 208 214 220 226 214 208)
-#       *sonnet* -> 🪶  blues                 (21 27 33 39 45 51 45 39)
-#       *fable*  -> 🦄  purples and magentas  (93 99 135 141 177 201 171 135)
-#       *haiku*  -> 🌸  greens                (22 28 34 40 46 82 118 46)
-#       anything else -> 🤖 full rainbow      (196 208 226 46 51 33 201 129)
+#     Sets ONE global from the model's display name, matched
+#     case-insensitively on a substring: BURN_HUES, an 8-element array of
+#     256-colour codes. Echoes nothing.
+#       *opus*   -> warm reds and golds   (196 202 208 214 220 226 214 208)
+#       *sonnet* -> blues                 (21 27 33 39 45 51 45 39)
+#       *fable*  -> purples and magentas  (93 99 135 141 177 201 171 135)
+#       *haiku*  -> greens                (22 28 34 40 46 82 118 46)
+#       anything else -> full rainbow     (196 208 226 46 51 33 201 129)
+#     BURN_MASCOT is NOT set, and no caller may rely on it: the emoji it
+#     carried is removed, not relocated. The hue families and their match
+#     order are unchanged, so the model name colours exactly as before.
 #
 #   burn_rainbow TEXT FRAME
 #     Echoes TEXT with each character coloured from BURN_HUES, the palette
@@ -50,7 +63,7 @@
 #     dim sequence (\033[2m).
 #
 #   burn_plan_color PCT
-#     Echoes the colour for a plan-usage meter (weekly 🎯 and 5-hour 🔥):
+#     Echoes the colour for a plan-usage meter (weekly `wk` and 5-hour `5h`):
 #     >=70 red 196, >=50 orange 208, >=30 yellow 214, else green 40.
 #
 #   burn_today_color PCT
@@ -67,7 +80,7 @@
 #     its integer part.
 #
 #   burn_ctx_state USED_TOKENS BUDGET IDLE_SECONDS
-#     Echoes two space-separated fields, "LEVEL COLOR", for the 🧠 meter.
+#     Echoes two space-separated fields, "LEVEL COLOR", for the `ctx` meter.
 #     This keeps the plugin's existing idle-aware tri-state rather than the
 #     upstream's four-tier percentage scale, per decision 002
 #     (.local/decisions/002-context-meter-source.md) — LEVEL is also what
@@ -86,16 +99,12 @@
 #     a negative. An empty or non-numeric RESET_EPOCH echoes nothing and
 #     returns 1, so the caller omits the segment.
 #
-#   burn_pet STRESS FRAME
-#     Echoes the companion pet: a face plus a dimmed effect character,
-#     selected by FRAME modulo 8 from the mood tier STRESS falls in:
-#       >=70 panic    faces 😾🙀😾😿😾🙀😾🙀   effects 🔥💢💥🔥💢💥🔥💢
-#       >=50 nervous  faces 🙀😿🙀😿🙀😾🙀😿   effects 💦°💦∘💦°💦∘
-#       >=30 alert    faces 😼🐱😼😽😼🐱😼🐱   effects ·‥…‥·‥…‥
-#       else happy    faces 😺😸😺😹😺😸😻😸   effects ♪♫♬♪♫♬♫♪
-#     Both the face and the effect vary within every tier, so each render
-#     visibly moves. STRESS is the WORST of the three meters (context, 5-hour,
-#     weekly); the caller computes it, this function does not.
+#   burn_pet — REMOVED by B08. The function, its four mood tiers, its
+#     8-frame face arrays and its effect-character arrays are deleted
+#     outright; nothing replaces it. Callers must not reference it, and
+#     `declare -f burn_pet` must find nothing. The mood it expressed was the
+#     worst of the three meters, each of which is printed on the same line
+#     with its own colour scale, so no information leaves with it.
 #
 # Errors:
 #   No function in this file writes to stdout except its documented value,
@@ -129,8 +138,10 @@
 #     "ok 40" rather than dividing by zero.
 #   - burn_ctx_state at exactly USED_TOKENS == BUDGET: cold, regardless of
 #     idle — the existing suite pins this boundary.
-#   - burn_pet with an empty or non-numeric STRESS: the happy tier.
 #   - burn_reset_str at exactly 60 minutes remaining: "1h0m", not "60m".
+#   - NO function in this file emits a non-ASCII character. That is the
+#     B08 invariant a test can check mechanically over the whole file, and
+#     it is what keeps a mascot or a mood glyph from creeping back in.
 
 # burn_frame_advance FRAME_FILE
 burn_frame_advance() {
@@ -152,7 +163,7 @@ burn_frame_advance() {
   return 0
 }
 
-# burn_model_style MODEL  -> sets BURN_MASCOT, BURN_HUES
+# burn_model_style MODEL  -> sets BURN_HUES
 burn_model_style() {
   local model="$1" restore_nocasematch=0
   if ! shopt -q nocasematch; then
@@ -161,23 +172,18 @@ burn_model_style() {
   fi
   case "$model" in
     *opus*)
-      BURN_MASCOT="🎭"
       BURN_HUES=(196 202 208 214 220 226 214 208)
       ;;
     *sonnet*)
-      BURN_MASCOT="🪶"
       BURN_HUES=(21 27 33 39 45 51 45 39)
       ;;
     *fable*)
-      BURN_MASCOT="🦄"
       BURN_HUES=(93 99 135 141 177 201 171 135)
       ;;
     *haiku*)
-      BURN_MASCOT="🌸"
       BURN_HUES=(22 28 34 40 46 82 118 46)
       ;;
     *)
-      BURN_MASCOT="🤖"
       BURN_HUES=(196 208 226 46 51 33 201 129)
       ;;
   esac
@@ -293,29 +299,5 @@ burn_reset_str() {
   else
     echo "${minutes}m"
   fi
-  return 0
-}
-
-# burn_pet STRESS FRAME
-burn_pet() {
-  local stress="$1" frame="$2" idx faces effects
-  [[ "$stress" =~ ^-?[0-9]+$ ]] || stress=0
-  [[ "$frame" =~ ^-?[0-9]+$ ]] || frame=0
-  idx=$(( frame % 8 ))
-  (( idx < 0 )) && idx=$(( idx + 8 ))
-  if (( stress >= 70 )); then
-    faces=("😾" "🙀" "😾" "😿" "😾" "🙀" "😾" "🙀")
-    effects=("🔥" "💢" "💥" "🔥" "💢" "💥" "🔥" "💢")
-  elif (( stress >= 50 )); then
-    faces=("🙀" "😿" "🙀" "😿" "🙀" "😾" "🙀" "😿")
-    effects=("💦" "°" "💦" "∘" "💦" "°" "💦" "∘")
-  elif (( stress >= 30 )); then
-    faces=("😼" "🐱" "😼" "😽" "😼" "🐱" "😼" "🐱")
-    effects=("·" "‥" "…" "‥" "·" "‥" "…" "‥")
-  else
-    faces=("😺" "😸" "😺" "😹" "😺" "😸" "😻" "😸")
-    effects=("♪" "♫" "♬" "♪" "♫" "♬" "♫" "♪")
-  fi
-  printf '%s\033[2m%s\033[0m' "${faces[$idx]}" "${effects[$idx]}"
   return 0
 }

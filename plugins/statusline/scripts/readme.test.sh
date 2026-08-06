@@ -34,9 +34,9 @@
 #       with a single oracle.
 #   (5) The B06 contract comment itself is gone from the raw file (marked
 #       remove-at-acceptance).
-#   (6) plugin.json is at 0.5.2 (its PR group's version; master's README
-#       Update-section wave took 0.5.0 -> 0.5.1, and this group takes the
-#       next patch) and the root README.md Plugins-table row agrees with
+#   (6) plugin.json is at 0.5.3 (its PR group's version; the text-label group
+#       took 0.5.1 -> 0.5.2, and this group takes the next patch) and the
+#       root README.md Plugins-table row agrees with
 #       it. version-bump-lint and
 #       readme-lint both gate this; checking it here fails it in the inner
 #       loop instead of in CI.
@@ -315,16 +315,18 @@ check "attribution names the MIT licence" \
   "$(has_re '(^|[^A-Za-z])MIT([^A-Za-z]|$)' "$BODY")" "yes"
 
 # ---------------------------------------------------------------------------
-# 6. Version: plugin.json at 0.5.2, root README Plugins table agreeing
+# 6. Version: plugin.json at 0.5.3, root README Plugins table agreeing
 # ---------------------------------------------------------------------------
 
-# Retargeted twice, and the pin tracks the CURRENT version each time: master's
-# README Update-section wave took 0.5.0 -> 0.5.1 (it edits this plugin's README,
-# and version-bump-lint has no docs exemption, so the plugin necessarily bumps),
-# and this PR group takes the next patch on top of it.
+# Retargeted three times, and the pin tracks the CURRENT version each time:
+# master's README Update-section wave took 0.5.0 -> 0.5.1 (it edits this
+# plugin's README, and version-bump-lint has no docs exemption, so the plugin
+# necessarily bumps), the text-label group took 0.5.1 -> 0.5.2, and this group
+# takes the next patch on top of that. Retargeting by hand every time is F25:
+# the literal below is the fourth place a bump has to be hand-synced.
 PLUGIN_VERSION="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$PLUGIN_JSON" 2>/dev/null | head -1)"
-check "plugin.json version is 0.5.2 (this block's PR group)" \
-  "$PLUGIN_VERSION" "0.5.2"
+check "plugin.json version is 0.5.3 (this block's PR group)" \
+  "$PLUGIN_VERSION" "0.5.3"
 
 ROOT_ROW_STATUS="$(grep -E '^\|[[:space:]]*\[?statusline[](]' "$ROOT_README" 2>/dev/null | head -1 \
   | awk -F'|' '{ print $3 }' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"

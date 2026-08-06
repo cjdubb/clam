@@ -64,12 +64,77 @@ SL_SEGMENT_TTL_SECONDS="${CLAM_STATUSLINE_SEGMENT_TTL_SECONDS:-5}"
 # tokens, transcript path, cwd, model display name, effort level) with one
 # single jq invocation, populating the same variables the legacy per-field
 # jq calls populate today.
+#
+# Contract: B18 statusline-bash3-payload-delimiter
+#             (plan 003-statusline-meter-colour)
+#
+# Behavior:   The fourteen payload fields are joined in jq and split in bash
+#             on ONE non-whitespace delimiter byte. That byte changes from
+#             \x01 to \x1f (ASCII US, the unit separator), at BOTH ends: the
+#             `join` at the end of the jq filter and the `IFS=` prefix on the
+#             `read`. Nothing else about this function changes — same fourteen
+#             fields, same order, same single jq invocation, same fallbacks,
+#             same `effort` fallback to CLAUDE_EFFORT afterwards.
+#
+# Why:        bash 3.2 reserves \x01 as its internal quoting sentinel (CTLESC;
+#             \x7f is CTLNUL) and its `read` builtin cannot split on either
+#             byte. Measured under a bash built from the 3.2.57 tarball,
+#             splitting a three-field string on \x01 gives x=[ABC] y=[] z=[],
+#             while \x02, \x1e, \x1f, tab and colon all split correctly.
+#             The consequence in the shipped plugin is total, silent and
+#             user-facing: every field lands in `window_size`, the other
+#             thirteen come back empty, and the statusline renders an empty
+#             cwd with no burnrate line at all — exit 0, nothing on stderr.
+#             macOS ships /bin/bash 3.2.57, so this is live breakage there,
+#             not a hypothetical.
+#
+# Inputs:     unchanged — `$input`, the statusLine JSON read from stdin.
+#
+# Outputs:    unchanged under bash 4 and above; the rendered line is
+#             byte-identical before and after. Under bash 3.2 the render goes
+#             from producing nothing to producing what bash 5 produces.
+#
+# Errors:     unchanged. An absent or malformed field still parses empty
+#             rather than swallowing its neighbour.
+#
+# Invariants:
+#   - **Empty fields between delimiters are still preserved.** This is the
+#     property \x01 was chosen over @tsv's tab for in the first place, and the
+#     comment below records why: bash treats tab as IFS whitespace even when
+#     IFS is set to only a tab, so runs of it collapse and an absent
+#     transcript_path silently swallows the next column. \x1f is not IFS
+#     whitespace and preserves empty fields; verified under 3.2.57.
+#   - The comment inside this function must explain BOTH reasons and name the
+#     byte actually in use. Today it explains only the tab problem. A future
+#     reader who knows only that reason will "simplify" the delimiter straight
+#     back into the bash 3.2 defect, because \x01 looks like a strictly better
+#     answer to the tab problem alone.
+#   - Exactly one jq invocation per render. The warm-render process budget
+#     (12 externals, measured by the PATH-shim harness in context.test.sh)
+#     does not move.
+#   - Neither \x01 nor \x7f is introduced anywhere else in the plugin.
+#
+# Edge cases:
+#   - A payload field whose own VALUE contains \x1f would misparse. That is
+#     the same theoretical hazard the old byte carried and no more likely; a
+#     field containing \x01 is now harmless where it previously was not.
+#   - A payload with every optional field absent still parses fourteen empty
+#     fields, not one field and thirteen unset variables.
+#   - A user on bash 5 sees no observable change whatsoever. This is why a
+#     regression test must distinguish the two BYTES rather than re-check
+#     today's rendered output, which is identical either way.
 sl_parse_input() {
-  # Joined on \x01 rather than @tsv's tab: bash's `read` treats tab as "IFS
-  # whitespace" even when IFS is set to only a tab, so runs of the delimiter
-  # collapse and an empty field (e.g. an absent transcript_path) silently
-  # swallows the next column, misaligning every field after it. \x01 is not
-  # whitespace, so empty fields between delimiters are preserved.
+  # Joined and split on \x1f (ASCII US) rather than \x01. \x01 answers the
+  # tab problem below just as well, but bash 3.2 reserves \x01 as its own
+  # internal quoting sentinel (CTLESC) and `read` cannot split on it at all
+  # -- every field lands in window_size and the rest come back empty. macOS
+  # ships bash 3.2, so this is live breakage there, not a hypothetical.
+  #
+  # Not @tsv's tab either: bash's `read` treats tab as "IFS whitespace" even
+  # when IFS is set to only a tab, so runs of the delimiter collapse and an
+  # empty field (e.g. an absent transcript_path) silently swallows the next
+  # column, misaligning every field after it. \x1f is not whitespace, so
+  # empty fields between delimiters are preserved.
   #
   # The eight burnrate fields (B04) ride this SAME jq invocation rather than
   # a second one -- see the B04 payload-parse contract above
@@ -78,7 +143,7 @@ sl_parse_input() {
   # shape (a different internal surface) has no used_percentage, so both its
   # percentage and its resets_at parse empty rather than picking up the
   # wrong-shaped value.
-  IFS=$'\x01' read -r window_size total_input transcript_path cwd model_name effort \
+  IFS=$'\x1f' read -r window_size total_input transcript_path cwd model_name effort \
     r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id <<< "$(
     printf '%s' "$input" | jq -r '
         . as $p
@@ -100,7 +165,7 @@ sl_parse_input() {
             ($p.cost.total_cost_usd // ""),
             ($p.session_id // "")
           ]
-        | join("\u0001")
+        | join("\u001f")
       '
   )"
   [ -z "$effort" ] && effort="${CLAUDE_EFFORT:-}"
@@ -224,11 +289,14 @@ sl_bundle_write() {
 #   - EXACTLY ONE jq invocation over the stdin payload per render, unchanged
 #     from today. The settings.json compaction-budget fallback remains the
 #     only other permitted jq, and only when the env var is unset.
-#   - Fields are joined on \x01, never tab: bash `read` collapses runs of
-#     IFS whitespace, so an absent field between two present ones would
-#     swallow the next column and misalign everything after it. With eight
-#     frequently-absent fields added, this is now load-bearing rather than
-#     defensive.
+#   - Fields are joined on \x1f, never tab and never \x01. Not tab, because
+#     bash `read` collapses runs of IFS whitespace, so an absent field
+#     between two present ones would swallow the next column and misalign
+#     everything after it; with eight frequently-absent fields added, that is
+#     load-bearing rather than defensive. Not \x01, because bash 3.2 reserves
+#     it as an internal quoting sentinel and cannot split on it at all, which
+#     renders the whole statusline empty on macOS — see the B18 contract
+#     above sl_parse_input.
 #   - The warm render still opens nothing under CLAUDE_PROJECTS_DIR and
 #     still invokes no git. It now also invokes no ccost.sh by construction
 #     rather than by cache freshness.
@@ -256,7 +324,8 @@ sl_parse_burn_fields() {
 }
 
 # Contract: B05 burnrate-line (plan 001-statusline-burnrate-uplift),
-#           amended by B09 burn-line-labels (plan 002-statusline-emoji-removal)
+#           amended by B09 burn-line-labels (plan 002-statusline-emoji-removal),
+#           amended by B16 burn-line-colour-wiring (plan 003-statusline-meter-colour)
 #
 # Behavior:
 #   Assembles the entire burnrate line and echoes it as one string with no
@@ -327,6 +396,65 @@ sl_parse_burn_fields() {
 #   colour selection of its own — every number comes from B01/B02 and every
 #   colour from B03.
 #
+# B16 amendment — every value on this line carries colour:
+#   Three values render with NO SGR at all today (#307), and the ctx meter
+#   renders green at every occupancy (#306). B16 closes both by sourcing four
+#   more colours from B03. The line's SHAPE does not move: same four groups,
+#   same dim │ separators, same omission rules, same integer truncation of r5
+#   and r7, one string on stdout with no trailing newline. The ONLY observable
+#   difference is which bytes of SGR appear.
+#
+#   - Group 2's trend. The arrow and its magnitude are wrapped in
+#     `burn_trend_color "$m_trend"` ... `$rst`. The ARROW STAYS: `▲`/`▼` are
+#     chosen in this function, exactly as today, and B14's +/-3 dead band is
+#     expressed as the green tier — the upstream's on-track ✓ is deliberately
+#     NOT adopted, so no new codepoint appears anywhere on this line.
+#   - Group 3's ctx meter. Its colour moves from burn_ctx_state's COLOR field
+#     to `burn_ctx_color "$pct"`, so the meter finally warns as the context
+#     fills. burn_ctx_state itself is untouched and still runs: its LEVEL
+#     feeds .local/.ctx-status.json, and the published tier and the on-screen
+#     colour now answer different questions on purpose — "how stale" and "how
+#     full". At the ctx computation further down this file that means
+#     `read -r level ctx_color <<< ...` becomes `read -r level _ <<< ...`, and
+#     the `ctx_color=40` default is deleted rather than left unread.
+#   - Group 3's line counts. `+N` takes `burn_diff_color add` and `-M` takes
+#     `burn_diff_color del`, each closed with its own $rst so the two halves
+#     never bleed into one another. The `/` between them is uncoloured. The
+#     rule that the pair appears only once a count is above zero is UNCHANGED.
+#   - Group 4's countdown. `($countdown)` is wrapped in
+#     `burn_countdown_color` ... `$rst`, PARENS INCLUDED, so the whole
+#     subordinate clause dims together and the eye reaches `5h 20%` first. The
+#     rule that a missing or unparseable reset drops the countdown and its
+#     parens together — never leaving an empty `()` — is unchanged.
+#
+#   Consequence worth stating, because it is a contract the next reader will
+#   check: this removes the LAST hand-typed ${esc}[38;5;Nm from this function.
+#   The "three escape shapes" note at the top of the body becomes two —
+#   $_sl_burn_sep and $rst — and any 38;5; sequence reappearing here is a bug
+#   by the same standard as before.
+#
+#   The SEPARATING SPACE between a value and the one before it sits OUTSIDE
+#   the colour opener, in all four cases above: `"$g $(burn_diff_color add)+$n$rst"`,
+#   never `"$g$(burn_diff_color add) +$n$rst"`. This is the minimal diff from
+#   today's `g="$g +N/-M"` and it is what "the ONLY observable difference is
+#   which bytes of SGR appear" requires — a space moved inside an opener is a
+#   different byte sequence for the same glyph. The tests pin all four
+#   byte-exactly, so this is not a matter of taste at implementation time.
+#
+#   Degradation is stated as an OUTCOME, not a mechanism: an install missing
+#   lib/burn-theme.sh renders exactly today's uncoloured line — exit 0, nothing
+#   on stderr, no partial sequence, no leaked or locally-invented colour. It
+#   does NOT prescribe a `declare -f` guard, because this function does not use
+#   one for colour helpers: burn_rainbow, burn_effort_color, burn_plan_color,
+#   burn_today_color and burn_pace_color are all called BARE today, and their
+#   "command not found" cannot reach the user because the single call site
+#   drops this function's stderr by design (`burn_line=$(sl_render_burn_line
+#   2>/dev/null)`, with its own note explaining why). Measured, not assumed: a
+#   bare-call build of all four new calls, run against an install with
+#   burn-theme.sh absent, exits 0 with 0 bytes on stderr and not one 38;5;
+#   sequence on the line. Guard them or don't; the clause is the outcome.
+#   No threshold is decided here; all four live in B03.
+#
 # Inputs:
 #   Reads the variables B04 populates (r5, r5_reset, r7, r7_reset,
 #   lines_added, lines_removed, total_cost_usd, session_id, model_name,
@@ -364,13 +492,18 @@ sl_parse_burn_fields() {
 #
 # Invariants:
 #   - The ctx meter keeps this plugin's occupancy math
-#     (total_input_tokens / CLAUDE_CODE_AUTO_COMPACT_WINDOW, non-saturating,
-#     idle-aware via burn_ctx_state) rather than the upstream's
-#     .context_window.used_percentage. Decided in
+#     (total_input_tokens / CLAUDE_CODE_AUTO_COMPACT_WINDOW, non-saturating)
+#     rather than the upstream's .context_window.used_percentage. Decided in
 #     .local/decisions/002-context-meter-source.md: that field saturates at
 #     100 and tracks the model's full window, and the token math runs
 #     regardless to feed .local/.ctx-status.json — displaying the payload
 #     field would publish one number and show another.
+#     B16 amends only where the meter's COLOUR comes from, never the number:
+#     the numerator, the budget resolution and the non-saturating division are
+#     untouched, and the idle-aware tier survives intact as the published
+#     `level`. What changed is that the tier stopped deciding the colour —
+#     which is #306, a meter that never warned because it was answering a
+#     different question from the one it appeared to answer.
 #   - The clam mode does NOT appear on this line. It renders on the path
 #     line beside the State segment, per
 #     .local/decisions/001-clam-mode-placement.md, so the burnrate line is
@@ -393,27 +526,45 @@ sl_parse_burn_fields() {
 #   - B01 returning NA for today's share (a degenerate slice): the %t
 #     sub-segment is omitted while pace and trend still render.
 #   - Context occupancy over 100% (an overrun): renders above 100 rather
-#     than clamping — the whole reason this plugin computes it itself.
+#     than clamping — the whole reason this plugin computes it itself. Under
+#     B16 it renders red, via the same >=60 tier as any lesser overrun.
 #   - Model name carrying a parenthesised suffix ("Opus 5 (1M context)"):
 #     trimmed at " (" before colouring, so the line stays short.
 #   - Every group empty (a payload with nothing but a cwd): echoes the empty
 #     string, and the caller prints no line at all rather than a bare
 #     newline.
+#   - A session that has edited nothing: the +N/-M pair is absent, so
+#     burn_diff_color is never called and group 3 is `ctx` alone. B16 adds no
+#     colour to a segment that does not render.
+#   - A trend of exactly 0 (`▲0`, which this line does print): green, inside
+#     B14's dead band. The arrow is still `▲` — the sign test that picks it is
+#     untouched.
+#     CORRECTION (orchestrator, mid-dispatch): an earlier draft of this clause
+#     claimed "a zero trend has never printed `▼`". That is FALSE, and the
+#     correction is measured rather than reasoned. B01's burn_metrics signs its
+#     output, so a trend landing in [-0.5, 0) prints `-0`, not `0`; sweeping
+#     every integer used% from 0 to 100 through burn_metrics produces `-0` at
+#     one of them and a bare `0` at none. The arrow test below matches on the
+#     leading `-` (`case "$m_trend" in -*)`), so that session renders `▼-0` on
+#     screen today and still will after B16. The COLOUR clause is unaffected:
+#     burn_trend_color "-0" takes the |T| <= 3 dead band and returns green 40,
+#     the same answer it gives `0`. Nothing in B16 changes because of this; the
+#     prose was simply wrong and the next reader would have trusted it.
+#   - lib/burn-theme.sh absent from an install: all four new colours are
+#     skipped and the line renders exactly as it does today, uncoloured in
+#     those four places, with no partial sequence and no stray reset.
 sl_render_burn_line() {
   # Every COLOUR on this line is B03's choice; no threshold or palette is
-  # decided here. Three escape shapes are still typed out below, none of them
-  # a colour decision:
+  # decided here. Two escape shapes are still typed out below, neither of
+  # them a colour decision:
   #   $_sl_burn_sep -- the dim group separator, which B03 offers no helper
   #     for. "Dim" in the Outputs clause above is SGR 2.
   #   $rst -- the closing half of B03's sequences. burn_plan_color and its
   #     siblings each echo a bare SGR OPENER, so closing it is the caller's
   #     job.
-  #   $esc[38;5;Nm in group 3, wrapping the colour NUMBER burn_ctx_state
-  #     returns -- the same shape the State segment already builds from
-  #     state_color further up this file.
-  # Anything beyond those three is a bug: it means a colour was picked here
+  # Anything beyond those two is a bug: it means a colour was picked here
   # instead of in burn-theme.sh.
-  local esc=$'\033' rst=$'\033[0m'
+  local rst=$'\033[0m'
   local _sl_burn_acc="" g frame
 
   # One animation frame per render, shared by the rainbow and the pet. The
@@ -486,7 +637,7 @@ sl_render_burn_line() {
           # Ahead of the even-burn line points up. The magnitude is printed as
           # B01 signs it, so a negative trend reads "▼-11".
           case "$m_trend" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
-          g="$g $arrow$m_trend"
+          g="$g $(burn_trend_color "$m_trend")$arrow$m_trend$rst"
         fi
       fi
     fi
@@ -496,12 +647,14 @@ sl_render_burn_line() {
   # --- group 3: session (ctx occupancy, lines touched) -----------------------
   g=""
   if [ -n "$pct" ]; then
-    g="${esc}[38;5;${ctx_color}mctx ${pct}%$rst"
+    g="$(burn_ctx_color "$pct")ctx ${pct}%$rst"
     # Only once at least one count is above zero: a session that has edited
-    # nothing shows nothing, not "+0/-0".
+    # nothing shows nothing, not "+0/-0". Each half closes with its OWN
+    # reset so neither bleeds into the other; the "/" between them is
+    # deliberately uncoloured.
     if [ "${lines_added:-0}" -gt 0 ] 2>/dev/null \
       || [ "${lines_removed:-0}" -gt 0 ] 2>/dev/null; then
-      g="$g +${lines_added:-0}/-${lines_removed:-0}"
+      g="$g $(burn_diff_color add)+${lines_added:-0}$rst/$(burn_diff_color del)-${lines_removed:-0}$rst"
     fi
   fi
   _sl_burn_group "$g"
@@ -515,7 +668,8 @@ sl_render_burn_line() {
     if [ -n "$r5_reset" ]; then
       local countdown
       countdown=$(burn_reset_str "$r5_reset" "$_sl_now") \
-        && [ -n "$countdown" ] && g="$g ($countdown)"
+        && [ -n "$countdown" ] \
+        && g="$g $(burn_countdown_color)($countdown)$rst"
     fi
   fi
   _sl_burn_group "$g"
@@ -934,7 +1088,6 @@ ctx_budget="${ctx_budget:-$window_size}"
 pct=""
 used_tokens=""
 idle_seconds=0
-ctx_color=40
 if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/dev/null; then
   used_tokens="$total_input"
   # Integer occupancy percent (floor). Deliberately NOT clamped at 100 — an
@@ -967,7 +1120,7 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   # a private duplicate of the rules.
   level="ok"
   if declare -f burn_ctx_state >/dev/null 2>&1; then
-    read -r level ctx_color <<< "$(burn_ctx_state "$used_tokens" "$ctx_budget" "$idle_seconds")"
+    read -r level _ <<< "$(burn_ctx_state "$used_tokens" "$ctx_budget" "$idle_seconds")"
   fi
 
   # Publish the machine-readable context status for agent-dash (separate repo,

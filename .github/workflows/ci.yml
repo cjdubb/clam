@@ -59,6 +59,70 @@
 # roughly 7s. Requiring `lint` and `test` in the ruleset directly would
 # recover it, but that is a repo-settings change with a window in which
 # in-flight pull requests block; see FOLLOWUPS F27. Not this block's work.
+#
+# ---------------------------------------------------------------------------
+# Contract: B19 ci-bash3-gate (plan 003-statusline-meter-colour)
+#
+# Behavior:   A fourth job runs the statusline plugin's test suites under a
+#             bash 3.2 interpreter, so a bash-4-only construct in shipped
+#             plugin code fails a check instead of failing silently on a
+#             user's Mac. It builds bash 3.2.57 from the GNU tarball, caches
+#             the result, and hands the binary to `scripts/bash3-gate.sh`.
+#             The job runs CONCURRENTLY with `lint` and `test` — it declares
+#             no `needs` on either.
+#
+# Why it exists: `plugins/statusline/scripts/context.sh` split its jq payload
+#             on 0x01, which bash 3.2 reserves as its internal quoting
+#             sentinel (CTLESC; 0x7F is CTLNUL) and its `read` builtin cannot
+#             split on. The shipped statusline therefore rendered an empty cwd
+#             and no burnrate line at all on macOS, whose /bin/bash is
+#             3.2.57 — exit 0, nothing on stderr, no way to notice. B18 fixes
+#             the byte; this job is what makes the next one impossible to
+#             ship unseen.
+#
+# Inputs:     The same `pull_request` and `push` events. No repository
+#             variables, no secrets. Reads nothing from `.claude/` or
+#             `.local/`.
+#
+# Outputs:    A fourth check context alongside `lint`, `test` and `ci`. The
+#             `ci` context is green if and only if ALL THREE stage jobs
+#             succeeded.
+#
+# Errors:     A failing or timing-out bash-3 stage fails its own job and,
+#             through the aggregator, `ci`.
+#
+# Invariants:
+#   - **The `ci` job is not renamed, not removed, and still aggregates.** The
+#     B13 invariant above is unchanged and is why: ruleset 19719395 requires
+#     the literal context `ci`. The new job JOINS `needs:` and the explicit
+#     result assertion; it never replaces `ci` and never becomes the required
+#     context itself.
+#   - **The aggregator asserts `== 'success'` on the new job too**, not
+#     `!= 'failure'`, so a cancelled or timed-out bash-3 stage counts as
+#     failure exactly as the other two do.
+#   - **`scripts/ci.sh` is not modified and is not invoked by this job.** The
+#     gate script is standalone and is called directly.
+#   - **The `lint` and `test` jobs are untouched.** Their steps, their
+#     `fetch-depth: 0`, their locale install and the test job's
+#     `LC_ALL: en_US.UTF-8` all stay exactly as they are.
+#   - **The build needs `bison`.** Without it `make` dies at
+#     `yacc -d ./parse.y`. It needs
+#     `CFLAGS="-Wno-implicit-function-declaration -Wno-implicit-int
+#     -Wno-return-mismatch -Wno-int-conversion"` to compile 3.2-era C under a
+#     modern gcc. Verified in ubuntu:24.04, producing
+#     `GNU bash, version 3.2.57(2)-release (x86_64-unknown-linux-gnu)`.
+#
+# Edge cases:
+#   - Cache miss: the build is roughly 90 seconds, off the critical path of
+#     the other two jobs. Cache hit: a restore.
+#   - The docker image `bash:3.2` is deliberately NOT the mechanism. It keeps
+#     bash at /usr/local/bin/bash with no /bin/bash, so any script with a
+#     `#!/bin/bash` shebang fails to execute, and its busybox userland
+#     confounds the interpreter variable with the coreutils variable. Building
+#     on ubuntu-latest keeps the interpreter the ONLY difference from `test`.
+#   - macos-latest ships a real 3.2.57 but costs ten times the minutes and
+#     brings a BSD userland, which would surface unrelated failures as if they
+#     were bash-version failures.
 
 name: CI
 
@@ -101,13 +165,43 @@ jobs:
         env:
           LC_ALL: en_US.UTF-8
 
+  bash3_gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache bash 3.2.57 build
+        id: cache-bash32
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/bash-3.2.57
+          key: bash-3.2.57-${{ runner.os }}-v1
+
+      - name: Build bash 3.2.57
+        if: steps.cache-bash32.outputs.cache-hit != 'true'
+        env:
+          CFLAGS: -Wno-implicit-function-declaration -Wno-implicit-int -Wno-return-mismatch -Wno-int-conversion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison
+          mkdir -p /tmp/bash-3.2.57-src
+          curl -fsSL https://ftp.gnu.org/gnu/bash/bash-3.2.57.tar.gz | tar -xz -C /tmp/bash-3.2.57-src --strip-components=1
+          cd /tmp/bash-3.2.57-src
+          ./configure
+          make -j"$(nproc)"
+          mkdir -p "${{ runner.temp }}/bash-3.2.57"
+          cp bash "${{ runner.temp }}/bash-3.2.57/bash"
+
+      - name: Run the bash 3.2 gate
+        run: bash scripts/bash3-gate.sh --bash "${{ runner.temp }}/bash-3.2.57/bash"
+
   ci:
-    needs: [lint, test]
+    needs: [lint, test, bash3_gate]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Check lint and test results
+      - name: Check lint, test and bash3_gate results
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.bash3_gate.result }}" != "success" ]; then
             exit 1
           fi

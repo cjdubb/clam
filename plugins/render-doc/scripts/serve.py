@@ -16,6 +16,14 @@ never-served documents alongside the rest. That discovery scan degrades
 to the registry-only listing whenever it fails for an environmental
 reason (git missing, a failing subprocess, an unreadable directory).
 
+Accepted Host names, every one of them requiring this server's own port:
+127.0.0.1, localhost, the bracketed [::1] IPv6 loopback literal, and any
+single-label <label>.localhost (e.g. clam.localhost:27183). Each is a
+special-use name under RFC 6761, so a compliant resolver can only ever
+resolve it to loopback — the accepted set widens with nothing to
+configure. See the "Contract: 002-B07" docblock below for the full
+predicate.
+
 Usage: serve.py   (port from RENDER_DOC_PORT, default 27183)
 """
 
@@ -81,9 +89,9 @@ Usage: serve.py   (port from RENDER_DOC_PORT, default 27183)
 #      normal repo, a plain file for a linked worktree; both count.
 #      Each violation returns JSON {"error": <message naming the rule>}.
 #
-#   6. Host pinning: every request whose Host header is not exactly
-#      "127.0.0.1:<port>" gets 403 {"error": ...} before any routing, which
-#      defeats DNS rebinding.
+#   6. Host pinning: every request whose Host header is not an accepted
+#      loopback name (see host_allowed) gets 403 {"error": ...} before any
+#      routing, which defeats DNS rebinding.
 #
 # Inputs:
 #   - RENDER_DOC_PORT (optional): the port to bind. Default 27183.
@@ -140,6 +148,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -765,9 +774,6 @@ def build_project_html(label, headline_entry, flat_entries, group_order, groups)
 
 # Contract: 002-B07 hostname allowlist + dual bind (plan 002-discovery-landing-dns)
 #
-# DELIBERATELY UNIMPLEMENTED — host_allowed raises. Wiring _check_host to
-# call it, and the [::1] listener in main(), are this block's
-# implementation; until then the exact-match Host check stands.
 #
 # Behavior:
 #   host_allowed(host) decides whether a request's Host header value is an
@@ -807,8 +813,17 @@ def build_project_html(label, headline_entry, flat_entries, group_order, groups)
 #   port (False); "a.b.localhost:27183" (False); "-x.localhost:27183" and
 #   "x-.localhost:27183" (False); a 64-char label (False);
 #   "127.0.0.1:27183extra" (False).
+_HOST_LABEL = r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+_HOST_ALLOWED_RE = re.compile(
+    r'(?:127\.0\.0\.1|localhost|\[::1\]|%s\.localhost):%s'
+    % (_HOST_LABEL, re.escape(str(PORT))),
+    re.IGNORECASE)
+
+
 def host_allowed(host):
-    raise NotImplementedError("002-B07")
+    if not isinstance(host, str):
+        return False
+    return _HOST_ALLOWED_RE.fullmatch(host) is not None
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -826,7 +841,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_host(self):
-        if self.headers.get('Host') != f'127.0.0.1:{PORT}':
+        if not host_allowed(self.headers.get('Host')):
             self.send_json(403, {"error": "bad Host header"})
             return False
         return True
@@ -1265,6 +1280,23 @@ def main():
             sys.exit(0)
         raise
 
+    # Best-effort second listener on the IPv6 loopback: a resolver that
+    # hands *.localhost to ::1 (curl on this machine) still reaches this
+    # same server. Any failure here (IPv6 disabled, ::1 already taken)
+    # leaves the v4 server above fully functional.
+    class _V6Server(http.server.ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+
+    server6 = None
+    try:
+        server6 = _V6Server(('::1', PORT), Handler)
+    except OSError as e:
+        print(f"render-doc serve: could not bind [::1]:{PORT} ({e}); "
+              "continuing on 127.0.0.1 only", file=sys.stderr)
+        server6 = None
+    if server6 is not None:
+        threading.Thread(target=server6.serve_forever, daemon=True).start()
+
     try:
         with open(PIDFILE, 'w') as f:
             f.write(str(os.getpid()))
@@ -1276,6 +1308,12 @@ def main():
             os.unlink(PIDFILE)
         except OSError:
             pass
+        if server6 is not None:
+            try:
+                server6.shutdown()
+                server6.server_close()
+            except OSError:
+                pass
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, on_signal)

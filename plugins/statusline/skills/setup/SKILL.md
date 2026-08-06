@@ -63,6 +63,9 @@ keeping the marketplace's install-changes-nothing constraint intact.
    - If the existing stamp file is corrupt (not valid JSON), move it aside
      to `clam-setup-stamps.json.corrupt-<date>`, report the move to the
      user, and recreate it fresh.
+   - Set `at` to the current UTC time by running
+     `date -u +%Y-%m-%dT%H:%M:%SZ` — never invented, guessed, or copied
+     from another record.
    - Replace this plugin's record, keyed by `plugin` and `target`; touch
      no other records. Write via jq to a temp file, then `mv` it into
      place — the same atomic pattern as the settings write above:
@@ -73,7 +76,7 @@ keeping the marketplace's install-changes-nothing constraint intact.
        "version": "<from plugin.json>",
        "scope": "user",
        "target": "~/.claude/settings.json",
-       "at": "<ISO-8601 UTC timestamp>"
+       "at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>"
      }
      ```
 

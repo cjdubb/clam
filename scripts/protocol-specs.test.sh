@@ -25,6 +25,49 @@
 # whole flattened document would happily match across three DIFFERENT
 # table rows instead of confirming they share one row.
 #
+#
+# ---------------------------------------------------------------------------
+# B02 setup-stamp-measured-at (plan 001-issues-317-318, issue #318)
+#
+# Adds clauses to the B06 setup-stamp section below: `at` is a value read
+# from the clock, not just a value shape. Source of truth is the
+# "Contract: B02 setup-stamp-measured-at" docblock at the top of
+# docs/protocols/setup-stamp.md.
+#
+# Two vacuity guards these clauses need and the suite did not already have:
+#   - B02's contract docblock opens with a bare "<!--" and carries
+#     "Contract: B02" on the NEXT line, so the per-doc sed ranges above —
+#     which key on "<!-- Contract: B0N" appearing on the OPENING line — do
+#     not strip it, and sp_doc/sp_flat still contain it verbatim. Left in,
+#     the docblock restates every clause below (the literal date command
+#     included) and would satisfy them all with no delivered prose written.
+#     strip_comment_block() removes it.
+#   - The scaffold's STUB sentence paraphrases the very requirement it
+#     stands in for ("this bullet must say the value is measured when the
+#     stamp is written, and name the command that produces it"), so a phrase
+#     check would likewise pass on the stub's own words. drop_stub_blocks()
+#     removes the marker line through the end of its markdown block.
+# Both helpers are no-ops once the scaffold is gone, so they can only make
+# these clauses stricter at birth, never weaker at acceptance.
+#
+# RED/GREEN at birth for the added clauses — all four are RED:
+#   - "B02 contract comment removed from source": the docblock is in the
+#     file today.
+#   - "names the command that produces 'at'" (doc-level) and "the Shape
+#     section's 'at' bullet is where that command is named"
+#     (bullet-scoped): `date -u +%Y-%m-%dT%H:%M:%SZ` occurs only inside the
+#     B02 docblock today, which is stripped.
+#   - "'at' is measured when the stamp is written": with the stub bullet
+#     dropped, the `at` bullet is empty, so no measurement phrase survives.
+#   - "'at' is never invented, guessed, or copied": no such clause exists.
+# The two existing setup-stamp hygiene clauses ("contract comment removed
+# from source", "STUB marker removed") are deliberately NOT re-added. Their
+# current state, for the record: the STUB check is RED (the scaffold's
+# marker sits in the `at` bullet); the "Contract: B06" check is GREEN, but
+# vacuously — B06's docblock was removed when B06 landed and that check
+# keys on B06's marker, not B02's. That is why a B02-specific hygiene
+# clause is added below rather than folded into the existing one.
+#
 # Run: bash scripts/protocol-specs.test.sh   (exits non-zero on any failure)
 set -u
 
@@ -99,6 +142,57 @@ line_has_all() { # text needle...
 flatten() { # text -> newlines collapsed to single spaces, runs of
             # whitespace squeezed to one space each
   printf '%s' "$1" | tr '\n' ' ' | tr -s '[:space:]' ' '
+}
+
+# Drops the whole HTML comment block whose text contains $2 (fixed string),
+# opening "<!--" line through the closing "-->". Unlike the per-doc sed
+# ranges below, the marker need not sit on the opening line. Other comment
+# blocks are passed through untouched. Deliberate simplification, safe for
+# this repo's docblock convention: a block comment is assumed to own the
+# lines it spans, so a line carrying both real content and a "<!--" would
+# be dropped whole.
+strip_comment_block() { # text marker -> stdout
+  awk -v marker="$2" '
+    function flush() { if (!hit) printf "%s", buf; buf = ""; hit = 0; inc = 0 }
+    !inc && index($0, "<!--") {
+      inc = 1; buf = $0 "\n"; hit = (index($0, marker) > 0)
+      if (index($0, "-->") > 0) flush()
+      next
+    }
+    inc {
+      buf = buf $0 "\n"
+      if (index($0, marker) > 0) hit = 1
+      if (index($0, "-->") > 0) flush()
+      next
+    }
+    { print }
+    END { if (inc) flush() }
+  ' <<< "$1"
+}
+
+# Drops each "STUB — NotImplemented" marker line through the end of its
+# markdown block (up to, not including, the next blank line). A no-op once
+# the markers are gone. See the B02 note in the header for why the marker
+# line alone is not enough.
+drop_stub_blocks() { # text -> stdout
+  awk '
+    /STUB — NotImplemented/ { skipping = 1 }
+    skipping && /^[[:space:]]*$/ { skipping = 0 }
+    !skipping { print }
+  ' <<< "$1"
+}
+
+# The Shape section's `at` bullet: its first line through the end of its
+# markdown block (next top-level bullet, next heading, or blank line).
+# Empty when no such bullet exists. Used to scope the field's semantics to
+# the bullet that defines it, so the `version` bullet — which legitimately
+# already says "at the time the stamp was written" — cannot satisfy them.
+at_bullet() { # text (unflattened) -> stdout
+  awk '
+    /^- `at`/ { found = 1; print; next }
+    found && (/^- / || /^#/ || /^[[:space:]]*$/) { exit }
+    found { print }
+  ' <<< "$1"
 }
 
 # Byte offset of the first occurrence of a literal needle in text, or -1 if
@@ -434,6 +528,38 @@ check "setup-stamp: no plugin named anywhere in the doc" \
   "$(first_plugin_named "$sp_flat")" ""
 check "setup-stamp: does not cite any plugins/<name>/ path" \
   "$(contains "$sp_flat" "plugins/")" "no"
+
+# --- 7. 'at' is measured when the stamp is written (B02) -------------------
+# These read sp_body — sp_doc with B02's contract docblock and the scaffold's
+# STUB bullet removed — not sp_doc/sp_flat. See the B02 note in the header:
+# either one left in place would satisfy every clause here on its own words.
+sp_body="$(drop_stub_blocks "$(strip_comment_block "$sp_doc" "Contract: B02")")"
+sp_body_flat="$(flatten "$sp_body")"
+sp_at_flat="$(flatten "$(at_bullet "$sp_body")")"
+
+# --- Hygiene: B02's contract comment gone at acceptance ---
+check "setup-stamp: B02 contract comment removed from source" \
+  "$(contains "$sp_raw" "Contract: B02")" "no"
+
+check "setup-stamp: names the command that produces 'at' (date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$(contains "$sp_body_flat" 'date -u +%Y-%m-%dT%H:%M:%SZ')" "yes"
+check "setup-stamp: the Shape section's 'at' bullet is where that command is named" \
+  "$(contains "$sp_at_flat" 'date -u +%Y-%m-%dT%H:%M:%SZ')" "yes"
+check "setup-stamp: 'at' is measured when the stamp is written, not merely a value shape" \
+  "$(contains_any "$(lower "$sp_at_flat")" \
+      "measured when the stamp is written" \
+      "measured when the stamp was written" \
+      "measured at the time the stamp is written" \
+      "measured at the moment the stamp is written" \
+      "records when the stamp is written" \
+      "records when the stamp was written" \
+      "recorded when the stamp is written" \
+      "read the clock" "reads the clock" "from the clock")" "yes"
+check "setup-stamp: 'at' is never invented, guessed, or copied from another record" \
+  "$(contains_any "$(lower "$sp_body_flat")" \
+      "never invented" "not invented" \
+      "never guessed" "not guessed" \
+      "never copied" "not copied")" "yes"
 
 # ===========================================================================
 # B07 — todo-format.md

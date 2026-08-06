@@ -34,12 +34,13 @@
 #       with a single oracle.
 #   (5) The B06 contract comment itself is gone from the raw file (marked
 #       remove-at-acceptance).
-#   (6) plugin.json is at 0.5.3 (its PR group's version; the text-label group
-#       took 0.5.1 -> 0.5.2, and this group takes the next patch) and the
-#       root README.md Plugins-table row agrees with
-#       it. version-bump-lint and
-#       readme-lint both gate this; checking it here fails it in the inner
-#       loop instead of in CI.
+#   (6) plugin.json is at or above 0.5.3 (the version this block's work
+#       shipped at) and the root README.md Plugins-table row agrees with
+#       whatever the manifest currently says. A floor, not an exact pin: an
+#       exact pin makes every later unrelated bump of this plugin a failure
+#       here, and version-bump-lint already gates that a bump happens at all.
+#       version-bump-lint and readme-lint both gate this; checking it here
+#       fails it in the inner loop instead of in CI.
 #   (7) The contract's edge case that agent-dash and the tracking plugin keep # architecture-lint: allow naming them is the assertion the check below verifies, not a cross-plugin dependency
 #       their existing "Relationships to other plugins" entries.
 #
@@ -315,18 +316,20 @@ check "attribution names the MIT licence" \
   "$(has_re '(^|[^A-Za-z])MIT([^A-Za-z]|$)' "$BODY")" "yes"
 
 # ---------------------------------------------------------------------------
-# 6. Version: plugin.json at 0.5.3, root README Plugins table agreeing
+# 6. Version: plugin.json at or above 0.5.3, root README Plugins table agreeing
 # ---------------------------------------------------------------------------
 
-# Retargeted three times, and the pin tracks the CURRENT version each time:
-# master's README Update-section wave took 0.5.0 -> 0.5.1 (it edits this
-# plugin's README, and version-bump-lint has no docs exemption, so the plugin
-# necessarily bumps), the text-label group took 0.5.1 -> 0.5.2, and this group
-# takes the next patch on top of that. Retargeting by hand every time is F25:
-# the literal below is the fourth place a bump has to be hand-synced.
+# A floor, never equality, in the repo's usual `sort -V` idiom. An exact pin
+# turns every later unrelated bump of this plugin into a failure here, and
+# that a bump happens at all is already gated by version-bump-lint; what is
+# worth asserting is the floor this block's work shipped at, plus the root
+# README agreeing with whatever the manifest currently says.
+VERSION_FLOOR="0.5.3"
 PLUGIN_VERSION="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$PLUGIN_JSON" 2>/dev/null | head -1)"
-check "plugin.json version is 0.5.3 (this block's PR group)" \
-  "$PLUGIN_VERSION" "0.5.3"
+check "plugin.json version $PLUGIN_VERSION is at or above the $VERSION_FLOOR floor" \
+  "$([ -n "$PLUGIN_VERSION" ] \
+      && [ "$(printf '%s\n%s\n' "$VERSION_FLOOR" "$PLUGIN_VERSION" | sort -V | head -1)" = "$VERSION_FLOOR" ] \
+      && echo yes || echo no)" "yes"
 
 ROOT_ROW_STATUS="$(grep -E '^\|[[:space:]]*\[?statusline[](]' "$ROOT_README" 2>/dev/null | head -1 \
   | awk -F'|' '{ print $3 }' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"

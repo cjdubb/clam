@@ -70,6 +70,44 @@
 #   - Landing's "no remove subcommand" check is likewise a GREEN-at-birth
 #     structural invariant expected to hold both before and after B05.
 #
+# ---------------------------------------------------------------------------
+# B02 setup-stamp-measured-at (plan 001-issues-317-318, issue #318)
+#
+# Adds two clauses to the per-plugin loop, plus a new section for
+# plugins/management/docs/setup-stamps.md. That file was a read-only
+# reference for B05 (see the note at the top of this header, which describes
+# B05's coverage); B02 does change it, so from here on it is under test —
+# but only for how it describes the `at` field. Every other row remains
+# B01's and is untested here.
+#
+# Source of truth: the "Contract: B02 setup-stamp-measured-at" docblock at
+# the top of docs/protocols/setup-stamp.md.
+#
+# The two per-plugin clauses go through the same strip_comments()/
+# stamp_block() path as every other content check, for the same reason: the
+# instruction text a model reads is what is under test, and a contract
+# docblock narrating the requirement must not be able to satisfy it.
+#
+# RED/GREEN at birth for the added clauses — every one is RED except the
+# scoping guard noted last:
+#   - "stamp step names date -u +%Y-%m-%dT%H:%M:%SZ": RED for all five
+#     skills; the command appears in no skill file today.
+#   - "the stamp record shown carries no bare '<ISO-8601 UTC timestamp>'
+#     placeholder": RED for all five; the placeholder is in each file's
+#     shown JSON record today, inside the stamp block.
+#   - "setup-stamps.md names the command": RED; absent today.
+#   - "setup-stamps.md describes 'at' as measured": RED; the row reads
+#     "ISO-8601 UTC timestamp of the setup run", a shape and no measurement.
+#   - "setup-stamps.md has a stamps[].at row": GREEN at birth, and expected
+#     to stay GREEN. It is a scoping guard, not new work — the row-scoped
+#     clause after it would go vacuous rather than fail if the row were ever
+#     renamed away, same spirit as the block-scoping described above.
+#
+# No existing clause is changed. The plugin.json floors below deliberately
+# stay at B05's shipped values: B02's own version bumps are enforced
+# mechanically by version-bump-lint (scripts/ci.sh --lint), and pinning new
+# numbers here would only give this suite a second set of versions to chase.
+#
 # Tests only the public artifact (rendered SKILL.md instruction prose) and
 # plugin.json fields — never implementation-internal structure. Hermetic:
 # reads only the repo's own committed files, no network, no mutation,
@@ -204,6 +242,12 @@ for name in "${PLUGINS[@]}"; do
   check "$name: stamping instructions name the 'at' field (timestamp)" \
     "$(grep -qiE '\`at\`|\"at\"|\bat\b.{0,25}(timestamp|iso.?8601)|(timestamp|iso.?8601).{0,25}\bat\b' <<< "$block" && echo yes || echo no)" "yes"
 
+  # -- B02: 'at' is measured, and no bare placeholder is left standing ------
+  check "$name: stamp step names the command that produces 'at' (date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$(grep -qF -- 'date -u +%Y-%m-%dT%H:%M:%SZ' <<< "$block" && echo yes || echo no)" "yes"
+  check "$name: the stamp record shown carries no bare '<ISO-8601 UTC timestamp>' placeholder" \
+    "$(grep -qF -- '<ISO-8601 UTC timestamp>' <<< "$block" && echo no || echo yes)" "yes"
+
   # -- generic: version sourced from installPath's plugin.json, not the -----
   # -- installed_plugins.json entry's version field -------------------------
   sourced_correctly="no"
@@ -291,6 +335,27 @@ for name in "${PLUGINS[@]}"; do
       ;;
   esac
 done
+
+# ---------------------------------------------------------------------------
+# B02 — plugins/management/docs/setup-stamps.md
+#
+# The reader-facing description of the same field. Read comment-stripped,
+# like every check above; the semantics clause is scoped to the
+# `stamps[].at` table row, which is the description under test — the words
+# "measured" or "written" appearing in some other row would say nothing
+# about this field.
+# ---------------------------------------------------------------------------
+FORMAT_DOC="$REPO_ROOT/plugins/management/docs/setup-stamps.md"
+fd_stripped=$(strip_comments "$FORMAT_DOC")
+fd_at_row=$(grep -F -- 'stamps[].at' <<< "$fd_stripped")
+
+check "setup-stamps.md: has a stamps[].at row (scoping guard for the clause below)" \
+  "$([[ -n "$fd_at_row" ]] && echo yes || echo no)" "yes"
+check "setup-stamps.md: names the command that produces 'at' (date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$(grep -qF -- 'date -u +%Y-%m-%dT%H:%M:%SZ' <<< "$fd_stripped" && echo yes || echo no)" "yes"
+check "setup-stamps.md: describes 'at' as measured when the stamp is written, not merely a timestamp shape" \
+  "$(grep -qiE 'measured|reads? the clock|record(s|ed) when the stamp (is|was) written' <<< "$fd_at_row" \
+      && echo yes || echo no)" "yes"
 
 echo ""
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

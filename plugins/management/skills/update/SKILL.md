@@ -18,8 +18,8 @@ starts it.
    clone — it does not touch any installed plugin.
 2. **Build the version report.** Run
    `${CLAUDE_PLUGIN_ROOT}/scripts/check-versions.sh` and parse its
-   seven-column TSV output (columns: `plugin`, `installed`, `latest`,
-   `update`, `stamp`, `setup`, `stale_targets`).
+   eight-column TSV output (columns: `plugin`, `installed`, `latest`,
+   `update`, `stamp`, `setup`, `stale_targets`, `scope`).
 3. **Present the report before anything changes.** Show the table as a
    readable summary — what's current, what's stale, what's unstamped —
    and for any row whose `setup` is `stale`, show its `stale_targets`
@@ -34,11 +34,21 @@ starts it.
    single question covering the whole batch — never nag per plugin one at
    a time. An explicit subset reply (naming only some of the listed
    plugins) is honored: update only that subset, not the full batch.
-6. **Apply confirmed updates.** For each plugin confirmed in step 5, run
-   `claude plugin update <plugin>@clam`. Report each result as it
-   completes. A failure on one plugin does not abort the rest — keep going
-   through the remaining confirmed plugins and collect every failure to
-   report at the end.
+6. **Apply confirmed updates.** For each plugin confirmed in step 5, take
+   that plugin's `scope` value from the report and run
+   `claude plugin update <plugin>@clam -s <scope>` for it — never omit the
+   flag, since the CLI's own default scope is `user` and every clam plugin
+   here is installed at some other scope. The `scope` column can carry
+   several `;`-separated scopes for one plugin; when it does, run the
+   update command once per scope in that case, and treat each per-scope
+   run as its own independent result: report it separately, exactly like
+   any other result, so a failure at one scope never suppresses or hides
+   the outcome at another. A row whose `scope` is `-` gets no update
+   command at all — never construct `-s -`; step 5 confirms only stale
+   rows, so a `-` row cannot reach this step in practice, but the rule
+   holds regardless. Report each result as it completes. A failure on one
+   plugin does not abort the rest — keep going through the remaining
+   confirmed plugins and collect every failure to report at the end.
 7. **Re-run the check after updating.** Run `check-versions.sh` again and
    show the after state — including each row's `stale_targets` value —
    next to the before state, so the before/after change is visible.
@@ -110,6 +120,11 @@ just want to see what's stale without changing anything.
 - **A `claude plugin update` command fails for one plugin.** Record the
   failure, keep going with the rest of the confirmed batch, and report the
   full failure list at the end, per step 6.
+- **A `claude plugin update` command fails with `Plugin "<p>" is not
+  installed at scope <s>`.** This is a scope mismatch: the scope the
+  command used is not where that plugin is actually installed. Re-read
+  that plugin's row and its `scope` column in the report, then re-run the
+  command with `-s <scope>` using the value found there for that plugin.
 
 ## Notes
 

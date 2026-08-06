@@ -5,6 +5,10 @@
 #   than the highest, and a seventh column stale_targets names the offending
 #   targets. Both are specified in Outputs below, which remains the single
 #   authoritative statement of this script's contract.
+#   Amended again by B01 scope-column (plan 001-update-install-scope, issue
+#   #276): an eighth column scope reports where each plugin is installed, so
+#   the update skill can pass the right -s flag instead of defaulting to user
+#   scope. Specified in Outputs below.
 # Behavior:
 #   Read-only report of every clam-marketplace plugin: installed version vs
 #   latest available vs setup stamp. Reads three sources under the Claude
@@ -26,7 +30,7 @@
 #     CLAM_MARKETPLACE   marketplace name (default: clam)
 # Outputs:
 #   TSV on stdout: header
-#   "plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets",
+#   "plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope",
 #   then one row per catalog plugin, sorted by plugin name:
 #     installed: version | "-" (not installed)
 #     latest:    version | "?" (source or plugin.json unresolvable)
@@ -52,6 +56,24 @@
 #                current, unstamped, or "-"). This is what makes a stale
 #                row diagnosable without hand-reading the stamp file; the
 #                update skill turns each path into a prune offer.
+#     scope:     the DISTINCT `scope` values of this plugin's installation
+#                entries, in installed_plugins.json's own entry order,
+#                joined by ";" | "-" (not installed, or no entry carries a
+#                usable scope). This is what lets the update skill pass
+#                `-s <scope>` to `claude plugin update` instead of taking
+#                the CLI's `user` default, which fails outright for a
+#                local-scope install (issue #276).
+#                DEDUPLICATED, and that is the point rather than a detail:
+#                the normal case is several entries at ONE scope — local
+#                installs record one entry per project — so a plugin
+#                present in three worktrees must read "local", never
+#                "local;local;local".
+#                EVERY distinct scope is listed rather than one chosen,
+#                because a plugin installed at two scopes needs an update
+#                run at each; collapsing to one would leave the other
+#                silently stale. Note this is independent of the installed
+#                column: scope covers all entries, not just the entry whose
+#                version won the `highest` collapse.
 #   Plugins installed from OTHER marketplaces are out of scope and never
 #   appear. Version comparison is string (in)equality — the marketplace
 #   only moves forward; no semver ordering is attempted. NOTE the two
@@ -76,7 +98,20 @@
 #     version among entries by `sort -V`; setup column is the worst status
 #     across that plugin's stamps (stale beats current); stamp column is
 #     the LOWEST stamp version by `sort -V` (the one driving that status);
-#     stale_targets lists every differing stamp's target, not just one.
+#     stale_targets lists every differing stamp's target, not just one;
+#     scope lists every distinct scope, in entry order, ";"-joined.
+#   - Plugin with several entries all at the SAME scope (the ordinary
+#     multi-worktree local install): scope is that one value, not a
+#     repeated list.
+#   - An installation entry whose `scope` field is absent or empty
+#     contributes NOTHING to scope: it is skipped, never emitted as an
+#     empty ";;" segment or a trailing ";".
+#   - Installed, but no entry carries a usable scope: scope is "-", the
+#     same sentinel an uninstalled row gets. Never empty.
+#   - A scope value containing ";" or a tab would corrupt the joined field.
+#     Scopes are a closed set written by the CLI (user, project, local,
+#     managed), so this is out of contract exactly as it is for
+#     stale_targets: no escaping is performed and none is expected.
 #   - A stamp target containing a ";" or a tab would corrupt the joined
 #     stale_targets field. Targets are absolute filesystem paths written by
 #     the setup skills, so this is out of contract: no escaping is
@@ -154,7 +189,7 @@ lowest_of() {
     printf '%s\n' "$@" | sort -V | head -n1
 }
 
-printf 'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\n'
+printf 'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope\n'
 
 any_stale=0
 
@@ -170,13 +205,32 @@ while IFS=$'\t' read -r name source; do
     entries_json=$(jq -c --arg k "$key" '.plugins[$k] // empty' "$INSTALLED_FILE")
 
     installed="-"
+    scope="-"
     if [[ -n "$entries_json" && "$entries_json" != "null" ]]; then
         versions=()
-        while IFS=$'\t' read -r install_path entry_version; do
+        # scopes: the DISTINCT scope of every entry, in the entries' own
+        # (file) order, deduplicated as they are collected — never sorted,
+        # and independent of which entry's version wins the `installed`
+        # highest-of collapse below.
+        scopes=()
+        while IFS=$'\t' read -r install_path entry_version entry_scope; do
             versions+=("$(resolve_installed_version "$install_path" "$entry_version")")
-        done < <(jq -r '.[] | [.installPath, .version] | @tsv' <<<"$entries_json")
+            if [[ -n "$entry_scope" ]]; then
+                already_seen=0
+                for seen in "${scopes[@]}"; do
+                    if [[ "$seen" == "$entry_scope" ]]; then
+                        already_seen=1
+                        break
+                    fi
+                done
+                [[ "$already_seen" -eq 1 ]] || scopes+=("$entry_scope")
+            fi
+        done < <(jq -r '.[] | [.installPath, .version, (.scope // "")] | @tsv' <<<"$entries_json")
         if [[ ${#versions[@]} -gt 0 ]]; then
             installed=$(highest_of "${versions[@]}")
+        fi
+        if [[ ${#scopes[@]} -gt 0 ]]; then
+            scope=$(IFS=';'; printf '%s' "${scopes[*]}")
         fi
     fi
 
@@ -234,7 +288,7 @@ while IFS=$'\t' read -r name source; do
         stale_targets=$(IFS=';'; printf '%s' "${differing[*]}")
     fi
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$installed" "$latest" "$update" "$stamp" "$setup" "$stale_targets"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$installed" "$latest" "$update" "$stamp" "$setup" "$stale_targets" "$scope"
 done < <(jq -r '(.plugins // []) | sort_by(.name)[] | [.name, (.source | ltrimstr("./"))] | @tsv' "$MKT_JSON")
 
 if [[ "$any_stale" -eq 1 ]]; then

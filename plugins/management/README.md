@@ -115,15 +115,20 @@ bash plugins/management/scripts/check-versions.sh
 ```
 
 Prints a TSV (`plugin  installed  latest  update  stamp  setup
-stale_targets`) to stdout, one row per marketplace plugin. `stamp` reports
-the lowest — i.e. driving — version among that plugin's stamps, the one
-setting its `setup` status; `stale_targets` names the absolute path of
-each stamp target that is behind, or `-` when the row isn't stale. Exit
-`0` when nothing is stale, `10` when at least one plugin is; `2`/`3`/`4`
-on missing or malformed installed-plugin data, a missing marketplace
-clone, and a missing `jq`, respectively (see the script's own header for
-the full contract). Honors `CLAUDE_CONFIG_DIR` (default `~/.claude`) and
-`CLAM_MARKETPLACE` (default `clam`) for testing against fixtures.
+stale_targets  scope`) to stdout, one row per marketplace plugin. `stamp`
+reports the lowest — i.e. driving — version among that plugin's stamps,
+the one setting its `setup` status; `stale_targets` names the absolute
+path of each stamp target that is behind, or `-` when the row isn't
+stale. `scope` carries the distinct scopes of the plugin's installation
+entries (not one per entry), `;`-joined, and `-` when the plugin isn't
+installed; it's what lets the update flow pass `-s <scope>` to `claude
+plugin update` rather than take the CLI's own `user` default, which fails
+outright for a local-scope install. Exit `0` when nothing is stale, `10`
+when at least one plugin is; `2`/`3`/`4` on missing or malformed
+installed-plugin data, a missing marketplace clone, and a missing `jq`,
+respectively (see the script's own header for the full contract). Honors
+`CLAUDE_CONFIG_DIR` (default `~/.claude`) and `CLAM_MARKETPLACE` (default
+`clam`) for testing against fixtures.
 
 The `setup` column reflects setup version stamps — see
 [`docs/setup-stamps.md`](docs/setup-stamps.md) for the stamp file's format

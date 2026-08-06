@@ -1,12 +1,14 @@
 #!/bin/bash
-# Structural/content tests for skills/update/SKILL.md against two contracts,
-# both stated as HTML-comment docblocks in that file (or, once accepted,
+# Structural/content tests for skills/update/SKILL.md against three contracts,
+# each stated as an HTML-comment docblock in that file (or, once accepted,
 # removed from it — see "Contract docblocks are not permanent" below):
 #   - Contract: B02 updates-run-skill (plan 001-update-flow-for-users) —
 #     sections 1-17 below, all GREEN: B02 is implemented and merged.
 #   - Contract: B03 prune-wiring (plan 001-stamp-staleness-actionable,
-#     issue #239) — section 18 below, the wave this suite is being extended
-#     for.
+#     issue #239) — section 18 below, all GREEN: implemented and merged.
+#   - Contract: B02 scope-wiring (plan 001-update-install-scope, issue #276)
+#     — section 19 below, plus 18b's column enumeration which that contract
+#     supersedes, the wave this suite is being extended for.
 #
 # A SKILL.md is model-executed instructions, not code, so this is a
 # structure/content suite:
@@ -307,11 +309,18 @@ check "step 3 is extractable and non-empty (the pre-change report)" \
 check "step 7 is extractable and non-empty (the after-state re-check)" \
   "$(nonblank "$STEP7")" "yes"
 
-# --- 18b. Step 2 parses SEVEN columns, stale_targets among them -----------
+# --- 18b. Step 2 parses the full column list, stale_targets among them ----
 check "step 2's column list names the stale_targets column" \
   "$(has_f "$STEP2" 'stale_targets')" "yes"
-check "step 2's column list enumerates all seven columns, in check-versions.sh order" \
-  "$(has "$STEP2" 'columns?.{0,40}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets')" "yes"
+# Amended by section 19's contract (B02 scope-wiring, #276), which adds an
+# EIGHTH column, `scope`, last. The seven-column form this check required is
+# exactly what that contract supersedes, so the enumeration is updated in
+# place rather than duplicated below — leaving a seven-column assertion here
+# would make the suite contradict itself. stale_targets' own clause (its
+# position, sixth-to-last no longer being last) is unchanged and still
+# covered, since the pattern is ordered.
+check "step 2's column list enumerates all eight columns, in check-versions.sh order" \
+  "$(has "$STEP2" 'columns?.{0,40}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,60}scope')" "yes"
 
 # --- 18c. The stale_targets value is shown, in both report views ----------
 check "the report shows the stale_targets value rather than only naming the column" \
@@ -377,6 +386,187 @@ check "the skill states no opinion on whether a stamp should be pruned — the j
 # codes section 14 above requires the skill to handle.
 check "the skill does not document prune-stamp.sh's own exit codes" \
   "$(has "$BODY_WS" 'prune-stamp.{0,140}exit [0-9]|exit [0-9].{0,140}prune-stamp')" "no"
+
+# ===========================================================================
+# 19. Contract: B02 scope-wiring (plan 001-update-install-scope, #276)
+# ===========================================================================
+# The third contract this file is scored against, and — like B03 above — one
+# that adds no computation to the skill. `claude plugin update` takes the
+# CLI's default `--scope user`, so the unflagged command step 6 prescribes
+# today fails outright for every plugin installed at local scope, and step 6's
+# own per-plugin failure handling then carries that failure through the whole
+# batch. B01 of this plan added an eighth `scope` column to check-versions.sh;
+# this block makes the skill read that column, pass `-s <scope>`, and state
+# the failure well enough to be diagnosed from the skill alone.
+#
+# Same rules as every section above: each fact must be stated in the skill's
+# OWN rendered prose, so every check below reads a comment-stripped, flattened
+# extract of the body, never the raw file. The B02 docblock narrates every
+# fact under test, so scoring against raw text would let the comment satisfy
+# the check with nothing written, and would then break outright when the
+# docblock is removed at acceptance.
+#
+# Most checks here are scoped to step 6 or to the `Errors` section rather than
+# run over the whole body, because the contract specifies WHERE each change
+# lands ("Step 2's column list becomes eight columns"; "Step 6 runs ..."; "The
+# Errors section gains a branch"). A whole-body grep for `-s <scope>` cannot
+# tell "step 6 passes the scope" from "the word scope appears somewhere in the
+# file", which is the entire clause. The extraction guards in 19a exist so
+# that a scoped check failing always means the fact is missing, never that the
+# extraction silently returned nothing.
+#
+# RED/GREEN at birth (this wave):
+#   - RED, and red because the fact is absent from the skill's rendered prose:
+#     every check naming `scope` — the eighth column in step 2 (18b above),
+#     the `-s` flag and its per-row derivation, the ";"-separated multi-scope
+#     run, the "-" edge case, and the three Errors-branch checks. The body
+#     says "seven-column" today, and the word "scope" does not occur in it at
+#     all outside the stripped docblock.
+#   - GREEN by design, labelled inline: the 19a extraction guards, the
+#     no-hardcoded-literal negative (there is no `-s` in the body yet to
+#     hardcode), the blind-retry negative, and all of 19g — those assert that
+#     statements true today survive this block's edits, which is what the
+#     contract's invariant list asks of them.
+
+# Extracts one "## <heading>" section's content: everything after the heading
+# line, up to the next heading of any level or end of body. Same shape as
+# step_body, for the clause this contract states per-SECTION rather than
+# per-step.
+section_body() { # body heading
+  awk -v h="$2" '
+    $0 ~ ("^#+[[:space:]]+" h "[[:space:]]*$") {found=1; next}
+    found && /^#+[[:space:]]/ {exit}
+    found {print}
+  ' <<<"$1"
+}
+
+# Flattened and whitespace-squeezed per BODY_WS's reasoning above.
+STEP5=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 5)")
+STEP6=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 6)")
+STEP8=$(tr -s '[:space:]' ' ' <<<"$(step_body "$BODY" 8)")
+ERRORS=$(tr -s '[:space:]' ' ' <<<"$(section_body "$BODY" "Errors")")
+
+# --- 19a. Guards for the scoped checks (GREEN at birth) -------------------
+check "step 5 is extractable and is the confirmation step" \
+  "$(has "$STEP5" 'confirm')" "yes"
+check "step 6 is extractable and is the update-command step" \
+  "$(has_f "$STEP6" 'claude plugin update')" "yes"
+check "step 8 is extractable and is the setup/prune offer step" \
+  "$(has_f "$STEP8" 'prune-stamp.sh')" "yes"
+check "the Errors section is extractable and non-empty" \
+  "$(nonblank "$ERRORS")" "yes"
+
+# --- 19b. Step 2 parses EIGHT columns, scope last -------------------------
+# The ordered enumeration itself lives in 18b, updated in place; these two add
+# what that check cannot say on its own: that the column is named at all (so a
+# failure there is attributable), and that no stale count contradicts it.
+check "step 2's column list names the scope column" \
+  "$(has_f "$STEP2" 'scope')" "yes"
+check "the report is no longer described as seven-column anywhere in the body" \
+  "$(has "$BODY_WS" 'seven.{0,3}column|7.column')" "no"
+
+# --- 19c. Step 6 passes the scope, derived per plugin ---------------------
+# The derivation is the point of the fix, so it is asserted three ways: the
+# flag reaches the command, its argument is a placeholder rather than a fixed
+# word, and the prose says where that value comes from. A check satisfied by a
+# hardcoded `-s local` would not have tested this contract at all.
+check "step 6 passes the scope to claude plugin update via -s/--scope" \
+  "$(has "$STEP6" 'claude plugin update.{0,60}(-s|--scope)\b')" "yes"
+check "step 6's scope argument is a placeholder, not a fixed value" \
+  "$(has "$STEP6" 'claude plugin update.{0,60}(-s|--scope) +[<${]')" "yes"
+check "step 6 states the scope is taken from that plugin's row in the report" \
+  "$(has "$STEP6" 'scope.{0,120}(column|row|report)|(column|row|report).{0,120}scope')" "yes"
+# Negative, GREEN at birth (there is no `-s` in the body yet). Scoped to the
+# command template rather than the whole step, so an illustrative aside is not
+# caught — only a command that would send every plugin to one fixed scope.
+check "step 6's update command never hardcodes a scope literal" \
+  "$(has "$STEP6" 'claude plugin update.{0,60}(-s|--scope) +(user|local|project|dynamic|global)\b')" "no"
+
+# --- 19d. A multi-scope row: one run per scope, each its own result -------
+check "step 6 covers a scope value carrying several ';'-separated scopes" \
+  "$(has "$STEP6" '(;|semicolon).{0,60}separat|separat.{0,60}(;|semicolon)|(several|multiple|more than one) scopes')" "yes"
+check "step 6 runs the update command once per scope for such a row" \
+  "$(has "$STEP6" '(per|for each|for every) scope')" "yes"
+# Looser than the two above by necessity: step 6 already carries reporting
+# language for the per-plugin case ("Report each result as it completes"), so
+# the binding here is the per-scope phrase, which does not exist today.
+check "each per-scope run is reported as its own result" \
+  "$(has "$STEP6" '(per|for each|for every|each) scopes?.{0,140}(result|report|separately|independent)|(result|report|separately|independent)[a-z]*.{0,140}(per|for each|for every|each) scopes?')" "yes"
+
+# --- 19e. Edge case: a scope of "-" ---------------------------------------
+# Deliberately NOT written as a negative grep for the literal `-s -`: a
+# faithful implementation is likely to state the prohibition ("never construct
+# `-s -`"), and that sentence would fail a naive absence check while being
+# exactly the prose the contract asks for. Asserted positively instead —
+# either the literal flag-plus-dash form is named, or the `-` scope is
+# described together with a statement that nothing is run for it.
+check "step 6 covers a scope of '-': no update command is constructed for such a row" \
+  "$(has "$STEP6" '(-s|--scope) +-|(scope[^.]{0,110}`-`|`-`[^.]{0,110}scope)[^.]{0,180}(never|no |not |skip)|(never|no |not |skip)[^.]{0,180}(scope[^.]{0,110}`-`|`-`[^.]{0,110}scope)')" "yes"
+
+# --- 19f. The Errors section's scope-mismatch branch ----------------------
+check "the Errors section has a branch for the scope-mismatch failure" \
+  "$(has "$ERRORS" 'not installed at scope|scope.{0,40}mismatch|wrong scope')" "yes"
+# Two conjuncts so that quoting the CLI's own message is not enough on its
+# own: the branch has to say that the scope the skill USED is not where the
+# plugin lives, which is what makes the failure diagnosable.
+check "the scope-mismatch branch states the cause (the scope used is not where the plugin is installed)" \
+  "$(grep -qiE -- '(scope|-s)[^.]{0,80}(used|passed|given|tried|sent|default)|(used|passed|given|tried|sent|default)[a-z]*[^.]{0,80}(scope|-s)\b' <<<"$ERRORS" \
+     && grep -qiE -- '(not|isn.t|does ?n.t|never|differ|wrong|other than)[^.]{0,80}(install|where|scope)' <<<"$ERRORS" \
+     && echo yes || echo no)" "yes"
+check "the scope-mismatch branch states the recovery: re-read that row's scope column and re-run with the flag" \
+  "$(grep -qiE -- '(re-?read|read|consult|check|look at|take)[^.]{0,60}(`?scope`?|that row)' <<<"$ERRORS" \
+     && grep -qiE -- 're-?run|run .{0,15}again|retry|try again' <<<"$ERRORS" \
+     && grep -qE -- '(-s|--scope)\b' <<<"$ERRORS" \
+     && echo yes || echo no)" "yes"
+# Negative, GREEN at birth. Same trap as 19e: the contract's own wording ("it
+# must not instruct a blind retry across every scope in turn") is the natural
+# thing for the branch to say, so a plain absence grep would fail a correct
+# implementation. Sentences that prescribe an exhaustive retry are collected
+# first, then those that forbid it are filtered out; what is left is a
+# prescription, and there must be none.
+#
+# What makes a retry "blind" is exhausting scopes the row never named, so the
+# signature is retry language plus an in-turn/until-it-works marker — NOT the
+# words "each scope", which the correct recovery itself needs: a row listing
+# two scopes is legitimately re-run for each of the two it names. An earlier
+# draft keyed on "(every|each) scope" and failed exactly that sentence.
+RETRY_ALL=$(tr '.' '\n' <<<"$ERRORS" \
+  | grep -iE '(retry|re-?run|try)[^.]{0,120}(in turn|one by one|one after another|until (one|it|the|something)|try them all|every possible scope|all (three|the) scopes)|(in turn|one by one|until (one|it) (succeed|work))[^.]{0,120}(retry|re-?run|try)')
+BLIND_RETRY=$(grep -ivE 'do not|don.t|never|avoid|rather than|instead of|without|no need' <<<"$RETRY_ALL")
+check "the scope-mismatch branch does not prescribe a blind retry across every scope" \
+  "$(nonblank "$BLIND_RETRY")" "no"
+
+# --- 19g. Invariants (all GREEN at birth) ---------------------------------
+# Sections 1-17 and 18h already carry most of this contract's invariant list:
+# the single batch confirmation (§4), check mode staying read-only (§12),
+# failure isolation and collection (§6), setup and prune-stamp.sh being
+# offered and never run (§10, 18d), and a stale or absent stamp never blocking
+# an update (§15, 18h). The guards below cover what those do not — that the
+# statements living INSIDE the two regions this block edits survived the edit,
+# and that the step numbering is untouched.
+# The sequence, not the count: this block edits steps 2 and 6 and renumbers
+# nothing, and a count alone cannot see a step 9 relabelled 10 — it stays nine
+# lines either way. Verified against a probe that did exactly that.
+STEP_NUMBERS=$(grep -oE '^[0-9]+\.' <<<"$BODY" | tr -d '.' | tr '\n' ' ' | sed -E 's/ +$//')
+check "the flow's steps are still numbered 1-9 in order (nothing renumbered)" \
+  "$STEP_NUMBERS" "1 2 3 4 5 6 7 8 9"
+check "nothing is updated before the step 5 confirmation" \
+  "$(has "$BODY_WS" 'nothing.{0,25}updated.{0,40}(until|before|without)')" "yes"
+check "step 5 still asks a single question covering the whole batch" \
+  "$(has "$STEP5" '(single|one) question|whole batch|entire batch|never nag')" "yes"
+check "step 6 still addresses the plugin as <plugin>@clam" \
+  "$(has_f "$STEP6" '@clam')" "yes"
+check "step 6 still states a failure on one plugin does not abort the rest" \
+  "$(has "$STEP6" 'does not abort|doesn.t abort|without aborting|keep going|continu.{0,20}(rest|others|remaining)')" "yes"
+check "step 6 still collects every failure to report at the end" \
+  "$(has "$STEP6" 'collect.{0,40}fail|fail.{0,40}collect|report.{0,40}at the end')" "yes"
+check "the Errors section still carries its four pre-existing branches" \
+  "$(grep -qiE 'not (found|available)' <<<"$ERRORS" \
+     && grep -qF 'exit 3' <<<"$ERRORS" \
+     && grep -qF 'exit 2' <<<"$ERRORS" \
+     && grep -qF 'exit 4' <<<"$ERRORS" \
+     && grep -qiE 'does not abort|keep going|per step 6' <<<"$ERRORS" \
+     && echo yes || echo no)" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

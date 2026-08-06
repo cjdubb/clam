@@ -2,22 +2,29 @@
 # Structural/content tests for the management plugin's manifest and its
 # reader-facing documentation.
 #
-# Two source-of-truth contracts, from two different plans. NOTE the block-id
-# collision: both are called B03, and they are unrelated.
+# Three source-of-truth contracts, from three different plans. NOTE the
+# block-id collision: all three are called B03, and they are unrelated.
 #   1. "Contract: B03 updates-plugin-manifest" (plan 001-update-flow-for-
 #      users) — plugin.json plus the README's six template sections.
 #      Implemented and merged; every check for it is GREEN and stands as a
 #      regression guard.
 #   2. "Contract: B03 prune-wiring — README" and "Contract: B03 prune-wiring
 #      — stamps doc" (plan 001-stamp-staleness-actionable, issue #239) — the
-#      two blocks at the END of this file. This suite owns the stamps-doc
-#      checks as well as the README's because it is the suite that already
-#      owns rendered-prose content checks for this plugin.
+#      two middle blocks below. This suite owns the stamps-doc checks as well
+#      as the README's because it is the suite that already owns
+#      rendered-prose content checks for this plugin.
+#   3. "Contract: B03 scope-docs" (plan 001-update-install-scope, issue #276)
+#      — the LAST block in this file: the check-versions.sh paragraph grows an
+#      eighth column, scope, and plugin.json goes 0.4.0 -> 0.5.0. One contract
+#      docblock covers both artifacts, because plugin.json is JSON and cannot
+#      carry a comment of its own.
 #
 # Covers plugins/management/.claude-plugin/plugin.json:
 #   - valid JSON; .name "management"; .version well-formed semver and >= 0.1.0
 #     (a floor, not a pin: version-bump-lint requires a bump for ANY content
 #     change to the plugin, so an exact pin here would fail every such change)
+#   - .version is exactly 0.5.0 — a pin that deliberately coexists with the
+#     floor above; see the scope-docs block at the end for why both are here
 #   - .description non-empty, names /management:update, and is a single sentence
 #     (exactly one period, trailing)
 #   - .author byte-identical (jq -Sc) to marketplace.json's .owner (single
@@ -415,6 +422,83 @@ check "the stamps doc does not document prune-stamp.sh's flags, exit codes, or u
 # GREEN at birth, invariant guard: reader-facing prose, not a changelog.
 check "the stamps doc body carries no issue archaeology" \
   "$(grep -qE '#[0-9]+' <<< "$stamps_stripped" && echo present || echo absent)" "absent"
+
+# ===========================================================================
+# Contract: B03 scope-docs (plan 001-update-install-scope, issue #276)
+# ===========================================================================
+# Two artifacts, one block: the reader-facing description of
+# check-versions.sh's output gains an eighth column, scope, and plugin.json
+# records the version that makes the change visible to installed users. The
+# script's own header docblock stays authoritative for the column's semantics
+# — the README restates it for a reader, so these checks assert that the FACTS
+# are stated, never the wording that states them.
+#
+# Every prose check here is scoped to the check-versions.sh ENTRY rather than
+# the whole Commands section, reusing the entry_body helper above. That
+# matters more here than it did for prune-stamp.sh: "scope" is also the
+# ordinary English word the /management:install entry uses three paragraphs
+# up ("asks once for the install scope (`local`, `user`, or `project`)"), and
+# a section-scoped pattern would happily score that prose instead of the
+# column description.
+#
+# RED at birth: the paragraph documents seven columns and says nothing about
+# scope, and plugin.json is at 0.4.0. GREEN at birth for the entry-lead anchor
+# and the two survival guards — this block ADDS to the paragraph, it does not
+# rewrite it.
+
+cv_entry=$(tr -s '[:space:]' ' ' <<< "$(entry_body "$commands" 'check-versions.sh')")
+
+# Anchors every entry-scoped check below, exactly as the prune-stamp.sh
+# entry-lead check does: if this is red, they are all red for that one reason
+# rather than for seven independent ones.
+check "the check-versions.sh entry has a bold entry lead" \
+  "$(nonblank "$cv_entry")" "yes"
+
+# --- The eight-column TSV description ---------------------------------------
+# The first seven gaps use the same {0,60} windows as the seven-column check
+# above, which stays untouched as the prior contract's regression guard. The
+# final gap is tighter on purpose: "scope" is a word the sentence AFTER the
+# list is certain to use, and a 60-char window would let that following prose
+# satisfy "the list ends with scope" while the list itself still had seven.
+check "the check-versions.sh entry's TSV column list enumerates all eight columns, in check-versions.sh order, scope last" \
+  "$(grep -qiE 'TSV.{0,60}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,25}scope' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# What the column carries, per the script's Outputs docblock: the DISTINCT
+# scopes of the plugin's installation entries, ";"-joined, "-" when not
+# installed. Three facts, three checks, so a partial restatement fails
+# specifically rather than as one opaque "no".
+check "the check-versions.sh entry says the scope column carries the distinct scopes, not one per entry" \
+  "$(grep -qiE 'scope.{0,120}(distinct|unique|dedup)|(distinct|unique|dedup)[a-z-]*.{0,120}scope' <<< "$cv_entry" && echo yes || echo no)" "yes"
+check "the check-versions.sh entry says the scope values are ';'-joined" \
+  "$(grep -qiE '(`;`|";"|semicolon).{0,80}(join|separat|delimit)|(join|separat|delimit)[a-z]*.{0,80}(`;`|";"|semicolon)' <<< "$cv_entry" && echo yes || echo no)" "yes"
+check "the check-versions.sh entry says scope is '-' when the plugin is not installed" \
+  "$(grep -qiE '(`-`|"-").{0,80}(not installed|isn.t installed|no install)|(not installed|isn.t installed|no install).{0,80}(`-`|"-")' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# What the column is FOR. Two conjuncts because the flag alone doesn't say
+# why it beats doing nothing: the point is that the CLI's own default is
+# `user`, which is wrong for a local-scope install.
+check "the check-versions.sh entry says scope is what lets the update pass -s <scope> instead of the CLI's 'user' default" \
+  "$(grep -qE '(-s[ `]|--scope)' <<< "$cv_entry" \
+     && grep -qiE '(default|assum)[a-z]*.{0,60}user|user.{0,60}(default|assum)' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# GREEN at birth, survival guards. The two descriptions already in this
+# paragraph must survive the edit, and survive INSIDE this entry — which is
+# more than the section-scoped prune-wiring checks above can tell, since they
+# would still pass if the text migrated to a neighbouring entry.
+check "the check-versions.sh entry still describes stamp as the lowest (driving) stamp version" \
+  "$(grep -qiE 'stamp.{0,140}(lowest|driving)|(lowest|driving).{0,140}stamp' <<< "$cv_entry" && echo yes || echo no)" "yes"
+check "the check-versions.sh entry still describes stale_targets as the targets that are behind" \
+  "$(grep -qiE 'stale_targets[^_]{0,220}(path|behind|differ|out of date|stale stamp)' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# --- The manifest version ---------------------------------------------------
+# An exact pin, and deliberately unlike the ">= 0.1.0 floor" near the top of
+# this file. The floor cannot tell 0.5.0 from a wrong bump to 0.4.1 or 1.0.0,
+# and WHICH bump this is is itself the contract clause: MINOR, because the
+# report gains a column — a backwards-compatible addition to a public
+# contract, not a fix and not a break. The floor stays as-is and keeps
+# absorbing unrelated future bumps; this pin is the one assertion that has to
+# be re-pointed the next time management's version moves.
+check "plugin.json .version is exactly 0.5.0" "$version" "0.5.0"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

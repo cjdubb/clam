@@ -48,6 +48,11 @@ When you do render a document:
   re-renders itself in place when the source markdown changes; an open
   annotation composer draft is never destroyed by this — the update is
   held until the composer closes. A plain `file://` open never polls.
+- The project index at `/` (see Scripts below) does not only show what has
+  been served: it also discovers markdown documents that exist on disk
+  under `.local/` across every worktree of a repo it has served, listing
+  each never-served one marked "unserved" alongside what has already been
+  opened.
 
 ## Common workflows
 
@@ -195,6 +200,18 @@ its open-node count and Focus id read from the work-graph protocol's
 markers; every other document in the group lists as a path relative to
 the worktree root, all linking to their live `/doc` views.
 
+The index also discovers documents nobody has served yet. For every
+worktree that has served at least one document, `serve.py` scans every
+sibling worktree — every checkout of that same repo — for markdown files
+under its own `.local/`, at any depth, and lists each one after the
+served documents in its group, marked "unserved"; a worktree that has
+never served anything can therefore still get a full group, headline
+included, exactly like a worktree that has. When the discovery scan
+itself fails — git is missing, `git worktree list` errors, or the
+`.local` walk hits a problem — the index quietly falls back to listing
+only what the registry already has, exactly as it did before discovery
+existed.
+
 ### Failure modes
 
 | Scenario | Behavior |
@@ -210,6 +227,7 @@ the worktree root, all linking to their live `/doc` views.
 | The registry file can't be written (`/tmp` unwritable, deleted mid-run) | Persistence is silent and best-effort; the in-memory registry and `/docs.json` keep working |
 | A registered document's `WORKGRAPH.md` (or any listed file) can't be read for the project index | That entry's open-node count and Focus id show as unavailable; the rest of the index renders normally |
 | `--serve` cannot register the document (missing python3, missing `serve.py`, a foreign or unreplaceable process on the port, a spawn failure, or the server refuses the request) | Exit 3 with a stderr note naming the reason; the local render already succeeded, so callers skip silently |
+| Discovery scan fails (git missing, `git worktree list` errors, or the `.local` walk hits a problem) | Falls back to listing only what the registry already has — today's registry-only index |
 
 ### Maintenance
 
@@ -259,6 +277,9 @@ bash plugins/render-doc/scripts/workgraph-render.test.sh
 bash plugins/render-doc/scripts/live-update.test.sh
 bash plugins/render-doc/scripts/graph-default.test.sh
 bash plugins/render-doc/scripts/graph-always-docs.test.sh
+bash plugins/render-doc/scripts/discovery-scan.test.sh
+bash plugins/render-doc/scripts/index-discovery.test.sh
+bash plugins/render-doc/scripts/discovery-docs.test.sh
 ```
 
 ## Provenance
@@ -312,3 +333,37 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
+
+<!-- Contract: 002-B06 G02 docs + bump (plan 002-discovery-landing-dns) (remove at acceptance)
+Behavior: this README and skills/render/SKILL.md describe the per-worktree
+  landing page (GET /project/<root>, the /project/for?path= resolver) and
+  the doc-page topbar navigation (Index / Worktree links on http-served
+  pages, absent on file://). Phrasing references docs/protocols/
+  conventions only and names no plugin.
+Inputs: n/a (prose).
+Outputs: plugin.json version 0.8.0 -> 0.9.0; root README render-doc
+  version cell updated to match.
+Errors: n/a (prose).
+Invariants: the landing page's annotation sources are described as the
+  protocol fields (todo-format State:, decision-file Status:), nothing
+  else; degradation stated beside each feature.
+Edge cases: n/a.
+-->
+
+<!-- Contract: 002-B08 G03 docs + bump (plan 002-discovery-landing-dns) (remove at acceptance)
+Behavior: this README and serve.py's header prose document the friendly
+  hostname: any `<label>.localhost:27183` (e.g. `clam.localhost:27183`)
+  plus `localhost` and `[::1]`, with the support matrix stated
+  OS-neutrally — Chrome and Firefox resolve `*.localhost` to loopback
+  themselves on Linux and macOS (zero setup); Safari and curl follow the
+  system resolver, which on macOS needs one OPTIONAL documented
+  /etc/hosts line (never required for the core capability); why this is
+  rebinding-safe (RFC 6761) in one sentence.
+Inputs: n/a (prose).
+Outputs: plugin.json version 0.9.0 -> 0.10.0; root README render-doc
+  version cell updated to match.
+Errors: n/a (prose).
+Invariants: no sudo or system change is ever a prerequisite; the hosts
+  line is documented as optional enhancement only.
+Edge cases: n/a.
+-->

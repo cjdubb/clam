@@ -9,6 +9,13 @@ version-mismatch restart driven by the client, which compares /health's
 sha256 of this file against the copy on disk. See the "Contract: B01"
 docblock immediately below for the full behavioral spec.
 
+The project index (GET /) does not stop at what has been served: it also
+discovers markdown documents under a served worktree's .local/, at any
+depth, and across every one of that worktree's sibling checkouts, listing
+never-served documents alongside the rest. That discovery scan degrades
+to the registry-only listing whenever it fails for an environmental
+reason (git missing, a failing subprocess, an unreadable directory).
+
 Usage: serve.py   (port from RENDER_DOC_PORT, default 27183)
 """
 
@@ -395,10 +402,191 @@ def render_group(root, label, entries):
             rel = os.path.relpath(e['path'], root)
             href_esc = html.escape(
                 '/doc' + urllib.parse.quote(e['path'], safe='/'), quote=True)
-            parts.append(f'<li><a href="{href_esc}">{html.escape(rel)}</a></li>')
+            mark = (' <span class="unserved">(unserved)</span>'
+                    if e.get('lastServed') is None else '')
+            parts.append(f'<li><a href="{href_esc}">{html.escape(rel)}</a>{mark}</li>')
         parts.append('</ul>')
     parts.append('</details>')
     return ''.join(parts)
+
+
+# --- Discovery (plan 002-discovery-landing-dns) -------------------------------
+# Filesystem discovery: the index and landing pages list documents that
+# exist on disk but have never been served. Everything here references
+# docs/protocols/ conventions only; no plugin is named or assumed.
+
+
+def worktree_siblings(root):
+    """Contract: 002-B01 discovery scan — worktree_siblings
+
+    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B01").
+
+    Behavior: Return the worktree root realpaths of every worktree of the
+      repository that `root` belongs to, `root` itself included, by running
+      `git worktree list --porcelain` with cwd=root and taking each
+      `worktree <path>` line.
+    Inputs: root — an absolute realpath of a directory that is a git
+      worktree root (carries a .git entry). Not re-validated here; callers
+      pass roots produced by worktree_label().
+    Outputs: list of unique realpaths, `root` first, the rest in the order
+      git reports them; every returned path is a directory existing at
+      return time (a reported-but-vanished worktree is dropped); a listed
+      path whose directory carries no .git entry (e.g. a bare-repo control
+      dir) is excluded.
+    Errors: NEVER raises for environmental reasons — git missing from
+      PATH, subprocess failure (nonzero exit, OSError), a timeout capped
+      at 5 seconds, or unparseable output all degrade to returning [root].
+    Invariants: read-only (no filesystem writes, no registry access); no
+      shell=True; the subprocess always runs with an explicit timeout.
+    Edge cases: a single-worktree repo (returns [root]); root missing from
+      git's own output (still first in the result); duplicate paths in the
+      output (deduplicated, first occurrence wins).
+    """
+    try:
+        proc = subprocess.run(
+            ['git', 'worktree', 'list', '--porcelain'],
+            cwd=root, capture_output=True, text=True, timeout=5)
+        if proc.returncode != 0:
+            return [root]
+        paths = [line[len('worktree '):] for line in proc.stdout.split('\n')
+                 if line.startswith('worktree ')]
+    except Exception:
+        return [root]
+
+    result = [root]
+    seen = {root}
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            if os.path.isdir(path) and os.path.exists(os.path.join(path, '.git')):
+                result.append(path)
+        except OSError:
+            continue
+    return result
+
+
+def discover_docs(root):
+    """Contract: 002-B01 discovery scan — discover_docs
+
+    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B01").
+
+    Behavior: Return the markdown documents under `root`/.local — every
+      file matching .local/**/*.md at any depth — as candidates for the
+      index (B02) and the worktree landing page (B04).
+    Inputs: root — an absolute worktree root realpath.
+    Outputs: list of dicts {"path": <realpath>, "mtime": <epoch number>},
+      sorted by mtime descending. Only paths for which scope_error(path)
+      returns None are included — the same rules every serve route
+      enforces (.md file, under $HOME, inside a git worktree).
+    Errors: NEVER raises — a missing .local returns []; an unreadable
+      directory or a file vanishing mid-walk is skipped silently; the walk
+      does not follow symlinked directories, so a symlink cycle cannot
+      hang it.
+    Invariants: read-only; only names and stat results are examined — file
+      CONTENTS are never read here; no path outside root/.local is ever
+      returned; no directory name below .local is treated specially.
+    Edge cases: .local exists with no .md files (returns []); .md files at
+      nested depth (included); rendered .html siblings (excluded by the
+      .md filter); a .local that is a file rather than a directory
+      (returns []).
+    """
+    local_root = os.path.join(root, '.local')
+    entries = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(local_root, followlinks=False):
+            for fname in filenames:
+                if not fname.endswith('.md'):
+                    continue
+                full = os.path.join(dirpath, fname)
+                try:
+                    real = os.path.realpath(full)
+                    if real != local_root and not real.startswith(local_root + os.sep):
+                        continue
+                    if scope_error(real) is not None:
+                        continue
+                    mtime = os.stat(real).st_mtime
+                except OSError:
+                    continue
+                entries.append({"path": real, "mtime": mtime})
+    except Exception:
+        return []
+    entries.sort(key=lambda e: e["mtime"], reverse=True)
+    return entries
+
+
+def index_doc_entries():
+    """Contract: 002-B02 index discovery integration
+
+    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B02"). Wiring
+    _serve_index to consume this function IS part of the block's
+    implementation; until then GET / stays registry-only.
+
+    Behavior: The document set for GET / — the registry united with
+      filesystem discovery:
+      1. Start from registry_entries() (already scope-pruned, sorted by
+         last-served descending).
+      2. For every distinct worktree root among those entries (per
+         worktree_label), collect worktree_siblings(root); for every
+         sibling root, collect discover_docs(sibling).
+      3. Merge: a discovered path already registered keeps its registry
+         entry untouched; a discovered path NOT registered joins as
+         {"path": ..., "lastServed": None, "mtime": <epoch number>}.
+      With this wired, GET / groups exactly as today (worktree_label,
+      headline, details/summary), except: unserved entries (lastServed
+      None) list AFTER every served entry in their group, each visibly
+      marked with text containing "unserved"; and groups may now exist
+      for worktrees that never served a doc, rendering exactly like
+      served groups (label, headline when .local/WORKGRAPH.md exists).
+    Inputs: none (module state: the registry; the filesystem).
+    Outputs: list of dicts as above — served entries first in
+      registry_entries() order, then unserved entries sorted by mtime
+      descending; each path appears exactly once.
+    Errors: NEVER raises — any failure of sibling enumeration or
+      discovery degrades to the registry-only entries (today's exact
+      behavior); GET / never 500s for discovery reasons.
+    Invariants: discovery never modifies registry state (no
+      registry_record); read-only beyond registry_entries()'s own
+      documented pruning.
+    Edge cases: empty registry and nothing discoverable (empty index,
+      existing empty state); one repo reached via two registered
+      worktrees (each root appears once); a doc discovered now and served
+      moments later (the next request shows it served — no caching is
+      promised).
+    """
+    entries = registry_entries()
+    seen_paths = {e['path'] for e in entries}
+
+    seen_roots = set()
+    ordered_roots = []
+    for e in entries:
+        root, _ = worktree_label(e['path'])
+        if root is None or root in seen_roots:
+            continue
+        seen_roots.add(root)
+        ordered_roots.append(root)
+
+    discovered = []
+    for root in ordered_roots:
+        try:
+            siblings = worktree_siblings(root)
+        except Exception:
+            continue
+        for sib in siblings:
+            try:
+                docs = discover_docs(sib)
+            except Exception:
+                continue
+            for d in docs:
+                if d['path'] in seen_paths:
+                    continue
+                seen_paths.add(d['path'])
+                discovered.append(
+                    {"path": d['path'], "lastServed": None, "mtime": d['mtime']})
+
+    discovered.sort(key=lambda e: e['mtime'], reverse=True)
+    return entries + discovered
 
 
 INDEX_STYLE = (
@@ -416,6 +604,7 @@ INDEX_STYLE = (
     "ul.docs li{padding:.15rem 0;}"
     "ul.docs a{color:#c7d0e0;text-decoration:none;}"
     "ul.docs a:hover{text-decoration:underline;}"
+    ".unserved{color:#9098a8;font-style:italic;}"
     ".empty{color:#9098a8;padding:2rem 0;}"
 )
 
@@ -435,6 +624,54 @@ def build_index_html(groups):
             '<title>render-doc served documents</title>'
             '<style>' + INDEX_STYLE + '</style></head><body>'
             + ''.join(body) + '</body></html>')
+
+
+# Contract: 002-B07 hostname allowlist + dual bind (plan 002-discovery-landing-dns)
+#
+# DELIBERATELY UNIMPLEMENTED — host_allowed raises. Wiring _check_host to
+# call it, and the [::1] listener in main(), are this block's
+# implementation; until then the exact-match Host check stands.
+#
+# Behavior:
+#   host_allowed(host) decides whether a request's Host header value is an
+#   acceptable name for this server. Accepted, ALL with the explicit
+#   :<PORT> suffix and nothing else:
+#     1. 127.0.0.1:<PORT>          (today's only form)
+#     2. localhost:<PORT>
+#     3. [::1]:<PORT>              (bracketed IPv6 loopback literal)
+#     4. <label>.localhost:<PORT>  — exactly ONE DNS label before
+#        .localhost: 1-63 chars of [A-Za-z0-9-], no leading or trailing
+#        hyphen. Names match case-insensitively; the port digits must
+#        match exactly.
+#   Everything else is rejected: no bare names without the port, no other
+#   IPs, no multi-label subdomains (a.b.localhost), no trailing dot, no
+#   userinfo or path smuggling. Rejection semantics in _check_host stay
+#   exactly today's: 403 {"error": "bad Host header"} before any routing.
+#
+#   main() additionally binds a second ThreadingHTTPServer to ('::1',
+#   PORT) sharing this Handler, served on a daemon thread, so clients
+#   whose resolver takes *.localhost to ::1 (curl on this machine) reach
+#   the same server. The v6 bind is BEST-EFFORT: any OSError (IPv6
+#   disabled, ::1 taken) leaves the v4 server fully functional, at most a
+#   one-line stderr note. The v4 bind keeps today's singleton semantics
+#   (EADDRINUSE -> exit 0) unchanged; the v6 listener never affects the
+#   exit code, the pidfile, or shutdown beyond being closed alongside the
+#   v4 server.
+# Inputs: host — the raw Host header string, or None when absent.
+# Outputs: True or False; total over its input domain, never raises.
+# Errors: none — malformed input is simply False.
+# Invariants: DNS-rebinding defense holds with zero configuration: every
+#   accepted form can only ever reach loopback under RFC 6761 (localhost
+#   and *.localhost are special-use — compliant resolvers and browsers
+#   answer them with loopback or NXDOMAIN), so no name needs registering
+#   and no allowlist needs configuring.
+# Edge cases: None (False); "CLAM.LOCALHOST:27183" (True — case); a
+#   correct name with the wrong port (False); "clam.localhost" without a
+#   port (False); "a.b.localhost:27183" (False); "-x.localhost:27183" and
+#   "x-.localhost:27183" (False); a 64-char label (False);
+#   "127.0.0.1:27183extra" (False).
+def host_allowed(host):
+    raise NotImplementedError("002-B07")
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -477,6 +714,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if raw == '/docs.json':
             self._serve_docs_json()
+            return
+
+        if raw == '/project/for':
+            self._serve_project_for()
+            return
+
+        if raw.startswith('/project/'):
+            self._serve_project(urllib.parse.unquote(raw[len('/project'):]))
             return
 
         if raw.startswith('/raw/'):
@@ -660,7 +905,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     #   document list, no headline).
     def _serve_index(self):
         try:
-            entries = registry_entries()
+            entries = index_doc_entries()
         except Exception:
             entries = []
 
@@ -678,6 +923,82 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+    # Contract: 002-B04 worktree landing page (plan 002-discovery-landing-dns)
+    #
+    # DELIBERATELY UNIMPLEMENTED — both method bodies raise
+    # NotImplementedError("002-B04"). The do_GET route wiring is present at
+    # scaffold so requests reach these stubs.
+    #
+    # Behavior:
+    #   GET /project/<abs worktree root> responds 200 text/html;
+    #   charset=utf-8 with ONE self-contained page (inline CSS only, no
+    #   external resources, works with scripting disabled) for that single
+    #   worktree:
+    #   1. Validation: the decoded path is realpath'd and must be an
+    #      existing directory under $HOME carrying a .git entry. Failures
+    #      mirror scope_error's shape: 403 {"error": ...} for outside-home
+    #      or not-a-worktree, 404 {"error": ...} for a missing directory.
+    #   2. Document set: discover_docs(root) united with the registry's
+    #      entries whose worktree_label root is this root — same merge
+    #      semantics as B02: a registered path keeps its registry entry,
+    #      others join unserved. Served docs list first (last-served
+    #      order), then unserved by mtime descending, each unserved doc
+    #      visibly marked with text containing "unserved".
+    #   3. Headline: exactly <root>/.local/WORKGRAPH.md (the protocol's
+    #      named path, docs/protocols/work-graph.md), when present: its
+    #      /doc link plus open-node count and Focus id via the protocol's
+    #      machine-read markers; unreadable/unparseable -> both shown
+    #      "unavailable", never an error. A WORKGRAPH.md elsewhere in the
+    #      tree is an ordinary doc.
+    #   4. Layout: docs directly in .local/ list flat, first, always
+    #      visible; each SUBDIRECTORY of .local/ that contains listed docs
+    #      becomes one collapsible details/summary group labelled with its
+    #      .local-relative path (nested docs group under their top-level
+    #      subdirectory; the label is the subdirectory name, the entry
+    #      text the doc's subdirectory-relative path). Groups order by
+    #      their newest member mtime descending and render COLLAPSED by
+    #      default (no open attribute). No directory name is ever treated
+    #      specially.
+    #   5. Annotations — protocol fields only, each degrading silently to
+    #      a plain link: a doc containing, within its first 100 lines, a
+    #      line matching ^State:[ \t]*(.+)$ (todo-format) shows
+    #      "State: <value>"; otherwise a line matching
+    #      ^Status:[ \t]*(.+)$ (decision-file) shows "Status: <value>";
+    #      values render truncated to 60 characters. No other content is
+    #      parsed.
+    #   6. Every doc links to /doc/<percent-encoded realpath>. ALL
+    #      file-derived text is HTML-escaped — names and contents are
+    #      untrusted.
+    #   7. A worktree with no .local or no listable docs -> 200 with an
+    #      empty-state message naming the worktree label.
+    #
+    #   GET /project/for?path=<percent-encoded absolute doc path> responds
+    #   302 with Location: /project/<percent-encoded root>, root =
+    #   worktree_label(realpath(path))[0]. The doc itself need not pass
+    #   full scope (it may be unserved or even absent); but no query or an
+    #   empty path is 400 {"error": ...}, a path outside $HOME is 403, and
+    #   a path with no worktree ancestor is 403 — all JSON.
+    # Inputs: the two GETs above; the filesystem; the registry.
+    # Outputs: 200 text/html with correct Content-Length; 302 with a
+    #   Location header; JSON errors as specified.
+    # Errors: per-document failures degrade to plain listings; only
+    #   validation failures produce non-200/302 responses; never a 500 for
+    #   a bad document.
+    # Invariants: read-only — visiting a landing page never registers
+    #   anything (no registry_record) and writes nothing; Host pinning
+    #   applies as on every route; no plugin is named in the emitted page —
+    #   labels and annotations derive only from paths and protocol fields.
+    # Edge cases: root with a trailing slash (normalized by realpath); a
+    #   .local subdirectory with only non-.md files (no group emitted); a
+    #   doc both registered and discovered (one entry, served); $HOME
+    #   itself as the requested root (403 unless it carries a .git entry);
+    #   percent-encoded UTF-8 in paths (decoded, escaped on output).
+    def _serve_project(self, root_path):
+        raise NotImplementedError("002-B04")
+
+    def _serve_project_for(self):
+        raise NotImplementedError("002-B04")
 
     def do_POST(self):
         if not self._check_host():

@@ -35,8 +35,21 @@
 # catches up. Failures are assertion failures, not collection errors: the
 # suite itself runs to completion.
 #
+# Amended again for B01 scope-column (plan 001-update-install-scope, issue
+# #276). The contract gained an eighth column, scope: the DISTINCT scopes of
+# a plugin's installation entries, in installed_plugins.json's own entry
+# order, ";"-joined, or "-" when the plugin is not installed or no entry
+# carries a usable scope. The script still emits the OLD seven-column output,
+# so every assertion touching the eighth column fails red until the
+# implementation catches up: the per-row "scope column" and "row has exactly
+# 8 tab-separated fields" checks inside check_row (every check_row call
+# site), the two header-shape checks in MAIN, and the whole SCOPECOL fixture.
+# As before these are assertion failures, not collection errors -- the suite
+# runs to completion, and no existing column, exit code or invariant
+# assertion was relaxed to accommodate the new one.
+#
 # Clause coverage map (contract clause -> fixture/case):
-#   TSV header (7 columns) + one sorted row per catalog plugin -> MAIN
+#   TSV header (8 columns) + one sorted row per catalog plugin -> MAIN
 #   column semantics: update current/stale/not-installed/unknown -> MAIN
 #   column semantics: setup current/stale/unstamped/"-"       -> MAIN
 #   installed: installPath plugin.json, fallback to entry .version -> FALLBACK
@@ -73,7 +86,25 @@
 #   out-of-scope: install under a different marketplace key    -> SCOPE
 #   CLAM_MARKETPLACE override + default                        -> MKT
 #   CLAUDE_CONFIG_DIR default ($HOME/.claude)                  -> HOMEDEFAULT
-#   ";" or tab inside a stamp target                           -> explicitly
+#   scope = the entry's scope for a single-entry install       -> SCOPECOL,
+#     and every other fixture's single-entry rows
+#   scope is DEDUPLICATED: several entries at one scope yield
+#     one value, never "local;local;local"                     -> SCOPECOL
+#   scope lists EVERY distinct scope, ";"-joined                -> SCOPECOL, MULTI
+#   scope order is installed_plugins.json's entry order, NOT
+#     sorted (fixtures where the two disagree)                 -> SCOPECOL, MULTI
+#   scope is independent of the `installed` highest collapse:
+#     it covers all entries, not the winning entry's scope     -> SCOPECOL, MULTI
+#   scope "-" when the plugin is not installed                 -> SCOPECOL, MAIN,
+#     LATEST, STALETARGETS, NOSTAMP, EMPTYSTAMPS, SCOPE
+#   an entry with an absent or empty scope contributes nothing
+#     (no ";;" segment, no trailing ";")                       -> SCOPECOL
+#   installed but no entry carries a usable scope -> "-", never
+#     empty                                                    -> SCOPECOL
+#   every data row carries exactly 8 tab-separated fields      -> check_row
+#     (so a missing or extra column is caught at every call site)
+#   ";" or tab inside a stamp target, and likewise inside a scope
+#     value                                                    -> explicitly
 #     out of contract ("no escaping is performed and none is expected"),
 #     deliberately not tested
 
@@ -96,7 +127,7 @@ check_true() { # label yes/no
   check "$1" "$2" "yes"
 }
 
-HEADER=$'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets'
+HEADER=$'plugin\tinstalled\tlatest\tupdate\tstamp\tsetup\tstale_targets\tscope'
 
 # --- Fixture-building helpers ------------------------------------------------
 
@@ -134,9 +165,19 @@ write_stamps() {
 }
 
 # an installation entry object, given an installPath and version (own field)
+# ${3-user}, not ${3:-user}: an explicitly passed empty scope must stay empty
+# so the "absent or empty scope contributes nothing" edge case is reachable.
+# Omitting the argument entirely still defaults to "user".
 inst_entry() { # installPath version [scope]
   printf '{"scope":"%s","installPath":"%s","version":"%s","installedAt":"2026-01-01T00:00:00.000Z","lastUpdated":"2026-01-01T00:00:00.000Z"}' \
-    "${3:-user}" "$1" "$2"
+    "${3-user}" "$1" "$2"
+}
+
+# the same entry with NO scope key at all -- the other half of "absent or
+# empty", and the shape a pre-scope install record actually has on disk.
+inst_entry_noscope() { # installPath version
+  printf '{"installPath":"%s","version":"%s","installedAt":"2026-01-01T00:00:00.000Z","lastUpdated":"2026-01-01T00:00:00.000Z"}' \
+    "$1" "$2"
 }
 
 tree_digest() { find "$1" -type f -exec md5sum {} \; 2>/dev/null | sed "s#$1#<ROOT>#" | sort; }
@@ -177,17 +218,26 @@ row_of() {
 field_of() {
   awk -F'\t' -v i="$2" '{print $i}' <<<"$1"
 }
-# check_row <label> <tsv> <plugin> <installed> <latest> <update> <stamp> <setup> <stale_targets>
+# nfields_of <row> -> the number of tab-separated fields in that row
+nfields_of() {
+  awk -F'\t' '{print NF}' <<<"$1"
+}
+# check_row <label> <tsv> <plugin> <installed> <latest> <update> <stamp> <setup> <stale_targets> <scope>
 check_row() {
-  local label="$1" tsv="$2" plugin="$3" exp_installed="$4" exp_latest="$5" exp_update="$6" exp_stamp="$7" exp_setup="$8" exp_stale_targets="$9"
+  local label="$1" tsv="$2" plugin="$3" exp_installed="$4" exp_latest="$5" exp_update="$6" exp_stamp="$7" exp_setup="$8" exp_stale_targets="$9" exp_scope="${10}"
   local row; row=$(row_of "$tsv" "$plugin")
   check_true "$label: row present" "$([[ -n "$row" ]] && echo yes || echo no)"
+  # Arity as well as content: an 8-field row with an empty scope and a
+  # 7-field row with no scope at all are different failures, and the row
+  # must never be wider than the header.
+  check "$label: row has exactly 8 tab-separated fields" "$(nfields_of "$row")" "8"
   check "$label: installed column" "$(field_of "$row" 2)" "$exp_installed"
   check "$label: latest column" "$(field_of "$row" 3)" "$exp_latest"
   check "$label: update column" "$(field_of "$row" 4)" "$exp_update"
   check "$label: stamp column" "$(field_of "$row" 5)" "$exp_stamp"
   check "$label: setup column" "$(field_of "$row" 6)" "$exp_setup"
   check "$label: stale_targets column" "$(field_of "$row" 7)" "$exp_stale_targets"
+  check "$label: scope column" "$(field_of "$row" 8)" "$exp_scope"
 }
 
 # A stub PATH with common coreutils (including bash) symlinked in, but
@@ -260,6 +310,9 @@ run_check "$CFG_MAIN"
 OUT1="$OUT"; RC1="$RC"
 
 check "MAIN: header line exact text" "$(head -n1 <<<"$OUT1")" "$HEADER"
+check "MAIN: header has exactly 8 columns" "$(nfields_of "$(head -n1 <<<"$OUT1")")" "8"
+check "MAIN: header's last column is 'scope'" \
+  "$(field_of "$(head -n1 <<<"$OUT1")" 8)" "scope"
 check "MAIN: row names in order match sorted catalog names" \
   "$(tail -n +2 <<<"$OUT1" | cut -f1)" "$(printf 'alpha\nbeta\ndelta\nepsilon\ngamma\nzeta')"
 check "MAIN: exactly 7 lines total (header + 6 rows)" "$(wc -l <<<"$OUT1" | tr -d ' ')" "7"
@@ -267,12 +320,15 @@ check "MAIN: exactly 7 lines total (header + 6 rows)" "$(wc -l <<<"$OUT1" | tr -
 # stale_targets (7th arg): "-" for every row whose setup is current,
 # unstamped or "-"; only zeta is setup=stale, and its single differing stamp
 # names /t/zeta.
-check_row "MAIN alpha (current/current)"        "$OUT1" alpha   1.0.0 1.0.0 current       1.0.0 current   "-"
-check_row "MAIN beta (stale-update/current-setup)" "$OUT1" beta 1.0.0 2.0.0 stale         1.0.0 current   "-"
-check_row "MAIN delta (unknown-latest/unstamped)"  "$OUT1" delta 1.5.0 "?"  unknown       "-"   unstamped "-"
-check_row "MAIN epsilon (current/unstamped)"    "$OUT1" epsilon 1.0.0 1.0.0 current       "-"   unstamped "-"
-check_row "MAIN gamma (not installed, all dashes)" "$OUT1" gamma "-"   3.0.0 not-installed "-"   "-"       "-"
-check_row "MAIN zeta (current-update/stale-setup)" "$OUT1" zeta 2.0.0 2.0.0 current       1.0.0 stale     /t/zeta
+# scope (8th arg): every installed plugin here has exactly one entry, at the
+# inst_entry default scope "user", so scope is that entry's own scope; gamma
+# is not installed and so gets "-".
+check_row "MAIN alpha (current/current)"        "$OUT1" alpha   1.0.0 1.0.0 current       1.0.0 current   "-" user
+check_row "MAIN beta (stale-update/current-setup)" "$OUT1" beta 1.0.0 2.0.0 stale         1.0.0 current   "-" user
+check_row "MAIN delta (unknown-latest/unstamped)"  "$OUT1" delta 1.5.0 "?"  unknown       "-"   unstamped "-" user
+check_row "MAIN epsilon (current/unstamped)"    "$OUT1" epsilon 1.0.0 1.0.0 current       "-"   unstamped "-" user
+check_row "MAIN gamma (not installed, all dashes)" "$OUT1" gamma "-"   3.0.0 not-installed "-"   "-"       "-" "-"
+check_row "MAIN zeta (current-update/stale-setup)" "$OUT1" zeta 2.0.0 2.0.0 current       1.0.0 stale     /t/zeta user
 
 check "MAIN: exit 10 (>=1 stale row present)" "$RC1" "10"
 
@@ -319,11 +375,11 @@ write_installed "$CFG_FB" "{
 
 run_check "$CFG_FB"
 check_row "FALLBACK resolvable-fb (installPath plugin.json wins over stale entry .version)" \
-  "$OUT" resolvable-fb 3.5.0 3.5.0 current "-" unstamped "-"
+  "$OUT" resolvable-fb 3.5.0 3.5.0 current "-" unstamped "-" user
 check_row "FALLBACK unresolvable-fb (installPath missing entirely -> entry .version used)" \
-  "$OUT" unresolvable-fb 4.2.0 4.2.0 current "-" unstamped "-"
+  "$OUT" unresolvable-fb 4.2.0 4.2.0 current "-" unstamped "-" user
 check_row "FALLBACK noPluginJson-fb (installPath dir has no plugin.json -> entry .version used)" \
-  "$OUT" noPluginJson-fb 5.5.0 5.5.0 current "-" unstamped "-"
+  "$OUT" noPluginJson-fb 5.5.0 5.5.0 current "-" unstamped "-" user
 
 echo ""
 echo "=== Fixture LATEST: marketplace-clone latest resolution, and not-installed/unknown precedence ==="
@@ -355,11 +411,11 @@ write_installed "$CFG_LATEST" "{
 
 run_check "$CFG_LATEST"
 check_row "LATEST src-missing (source dir absent -> latest '?', update unknown)" \
-  "$OUT" src-missing 1.0.0 "?" unknown "-" unstamped "-"
+  "$OUT" src-missing 1.0.0 "?" unknown "-" unstamped "-" user
 check_row "LATEST src-no-pluginjson (source dir has no plugin.json -> latest '?', update unknown)" \
-  "$OUT" src-no-pluginjson 2.0.0 "?" unknown "-" unstamped "-"
+  "$OUT" src-no-pluginjson 2.0.0 "?" unknown "-" unstamped "-" user
 check_row "LATEST gone-and-uninstalled (not installed wins over unknown latest)" \
-  "$OUT" gone-and-uninstalled "-" "?" not-installed "-" "-" "-"
+  "$OUT" gone-and-uninstalled "-" "?" not-installed "-" "-" "-" "-"
 
 echo ""
 echo "=== Fixture MULTI: multiple installations of one plugin (sort -V, worst-setup-wins) ==="
@@ -380,6 +436,12 @@ echo "=== Fixture MULTI: multiple installations of one plugin (sort -V, worst-se
 #   simply "always stale with >1 install"), stamp is 2.10.0 (with every
 #   stamp equal, lowest and highest coincide), and stale_targets is "-"
 #   even though the plugin has two stamps with real targets.
+#
+# Both rows are installed at two scopes, entry order user then project, so
+# scope is "user;project" -- reversed from alphabetical ("project;user"), and
+# for `multi` also NOT the scope of the entry whose 2.10.0 won the installed
+# column ("project"). SCOPECOL pins those two clauses in isolation; here they
+# ride along on a fixture that varies the other columns at the same time.
 # ============================================================================
 
 CFG_MULTI="$TMPROOT/cfg-multi"
@@ -417,10 +479,145 @@ write_stamps "$CFG_MULTI" '{
 }'
 
 run_check "$CFG_MULTI"
-check_row "MULTI multi (installed=highest 2.10.0 via sort -V; stamp=lowest 2.9.0; worst setup=stale; only the differing stamp's target)" \
-  "$OUT" multi 2.10.0 2.10.0 current 2.9.0 stale /x
-check_row "MULTI multi-current (all installs+stamps agree -> setup=current, no stale targets)" \
-  "$OUT" multi-current 2.10.0 2.10.0 current 2.10.0 current "-"
+check_row "MULTI multi (installed=highest 2.10.0 via sort -V; stamp=lowest 2.9.0; worst setup=stale; only the differing stamp's target; scope=both entries in entry order, not just the winning entry's 'project')" \
+  "$OUT" multi 2.10.0 2.10.0 current 2.9.0 stale /x 'user;project'
+check_row "MULTI multi-current (all installs+stamps agree -> setup=current, no stale targets; scope still lists both scopes in entry order)" \
+  "$OUT" multi-current 2.10.0 2.10.0 current 2.10.0 current "-" 'user;project'
+
+echo ""
+echo "=== Fixture SCOPECOL: the scope column (dedup, entry order, absent/empty scopes) ==="
+# ============================================================================
+# No stamp file at all here, so stamp/setup/stale_targets are constant across
+# every row and only the scope column varies. Every plugin's installed equals
+# its latest, so the exit code must be 0.
+#
+# - sc-single:      one entry, scope "local" -> scope is exactly that entry's
+#                   scope. Deliberately NOT the "user" that inst_entry
+#                   defaults to elsewhere, so a hardcoded "user" fails here.
+# - sc-dup:         three entries, all scope "local" with distinct
+#                   installPaths -- the ordinary multi-worktree local install,
+#                   which records one entry per project. scope must be the
+#                   single value "local", never "local;local;local".
+# - sc-order:       four entries, scopes in file order user, project, local,
+#                   project. Expected "user;project;local" separates three
+#                   readings at once: sorted-unique would answer
+#                   "local;project;user", un-deduplicated entry order would
+#                   answer "user;project;local;project", and taking the scope
+#                   of the entry whose version won the `installed` highest
+#                   collapse (3.0.0, the second entry) would answer
+#                   "project". Its versions 1.0.0/3.0.0/1.0.0/1.0.0 make that
+#                   winning entry the middle one, not the first or last.
+# - sc-blank:       six entries; a scope-less one, two empty-string ones and
+#                   a second scope-less one are interleaved around the two
+#                   usable scopes (local, then user) so that a naive join
+#                   would produce a leading, trailing AND doubled ";". Only
+#                   "local;user" passes.
+# - sc-noscope:     installed, but its only two entries are one scope-less
+#                   and one empty -> scope is the "-" sentinel, never the
+#                   empty string.
+# - sc-uninstalled: in the catalog, no installation entry at all -> "-".
+# ============================================================================
+
+CFG_SCOPECOL="$TMPROOT/cfg-scopecol"
+init_marketplace "$CFG_SCOPECOL" clam '[
+  {"name":"sc-single","source":"./plugins/sc-single","description":"d"},
+  {"name":"sc-dup","source":"./plugins/sc-dup","description":"d"},
+  {"name":"sc-order","source":"./plugins/sc-order","description":"d"},
+  {"name":"sc-blank","source":"./plugins/sc-blank","description":"d"},
+  {"name":"sc-noscope","source":"./plugins/sc-noscope","description":"d"},
+  {"name":"sc-uninstalled","source":"./plugins/sc-uninstalled","description":"d"}
+]'
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-single      1.0.0 sc-single
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-dup         1.0.0 sc-dup
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-order       3.0.0 sc-order
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-blank       1.0.0 sc-blank
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-noscope     1.0.0 sc-noscope
+clone_source_plugin "$CFG_SCOPECOL" clam ./plugins/sc-uninstalled 1.0.0 sc-uninstalled
+
+SC_CACHE="$CFG_SCOPECOL/plugins/cache/clam"
+mkplugin_json "$SC_CACHE/sc-single/1.0.0" 1.0.0 sc-single
+for wt in a b c; do
+  mkplugin_json "$SC_CACHE/sc-dup/wt-$wt" 1.0.0 sc-dup
+done
+mkplugin_json "$SC_CACHE/sc-order/first"  1.0.0 sc-order
+mkplugin_json "$SC_CACHE/sc-order/second" 3.0.0 sc-order
+mkplugin_json "$SC_CACHE/sc-order/third"  1.0.0 sc-order
+mkplugin_json "$SC_CACHE/sc-order/fourth" 1.0.0 sc-order
+for slot in 1 2 3 4 5 6; do
+  mkplugin_json "$SC_CACHE/sc-blank/e$slot" 1.0.0 sc-blank
+done
+mkplugin_json "$SC_CACHE/sc-noscope/e1" 1.0.0 sc-noscope
+mkplugin_json "$SC_CACHE/sc-noscope/e2" 1.0.0 sc-noscope
+# sc-uninstalled: deliberately no cache dir and no installation entry.
+
+# Entry order below IS the contract for the scope column; do not tidy it into
+# alphabetical order or collapse the deliberate repeats and blanks.
+write_installed "$CFG_SCOPECOL" "{
+  \"sc-single@clam\": [$(inst_entry "$SC_CACHE/sc-single/1.0.0" 1.0.0 local)],
+  \"sc-dup@clam\": [
+    $(inst_entry "$SC_CACHE/sc-dup/wt-a" 1.0.0 local),
+    $(inst_entry "$SC_CACHE/sc-dup/wt-b" 1.0.0 local),
+    $(inst_entry "$SC_CACHE/sc-dup/wt-c" 1.0.0 local)
+  ],
+  \"sc-order@clam\": [
+    $(inst_entry "$SC_CACHE/sc-order/first"  1.0.0 user),
+    $(inst_entry "$SC_CACHE/sc-order/second" 3.0.0 project),
+    $(inst_entry "$SC_CACHE/sc-order/third"  1.0.0 local),
+    $(inst_entry "$SC_CACHE/sc-order/fourth" 1.0.0 project)
+  ],
+  \"sc-blank@clam\": [
+    $(inst_entry_noscope "$SC_CACHE/sc-blank/e1" 1.0.0),
+    $(inst_entry "$SC_CACHE/sc-blank/e2" 1.0.0 ""),
+    $(inst_entry "$SC_CACHE/sc-blank/e3" 1.0.0 local),
+    $(inst_entry "$SC_CACHE/sc-blank/e4" 1.0.0 ""),
+    $(inst_entry "$SC_CACHE/sc-blank/e5" 1.0.0 user),
+    $(inst_entry_noscope "$SC_CACHE/sc-blank/e6" 1.0.0)
+  ],
+  \"sc-noscope@clam\": [
+    $(inst_entry_noscope "$SC_CACHE/sc-noscope/e1" 1.0.0),
+    $(inst_entry "$SC_CACHE/sc-noscope/e2" 1.0.0 "")
+  ]
+}"
+
+SCOPECOL_DIGEST_BEFORE=$(tree_digest "$CFG_SCOPECOL")
+run_check "$CFG_SCOPECOL"
+
+check "SCOPECOL: exit 0 (every row is update=current)" "$RC" "0"
+check "SCOPECOL: no stderr output (fixture is well-formed)" "$ERR" ""
+
+check_row "SCOPECOL sc-single (one entry -> that entry's own scope, not the 'user' default)" \
+  "$OUT" sc-single 1.0.0 1.0.0 current "-" unstamped "-" local
+check_row "SCOPECOL sc-dup (three entries all at one scope -> one value, never 'local;local;local')" \
+  "$OUT" sc-dup 1.0.0 1.0.0 current "-" unstamped "-" local
+check_row "SCOPECOL sc-order (every distinct scope, in entry order, deduplicated; not sorted and not the winning entry's scope)" \
+  "$OUT" sc-order 3.0.0 3.0.0 current "-" unstamped "-" 'user;project;local'
+check_row "SCOPECOL sc-blank (absent and empty scopes contribute nothing)" \
+  "$OUT" sc-blank 1.0.0 1.0.0 current "-" unstamped "-" 'local;user'
+check_row "SCOPECOL sc-noscope (installed, but no entry carries a usable scope -> '-')" \
+  "$OUT" sc-noscope 1.0.0 1.0.0 current "-" unstamped "-" "-"
+check_row "SCOPECOL sc-uninstalled (in the catalog, never installed -> '-')" \
+  "$OUT" sc-uninstalled "-" 1.0.0 not-installed "-" "-" "-" "-"
+
+# The clauses above restated as shape assertions, so a wrong value says which
+# rule it broke rather than only that it differed. Each also requires the
+# field to be non-empty: without that, an absent eighth column would satisfy
+# "contains no ';'" vacuously and these would sit green through a red run.
+SC_DUP_SCOPE=$(field_of "$(row_of "$OUT" sc-dup)" 8)
+check_true "SCOPECOL sc-dup: deduplicated, so the field is non-empty and carries no ';' at all" \
+  "$([[ -n "$SC_DUP_SCOPE" && "$SC_DUP_SCOPE" != *';'* ]] && echo yes || echo no)"
+
+SC_BLANK_SCOPE=$(field_of "$(row_of "$OUT" sc-blank)" 8)
+check_true "SCOPECOL sc-blank: non-empty, with no empty ';;' segment" \
+  "$([[ -n "$SC_BLANK_SCOPE" && "$SC_BLANK_SCOPE" != *';;'* ]] && echo yes || echo no)"
+check_true "SCOPECOL sc-blank: non-empty, with no leading or trailing ';'" \
+  "$([[ -n "$SC_BLANK_SCOPE" && "$SC_BLANK_SCOPE" != ';'* && "$SC_BLANK_SCOPE" != *';' ]] && echo yes || echo no)"
+
+SC_NOSCOPE_SCOPE=$(field_of "$(row_of "$OUT" sc-noscope)" 8)
+check_true "SCOPECOL sc-noscope: the field is the '-' sentinel, never the empty string" \
+  "$([[ -n "$SC_NOSCOPE_SCOPE" ]] && echo yes || echo no)"
+
+check "SCOPECOL: fixture tree byte-identical after run (read-only)" \
+  "$(tree_digest "$CFG_SCOPECOL")" "$SCOPECOL_DIGEST_BEFORE"
 
 echo ""
 echo "=== Fixture STALETARGETS: the stale_targets column, and the stamp column as the LOWEST stamp version ==="
@@ -527,20 +724,23 @@ run_check "$CFG_ST"
 
 check "STALETARGETS: exit 0 (setup=stale rows never make the exit code 10; only update=stale does)" "$RC" "0"
 
+# Every installed plugin here has one entry at the default scope "user"; the
+# stamps' own "scope" fields (project, local) belong to the stamp file and
+# must never leak into this column, which reads installed_plugins.json alone.
 check_row "STALETARGETS st-one (single differing stamp -> exactly that target)" \
-  "$OUT" st-one 1.0.0 1.0.0 current 0.9.0 stale /opt/one/only
-check_row "STALETARGETS st-many (all three targets ';'-joined in stamp-file record order; stamp=lowest 1.9.0 by sort -V)" \
-  "$OUT" st-many 2.0.0 2.0.0 current 1.9.0 stale '/opt/many/zulu;/opt/many/alpha;/opt/many/mike'
+  "$OUT" st-one 1.0.0 1.0.0 current 0.9.0 stale /opt/one/only user
+check_row "STALETARGETS st-many (all three targets ';'-joined in stamp-file record order; stamp=lowest 1.9.0 by sort -V; scope reads the install entry, not the stamps' own scopes)" \
+  "$OUT" st-many 2.0.0 2.0.0 current 1.9.0 stale '/opt/many/zulu;/opt/many/alpha;/opt/many/mike' user
 check_row "STALETARGETS st-mixed (only the differing stamps' targets, in record order; stamp=lowest 2.9.0 across all stamps)" \
-  "$OUT" st-mixed 3.0.0 3.0.0 current 2.9.0 stale '/opt/mixed/stale-a;/opt/mixed/stale-b'
+  "$OUT" st-mixed 3.0.0 3.0.0 current 2.9.0 stale '/opt/mixed/stale-a;/opt/mixed/stale-b' user
 check_row "STALETARGETS st-current (every stamp matches -> setup current, stale_targets '-' despite real targets)" \
-  "$OUT" st-current 1.0.0 1.0.0 current 1.0.0 current "-"
+  "$OUT" st-current 1.0.0 1.0.0 current 1.0.0 current "-" user
 check_row "STALETARGETS st-unstamped (no stamp of its own -> stamp '-', stale_targets '-')" \
-  "$OUT" st-unstamped 1.0.0 1.0.0 current "-" unstamped "-"
-check_row "STALETARGETS st-uninstalled (not installed but stamped -> setup '-', stale_targets '-', never empty)" \
-  "$OUT" st-uninstalled "-" 1.0.0 not-installed 0.5.0 "-" "-"
+  "$OUT" st-unstamped 1.0.0 1.0.0 current "-" unstamped "-" user
+check_row "STALETARGETS st-uninstalled (not installed but stamped -> setup '-', stale_targets '-', never empty; scope '-' too, the stamp's own scope is not an install)" \
+  "$OUT" st-uninstalled "-" 1.0.0 not-installed 0.5.0 "-" "-" "-"
 check_row "STALETARGETS st-newer (stamp ABOVE installed still differs -> stale; comparison is inequality, not ordering)" \
-  "$OUT" st-newer 1.0.0 1.0.0 current 2.0.0 stale /opt/newer/only
+  "$OUT" st-newer 1.0.0 1.0.0 current 2.0.0 stale /opt/newer/only user
 
 check "STALETARGETS: fixture tree byte-identical after run (stamp file never rewritten to compute stale_targets)" \
   "$(tree_digest "$CFG_ST")" "$ST_DIGEST_BEFORE"
@@ -575,9 +775,9 @@ write_installed "$CFG_NOSTAMP" "{
 run_check "$CFG_NOSTAMP"
 check "NOSTAMP: exit 0 (no stale rows)" "$RC" "0"
 check_row "NOSTAMP installed-no-stamp (installed, no stamp file -> unstamped)" \
-  "$OUT" installed-no-stamp 1.0.0 1.0.0 current "-" unstamped "-"
+  "$OUT" installed-no-stamp 1.0.0 1.0.0 current "-" unstamped "-" user
 check_row "NOSTAMP not-installed-no-stamp (not installed, no stamp file -> '-')" \
-  "$OUT" not-installed-no-stamp "-" 1.0.0 not-installed "-" "-" "-"
+  "$OUT" not-installed-no-stamp "-" 1.0.0 not-installed "-" "-" "-" "-"
 
 echo ""
 echo "=== Fixture EMPTYSTAMPS: present stamp file with an EMPTY stamps array -> same as no stamp file ==="
@@ -603,9 +803,9 @@ check "EMPTYSTAMPS: exit 0" "$RC" "0"
 check_true "EMPTYSTAMPS: an empty stamps array is well-formed, so no warning on stderr" \
   "$([[ -z "$ERR" ]] && echo yes || echo no)"
 check_row "EMPTYSTAMPS es-installed (empty stamps array -> unstamped, stamp '-', stale_targets '-')" \
-  "$OUT" es-installed 1.0.0 1.0.0 current "-" unstamped "-"
+  "$OUT" es-installed 1.0.0 1.0.0 current "-" unstamped "-" user
 check_row "EMPTYSTAMPS es-absent (not installed, empty stamps array -> all dashes)" \
-  "$OUT" es-absent "-" 1.0.0 not-installed "-" "-" "-"
+  "$OUT" es-absent "-" 1.0.0 not-installed "-" "-" "-" "-"
 
 echo ""
 echo "=== Fixture BADSTAMP: malformed stamp file -> stderr warning, zero stamps, NOT an error exit ==="
@@ -624,8 +824,8 @@ run_check "$CFG_BADSTAMP"
 check "BADSTAMP: exit 0, not an error exit (2/3/4 reserved for other failures)" "$RC" "0"
 check_true "BADSTAMP: stderr carries a warning (non-empty)" "$([[ -n "$ERR" ]] && echo yes || echo no)"
 check_true "BADSTAMP: stderr warning mentions the stamp file" "$(grep -qi 'stamp' <<<"$ERR" && echo yes || echo no)"
-check_row "BADSTAMP warn-plugin (malformed stamps treated as zero stamps -> unstamped, no stale targets)" \
-  "$OUT" warn-plugin 1.0.0 1.0.0 current "-" unstamped "-"
+check_row "BADSTAMP warn-plugin (malformed stamps treated as zero stamps -> unstamped, no stale targets; scope is unaffected, it never comes from the stamp file)" \
+  "$OUT" warn-plugin 1.0.0 1.0.0 current "-" unstamped "-" user
 check "BADSTAMP: corrupt stamp file left byte-identical (never moved aside by this read-only script)" \
   "$(md5sum "$CFG_BADSTAMP/clam-setup-stamps.json")" "$BADSTAMP_DIGEST_BEFORE"
 
@@ -642,8 +842,8 @@ write_installed "$CFG_SCOPE" "{
 }"
 
 run_check "$CFG_SCOPE"
-check_row "SCOPE shared-name (installed under a different marketplace key -> not installed for clam)" \
-  "$OUT" shared-name "-" 1.0.0 not-installed "-" "-" "-"
+check_row "SCOPE shared-name (installed under a different marketplace key -> not installed for clam, and its entry's scope is not borrowed)" \
+  "$OUT" shared-name "-" 1.0.0 not-installed "-" "-" "-" "-"
 
 echo ""
 echo "=== Fixture MKT: CLAM_MARKETPLACE override, and its default value ('clam') ==="
@@ -660,7 +860,7 @@ write_installed "$CFG_MKT" "{
 
 run_check "$CFG_MKT" customhub
 check "MKT: CLAM_MARKETPLACE=customhub succeeds (exit 0)" "$RC" "0"
-check_row "MKT cust1 (read via CLAM_MARKETPLACE override)" "$OUT" cust1 1.0.0 1.0.0 current "-" unstamped "-"
+check_row "MKT cust1 (read via CLAM_MARKETPLACE override)" "$OUT" cust1 1.0.0 1.0.0 current "-" unstamped "-" user
 
 run_check "$CFG_MKT"
 check "MKT: default marketplace name is 'clam' (no override -> clone missing here -> exit 3)" "$RC" "3"
@@ -732,7 +932,7 @@ write_installed "$HOME_DEFAULT/.claude" "{
 
 run_check_home "$HOME_DEFAULT"
 check "HOMEDEFAULT: CLAUDE_CONFIG_DIR unset -> reads \$HOME/.claude, exit 0" "$RC" "0"
-check_row "HOMEDEFAULT defp (found via default config dir)" "$OUT" defp 1.0.0 1.0.0 current "-" unstamped "-"
+check_row "HOMEDEFAULT defp (found via default config dir)" "$OUT" defp 1.0.0 1.0.0 current "-" unstamped "-" user
 
 echo ""
 if [[ "$FAILED" -eq 0 ]]; then

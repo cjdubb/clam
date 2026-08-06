@@ -1,7 +1,7 @@
 {
   "name": "privacy",
   "description": "Opt out of Claude Code telemetry, error reporting, feedback surveys, and non-essential traffic. Install changes nothing; /privacy:setup writes the settings at the plugin's installation scope, /privacy:setup remove undoes them.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

@@ -21,7 +21,9 @@ is an object with exactly five fields:
 - `version` — the plugin's version at the time the stamp was written.
 - `scope` — the settings scope that was configured.
 - `target` — what was configured: a path, or a scope identifier.
-- `at` — an ISO 8601 UTC timestamp.
+- `at` — an ISO 8601 UTC timestamp, measured when the stamp is written
+  with `date -u +%Y-%m-%dT%H:%M:%SZ`. This value is never invented,
+  guessed, or copied from another record.
 
 ## Key and lifecycle
 

@@ -91,6 +91,8 @@ in `docs/protocols/setup-stamp.md`.
 - If the existing stamp file is corrupt (not valid JSON), move it aside to
   `clam-setup-stamps.json.corrupt-<date>`, report the move to the user, and
   recreate it fresh.
+- Set `at` to the current UTC time by running `date -u +%Y-%m-%dT%H:%M:%SZ`
+  — never invented, guessed, or copied from another record.
 - Replace this plugin's record, keyed by `plugin` and `target`; touch no
   other records. Write via jq to a temp file, then `mv` it into place:
 
@@ -100,7 +102,7 @@ in `docs/protocols/setup-stamp.md`.
     "version": "<from plugin.json>",
     "scope": "project",
     "target": "<absolute path to this repo's .claude/clam-profile.jsonc>",
-    "at": "<ISO-8601 UTC timestamp>"
+    "at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>"
   }
   ```
 

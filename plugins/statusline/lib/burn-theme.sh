@@ -7,7 +7,9 @@
 # https://github.com/Gui-Gou/claude-statusline-burnrate
 #
 # Contract: B03 burn-theme (plan 001-statusline-burnrate-uplift),
-#           amended by B08 burn-theme-deemoji (plan 002-statusline-emoji-removal)
+#           amended by B08 burn-theme-deemoji (plan 002-statusline-emoji-removal),
+#           extended by B13 ctx-fullness-colour, B14 trend-colour and
+#           B15 subordinate-colours (plan 003-statusline-meter-colour)
 #
 # B08 amendment: this file emits NO emoji. The two that lived here — the
 # per-model mascot and the companion pet — are gone, because the render they
@@ -99,6 +101,78 @@
 #     a negative. An empty or non-numeric RESET_EPOCH echoes nothing and
 #     returns 1, so the caller omits the segment.
 #
+#   burn_ctx_color PCT                                  [B13, plan 003]
+#     Echoes the colour for the `ctx` meter as a function of HOW FULL the
+#     context is — the fix for #306, where the meter was green at every
+#     occupancy because its colour came from burn_ctx_state's session
+#     FRESHNESS tier instead:
+#       >=60 red 196, >=40 orange 208, >=20 yellow 214, else green 40.
+#     These are the upstream reference's ctxcol bands, expressed descending
+#     to match burn_plan_color's shape. The denominator behind PCT is the
+#     auto-compaction window, so 100 IS compaction and red deliberately
+#     covers the last 40% of a session.
+#     burn_ctx_state is NOT changed and NOT replaced: its LEVEL is what
+#     .local/.ctx-status.json publishes and has a second consumer, so the two
+#     now answer different questions on purpose — this one "how full", that
+#     one "how stale". A caller wanting the staleness tier still calls it.
+#     PCT's domain is a bare optionally-signed INTEGER; the caller computes
+#     it with integer arithmetic. A decimal is outside that domain, and the
+#     only promise made for one is the same promise made for any unparseable
+#     input: a single bare opener, silently, rc 0. No band is specified for
+#     it and none should be relied on. (burn_pace_color documents decimal
+#     handling because its caller genuinely passes decimals; this one's
+#     does not.)
+#
+#   burn_trend_color TREND                              [B14, plan 003]
+#     Echoes the colour for the weekly trend arrow's magnitude, with a +/-3
+#     DEAD BAND that reads as on-track. The dead band is this plugin's
+#     substitute for the upstream's green ✓ glyph, which is deliberately not
+#     adopted (plan 003 constraint 2): the whole point of plan 002 was that
+#     glyph coverage on the user's terminal is not assumable, and the
+#     file-wide no-non-ASCII invariant below is what enforces it.
+#     Reads off burn_metrics' FIXED sign convention — POSITIVE means ahead of
+#     the awake even-burn line, i.e. burning fast enough to cap before the
+#     reset — so the scale is deliberately asymmetric:
+#       |TREND| <= 3   green 40   on track; the dead band
+#       TREND >= 15    red 196    far ahead of the line
+#       TREND >= 8     orange 208
+#       TREND > 3      yellow 214
+#       TREND < -3     grey 245   behind the line: subscription going unused,
+#                                 which is not a hazard, so the tier that
+#                                 says "nothing to act on" rather than a
+#                                 warning colour.
+#     The arrow character itself stays in the renderer; this function emits
+#     colour only.
+#     TREND's domain is a bare optionally-signed INTEGER, which is what
+#     burn_metrics produces; a leading `-` is normal input, and a bare `-` is
+#     not a number. A decimal is outside the domain on the same terms as
+#     burn_ctx_color above: a single bare opener, silently, rc 0, with no
+#     band specified.
+#
+#   burn_diff_color KIND                                [B15, plan 003]
+#     Echoes the colour for one half of the session's +added/-removed pair:
+#     "add" -> green 40, "del" -> red 196. The diffstat convention, chosen
+#     because it is the one every reader already knows. This is a FIXED
+#     colour, not a scale: the counts have no thresholds and no severity.
+#     KIND is matched CASE-SENSITIVELY: "add" and "del" are the only two
+#     recognised tokens, and "ADD" is an unrecognised kind like any other.
+#     (burn_model_style case-folds because it matches a model name a payload
+#     supplies; this one matches a literal the renderer itself passes, so
+#     there is nothing to fold.)
+#     Any other KIND, empty included, echoes the dim sequence (\033[2m) —
+#     never nothing, because an empty echo leaves the text uncoloured while
+#     the caller still emits its reset, which is exactly how colour leaks
+#     into the next segment.
+#
+#   burn_countdown_color                                [B15, plan 003]
+#     Takes NO argument and echoes the dim sequence (\033[2m) for the
+#     parenthesised reset countdown. Dim is the decision, not a fallback:
+#     the countdown is subordinate to the meter it follows, and dimming it
+#     is what makes the eye reach `5h 20%` before `(3h27m)`. It exists as a
+#     function rather than a literal in the renderer for the same reason
+#     every other colour here does — so no colour decision lives in
+#     scripts/context.sh.
+#
 #   burn_pet — REMOVED by B08. The function, its four mood tiers, its
 #     8-frame face arrays and its effect-character arrays are deleted
 #     outright; nothing replaces it. Callers must not reference it, and
@@ -111,7 +185,10 @@
 #   and none writes to stderr in normal operation — output lands directly in
 #   the user's statusline. Unparseable numeric input takes the safest tier
 #   (the dim or green end) rather than failing, except where documented above
-#   as a non-zero return.
+#   as a non-zero return. For the functions plan 003 adds, "safest tier" is
+#   green 40 for burn_ctx_color and burn_trend_color and the dim sequence for
+#   burn_diff_color: a statusline that cannot parse a figure must never be the
+#   thing that raises an alarm about it.
 #
 # Invariants:
 #   - Forks NO external process. Every function is pure bash builtins,
@@ -119,9 +196,12 @@
 #     `cat`) — the warm-render budget in scripts/context.sh has no room for
 #     a fork here.
 #   - No function reads the environment or any file except FRAME_FILE.
-#   - Every emitted colour sequence is closed: any function returning
-#     coloured text ends it with \033[0m, so no colour leaks into the next
-#     segment.
+#   - Every emitted colour sequence is closed BY WHOEVER OPENED IT. Only
+#     burn_rainbow returns coloured TEXT, and it closes that text with
+#     \033[0m itself. Every burn_*_color function returns a bare OPENER with
+#     no reset and its caller closes the segment — that is the contract for
+#     all eight of them, not an exception to this clause. Either way, no
+#     colour leaks into the next segment.
 #   - Thresholds are boundary-inclusive exactly as written (>=), and are
 #     locked constants, not configurable.
 #   - bash 3.2 compatible — no associative arrays, no ${var^^}.
@@ -139,9 +219,28 @@
 #   - burn_ctx_state at exactly USED_TOKENS == BUDGET: cold, regardless of
 #     idle — the existing suite pins this boundary.
 #   - burn_reset_str at exactly 60 minutes remaining: "1h0m", not "60m".
+#   - burn_ctx_color above 100 (an overrun — the occupancy math in
+#     scripts/context.sh is deliberately non-saturating): red 196, the same
+#     as any other value at or above 60. Nothing clamps.
+#   - burn_ctx_color at exactly 20, 40 and 60: the higher tier, since every
+#     threshold in this file is >= and boundary-inclusive.
+#   - burn_ctx_color on a negative percent (possible after a clock step):
+#     green 40, via the same path as any value below 20.
+#   - burn_trend_color at exactly 3 and exactly -3: green 40. The dead band
+#     is inclusive at BOTH ends, so the smallest coloured magnitude is 4.
+#   - burn_trend_color at exactly 8 and exactly 15: the higher tier, as
+#     above. A negative trend has ONE tier below -3, not a mirror of the
+#     three above it — asymmetry is the point, not an omission.
+#   - burn_diff_color with no argument at all, as opposed to an unrecognised
+#     one: identical handling, the dim sequence. There is no third state.
+#   - burn_countdown_color called WITH an argument: ignored entirely; the
+#     function takes none and its output never varies.
 #   - NO function in this file emits a non-ASCII character. That is the
 #     B08 invariant a test can check mechanically over the whole file, and
-#     it is what keeps a mascot or a mood glyph from creeping back in.
+#     it is what keeps a mascot or a mood glyph from creeping back in. It is
+#     also what B14 relies on: the upstream's on-track ✓ cannot be adopted
+#     here without amending this invariant, and plan 003 chose the dead-band
+#     colour instead precisely so it does not have to be.
 
 # burn_frame_advance FRAME_FILE
 burn_frame_advance() {
@@ -279,6 +378,51 @@ burn_ctx_state() {
   else
     echo "ok 40"
   fi
+  return 0
+}
+
+# burn_ctx_color PCT
+burn_ctx_color() {
+  local pct="$1"
+  if [[ "$pct" =~ ^-?[0-9]+$ ]]; then
+    if (( pct >= 60 )); then printf '\033[38;5;196m'; return 0; fi
+    if (( pct >= 40 )); then printf '\033[38;5;208m'; return 0; fi
+    if (( pct >= 20 )); then printf '\033[38;5;214m'; return 0; fi
+  fi
+  printf '\033[38;5;40m'
+  return 0
+}
+
+# burn_trend_color TREND
+burn_trend_color() {
+  local trend="$1" abs
+  if [[ "$trend" =~ ^-?[0-9]+$ ]]; then
+    if (( trend < 0 )); then abs=$(( -trend )); else abs=$trend; fi
+    if (( abs <= 3 )); then printf '\033[38;5;40m'; return 0; fi
+    if (( trend >= 15 )); then printf '\033[38;5;196m'; return 0; fi
+    if (( trend >= 8 )); then printf '\033[38;5;208m'; return 0; fi
+    if (( trend > 3 )); then printf '\033[38;5;214m'; return 0; fi
+    printf '\033[38;5;245m'
+    return 0
+  fi
+  printf '\033[38;5;40m'
+  return 0
+}
+
+# burn_diff_color KIND
+burn_diff_color() {
+  local kind="$1"
+  case "$kind" in
+    add) printf '\033[38;5;40m' ;;
+    del) printf '\033[38;5;196m' ;;
+    *) printf '\033[2m' ;;
+  esac
+  return 0
+}
+
+# burn_countdown_color
+burn_countdown_color() {
+  printf '\033[2m'
   return 0
 }
 

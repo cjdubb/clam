@@ -319,8 +319,13 @@ check "step 2's column list names the stale_targets column" \
 # would make the suite contradict itself. stale_targets' own clause (its
 # position, sixth-to-last no longer being last) is unchanged and still
 # covered, since the pattern is ordered.
-check "step 2's column list enumerates all eight columns, in check-versions.sh order" \
-  "$(has "$STEP2" 'columns?.{0,40}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,60}scope')" "yes"
+# Amended again by section 20's contract (#324/#325), which appends a NINTH
+# column, `stale_installs`. Same reasoning as before: updated in place, not
+# duplicated. Note the ordered pattern alone could not have caught the
+# addition — an unanchored enumeration keeps matching when a column is
+# appended — so the arity is asserted separately in section 20a.
+check "step 2's column list enumerates all nine columns, in check-versions.sh order" \
+  "$(has "$STEP2" 'columns?.{0,40}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,60}scope.{0,60}stale_installs')" "yes"
 
 # --- 18c. The stale_targets value is shown, in both report views ----------
 check "the report shows the stale_targets value rather than only naming the column" \
@@ -456,14 +461,16 @@ check "step 8 is extractable and is the setup/prune offer step" \
 check "the Errors section is extractable and non-empty" \
   "$(nonblank "$ERRORS")" "yes"
 
-# --- 19b. Step 2 parses EIGHT columns, scope last -------------------------
+# --- 19b. Step 2 names the scope column -----------------------------------
 # The ordered enumeration itself lives in 18b, updated in place; these two add
 # what that check cannot say on its own: that the column is named at all (so a
 # failure there is attributable), and that no stale count contradicts it.
+# The stale-count check is widened by section 20 rather than duplicated: once
+# a ninth column exists, "eight-column" is as wrong as "seven-column" was.
 check "step 2's column list names the scope column" \
   "$(has_f "$STEP2" 'scope')" "yes"
-check "the report is no longer described as seven-column anywhere in the body" \
-  "$(has "$BODY_WS" 'seven.{0,3}column|7.column')" "no"
+check "the report is not described by any superseded column count in the body" \
+  "$(has "$BODY_WS" 'seven.{0,3}column|7.column|eight.{0,3}column|8.column')" "no"
 
 # --- 19c. Step 6 passes the scope, derived per plugin ---------------------
 # The derivation is the point of the fix, so it is asserted three ways: the
@@ -567,6 +574,83 @@ check "the Errors section still carries its four pre-existing branches" \
      && grep -qF 'exit 4' <<<"$ERRORS" \
      && grep -qiE 'does not abort|keep going|per step 6' <<<"$ERRORS" \
      && echo yes || echo no)" "yes"
+
+# ==========================================================================
+# 20. B02 repo-scoped report (#324, #325): the ninth column and what the
+#     skill must say about a row that stays stale.
+#
+# Two contract clauses land in this file:
+#   - step 2 parses NINE columns, `stale_installs` last, and the report is
+#     described as repo-scoped rather than machine-wide;
+#   - a successful update that leaves a row stale is a REPORTABLE outcome
+#     with a named cause, not a failure and not a retry.
+# ==========================================================================
+
+# --- 20a. Guards for the scoped checks (GREEN at birth) -------------------
+# Same discipline as 19a: prove the slices these checks read are non-empty
+# before trusting any negative result computed from them.
+check "STEP2 slice is extractable and non-empty (guard)" "$(nonblank "$STEP2")" "yes"
+check "STEP7 slice is extractable and non-empty (guard)" "$(nonblank "$STEP7")" "yes"
+check "ERRORS slice is extractable and non-empty (guard)" "$(nonblank "$ERRORS")" "yes"
+
+# --- 20b. The ninth column is named, and the count is asserted as a count -
+# 18b's ordered enumeration keeps matching when a column is APPENDED, so on
+# its own it cannot detect arity. This asserts the count as a word, which is
+# the check that actually fails when a tenth column arrives unannounced.
+check "step 2's column list names the stale_installs column" \
+  "$(has_f "$STEP2" 'stale_installs')" "yes"
+check "step 2 states the column count as nine" \
+  "$(has "$STEP2" 'nine.{0,3}column|9.column')" "yes"
+
+# --- 20c. The report is described as repo-scoped --------------------------
+# The whole point of #324: a reader must not take the report as machine-wide.
+# Matched as a conjunction of concepts rather than a lifted phrase.
+check "step 2 says the report is scoped to this repo" \
+  "$(has "$STEP2" '(describes|scoped to|applies (to|here)|for) (this|the current) repo|report describes THIS repo')" "yes"
+check "step 2 says other repositories' records are excluded" \
+  "$(has "$STEP2" '(other|another|different).{0,30}(repo|project).{0,80}(exclud|ignor|not counted|no longer)|(exclud|ignor).{0,60}(other|another).{0,20}repo')" "yes"
+
+# --- 20d. stale_installs is SHOWN, not merely named -----------------------
+# Same shape as 18c for stale_targets: naming a column is not showing its
+# value, and the two report views are asserted separately.
+check "step 3's pre-change report shows the stale_installs value" \
+  "$(has "$STEP3" 'stale_installs')" "yes"
+check "step 7's after-state view shows stale_installs too" \
+  "$(has "$STEP7" 'stale_installs')" "yes"
+
+# --- 20e. A still-stale row after a successful update ---------------------
+# The behavioural clause. Asserted as cause AND response, because prose that
+# mentions the situation without saying what to do would satisfy a single
+# loose grep while leaving the contract unimplemented.
+STILL_STALE="$STEP7
+$ERRORS"
+check "the skill states that a row can stay stale after a successful update" \
+  "$(has "$STILL_STALE" 'still.{0,20}stale|stay.{0,20}stale|remain.{0,20}stale')" "yes"
+check "it names the cause: installed is the lowest and one run reaches one record" \
+  "$(grep -qiE 'lowest' <<<"$STILL_STALE" \
+     && grep -qiE 'single record|one record|a single .{0,20}record|resolves a single' <<<"$STILL_STALE" \
+     && echo yes || echo no)" "yes"
+check "it directs the reader to stale_installs for the remaining paths" \
+  "$(has "$STILL_STALE" 'stale_installs')" "yes"
+
+# --- 20f. It must NOT prescribe a blind retry -----------------------------
+# The failure mode this clause exists to prevent. Negative checks are scoped
+# to sentences that actually discuss retrying, so unrelated prose elsewhere
+# cannot trip them, and 20a proved the slices are non-empty.
+RETRY_SENTENCES=$(tr '.' '\n' <<<"$STILL_STALE" | grep -iE 'retry|again|re-?run' || true)
+check "the still-stale branch does not tell the reader to loop the same command" \
+  "$(has "$RETRY_SENTENCES" '(loop|repeat|keep).{0,30}(same|it)|retry until')" "no"
+check "the still-stale case is explicitly not treated as a failure" \
+  "$(has "$STILL_STALE" 'not a failure|never a failure|rather than.{0,40}failed|not.{0,20}report.{0,20}as.{0,20}fail')" "yes"
+
+# --- 20g. Invariants (all GREEN at birth) ---------------------------------
+# Section 19's clauses must survive this change untouched.
+check "step 6 still passes a scope flag to claude plugin update" \
+  "$(has "$STEP6" 'claude plugin update.{0,60}(-s|--scope)\b')" "yes"
+check "the Errors section still carries the scope-mismatch branch" \
+  "$(has "$ERRORS" 'not installed at scope')" "yes"
+check "step numbering is still an unbroken 1..9 sequence" \
+  "$(grep -oE '^[0-9]+\. ' <<<"$BODY" | tr -d '. ' | tr '\n' ' ' | sed 's/ $//')" "1 2 3 4 5 6 7 8 9"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

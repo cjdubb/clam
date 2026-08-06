@@ -14,17 +14,23 @@
 #      as the README's because it is the suite that already owns
 #      rendered-prose content checks for this plugin.
 #   3. "Contract: B03 scope-docs" (plan 001-update-install-scope, issue #276)
-#      — the LAST block in this file: the check-versions.sh paragraph grows an
-#      eighth column, scope, and plugin.json goes 0.4.0 -> 0.5.0. One contract
-#      docblock covers both artifacts, because plugin.json is JSON and cannot
-#      carry a comment of its own.
+#      — the check-versions.sh paragraph grows an eighth column, scope, and
+#      plugin.json goes 0.4.0 -> 0.5.0. One contract docblock covers both
+#      artifacts, because plugin.json is JSON and cannot carry a comment of
+#      its own. Merged; its checks are now regression guards.
+#   4. Repo-scoped report (issues #324 and #325) — the LAST section in this
+#      file: the same paragraph grows a NINTH column, stale_installs, states
+#      that the report is scoped to the repo it runs in, and states that
+#      installed is the LOWEST of that repo's versions rather than the
+#      highest. plugin.json goes 0.5.0 -> 0.6.0.
 #
 # Covers plugins/management/.claude-plugin/plugin.json:
 #   - valid JSON; .name "management"; .version well-formed semver and >= 0.1.0
 #     (a floor, not a pin: version-bump-lint requires a bump for ANY content
 #     change to the plugin, so an exact pin here would fail every such change)
-#   - .version is exactly 0.5.0 — a pin that deliberately coexists with the
-#     floor above; see the scope-docs block at the end for why both are here
+#   - .version is exactly 0.6.0 — a pin that deliberately coexists with the
+#     floor above; see the repo-scoped-report block at the end for why both
+#     are here
 #   - .description non-empty, names /management:update, and is a single sentence
 #     (exactly one period, trailing)
 #   - .author byte-identical (jq -Sc) to marketplace.json's .owner (single
@@ -460,6 +466,13 @@ check "the check-versions.sh entry has a bold entry lead" \
 # final gap is tighter on purpose: "scope" is a word the sentence AFTER the
 # list is certain to use, and a 60-char window would let that following prose
 # satisfy "the list ends with scope" while the list itself still had seven.
+#
+# This is now a regression guard for the scope column's PRESENCE and position,
+# not for the list's length: the pattern is unanchored at its right-hand end,
+# so a ninth column appended after scope still satisfies it. The nine-column
+# check in the repo-scoped-report section below is what pins the current
+# length; both are kept, because this one would still catch scope being
+# dropped or reordered if that check were ever re-pointed again.
 check "the check-versions.sh entry's TSV column list enumerates all eight columns, in check-versions.sh order, scope last" \
   "$(grep -qiE 'TSV.{0,60}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,25}scope' <<< "$cv_entry" && echo yes || echo no)" "yes"
 
@@ -490,15 +503,79 @@ check "the check-versions.sh entry still describes stamp as the lowest (driving)
 check "the check-versions.sh entry still describes stale_targets as the targets that are behind" \
   "$(grep -qiE 'stale_targets[^_]{0,220}(path|behind|differ|out of date|stale stamp)' <<< "$cv_entry" && echo yes || echo no)" "yes"
 
+# ===========================================================================
+# Repo-scoped version report (issues #324 and #325)
+# ===========================================================================
+# The same two artifacts as the scope-docs block above, one change further on.
+# check-versions.sh now attributes each install record to a repository and
+# ignores the ones belonging elsewhere, which changes three reader-facing
+# facts: the report is about THIS repo, `installed` is the LOWEST of this
+# repo's versions rather than the highest across the machine, and a ninth
+# column, stale_installs, names the project paths still behind.
+#
+# Scoped to the check-versions.sh entry for the same reason the block above
+# is: "scope" and "repo" are both ordinary words the surrounding entries use
+# for unrelated things, and a section-wide pattern would score that prose
+# instead of the column description.
+#
+# RED against the pre-change README: it documents eight columns, says nothing
+# about which repo the report describes, and describes no version-collapse
+# rule at all (the highest-wins behaviour was never written down, which is
+# part of why it survived).
+
+# --- The nine-column TSV description ----------------------------------------
+# Extends the eight-column pattern above by one column, with the same tight
+# final gap and for the same reason: "stale_installs" is a word the prose
+# after the list uses, so a wide window would let that prose stand in for the
+# list itself.
+check "the check-versions.sh entry's TSV column list enumerates all nine columns, in check-versions.sh order, stale_installs last" \
+  "$(grep -qiE 'TSV.{0,60}plugin.{0,60}installed.{0,60}latest.{0,60}update.{0,60}stamp.{0,60}setup.{0,60}stale_targets.{0,25}scope.{0,25}stale_installs' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# --- Repo scoping -----------------------------------------------------------
+# Two checks, not one: that the report is about a particular repo, and that
+# entries from other repos are excluded. A reader given only the first could
+# still assume the machine-wide records are all this repo's.
+check "the check-versions.sh entry says the report describes the repo it is run in" \
+  "$(grep -qiE '(report|it) describes.{0,40}repo|(scoped|specific) to (this|the current) repo' <<< "$cv_entry" && echo yes || echo no)" "yes"
+check "the check-versions.sh entry says entries belonging to other repositories are excluded" \
+  "$(grep -qiE '(other|another|different) repositor[a-z]*.{0,60}(exclud|ignor|omit|not count)|(exclud|ignor|omit)[a-z]*.{0,60}(other|another|different) repositor' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# --- installed is the lowest ------------------------------------------------
+# The rule a reader needs to make sense of a row that stays stale after a
+# successful update. It was never documented before this change, in either
+# direction.
+check "the check-versions.sh entry says installed is the lowest of this repo's versions" \
+  "$(grep -qiE 'installed.{0,40}(lowest|minimum)|(lowest|minimum).{0,40}installed' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# --- What stale_installs carries --------------------------------------------
+# Same [^_] bounding as the stale_targets checks above, and for the same
+# reason: the identifier contains a word the description also uses, so an
+# unbounded window would let the column list satisfy the check on its own.
+check "the check-versions.sh entry says what the stale_installs column carries" \
+  "$(grep -qiE 'stale_installs[^_]{0,220}(path|behind|out of date)' <<< "$cv_entry" && echo yes || echo no)" "yes"
+check "the check-versions.sh entry says stale_installs is '-' when the row needs no update" \
+  "$(grep -qiE 'stale_installs[^_]{0,240}(`-`|"-")' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
+# --- The stamp columns are deliberately NOT repo-scoped ---------------------
+# A stated non-goal rather than an oversight: a stamp records a target
+# settings file, not a project root, so it cannot be attributed the same way.
+# Documented because the alternative is a reader treating a foreign path in
+# stale_targets as a bug in the scoping this same paragraph just described.
+check "the check-versions.sh entry says the stamp columns are not repo-filtered" \
+  "$(grep -qiE 'stamp[a-z]*.{0,40}not.{0,20}repo.?[- ]?filter|repo.?[- ]?filter[a-z]*.{0,60}stamp' <<< "$cv_entry" && echo yes || echo no)" "yes"
+
 # --- The manifest version ---------------------------------------------------
 # An exact pin, and deliberately unlike the ">= 0.1.0 floor" near the top of
-# this file. The floor cannot tell 0.5.0 from a wrong bump to 0.4.1 or 1.0.0,
+# this file. The floor cannot tell 0.6.0 from a wrong bump to 0.5.1 or 1.0.0,
 # and WHICH bump this is is itself the contract clause: MINOR, because the
 # report gains a column — a backwards-compatible addition to a public
-# contract, not a fix and not a break. The floor stays as-is and keeps
-# absorbing unrelated future bumps; this pin is the one assertion that has to
-# be re-pointed the next time management's version moves.
-check "plugin.json .version is exactly 0.5.0" "$version" "0.5.0"
+# contract. The repo scoping that comes with it changes what existing columns
+# REPORT without changing their shape, which is a behavioural fix, not a
+# contract break: a caller parsing the first eight columns still parses them.
+# The floor stays as-is and keeps absorbing unrelated future bumps; this pin
+# is the one assertion that has to be re-pointed the next time management's
+# version moves.
+check "plugin.json .version is exactly 0.6.0" "$version" "0.6.0"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -495,8 +495,14 @@ fi
 expect_code "host: wrong Host on /raw rejected" 403 -H 'Host: evil.example' "$RAW_URL"
 expect_error_naming "host: wrong Host on /raw" 'host'
 
-expect_code "host: localhost:<port> is not 127.0.0.1:<port> on /raw" 403 \
-  -H "Host: localhost:$PORT_A" "$RAW_URL"
+# "localhost:<port>" USED to be rejected here. Plan 002's "Contract: 002-B07
+# hostname allowlist + dual bind" widened the accepted set to four loopback-only
+# names, localhost among them, so the old expectation now contradicts the
+# contract. The point of the check — a name outside the accepted set is turned
+# away on /raw as on every other route — is kept with a name that is outside it
+# under both the old rule and the new one.
+expect_code "host: a name outside the accepted set is rejected on /raw" 403 \
+  -H "Host: localhost.evil.example:$PORT_A" "$RAW_URL"
 
 expect_code "/raw: query string stripped before routing" 200 "$RAW_URL?ts=1700000000"
 

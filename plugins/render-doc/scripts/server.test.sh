@@ -549,8 +549,16 @@ expect_code "host: wrong Host on /health rejected" 403 \
   -H 'Host: evil.example' "$BASE/health"
 expect_error_naming "host: wrong Host" 'host'
 
-expect_code "host: localhost:<port> is not 127.0.0.1:<port>" 403 \
-  -H "Host: localhost:$PORT_A" "$DOC_URL"
+# "localhost:<port>" USED to be rejected here, as one more name that is not the
+# literal address. Plan 002's "Contract: 002-B07 hostname allowlist + dual
+# bind" widened the accepted set to four loopback-only names, localhost among
+# them, so the old expectation now contradicts the contract this server is
+# built to. What the check is really for — that a name outside the accepted set
+# is still turned away before routing — is kept, with a name that is outside
+# it under both the old rule and the new one. hostname-allowlist.test.sh owns
+# the full accepted/rejected frontier.
+expect_code "host: a name outside the accepted set is not 127.0.0.1:<port>" 403 \
+  -H "Host: localhost.evil.example:$PORT_A" "$DOC_URL"
 
 # "before any routing": an unknown route with a bad Host is 403, not 404.
 expect_code "host: checked before routing (unknown route yields 403, not 404)" 403 \

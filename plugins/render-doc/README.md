@@ -176,12 +176,28 @@ resolve the requested path's realpath and check it against the same scope
 rule: it must end in `.md`, must exist, must resolve under `$HOME`, and
 must sit inside a git worktree — checked on the realpath before any read,
 so a symlink cannot smuggle in a file the rule would otherwise reject.
-Every request also carries a `Host` header pinned to `127.0.0.1:<port>`;
-anything else is rejected before routing, so a page loaded from another
-origin cannot drive this server through the reader's browser. Annotations
-arrive via POST `/annotate` with `{md, section, excerpt, tag, note}` and
-are written straight into the markdown named in the request, subject to
-that same scope check.
+Every request also carries a `Host` header checked against an allowlist of
+accepted loopback names — `127.0.0.1:<port>`, `localhost:<port>`, the
+bracketed `[::1]:<port>` IPv6 loopback literal, and any single-label
+`<label>.localhost:<port>` such as `clam.localhost:27183` — always with this
+server's own port attached; anything outside that set is rejected before
+routing, so a page loaded from another origin cannot drive this server through
+the reader's browser.
+
+Every accepted name is a special-use name under RFC 6761, so a compliant
+resolver can only ever resolve it to loopback — the allowlist widens with no
+rebinding risk and nothing to register. Chrome and Firefox resolve
+`*.localhost` to loopback themselves on both Linux and macOS, no setup
+required; Safari and curl instead follow the system resolver, which on macOS
+can use one optional `/etc/hosts` line — never a prerequisite, since
+`127.0.0.1` keeps working with zero setup on every platform. `main()` also
+binds a second, best-effort listener on `[::1]:<port>` so a resolver that
+hands `*.localhost` to the IPv6 loopback address still reaches this same
+server.
+
+Annotations arrive via POST `/annotate` with `{md, section, excerpt, tag,
+note}` and are written straight into the markdown named in the request,
+subject to that same scope check.
 
 Three more routes ride the same server. `GET /raw/<path>` returns the
 *source* markdown's current bytes — never the rendered sibling — with a
@@ -312,6 +328,9 @@ bash plugins/render-doc/scripts/discovery-docs.test.sh
 bash plugins/render-doc/scripts/landing-page.test.sh
 bash plugins/render-doc/scripts/topbar-nav.test.sh
 bash plugins/render-doc/scripts/landing-docs.test.sh
+bash plugins/render-doc/scripts/hostname-allowlist.test.sh
+bash plugins/render-doc/scripts/dual-bind.test.sh
+bash plugins/render-doc/scripts/hostname-docs.test.sh
 ```
 
 ## Provenance
@@ -365,21 +384,3 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
-
-<!-- Contract: 002-B08 G03 docs + bump (plan 002-discovery-landing-dns) (remove at acceptance)
-Behavior: this README and serve.py's header prose document the friendly
-  hostname: any `<label>.localhost:27183` (e.g. `clam.localhost:27183`)
-  plus `localhost` and `[::1]`, with the support matrix stated
-  OS-neutrally — Chrome and Firefox resolve `*.localhost` to loopback
-  themselves on Linux and macOS (zero setup); Safari and curl follow the
-  system resolver, which on macOS needs one OPTIONAL documented
-  /etc/hosts line (never required for the core capability); why this is
-  rebinding-safe (RFC 6761) in one sentence.
-Inputs: n/a (prose).
-Outputs: plugin.json version 0.9.0 -> 0.10.0; root README render-doc
-  version cell updated to match.
-Errors: n/a (prose).
-Invariants: no sudo or system change is ever a prerequisite; the hosts
-  line is documented as optional enhancement only.
-Edge cases: n/a.
--->

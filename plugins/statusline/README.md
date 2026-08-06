@@ -64,8 +64,11 @@ the line is not printed at all.
 - **Weekly limit** — `wk used%` of your 7-day allowance, followed by the
   three pacing figures explained below: `%t`, `%/d` and a trend arrow.
 - **Context** — `ctx used%`, occupied tokens against the auto-compaction
-  budget, coloured by occupancy and idle time, plus `+added/-removed` once
-  the session has actually edited something.
+  budget, coloured by occupancy alone: green below 20%, yellow from 20%,
+  orange from 40%, and red from 60% and above. The idle-aware tier survives
+  as the `level` field published to `.local/.ctx-status.json` — still
+  staleness, not fullness — alongside `+added/-removed` once the session
+  has actually edited something.
 - **5-hour limit** — `5h used%` of the rolling 5-hour allowance and the
   parenthesised countdown to its reset (`(4h54m)`, or `(12m)` under the
   hour).
@@ -92,7 +95,15 @@ before the reset?"*, from different angles.
   gap beside it in weekly percentage points. `▲` means you are above the line
   (you have used more of the week than the clock says you should have by now,
   so you will hit the cap before the reset if nothing changes); `▼` means you
-  are below it, on course to leave part of the subscription unused.
+  are below it, on course to leave part of the subscription unused. Within 3
+  points of the line it colours green, reading as on track; the warm colours
+  above it — yellow, orange, red — mark how far ahead you are running. Below
+  the line it colours grey instead of a warning shade — running behind just
+  means unused allowance, not a hazard.
+
+The `+added/-removed` pair beside the context meter takes the diffstat
+convention every reader already knows: `+added` colours green and
+`-removed` colours red.
 
 **The pacing counts awake hours only.** A day here starts at
 `CLAM_STATUSLINE_DAY_START` (default `2`, so 02:00 local), and the first
@@ -293,9 +304,10 @@ by Gui-Gou, MIT licensed. The awake-hours pacing model and the sub-tick
 interpolator that keeps `%t` moving between server ticks are all that
 project's ideas; `lib/burn-math.sh`, `lib/burn-tick.sh` and
 `lib/burn-theme.sh` each carry the upstream copyright notice in full. This
-port differs in a few deliberate places — 256-colour output throughout, and
-this plugin's own idle-aware context meter in place of the upstream's — but
-the pacing arithmetic is Gui-Gou's.
+port differs from the upstream in a few deliberate places — 256-colour
+output throughout, and the context meter's colour bands now match the
+upstream's exactly. The numerator behind that meter and its non-saturating
+division stay this plugin's own; the pacing arithmetic is Gui-Gou's.
 
 ## Update
 

@@ -82,6 +82,8 @@ The output self-checks: leftover slot markers fail the render before anything is
 
 One server handles all concurrent sessions. There is no automatic shutdown — it runs until the machine reboots or someone kills it by hand; no user action is needed to start it.
 
+Each worktree that has served or discovered documents also gets its own landing page at `GET /project/<worktree root>` — the same kind of listing as `/`, scoped to just that worktree's `.local/` documents, with `GET /project/for?path=<doc>` resolving any document (served or not) to its owning worktree's page. A document page served through this server (not opened as `file://`) shows two topbar links to reach that navigation: "Index" back to `/`, and "Worktree" to the document's own landing page via the resolver above; a page opened straight from disk shows neither.
+
 ## Boundaries
 
 - Write only the sibling `.html` of the input file. The annotation server writes `@TAG:` lines into the source markdown; this is the only intentional modification of source files.

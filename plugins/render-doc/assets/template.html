@@ -91,6 +91,7 @@
   .btn.active { color: var(--teal-soft); border-color: var(--border-glow); background: rgba(45, 212, 191, 0.12); }
   .btn.attention { color: var(--gold); border-color: rgba(246, 193, 119, 0.4); }
   .btn.error { color: var(--coral); border-color: rgba(255, 138, 107, 0.4); background: rgba(255, 138, 107, 0.12); }
+  .nav-link { text-decoration: none; display: inline-flex; align-items: center; }
 
   /* ---------- Layout ---------- */
   .layout {
@@ -631,6 +632,8 @@
   <header class="topbar">
     <div class="brand"><span class="shell">🦪</span>clam-code <span class="dim">/ doc view</span></div>
     <div class="topbar-actions">
+      <a class="btn nav-link" id="nav-index" href="/" hidden>Index</a>
+      <a class="btn nav-link" id="nav-worktree" href="#" hidden>Worktree</a>
       <span class="pill" id="doctype-pill">document</span>
       <button class="btn" id="schema-toggle" title="Switch between schema-aware and generic rendering">Schema view</button>
       <button class="btn" id="graph-toggle" title="Toggle the node-and-edge graph view" hidden>Graph</button>
@@ -723,6 +726,45 @@ __CYTOSCAPE_DAGRE_SPLICE__
     var sourcePath = "";
     try { sourcePath = document.getElementById("source-path").textContent.trim(); } catch (_) {}
     var sourceFileName = sourcePath ? sourcePath.split("/").pop() : "";
+
+    /* Contract: 002-B05 doc-page topbar nav (plan 002-discovery-landing-dns)
+
+
+       Behavior: pages served over http(s) (location.protocol http: or
+         https:) show, at the START of .topbar-actions (before the
+         doctype pill), two plain links:
+           1. "Index" -> "/"  (the server's global index)
+           2. "Worktree" -> "/project/for?path=" +
+              encodeURIComponent(sourcePath) - the server 302s to the
+              owning worktree's landing page.
+         Pages opened over file:// render NEITHER link and behave exactly
+         as today.
+       Inputs: location.protocol; the embedded sourcePath variable.
+       Outputs: two anchor elements styled consistently with existing
+         topbar controls, present on every docType, work-graph included.
+       Errors: none client-side - the links are plain navigation;
+         failures on the target URL surface as the server's own JSON
+         errors, never as page breakage; an empty or missing sourcePath
+         renders the Index link only.
+       Invariants: existing topbar controls (doctype pill, toggles, graph
+         button) keep their behavior and relative order; live-update
+         re-renders never duplicate the links; no external resources are
+         introduced.
+       Edge cases: sourcePath with spaces or quotes (URI-encoded);
+         scripting disabled (whatever is not rendered simply is not there
+         - no errors); narrow viewport (links wrap under the existing
+         flex-wrap rules). */
+    var servedOverNetwork = window.location.protocol === "http:"
+      || window.location.protocol === "https:";
+    if (servedOverNetwork) {
+      var navIndexEl = document.getElementById("nav-index");
+      if (navIndexEl) navIndexEl.hidden = false;
+      var navWorktreeEl = document.getElementById("nav-worktree");
+      if (navWorktreeEl && sourcePath) {
+        navWorktreeEl.href = "/project/for?path=" + encodeURIComponent(sourcePath);
+        navWorktreeEl.hidden = false;
+      }
+    }
 
     /* ---------- Doc-type detection hook ---------- */
     var TAGS = ["COMMENT", "QUESTION", "CONCERN", "APPROVE", "EVIDENCE"];

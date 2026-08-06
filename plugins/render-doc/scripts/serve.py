@@ -589,6 +589,113 @@ def index_doc_entries():
     return entries + discovered
 
 
+# --- Worktree landing page (002-B04) support ----------------------------------
+# Pure helpers behind Handler._serve_project: this root's own document set
+# (never a sibling worktree's — that is the isolation the landing page is for),
+# grouped by .local subdirectory, each entry annotated from the two protocol
+# fields only.
+
+_STATE_RE = re.compile(r'^State:[ \t]*(.+)$')
+_STATUS_RE = re.compile(r'^Status:[ \t]*(.+)$')
+
+
+def project_doc_entries(root):
+    """The document set for one worktree's landing page: THIS root's registry
+    entries united with THIS root's discover_docs — never
+    index_doc_entries()'s sibling-worktree expansion. Served entries first in
+    registry (last-served descending) order, then unserved entries by mtime
+    descending."""
+    served = []
+    seen_paths = set()
+    for e in registry_entries():
+        e_root, _ = worktree_label(e['path'])
+        if e_root != root:
+            continue
+        served.append(e)
+        seen_paths.add(e['path'])
+
+    try:
+        discovered = discover_docs(root)
+    except Exception:
+        discovered = []
+
+    unserved = []
+    for d in discovered:
+        if d['path'] in seen_paths:
+            continue
+        seen_paths.add(d['path'])
+        unserved.append({"path": d['path'], "lastServed": None, "mtime": d['mtime']})
+    unserved.sort(key=lambda e: e['mtime'], reverse=True)
+
+    return served + unserved
+
+
+def _entry_mtime(entry):
+    """mtime for a merged entry: discovered entries already carry one; a
+    registry-only entry falls back to a fresh stat, or 0 when that fails."""
+    if 'mtime' in entry:
+        return entry['mtime']
+    try:
+        return os.stat(entry['path']).st_mtime
+    except OSError:
+        return 0
+
+
+def read_doc_annotation(path):
+    """(field, value) read from the first 100 lines of path via the two
+    protocol fields — "State" (todo-format) preferred, else "Status"
+    (decision-file) — or None when neither matches or the file cannot be
+    read. Only these two anchored fields are ever parsed."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = []
+            for i, line in enumerate(f):
+                if i >= 100:
+                    break
+                lines.append(line.rstrip('\n'))
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in lines:
+        m = _STATE_RE.match(line)
+        if m:
+            return 'State', m.group(1)
+    for line in lines:
+        m = _STATUS_RE.match(line)
+        if m:
+            return 'Status', m.group(1)
+    return None
+
+
+def render_project_entry(entry, rel_text):
+    """One <li> for a landing-page document: its /doc link (text = the
+    caller-supplied relative path), an "unserved" mark when unregistered, and
+    its protocol-field annotation when it has one — all file-derived text
+    escaped."""
+    href = '/doc' + urllib.parse.quote(entry['path'], safe='/')
+    href_esc = html.escape(href, quote=True)
+    text_esc = html.escape(rel_text)
+    mark = (' <span class="unserved">(unserved)</span>'
+            if entry.get('lastServed') is None else '')
+    ann_html = ''
+    annotation = read_doc_annotation(entry['path'])
+    if annotation is not None:
+        field, value = annotation
+        value_esc = html.escape(value[:60])
+        ann_html = f' <span class="ann">{html.escape(field)}: {value_esc}</span>'
+    return f'<li><a href="{href_esc}">{text_esc}</a>{mark}{ann_html}</li>'
+
+
+def render_project_group(name, items):
+    """One COLLAPSED <details> group for a .local subdirectory: name is the
+    top-level subdirectory, items a list of (entry, subdirectory-relative
+    text) pairs."""
+    parts = ['<details><summary>', html.escape(name), '</summary><ul class="docs">']
+    for entry, rel in items:
+        parts.append(render_project_entry(entry, rel))
+    parts.append('</ul></details>')
+    return ''.join(parts)
+
+
 INDEX_STYLE = (
     "body{background:#12141c;color:#e8e8ec;"
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
@@ -623,6 +730,36 @@ def build_index_html(groups):
     return ('<!DOCTYPE html><html><head><meta charset="utf-8">'
             '<title>render-doc served documents</title>'
             '<style>' + INDEX_STYLE + '</style></head><body>'
+            + ''.join(body) + '</body></html>')
+
+
+PROJECT_STYLE = INDEX_STYLE + ".ann{color:#9fb4ff;margin-left:.4rem;font-size:.9em;}"
+
+
+def build_project_html(label, headline_entry, flat_entries, group_order, groups):
+    """The full self-contained landing page for one worktree: its headline
+    (if any), its flat top-level documents, then one collapsed group per
+    .local subdirectory that holds a listed document, newest member first."""
+    body = [f'<h1>{html.escape(label)}</h1>']
+    if headline_entry is not None:
+        body.append(render_headline(headline_entry))
+    if not flat_entries and not group_order:
+        body.append(
+            f'<p class="empty">No documents found for <strong>'
+            f'{html.escape(label)}</strong>. A document appears here once it '
+            'exists under this worktree\'s .local/ directory, or has been '
+            'served through this server.</p>')
+    else:
+        if flat_entries:
+            body.append('<ul class="docs">')
+            for entry, rel in flat_entries:
+                body.append(render_project_entry(entry, rel))
+            body.append('</ul>')
+        for name in group_order:
+            body.append(render_project_group(name, groups[name]))
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<title>' + html.escape(label) + ' — render-doc</title>'
+            '<style>' + PROJECT_STYLE + '</style></head><body>'
             + ''.join(body) + '</body></html>')
 
 
@@ -995,10 +1132,80 @@ class Handler(http.server.BaseHTTPRequestHandler):
     #   itself as the requested root (403 unless it carries a .git entry);
     #   percent-encoded UTF-8 in paths (decoded, escaped on output).
     def _serve_project(self, root_path):
-        raise NotImplementedError("002-B04")
+        root_real = os.path.realpath(root_path)
+        if not os.path.isdir(root_real):
+            self.send_json(404, {"error": "worktree not found"})
+            return
+        home = os.path.realpath(os.path.expanduser('~'))
+        if not (root_real == home or root_real.startswith(home + os.sep)):
+            self.send_json(403, {"error": "scope: outside the home directory"})
+            return
+        if not os.path.exists(os.path.join(root_real, '.git')):
+            self.send_json(403, {"error": "scope: not inside a git worktree"})
+            return
+
+        label = '~' + root_real[len(home):]
+
+        try:
+            entries = project_doc_entries(root_real)
+        except Exception:
+            entries = []
+
+        local_root = os.path.join(root_real, '.local')
+        workgraph_path = os.path.realpath(os.path.join(local_root, 'WORKGRAPH.md'))
+
+        headline_entry = None
+        flat_entries = []
+        groups = {}
+        for entry in entries:
+            if headline_entry is None and entry['path'] == workgraph_path:
+                headline_entry = entry
+                continue
+            rel = os.path.relpath(entry['path'], local_root)
+            parts = rel.split(os.sep) if not rel.startswith(os.pardir) else None
+            if parts and len(parts) > 1:
+                top = parts[0]
+                groups.setdefault(top, []).append((entry, os.sep.join(parts[1:])))
+            else:
+                flat_entries.append((entry, os.path.relpath(entry['path'], root_real)))
+
+        group_order = sorted(
+            groups.keys(),
+            key=lambda name: max(_entry_mtime(e) for e, _ in groups[name]),
+            reverse=True)
+
+        content = build_project_html(
+            label, headline_entry, flat_entries, group_order, groups).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html;charset=utf-8')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
     def _serve_project_for(self):
-        raise NotImplementedError("002-B04")
+        query = urllib.parse.urlsplit(self.path).query
+        params = urllib.parse.parse_qs(query)
+        path_values = params.get('path')
+        if not path_values or not path_values[0]:
+            self.send_json(400, {"error": "missing path parameter"})
+            return
+
+        doc_real = os.path.realpath(path_values[0])
+        home = os.path.realpath(os.path.expanduser('~'))
+        if not (doc_real == home or doc_real.startswith(home + os.sep)):
+            self.send_json(403, {"error": "scope: outside the home directory"})
+            return
+
+        root, _ = worktree_label(doc_real)
+        if root is None:
+            self.send_json(403, {"error": "scope: not inside a git worktree"})
+            return
+
+        location = '/project' + urllib.parse.quote(root, safe='/')
+        self.send_response(302)
+        self.send_header('Location', location)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def do_POST(self):
         if not self._check_host():

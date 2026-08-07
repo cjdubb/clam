@@ -54,6 +54,7 @@ HOOK_SCRIPT="$PLUGIN_ROOT/scripts/build-context.sh"
 SYNC_PR_SKILL="$PLUGIN_ROOT/skills/sync-pr/SKILL.md"
 SYNC_PR_DIR="$PLUGIN_ROOT/skills/sync-pr"
 CONTEXT_SKILL="$PLUGIN_ROOT/skills/context/SKILL.md"
+CONTEXT_SKILL_BUILD="$PLUGIN_ROOT/skills/build/SKILL.md"
 MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
 CLAM_PROFILE_JSONC="$REPO_ROOT/.claude/clam-profile.jsonc"
 
@@ -115,6 +116,8 @@ check "skills/sync-pr/ directory does not exist (B06: skill removed)" \
   "$([ -d "$SYNC_PR_DIR" ] && echo present || echo absent)" "absent"
 check "skills/context/SKILL.md exists (B09: on-demand hook replacement)" \
   "$([ -f "$CONTEXT_SKILL" ] && echo yes || echo no)" "yes"
+check "skills/build/SKILL.md exists (B01: lifecycle front door)" \
+  "$([ -f "$CONTEXT_SKILL_BUILD" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # 6. no references to the removed .claude/clam-profile.md path, scoped to

@@ -1,34 +1,50 @@
 #!/bin/bash
 # Structural/contract tests for the build plugin's metadata and
-# documentation artifacts: plugin.json, hooks.json, and README.md. The
-# executable hook behavior itself is covered separately in
-# b03-build-context.test.sh.
+# documentation artifacts: plugin.json and README.md. The skill's own
+# content is covered separately in b09-context-skill.test.sh.
 #
 # Contract: B02 test-rename
 #
 # Behavior:
-#   All assertions reference the new plugin name "build", the new skill
-#   namespace "/build:sync-pr", and the new script name "build-context.sh".
-#   Path variables point to the renamed locations. Test logic and coverage
-#   are unchanged from the original — this is a rename of references, not
-#   a test rewrite.
+#   All assertions reference the new plugin name "build". Path variables
+#   point to the renamed locations. Test logic and coverage are unchanged
+#   from the original — this is a rename of references, not a test
+#   rewrite.
 #
 # Invariants:
 #   - No remaining references to "deliver" as a plugin name, script name,
 #     or skill namespace in assertions or path variables
 #   - All existing test cases preserved (no coverage regression)
 #
+# Contract: B06 build-cleanup
+#
+# Behavior:
+#   The sync-pr skill and its standing instruction are removed. The
+#   plugin.json description and the README no longer name /build:sync-pr,
+#   PR description syncing, the gh CLI prerequisite, or any standing
+#   instruction — assertions on those points now check for ABSENCE.
+#
+# Contract: B09 build-skill-conversion
+#
+# Behavior:
+#   The SessionStart hook (hooks/hooks.json, scripts/build-context.sh) is
+#   removed entirely — no replacement hook, no pointer hook. The prior
+#   hooks.json/build-context.sh coverage in this suite is replaced with
+#   ABSENCE checks. The README no longer describes a SessionStart hook as
+#   current behavior; it describes the on-demand /build:context skill
+#   instead. plugin.json is out of scope for B09 (no version bump, no
+#   description change) — its checks are unchanged from B06.
+#
 # Covers plugins/build/.claude-plugin/plugin.json:
 #   - valid JSON; name "build"; non-empty single-line description free of
 #     TODO/NotImplemented placeholders; version present
 #   - author matches the marketplace .owner in the repo-root
 #     .claude-plugin/marketplace.json (single source of truth)
+#   - description has no reference to the removed sync-pr skill (B06)
 #
-# Covers plugins/build/hooks/hooks.json:
-#   - valid JSON
-#   - wires a SessionStart hook whose command points at
-#     ${CLAUDE_PLUGIN_ROOT}/scripts/build-context.sh with a positive timeout
-#   - build-context.sh exists and is executable
+# Covers hooks removal (B09):
+#   - plugins/build/hooks/hooks.json does not exist
+#   - plugins/build/scripts/build-context.sh does not exist
 #
 # Covers plugins/build/README.md:
 #   - H1 "# build" with a non-empty, non-placeholder intro paragraph (no
@@ -36,10 +52,10 @@
 #   - the six PLUGIN_README_TEMPLATE.md H2 sections (Getting started, What
 #     to expect, Common workflows, Commands, Relationships to other
 #     plugins, Uninstalling) appear, in that order
-#   - facts carried over from the pre-restructure README, checked
-#     body-wide since placement under the new structure is the
-#     implementer's freedom: /build:sync-pr named; build-context.sh and
-#     SessionStart named
+#   - (B06) no reference to sync-pr, PR description syncing, the gh CLI
+#     prerequisite, or standing-instruction language anywhere in the body
+#   - (B09) no reference to hooks.json, build-context.sh, or SessionStart
+#     as current behavior; names /build:context instead
 #   - no hard-dependency wording on companion plugins (invariant: companions
 #     are optional enhancers)
 #
@@ -73,19 +89,8 @@ has() { # haystack needle (case-insensitive fixed-string)
   printf '%s' "$1" | grep -qiF -- "$2" && echo yes || echo no
 }
 
-# Extracts the body of a level-2 markdown section: everything after a line
-# that matches $2 exactly, up to (not including) the next "## " heading or
-# end of file.
-section_body() { # file heading_line_exact
-  awk -v heading="$2" '
-    $0 == heading {found=1; next}
-    found && /^## / {exit}
-    found {print}
-  ' "$1"
-}
-
 # ---------------------------------------------------------------------------
-# plugin.json
+# plugin.json (out of scope for B09 — unchanged from B06)
 # ---------------------------------------------------------------------------
 
 check "plugin.json is valid JSON" \
@@ -103,6 +108,8 @@ check "plugin.json .description is non-empty and free of TODO/NotImplemented mar
   "$([[ -n "$description" && "$description" != "null" ]] && ! grep -qiE 'TODO|NotImplemented' <<<"$description" && echo yes || echo no)" "yes"
 check "plugin.json .description is a single line (no embedded newline)" \
   "$([[ "$description" != *$'\n'* ]] && echo yes || echo no)" "yes"
+check "plugin.json .description has no reference to the removed sync-pr skill (B06)" \
+  "$(printf '%s' "$description" | grep -qiF 'sync-pr' && echo present || echo absent)" "absent"
 
 plugin_author=$(jq -Sc '.author' "$PLUGIN_JSON" 2>/dev/null)
 marketplace_owner=$(jq -Sc '.owner' "$MARKETPLACE" 2>/dev/null)
@@ -110,22 +117,13 @@ check "plugin.json .author matches the marketplace .owner (single source of trut
   "$([[ -n "$plugin_author" && "$plugin_author" == "$marketplace_owner" ]] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
-# hooks.json
+# hooks removal (B09): the plugin registers no hooks at all
 # ---------------------------------------------------------------------------
 
-check "hooks.json is valid JSON" \
-  "$(jq -e . "$HOOKS_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
-
-hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS_JSON" 2>/dev/null)
-check "hooks.json wires SessionStart to build-context.sh via CLAUDE_PLUGIN_ROOT" \
-  "$hook_command" '${CLAUDE_PLUGIN_ROOT}/scripts/build-context.sh'
-
-hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$HOOKS_JSON" 2>/dev/null)
-check "hooks.json SessionStart hook has a positive numeric timeout" \
-  "$([[ "$hook_timeout" =~ ^[0-9]+$ ]] && [[ "$hook_timeout" -gt 0 ]] && echo yes || echo no)" "yes"
-
-check "build-context.sh exists" "$([ -f "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
-check "build-context.sh is executable" "$([ -x "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
+check "hooks/hooks.json does not exist (B09: hook removed, replaced by /build:context skill)" \
+  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "absent"
+check "scripts/build-context.sh does not exist (B09: hook removed, replaced by /build:context skill)" \
+  "$([ -f "$HOOK_SCRIPT" ] && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
 # README.md — intro paragraph
@@ -145,13 +143,6 @@ check "README intro paragraph has no TODO/NotImplemented placeholder" \
 # ---------------------------------------------------------------------------
 # README.md — required template H2 sections, in order
 # ---------------------------------------------------------------------------
-# The B08 restructure moves this README onto PLUGIN_README_TEMPLATE.md's
-# locked section set. The old headings ("## Purpose", "## Companion
-# plugins", "## Delivery lifecycle", "## Skills", "## Hook", "## Standing
-# instructions") do not survive it, so this suite stops asserting on them
-# by name. What it asserts here: the six template H2s appear, in template
-# order (extra plugin-specific H2s elsewhere in the file are the
-# implementer's freedom, per the template).
 
 expected_h2_order="## Getting started
 ## What to expect
@@ -166,25 +157,35 @@ check "README's six required template H2 sections appear, in template order" \
   "$actual_h2_order" "$expected_h2_order"
 
 # ---------------------------------------------------------------------------
-# README.md — facts carried over from the old sections (location-agnostic)
+# README.md — facts (location-agnostic), stripped of any HTML contract
+# docblocks first: a fact must be STATED in the rendered README, not
+# merely present in a docblock's own contract prose.
 # ---------------------------------------------------------------------------
-# Everything the old "## Skills" / "## Hook" / "## Standing instructions"
-# sections required is still required here, unweakened — just checked over
-# the whole rendered body instead of a named section, since where the
-# restructure relocates each fact is the implementer's call. Stripped of
-# any HTML contract docblocks first (this README currently carries none,
-# but stripping is defensive and matches the convention used elsewhere in
-# this repo): a fact must be STATED in the rendered README, not merely
-# present in a docblock's own contract prose.
 
 readme_body_facts=$(sed '/<!--/,/-->/d' "$README")
 
-check "README names /build:sync-pr" \
-  "$(has "$readme_body_facts" '/build:sync-pr')" "yes"
-check "README names build-context.sh" \
-  "$(has "$readme_body_facts" 'build-context.sh')" "yes"
-check "README names the SessionStart event" \
-  "$(has "$readme_body_facts" 'SessionStart')" "yes"
+# Backticks stripped for the absence checks below: markdown code-span
+# backticks can sit mid-phrase (e.g. "the `gh` CLI"), which would defeat a
+# fixed-string match on 'gh cli' even though the prose plainly says it.
+readme_body_facts_flat=$(printf '%s' "$readme_body_facts" | tr -d '`')
+
+check "README has no reference to sync-pr (B06: skill removed, moved to forge-github)" \
+  "$(has "$readme_body_facts" 'sync-pr')" "no"
+check "README has no PR-description-syncing reference (B06)" \
+  "$(has "$readme_body_facts" 'pr description')" "no"
+check "README has no standing-instruction language (B06)" \
+  "$(has "$readme_body_facts" 'standing instruction')" "no"
+check "README has no gh CLI prerequisite mention (B06: tied to the removed sync-pr skill)" \
+  "$(has "$readme_body_facts_flat" 'gh cli')" "no"
+
+check "README has no reference to build-context.sh (B09: hook removed)" \
+  "$(has "$readme_body_facts" 'build-context.sh')" "no"
+check "README has no reference to hooks.json (B09: hook removed)" \
+  "$(has "$readme_body_facts" 'hooks.json')" "no"
+check "README does not describe a SessionStart hook as current behavior (B09)" \
+  "$(has "$readme_body_facts" 'SessionStart')" "no"
+check "README names /build:context (B09: on-demand skill replacement)" \
+  "$(has "$readme_body_facts" '/build:context')" "yes"
 
 # ---------------------------------------------------------------------------
 # README.md — whole-file invariant: no hard dependency on companion plugins

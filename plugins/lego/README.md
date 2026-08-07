@@ -213,19 +213,20 @@ integration worktree's repo root:
   best-effort removes the unit worktree. A failed archive skips removal
   instead, warning on stderr rather than destroying the only copy of that
   record.
-- `deliver --manifest <path> <plan-slug> <base-branch> <unit-id>
+- `assemble --manifest <path> <plan-slug> <base-branch> <unit-id>
   <unit-slug> [...]` — builds a delivery branch from `<base-branch>`,
   restoring the files each unit's `lego(<unit-id>): tests` and
   `lego(<unit-id>): implementation` commits changed, derived from each
   commit's own diff. Merge commits are never resolved as a unit's commit,
   and a resolved commit that restores no files fails the build rather than
-  contributing nothing. Before pushing, the built branch must match the
+  contributing nothing. Before finishing, the built branch must match the
   integration tip byte for byte on every path it restored; any divergence
-  aborts the delivery with nothing pushed and no PR opened. Otherwise it
-  pushes to `origin` and opens a PR with `gh pr create`. The manifest
-  (written by the orchestrator to `.local/pr-manifest.json`) supplies the
-  title, branch name, and commit subjects — required — plus an optional
-  body (falling back to `blocks.md` headings and contracts). Afterward,
+  aborts the build with nothing left behind. Assemble stops once the branch
+  is built and gated — no push, no PR, no `gh` invocation anywhere in the
+  script — and prints the assembled branch name as its last stdout line.
+  The manifest (written by the orchestrator to `.local/pr-manifest.json`)
+  supplies the title, branch name, and commit subjects — required — plus
+  an optional body (falling back to `blocks.md` headings and contracts). Afterward,
   best-effort removes each delivered unit's branch and any remaining
   worktree — a worktree still present at that point is archived first, the
   same as `merge`, to `.local/units/<plan-slug>/<unit-id>/`; a failed
@@ -234,7 +235,7 @@ integration worktree's repo root:
   `briefs/`, `reports/`, and `status.md` to
   `.local/units/<plan-slug>/<unit-id>/`, then removes the worktree and
   branch directly (fails on a dirty tree or an unmerged branch). Unlike
-  `merge` and `deliver`, this path is not best-effort: a failed archive
+  `merge` and `assemble`, this path is not best-effort: a failed archive
   exits nonzero and removes nothing.
 - `clean` — best-effort removes every fully-merged `lego/*/*` and
   `lego/deliver/*/*` branch and its worktree; always exits 0.
@@ -355,9 +356,7 @@ hooks/            PreToolUse realm gate, SessionStart context injection
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
                   realm-gate.sh, session-context.sh, worktree.sh (unit
                   worktree lifecycle + delivery)
-templates/        starter .claude/lego.json (lego.json), blocks.md, and
-                  pr-body-template.md (default PR body when the repo has
-                  no PR template of its own)
+templates/        starter .claude/lego.json (lego.json) and blocks.md
 docs/             config schema / repo-interface spec
 ```
 
@@ -387,10 +386,11 @@ No hard dependencies. Despite the overlapping vocabulary, lego does not
 consume the worktrees plugin: `scripts/worktree.sh` implements its own
 git-worktree lifecycle directly (raw `git worktree` commands), not the
 worktrees plugin's `newtree`/`rmtree` helpers. It does not consume the
-landing plugin either: `worktree.sh deliver` opens PRs directly with
-`gh pr create` rather than through `/landing:land`. And it deliberately
-never touches tracking's own files (`.local/PLAN.md`, `TODO.md`) — an
-isolation invariant covered by this plugin's own tests.
+landing plugin either: `worktree.sh assemble` stops once it has built and
+gated a delivery branch — landing it (via `/landing:land` or by hand)
+happens outside lego. And it deliberately never touches tracking's own
+files (`.local/PLAN.md`, `TODO.md`) — an isolation invariant covered by
+this plugin's own tests.
 
 Two companion plugins optionally consume lego, one-directionally, when
 it's installed:
@@ -401,9 +401,9 @@ it's installed:
   `/lego:dispatch`.
 - **build** detects the `plugins/lego` directory at session start and,
   when present, adds plan/scaffold/dispatch context to its briefing; its
-  `/build:sync-pr` skill treats PRs opened via lego's own delivery step
+  `/build:sync-pr` skill treats PRs opened from a branch lego assembled
   as one of the paths whose description it keeps in sync, alongside
-  `/landing:land` and manual `gh pr create`.
+  `/landing:land` and manually opened PRs.
 
 ## Uninstalling
 

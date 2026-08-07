@@ -95,20 +95,25 @@
 #     remove). When the archive fails, prints a warning to stderr and SKIPS
 #     the removal: the unit worktree is then the only copy of that record, so
 #     it is kept rather than destroyed. The unit
-#     branch is NOT removed — deliver may still need it. If worktree removal
+#     branch is NOT removed — assemble may still need it. If worktree removal
 #     fails (dirty tree, already absent, etc.), prints a warning to stderr
 #     and still exits 0: the merge succeeded and that is what matters. An
 #     archive failure likewise never changes the exit code.
 #
-#   deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
-#     Builds a delivery branch from <base-branch> in a temporary worktree.
+#   assemble --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+#     (RENAMED, B10, from `deliver`.) Builds a delivery branch from
+#     <base-branch> in a temporary worktree, gates it, and stops — no push,
+#     no PR, no `gh` invocation anywhere in this script.
 #
 #     --manifest <path> is required. <path> must be a readable JSON file
-#     (validated with jq). The manifest provides PR content and branch naming.
-#     Required fields: "title" (non-empty), "branch" (non-empty), and for
-#     each delivered unit-id, "commits.<unit-id>.impl" (non-empty). Optional
-#     fields: "body" (falls back to blocks.md headings + contracts) and
-#     "commits.<unit-id>.tests" (falls back to the default subject).
+#     (validated with jq). The manifest provides the branch name and commit
+#     subjects for the assembled branch (title/body are still validated for
+#     forward compatibility with whatever opens a PR from it later, but
+#     assemble itself never reads them for output). Required fields: "title"
+#     (non-empty), "branch" (non-empty), and for each delivered unit-id,
+#     "commits.<unit-id>.impl" (non-empty). Optional fields: "body" (falls
+#     back to blocks.md headings + contracts) and "commits.<unit-id>.tests"
+#     (falls back to the default subject).
 #
 #     Manifest JSON schema:
 #       {
@@ -138,24 +143,23 @@
 #         version bumps, and any other files committed on the unit branch
 #         are included automatically. An EMPTY derived file list fails the
 #         build (exit 4): a resolved commit that restores nothing would
-#         ship a PR silently missing that unit's content.
+#         ship an assembled branch silently missing that unit's content.
 #       - when the tests commit exists: restores its changed files and
 #         commits with subject "lego(<unit-id>): contract + tests"; then
 #         restores the implementation commit's changed files and commits
 #         with the impl subject (from the manifest, required). A restore of
 #         a non-empty file list that produces no changes creates no commit;
 #         that no-op is legitimate and is not a failure.
-#     Then, before anything is pushed, gates the built branch: it must match
-#     the invoking worktree's HEAD (the integration tip — deliver runs from
-#     the integration worktree) byte for byte on the union of every path
-#     restored above. Any difference aborts the delivery with exit 4,
-#     nothing pushed and no PR opened.
-#     Pushes the delivery branch to the "origin" remote and opens a PR
-#     against <base-branch> with `gh pr create` using the title (from the
-#     manifest, required) and body (from the manifest or default). Removes
-#     the temporary worktree (the local delivery branch remains) and prints
-#     the PR URL as the LAST line of stdout.
-#     After a successful PR creation, removes each delivered unit's branch
+#     Then gates the built branch: it must match the invoking worktree's HEAD
+#     (the integration tip — assemble runs from the integration worktree)
+#     byte for byte on the union of every path restored above. Any
+#     difference aborts the build with exit 4, nothing left pushed anywhere
+#     (nothing is ever pushed by this script).
+#     (CHANGED, B10) After the gate passes, assemble STOPS: removes the
+#     temporary worktree (the local delivery branch remains) and prints the
+#     assembled branch name as the LAST line of stdout. No push, no
+#     `gh pr create`, no PR URL.
+#     After a successful assembly, removes each delivered unit's branch
 #     and any remaining worktree as a best-effort cleanup. For each unit-id:
 #     resolves the unit branch, finds its worktree (if any) and removes it
 #     via git worktree remove, then deletes the branch with git branch -d.
@@ -166,8 +170,8 @@
 #     When that archive fails, prints a warning and skips BOTH that unit's
 #     worktree removal AND its branch deletion (a branch checked out in a
 #     surviving worktree cannot be deleted anyway), leaving the record intact.
-#     Failures are warned on stderr but do not fail the deliver (the PR is
-#     already open). The local delivery branch (lego/deliver/...) is left
+#     Failures are warned on stderr but do not fail assemble (the branch is
+#     already built). The local delivery branch (lego/deliver/...) is left
 #     intact.
 #
 #   remove <plan-slug> <unit-id> <unit-slug>
@@ -177,7 +181,7 @@
 #     .local/units/<plan-slug>/<unit-id>/ (see archive_unit_local), then
 #     removes the unit's worktree via `git worktree remove` (fails on a dirty
 #     tree) and deletes its branch with `git branch -d` (fails when unmerged).
-#     Unlike merge and deliver, remove is not a best-effort path: when the
+#     Unlike merge and assemble, remove is not a best-effort path: when the
 #     archive fails it exits 4 and removes nothing.
 #
 #   clean <plan-slug>
@@ -204,56 +208,58 @@
 #   .local/config.json (jq-parsed and merged; commands.test required and
 #   resolvable; delivery.worktreeDir optional). .local/blocks.md
 #   with "- Unit:" fields per block section. Must run inside a git work tree,
-#   at the repo root. deliver derives its file list from each commit's diff,
+#   at the repo root. assemble derives its file list from each commit's diff,
 #   not from "- Code:" fields.
 #
 # Outputs:
 #   Human-readable progress on stderr only. Machine-consumable result — the
-#   worktree path (add), PR URL (deliver), or count of removed branches
-#   (clean) — as the last stdout line. Exit 0 on success.
+#   worktree path (add), assembled branch name (assemble), or count of
+#   removed branches (clean) — as the last stdout line. Exit 0 on success.
 #
 # Errors:
-#   exit 2 — usage error: unknown subcommand, wrong argument count, or an id/
-#            slug containing characters outside [A-Za-z0-9._-]; prints usage
-#            to stderr.
-#   exit 3 — missing dependency or input: jq absent; gh absent (deliver
-#            only); (CHANGED, plan 001-lc) no config file exists (neither
-#            .claude/lego.json nor .local/config.json), a present config
-#            file is not valid JSON, or commands.test is unresolvable in
-#            the effective config (absent/empty; object without "default";
-#            "default" naming an absent or empty variant);
-#            .local/blocks.md missing; not inside a git work tree; --manifest
-#            not provided (deliver); manifest file unreadable or not valid
-#            JSON; manifest missing required field (title, branch, or
-#            per-unit impl commit subject).
-#   exit 4 — state error: unit-id matches no blocks.md section (add/deliver);
-#            branch or worktree path already exists (add); constructed
-#            unit branch does not exist (merge/deliver/remove); dirty working
-#            tree (merge); (B01) current branch is a unit branch or equals
-#            the target branch (merge); baseline test failure (add); required
-#            implementation commit missing (deliver); a resolved unit
-#            commit whose derived file list is empty — a merge commit, or a
-#            commit that touched no files (deliver); the built delivery
-#            branch diverges from the integration tip on a restored path
-#            (deliver); delivery branch already exists (deliver); unmerged
-#            branch (remove); (NEW, plan 001-bra) the unit archive failed
-#            (remove only — merge and deliver warn instead and keep their
-#            exit codes); underlying git/gh failure.
+#   exit 2 — usage error: unknown subcommand (including the removed
+#            `deliver`), wrong argument count, or an id/slug containing
+#            characters outside [A-Za-z0-9._-]; prints usage to stderr.
+#   exit 3 — missing dependency or input: jq absent; (CHANGED, plan 001-lc)
+#            no config file exists (neither .claude/lego.json nor
+#            .local/config.json), a present config file is not valid JSON,
+#            or commands.test is unresolvable in the effective config
+#            (absent/empty; object without "default"; "default" naming an
+#            absent or empty variant); .local/blocks.md missing; not inside
+#            a git work tree; --manifest not provided (assemble); manifest
+#            file unreadable or not valid JSON; manifest missing required
+#            field (title, branch, or per-unit impl commit subject). (B10)
+#            gh is no longer a dependency of anything in this script.
+#   exit 4 — state error: unit-id matches no blocks.md section
+#            (add/assemble); branch or worktree path already exists (add);
+#            constructed unit branch does not exist (merge/assemble/remove);
+#            dirty working tree (merge); (B01) current branch is a unit
+#            branch or equals the target branch (merge); baseline test
+#            failure (add); required implementation commit missing
+#            (assemble); a resolved unit commit whose derived file list is
+#            empty — a merge commit, or a commit that touched no files
+#            (assemble); the built delivery branch diverges from the
+#            integration tip on a restored path (assemble); delivery branch
+#            already exists (assemble); unmerged branch (remove); (NEW, plan
+#            001-bra) the unit archive failed (remove only — merge and
+#            assemble warn instead and keep their exit codes); underlying
+#            git failure.
 #   Every error prints exactly one line starting "ERROR: " to stderr. Two
-#   deliver failures print additional plain (non-"ERROR: ") diagnostic lines
-#   before it, because the single error line cannot carry the detail: the
-#   empty-file-list failure names the offending commit and which of the two
-#   causes it was, and the divergence gate names each divergent path.
+#   assemble failures print additional plain (non-"ERROR: ") diagnostic
+#   lines before it, because the single error line cannot carry the detail:
+#   the empty-file-list failure names the offending commit and which of the
+#   two causes it was, and the divergence gate names each divergent path.
 #
 # Invariants:
-#   - DEPENDENCY SEAM (B04, plan 001-speed-up-repo-ci): BOTH external CLI
-#     dependencies are reached through injectable seams — `: "${JQ:=jq}"` and
-#     `: "${GH:=gh}"` — and invoked as "$JQ" / "$GH", never bare. Absence is
-#     detected with `command -v "$JQ"` / `command -v "$GH"`, preserving the
-#     existing exit 3 "missing dependency" behaviour exactly. Tests exercise
-#     the absent-dependency paths by setting JQ=/nonexistent or
-#     GH=/nonexistent rather than mirroring PATH. Observable CLI behaviour is
-#     UNCHANGED, including every exit-3 case.
+#   - DEPENDENCY SEAM (B04, plan 001-speed-up-repo-ci): the jq dependency is
+#     reached through an injectable seam — `: "${JQ:=jq}"` — and invoked as
+#     "$JQ", never bare. Absence is detected with `command -v "$JQ"`,
+#     preserving the existing exit 3 "missing dependency" behaviour exactly.
+#     Tests exercise the absent-dependency path by setting JQ=/nonexistent
+#     rather than mirroring PATH. (CHANGED, B10) The `GH`/`gh` seam is
+#     removed entirely — gh is no longer a dependency at all, missing or
+#     present; a `GH=/nonexistent` override in the environment is simply
+#     unused, not an error.
 #   - SOURCEABILITY (B05, plan 001-speed-up-repo-ci): the script guards its
 #     entry point with `[[ "${BASH_SOURCE[0]}" == "${0}" ]]` so a test can
 #     source it and call its public subcommand functions in-process rather
@@ -262,14 +268,14 @@
 #   - (CHANGED, plan 001-bra) TRACKED files in the invoking worktree are
 #     modified only by `merge`, and only through `git merge` itself; no
 #     subcommand edits tracked files there directly. The sole untracked
-#     exception is the unit archive: `merge`, `deliver` and `remove` write
+#     exception is the unit archive: `merge`, `assemble` and `remove` write
 #     .local/units/<plan-slug>/<unit-id>/ in the invoking worktree (see
 #     archive_unit_local). That is gitignored session state, never repo
 #     content, and `merge`'s dirty-tree check reads tracked changes only
 #     (--untracked-files=no), so an archive can never block a later merge.
 #   - (NEW, plan 001-bra) Wherever a unit worktree is removed, its audit
 #     trail is archived FIRST and a failed archive never results in the
-#     source being deleted: `merge` and `deliver` skip the removal with a
+#     source being deleted: `merge` and `assemble` skip the removal with a
 #     warning, `remove` exits 4. The record can survive without the worktree;
 #     it cannot survive without either.
 #   - `add` cleans up everything it created in the same invocation on any
@@ -285,13 +291,15 @@
 #     .local/config.json.
 #   - `merge` may also remove the unit worktree as a best-effort side
 #     effect; a removal failure never changes merge's exit code.
-#   - `deliver` may also remove unit branches and worktrees as a best-effort
-#     side effect; a removal failure never changes deliver's exit code.
-#   - `deliver` never pushes a delivery branch, nor opens a PR for one, that
-#     differs from the integration tip on any path it restored: the gate
-#     runs before the push, and a gate failure leaves origin and the PR list
-#     untouched (the local delivery branch and temporary worktree are torn
-#     down exactly as for any other build failure).
+#   - `assemble` may also remove unit branches and worktrees as a
+#     best-effort side effect; a removal failure never changes assemble's
+#     exit code.
+#   - (CHANGED, B10) `assemble` never pushes anywhere and never opens a PR —
+#     it has no network or `gh` dependency at all. It never finishes a
+#     delivery branch that differs from the integration tip on any path it
+#     restored: the gate runs before assemble stops, and a gate failure
+#     leaves the local delivery branch and temporary worktree torn down
+#     exactly as for any other build failure.
 #
 # Edge cases:
 #   - (NEW, plan 001-lc) Only one of the two config files exists: it alone
@@ -306,14 +314,14 @@
 #     (no override present in the integration worktree) still resolves its
 #     config from the checked-out .claude/lego.json.
 #   - Multiple blocks sharing one unit: unit.md carries all their sections;
-#     deliver restores the union of files changed by each commit;
+#     assemble restores the union of files changed by each commit;
 #     status.md carries one "## Blocks" line per section, in file order.
 #   - A merge commit stamped with a unit's subject (e.g. refreshing a unit
 #     branch mid-flight with `git merge <integration-branch> -m
 #     "lego(U01): implementation"`) is never resolved as that unit's commit.
 #     When a plain commit with the same subject also exists, that one is
-#     used; when the stamped merge is the only candidate, deliver fails with
-#     the missing-implementation-commit error instead of contributing
+#     used; when the stamped merge is the only candidate, assemble fails
+#     with the missing-implementation-commit error instead of contributing
 #     nothing.
 #   - An implementation commit that touches no files (e.g. created with
 #     `--allow-empty` for a prose unit) is exit 4, not a silent success:
@@ -321,7 +329,7 @@
 #   - The divergence gate compares only the restored union. A path the
 #     integration tip changed but no delivered unit's commit touched is
 #     legitimately absent from the delivery branch and never trips the gate.
-#   - Repeated `add` or `deliver` for the same unit fails (exit 4); existing
+#   - Repeated `add` or `assemble` for the same unit fails (exit 4); existing
 #     artifacts are never silently reused.
 #   - "body" and per-unit "commits.<id>.tests" remain individually optional,
 #     falling back to their defaults when absent; "title", "branch", and
@@ -343,18 +351,58 @@
 #   - (NEW, plan 001-bra) `clean` deliberately does not archive: it removes
 #     only branches already merged into HEAD, and a merged unit branch has by
 #     definition been through `merge`, which archived it.
-#   - deliver cleanup failure (unmerged branch, dirty worktree, etc.)
-#     is warned on stderr and does not affect the deliver exit code.
+#   - assemble cleanup failure (unmerged branch, dirty worktree, etc.)
+#     is warned on stderr and does not affect the assemble exit code.
 #   - clean with no lego branches: exits 0 and prints "0".
+#
+# Contract: B10 lego-delivery-refactor-reapply (worktree.sh leg — supersedes
+# the deliver clauses above where they contradict; plan
+# 001-fix-pr-line-lengths, re-applying B07 on the post-merge base)
+#
+# Behavior:
+#   The `deliver` subcommand is renamed `assemble` and its scope ends at
+#   the assembled deliverable. Implementation makes exactly these changes:
+#   1. Same invocation shape: assemble --manifest <path> <plan-slug>
+#      <base-branch> <unit-id> <unit-slug> [...]. Manifest validation,
+#      delivery-branch construction from <base-branch> in a temporary
+#      worktree (complete blocks only), commit-subject application, AND
+#      the tip-restore gate (the built branch must match the invoking
+#      worktree's HEAD; any difference aborts with exit 4) are UNCHANGED.
+#   2. After the branch is built and gated: STOP. No push, no PR
+#      creation, no gh invocation anywhere in this script — the gh
+#      dependency and its missing-gh exit-3 path are removed entirely.
+#      Assembly is pure git and works with no origin remote configured.
+#   3. stdout on success: the assembled branch name (last line),
+#      replacing the PR URL.
+#   4. Best-effort cleanup of assembled unit branches/worktrees keeps its
+#      semantics, triggered by successful assembly instead of PR
+#      creation. The unit archive write keeps its non-best-effort rule.
+#   5. The local delivery branch (lego/deliver/<plan-slug>/... — branch
+#      NAMESPACE unchanged) is left in place as the output artifact;
+#      `clean` treats it exactly as today.
+#   6. USAGE_MSG and all user-visible wording say assemble; `deliver` as
+#      a subcommand no longer exists (unknown subcommand → usage error,
+#      exit 2).
+#
+# Invariants (B10):
+#   - The script never pushes and never calls gh. The ONLY network access
+#     is the pre-existing fresh-base resolution fetch (git fetch origin
+#     <base-branch>, from the "deliver fresh-base resolution" contract
+#     below), which survives unchanged including its no-origin fallback —
+#     "works with no origin remote" means that fallback path, not a ban
+#     on the fetch when origin exists.
+#   - All non-deliver subcommands (add, merge, remove, clean) unchanged.
+# Edge cases (B10):
+#   - Re-running assemble for the same manifest branch: exit 4 (branch
+#     already exists), unchanged from deliver's semantics.
 set -uo pipefail
 : "${JQ:=jq}"
-: "${GH:=gh}"
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh deliver --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh assemble --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -389,10 +437,6 @@ require_repo_root() {
 
 require_jq() {
   command -v "$JQ" >/dev/null 2>&1 || die 3 "jq is required"
-}
-
-require_gh() {
-  command -v "$GH" >/dev/null 2>&1 || die 3 "gh is required"
 }
 
 # EFFECTIVE_CONFIG holds the resolved config as a JSON string (piped into
@@ -516,7 +560,7 @@ find_worktree_for_branch() {
 #             three exists, so a source with none of them leaves the invoking
 #             worktree byte-for-byte untouched.
 #             This is what every unit-worktree removal site calls immediately
-#             before removing the worktree: merge, deliver and remove (never
+#             before removing the worktree: merge, assemble and remove (never
 #             clean — see the file header's Edge cases).
 # Inputs:     $1 = path of the unit worktree to archive, as returned by
 #                  find_worktree_for_branch; may be empty or nonexistent.
@@ -954,8 +998,8 @@ commit_changed_files() {
 }
 
 # DELIVERED_PATHS accumulates every path restore_and_commit restored, across
-# every unit of one deliver invocation. cmd_deliver resets it and uses it as
-# the pathspec for the pre-push byte-identical gate.
+# every unit of one assemble invocation. cmd_assemble resets it and uses it
+# as the pathspec for the byte-identical gate.
 DELIVERED_PATHS=()
 
 # restore_and_commit <worktree> <sha> <subject> [<path>...] -- restores paths'
@@ -969,20 +1013,20 @@ DELIVERED_PATHS=()
 #
 # Returns 1 on an underlying git failure, and 1 when the derived path list is
 # empty: a resolved unit commit that restores nothing contributes nothing to
-# the PR, which is a defect rather than a no-op, so it fails the build instead
-# of passing silently. The empty case first prints one plain (non-"ERROR: ")
-# stderr line distinguishing the two ways it happens -- the commit is a merge
-# commit (git diff-tree prints no paths for one) or the commit genuinely
-# touched no files -- and the caller then emits the single mandated "ERROR: "
-# line. The merge branch of that message is defensive: deliver's own resolver
-# skips merges, so it cannot resolve one today; it stays so that a caller
-# resolving a commit some other way gets an accurate reason instead of the
-# misleading "touched no files". Returns 0 otherwise, including the
-# legitimate no-op where a non-empty restore stages no diff and therefore
-# creates no commit.
+# the delivery, which is a defect rather than a no-op, so it fails the build
+# instead of passing silently. The empty case first prints one plain
+# (non-"ERROR: ") stderr line distinguishing the two ways it happens -- the
+# commit is a merge commit (git diff-tree prints no paths for one) or the
+# commit genuinely touched no files -- and the caller then emits the single
+# mandated "ERROR: " line. The merge branch of that message is defensive:
+# assemble's own resolver skips merges, so it cannot resolve one today; it
+# stays so that a caller resolving a commit some other way gets an accurate
+# reason instead of the misleading "touched no files". Returns 0 otherwise,
+# including the legitimate no-op where a non-empty restore stages no diff
+# and therefore creates no commit.
 # Contract: B06 deliver tip-restore (plan 002-fix-plan-001-followups)
 #   Behavior: restore_and_commit restores the listed paths' CONTENT from the
-#     integration tip -- the HEAD of the worktree deliver was invoked from
+#     integration tip -- the HEAD of the worktree assemble was invoked from
 #     (REPO_ROOT) -- never from the resolved unit commit. The unit commit
 #     (<sha>) supplies only the commit subject's provenance and, when no
 #     explicit paths are passed, the file list via git diff-tree.
@@ -1188,15 +1232,16 @@ deliver_cleanup() {
 }
 
 # Contract: B10 deliver fresh-base resolution
-# Behavior: before any other use of <base-branch>, cmd_deliver resolves it
+# Behavior: before any other use of <base-branch>, cmd_assemble resolves it
 #   to a fresh base ref BASE_REF: when a remote named "origin" exists and
 #   carries <base-branch>, run `git fetch origin <base-branch>` and use
 #   origin/<base-branch>; otherwise BASE_REF is the local <base-branch>
 #   (unchanged behavior). Every subsequent base-side use — the base
 #   existence verification, the newest_commit_with_subject lower bound, and
-#   the delivery-branch creation — uses BASE_REF. `gh pr create --base`
-#   keeps the plain <base-branch> NAME (it names a remote branch, not a
-#   local ref; unchanged).
+#   the delivery-branch creation — uses BASE_REF. (CHANGED, B10
+#   lego-delivery-refactor-reapply) assemble never calls `gh`, so there is
+#   no `--base` flag to keep in sync; BASE_REF is purely local to this
+#   script's own branch construction.
 # Inputs: <base-branch> as today (already valid_token-validated).
 # Outputs: the delivery branch forks from origin/<base-branch>'s
 #   just-fetched tip whenever the remote branch exists, regardless of how
@@ -1210,10 +1255,10 @@ deliver_cleanup() {
 #   untouched; the REPO_ROOT worktree is never modified; no fetch of
 #   anything beyond <base-branch>.
 # Edge cases: local <base-branch> AHEAD of origin (unpushed commits) ->
-#   origin still wins (the PR target is the remote); local <base-branch>
-#   absent entirely with the remote branch present -> deliver succeeds
-#   (remote resolution suffices, local ref not required).
-cmd_deliver() {
+#   origin still wins (assemble builds from the remote); local
+#   <base-branch> absent entirely with the remote branch present ->
+#   assemble succeeds (remote resolution suffices, local ref not required).
+cmd_assemble() {
   # ---- Parse flags (--manifest) before positional args ----
   local manifest_path=""
   while [ "$#" -ge 1 ]; do
@@ -1227,7 +1272,7 @@ cmd_deliver() {
   done
 
   if [ -z "$manifest_path" ]; then
-    die 3 "--manifest is required for deliver"
+    die 3 "--manifest is required for assemble"
   fi
 
   [ "$#" -ge 4 ] || usage_die
@@ -1253,7 +1298,6 @@ cmd_deliver() {
   require_jq
   require_config_json
   require_blocks_md
-  require_gh
 
   # ---- Validate manifest ----
   if [ ! -r "$manifest_path" ]; then
@@ -1291,7 +1335,6 @@ cmd_deliver() {
 
   # ---- Pass 1: resolve and validate everything, read-only ----
   local -a UNIT_TESTS_SHA=() UNIT_IMPL_SHA=()
-  local -a ALL_HEADINGS=() ALL_CONTRACTS=()
 
   local idx_resolve=0
   for u in "${unit_ids[@]}"; do
@@ -1306,12 +1349,6 @@ cmd_deliver() {
     if [ "${#MATCHED_SECTIONS[@]}" -eq 0 ]; then
       die 4 "no blocks.md section found for unit $u"
     fi
-
-    local i
-    for i in "${!MATCHED_HEADINGS[@]}"; do
-      ALL_HEADINGS+=("${MATCHED_HEADINGS[$i]}")
-      ALL_CONTRACTS+=("${MATCHED_CONTRACT[$i]}")
-    done
 
     local tests_sha impl_sha
     tests_sha="$(newest_commit_with_subject "$branch" "lego($u): tests" "$BASE_REF")"
@@ -1393,11 +1430,12 @@ cmd_deliver() {
   fi
 
   # ---- Gate: the delivery branch must equal the integration tip byte for
-  # byte on every path it restored, checked BEFORE anything is pushed.
-  # deliver runs from the integration worktree, so its HEAD is the gated
-  # tree the PR is supposed to carry; the delivery branch is that same tree
-  # replayed onto the base branch. Any difference on a restored path means
-  # the replay lost or altered content (a stale local base, a restore that
+  # byte on every path it restored, checked BEFORE assemble stops (B10:
+  # nothing is ever pushed by this script). assemble runs from the
+  # integration worktree, so its HEAD is the gated tree the delivery branch
+  # is supposed to carry; the delivery branch is that same tree replayed
+  # onto the base branch. Any difference on a restored path means the
+  # replay lost or altered content (a stale local base, a restore that
   # reverted a file, a resolution that only exists on the integration
   # branch) -- one mechanical detector for a whole class of silent
   # corruption. Paths the delivery deliberately does not carry are out of
@@ -1408,50 +1446,20 @@ cmd_deliver() {
     if [ "${#divergent[@]}" -gt 0 ]; then
       local dp
       for dp in "${divergent[@]}"; do
-        printf 'deliver: diverges from the integration tip: %s\n' "$dp" >&2
+        printf 'assemble: diverges from the integration tip: %s\n' "$dp" >&2
       done
       deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
-      die 4 "delivered paths diverge from the integration tip; nothing was pushed"
+      die 4 "delivered paths diverge from the integration tip; nothing was built"
     fi
   fi
 
-  if ! git -C "$REPO_ROOT" push -q origin "$delivery_branch" >/dev/null 2>&1; then
-    deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
-    die 4 "failed to push $delivery_branch to origin"
-  fi
-
-  # Resolve PR title (required, from the manifest) and body (optional,
-  # falling back to the auto-generated headings+contracts default).
-  local pr_title=""
-  local pr_body=""
-  local n
-  for n in "${!ALL_HEADINGS[@]}"; do
-    pr_body="${pr_body}${ALL_HEADINGS[$n]}"$'\n'
-    if [ -n "${ALL_CONTRACTS[$n]}" ]; then
-      pr_body="${pr_body}${ALL_CONTRACTS[$n]}"$'\n'
-    fi
-    pr_body="${pr_body}"$'\n'
-  done
-
-  local mtitle mbody
-  mtitle="$(manifest_field "$manifest_path" '.title')"
-  mbody="$(manifest_field "$manifest_path" '.body')"
-  pr_title="$mtitle"
-  [ -n "$mbody" ] && pr_body="$mbody"
-
-  local pr_url
-  pr_url="$(cd "$REPO_ROOT" && "$GH" pr create --base "$base_branch" --head "$delivery_branch" --title "$pr_title" --body "$pr_body" 2>/dev/null)"
-  local gh_rc=$?
-
-  if [ "$gh_rc" -ne 0 ] || [ -z "$pr_url" ]; then
-    deliver_cleanup "$tmp_wt" "$tmp_parent" "$delivery_branch"
-    die 4 "gh pr create failed"
-  fi
-
+  # (CHANGED, B10) The gate passed: assemble STOPS here. No push, no
+  # `gh pr create`, no PR URL -- just the temporary worktree cleanup and the
+  # assembled branch name on stdout.
   git -C "$REPO_ROOT" worktree remove --force -- "$tmp_wt" >/dev/null 2>&1
   rm -rf -- "$tmp_parent" 2>/dev/null
 
-  printf '%s\n' "$pr_url"
+  printf '%s\n' "$delivery_branch"
 
   local idx_cleanup=0
   for u in "${unit_ids[@]}"; do
@@ -1459,7 +1467,7 @@ cmd_deliver() {
     ubranch="$(construct_unit_branch "$plan_slug" "$u" "${unit_slugs[$idx_cleanup]}")"
     urc=$?
     if [ "$urc" -ne 0 ]; then
-      err "failed to resolve branch for unit $u during post-deliver cleanup"
+      err "failed to resolve branch for unit $u during post-assemble cleanup"
       idx_cleanup=$((idx_cleanup + 1))
       continue
     fi
@@ -1468,17 +1476,17 @@ cmd_deliver() {
     uwt="$(find_worktree_for_branch "$ubranch")"
     if [ -n "$uwt" ]; then
       if ! archive_unit_local "$uwt" "$plan_slug" "$u"; then
-        err "failed to archive unit $u audit trail after deliver; keeping worktree and branch"
+        err "failed to archive unit $u audit trail after assemble; keeping worktree and branch"
         idx_cleanup=$((idx_cleanup + 1))
         continue
       fi
       if ! git -C "$REPO_ROOT" worktree remove -- "$uwt" >/dev/null 2>&1; then
-        err "failed to remove worktree for unit $u after deliver (dirty?)"
+        err "failed to remove worktree for unit $u after assemble (dirty?)"
       fi
     fi
 
     if ! git -C "$REPO_ROOT" branch -d -- "$ubranch" >/dev/null 2>&1; then
-      err "failed to delete branch $ubranch after deliver (unmerged?)"
+      err "failed to delete branch $ubranch after assemble (unmerged?)"
     fi
     idx_cleanup=$((idx_cleanup + 1))
   done
@@ -1658,7 +1666,7 @@ main() {
   case "$sub" in
     add) cmd_add "$@" ;;
     merge) cmd_merge "$@" ;;
-    deliver) cmd_deliver "$@" ;;
+    assemble) cmd_assemble "$@" ;;
     remove) cmd_remove "$@" ;;
     clean) cmd_clean "$@" ;;
     *) usage_die ;;

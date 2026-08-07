@@ -348,7 +348,7 @@ done
 # a scheduling rewrite that swallows one of them fails in the suite that
 # introduced the risk.
 check "invariant: stage 5 delivery text survives" \
-  "$(has_fn "$STRIPPED" '#### 5b. Write manifest and deliver')" "yes"
+  "$(has_fn "$STRIPPED" '#### 5b. Write manifest and assemble')" "yes"
 check "invariant: escalation loop survives" \
   "$(has_fn "$STRIPPED" '## Escalation loop')" "yes"
 check "invariant: brief/report file protocol survives" \

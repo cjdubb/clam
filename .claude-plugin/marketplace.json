@@ -97,7 +97,7 @@
     {
       "name": "build",
       "source": "./plugins/build",
-      "description": "High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync and delivery workflow context.",
+      "description": "High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle, providing delivery workflow context.",
       "category": "delivery"
     },
     {
@@ -123,6 +123,12 @@
       "source": "./plugins/voice",
       "description": "Injects the Voice communication spec — conclusion-first, working-memory-friendly reply structure — into every session via a SessionStart hook.",
       "category": "session-ux"
+    },
+    {
+      "name": "forge-github",
+      "source": "./plugins/forge-github",
+      "description": "GitHub forge implementation: /forge-github:create-pr opens pull requests and /forge-github:sync-pr keeps their descriptions in sync, both via the gh CLI with flowing-prose formatting conventions. Implements the forge interface the landing plugin delegates to; also works standalone.",
+      "category": "delivery"
     }
   ]
 }

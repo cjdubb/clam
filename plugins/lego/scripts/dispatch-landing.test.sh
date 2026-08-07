@@ -84,8 +84,8 @@ STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 # ("## Composition blocks"), the end of step 5 (Delivery). SECTION_5AB is the
 # union, used only for the two invariants whose realized text may legitimately
 # live in either subsection (see the Invariants block below).
-SECTION_5A=$(awk '/^#### 5a\. Compose PR content$/{flag=1; next} /^#### 5b\. Write manifest and deliver$/{flag=0} flag' <<<"$STRIPPED")
-SECTION_5B=$(awk '/^#### 5b\. Write manifest and deliver$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_5A=$(awk '/^#### 5a\. Compose PR content$/{flag=1; next} /^#### 5b\. Write manifest and assemble$/{flag=0} flag' <<<"$STRIPPED")
+SECTION_5B=$(awk '/^#### 5b\. Write manifest and assemble$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' <<<"$STRIPPED")
 SECTION_5AB="$SECTION_5A"$'\n'"$SECTION_5B"
 
 # ==========================================================================
@@ -161,15 +161,19 @@ check "5a: local-only mode edge case is called out" \
 # §5b — the size gate
 # ==========================================================================
 
-# --- Behavior: pr-size-check.sh runs before deliver, never after the PR is
-# open — checked both for presence and for order relative to the `deliver`
-# invocation already in this section -----------------------------------------
+# --- Behavior: pr-size-check.sh runs before assemble, never after the PR is
+# open — checked both for presence and for order relative to the `assemble`
+# invocation already in this section. B10 renames `deliver` to `assemble`
+# (worktree.sh Contract: B10, item 6), so the invocation token this section
+# is scoped by moves with it -------------------------------------------------
 check "5b: pr-size-check.sh is invoked" \
   "$(has_f "$SECTION_5B" "pr-size-check.sh")" "yes"
 SIZE_CHECK_LINE=$(first_line "$SECTION_5B" "pr-size-check.sh")
-DELIVER_CALL_LINE=$(first_line "$SECTION_5B" "worktree.sh deliver")
-check_before "5b: pr-size-check.sh runs before the deliver call" \
-  "$SIZE_CHECK_LINE" "$DELIVER_CALL_LINE"
+ASSEMBLE_CALL_LINE=$(first_line "$SECTION_5B" "worktree.sh assemble")
+check_before "5b: pr-size-check.sh runs before the assemble call" \
+  "$SIZE_CHECK_LINE" "$ASSEMBLE_CALL_LINE"
+check "5b: old worktree.sh deliver invocation token is gone" \
+  "$(has_f "$SECTION_5B" "worktree.sh deliver")" "no"
 
 # --- Behavior: what is measured — base branch against the integration
 # branch, scoped to the group's Code: paths -----------------------------------
@@ -243,6 +247,18 @@ check "5b: local-only mode means the gate does not apply" \
 check "5b: a missing pr-size-check.sh is treated as exit 2" \
   "$(has_f "$SECTION_5B" "absent")" "yes"
 
+# --- B10 lego-delivery-refactor-reapply (contract: "Contract: B10" HTML
+# comment before section 5b, search SKILL.md) -------------------------------
+# The pr-size-check gate itself, its three exit outcomes, and the
+# landing-strategy row semantics all stay (checked above, unaffected by
+# B10) — only the ending of §5b changes: assemble builds and gates the
+# delivery branch and STOPS, no push, no PR. So §5b must no longer contain a
+# gh/push/PR-creation instruction.
+check "5b: no 'gh pr create' reference" \
+  "$(has_f "$SECTION_5B" "gh pr create")" "no"
+check "5b: no 'opens a PR' / 'opens the PR' instruction" \
+  "$(has_f "$SECTION_5B" "opens a PR")" "no"
+
 # ==========================================================================
 # Invariants shared by both docblocks (contract: PRs target master/main
 # only; the plan and the opened PR agree on branch and title). Both may
@@ -268,7 +284,7 @@ check "5b section has no PLAN.md reference" \
 # --- Invariant: the §5a/§5b headings and the surrounding step structure
 # survive the edit -----------------------------------------------------------
 for h in "### 4. Local merge" "### 5. Delivery" \
-         "#### 5a. Compose PR content" "#### 5b. Write manifest and deliver" \
+         "#### 5a. Compose PR content" "#### 5b. Write manifest and assemble" \
          "## Composition blocks"; do
   check "structure survives: $h" "$(has_f "$RAW" "$h")" "yes"
 done

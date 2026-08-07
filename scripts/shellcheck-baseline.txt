@@ -25,7 +25,6 @@
 # What remains deduplicates to the 114 (path, code) pairs below.
 plugins/ask-in-text/scripts/structure.test.sh	SC2016
 plugins/attribution/scripts/structure.test.sh	SC2088
-plugins/build/scripts/b03-plugin-metadata.test.sh	SC2016
 plugins/build/scripts/structure.test.sh	SC2001
 plugins/debugging/scripts/b01-root-cause-skill.test.sh	SC2016
 plugins/debugging/scripts/b02-reproduce-ref.test.sh	SC2034

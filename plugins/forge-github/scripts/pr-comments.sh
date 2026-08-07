@@ -53,6 +53,7 @@ tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
 # 1. GraphQL: review thread metadata (resolved, outdated, thread IDs)
+# shellcheck disable=SC2016  # literal $vars: this is a GraphQL query, not shell
 GQL_QUERY='
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -106,6 +107,7 @@ fi
 
 # --- Process and output JSONL ---
 
+# shellcheck disable=SC2016  # literal $vars: this is a jq program, not shell
 JQ_PROGRAM='
 def detect_severity:
   if test("(?im)^\\s*(?:\\*\\*)?\\s*issue\\s*\\(\\s*blocking\\s*\\)\\s*(?:\\*\\*)?\\s*:") then "blocking"

@@ -5,7 +5,7 @@
   },
   "models": {
     "testWriter": "opus",
-    "implementer": "sonnet"
+    "implementer": "opus"
   },
   "testPatterns": [],
   "delivery": {

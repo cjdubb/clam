@@ -294,6 +294,43 @@ run_captured() {
   return "$ec"
 }
 
+# <!--
+# Contract: 003-B09 wave-check pipe-free greps (plan 003-followup-fixes)
+#
+# Behavior:
+#   Two membership checks in this script feed a variable into a -q grep
+#   through a pipe today; both are rewritten to read WITHOUT a
+#   writer-side pipeline:
+#   1. The sig-line survival loop in check_contract_diff_stub — whether
+#      each signature line from the scaffold ref survives verbatim in
+#      the working-tree stub. Read the stub file directly (e.g.
+#      grep -qxF -- "$sig_line" "$stub") or via a herestring — any
+#      spelling in which no writer process exists to take SIGPIPE when
+#      grep exits at its first match.
+#   2. The collection-error scan on the RED-RUN path — whether the
+#      success-line-filtered captured output matches the collection
+#      pattern. Same rewrite (herestring or reading the capture file).
+# Inputs: unchanged — the scaffold ref and stub path (check 1); the
+#   captured, success-line-filtered test output (check 2).
+# Outputs: unchanged semantics — check 1 reports DIRTY exactly when a
+#   signature line is genuinely absent from the working-tree file;
+#   check 2 reports the COLLECTION failure exactly when the pattern
+#   genuinely matches. lego plugin.json 0.14.5 -> 0.14.6 with the root
+#   README lego version cell in step (closes #330, dup #301).
+# Errors: a missing stub file still reports MISSING; no new failure
+#   modes are introduced.
+# Invariants: under `set -o pipefail`, a successful early match can
+#   never surface as exit 141, a false DIRTY, or a false FAIL;
+#   genuinely changed surfaces and genuine collection errors are still
+#   detected; no other check in this script changes; the script's
+#   exit-code surface is unchanged.
+# Edge cases: the signature line matching at line 1 of a
+#   multi-hundred-KB stub (the observed false-DIRTY shape); the match
+#   on the file's final line; empty scanned output (no match, never an
+#   error); a signature line containing regex metacharacters (still
+#   matched fixed and whole-line).
+# -->
+
 # check_contract_diff_stub <ref> <path> -- CLEAN, DIRTY or MISSING per the
 # Behavior clause: the contract docblock region and every signature line
 # present at <ref> must survive, byte-identical, in the working-tree file.
@@ -319,10 +356,14 @@ check_contract_diff_stub() {
     return
   fi
 
+  # grep reads the stub file directly: fed through a pipe instead, `grep -q`
+  # exiting at its first match kills the writer with SIGPIPE, and under
+  # `set -o pipefail` an early match in an oversized stub surfaces as 141 --
+  # read here as "signature absent", a false DIRTY (issue #330).
   local sig_line
   while IFS= read -r sig_line; do
     [ -n "$sig_line" ] || continue
-    if ! printf '%s\n' "$current_content" | grep -qxF "$sig_line"; then
+    if ! grep -qxF -- "$sig_line" "$stub"; then
       printf '%s' "DIRTY"
       return
     fi
@@ -350,7 +391,12 @@ if [ "$mode" = "test" ]; then
     # pipeline's status would come from whichever grep exited non-zero last,
     # which is not the question being asked here.
     scanned_output="$(grep -Ev -- "$SUCCESS_LINE_PATTERN" "$CAPTURED_TMP")" || scanned_output=""
-    if printf '%s\n' "$scanned_output" | grep -Eq -- "$collection_pattern"; then
+    # Herestring, not a pipe: `grep -q` exits at its first match, so a writer
+    # feeding oversized output would take SIGPIPE and pipefail would report
+    # 141 -- read here as "pattern did not match", waving a wrong-reason red
+    # through (issue #330). The scan still reads the success-line-FILTERED
+    # text, never $CAPTURED_TMP directly (issue #326).
+    if grep -Eq -- "$collection_pattern" <<<"$scanned_output"; then
       run_status="FAIL"
       run_detail="(COLLECTION -- combined output matches the collection-error pattern; see $CAPTURED_TMP )"
     else

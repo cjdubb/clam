@@ -69,15 +69,27 @@ land red — a failing gate is not a judgment call.
 
 ### github-pr
 
-1. Delegation seam: if a `build` plugin providing a create-pr skill is
-   installed, invoke that skill for steps 3–4 below instead of the
-   built-in path (it owns richer PR conventions). Step 5's tracking
-   handoff still applies either way.
-2. Preflight: `git remote get-url origin` resolves to a GitHub remote and
+1. Forge delegation: if a forge plugin matching the repo's origin remote
+   (spec: ../../docs/forge-interface.md) provides a create-pr skill in
+   this session — e.g. `/forge-github:create-pr` for a GitHub remote —
+   invoke it for the push-and-create steps below, passing the base
+   branch (`merge.target`), the default body template
+   (`../../templates/pr-body-template.md`) for use when the repo has no
+   PR template of its own, and the content context gathered here
+   (`.local/PLAN.md`, `.local/TODO.md`). Step 5's tracking handoff still
+   applies either way. If a matching forge plugin is installed but its
+   create-pr skill is unavailable in this session, fall back to the
+   built-in path below rather than failing.
+2. Built-in path (used when no forge plugin applies): preflight —
+   `git remote get-url origin` resolves to a GitHub remote and
    `gh auth status` succeeds. Either failing → tracking state `Blocked`
    with the exact remediation (e.g. `gh auth login`).
 3. `git push -u origin <branch>`.
-4. `gh pr create --base <merge.target>` with:
+4. `gh pr create --base <merge.target>` with a title and body composed
+   per the forge interface's formatting conventions: prose written as
+   flowing paragraphs, never hard-wrapped, with hard line breaks only at
+   markdown structural boundaries (headings, list markers), never inside
+   a paragraph or list item.
    - Title: imperative one-line summary of the change.
    - Body structure: look for a repo-standard PR template first, in the
      usual GitHub locations (for example
@@ -85,7 +97,8 @@ land red — a failing gate is not a judgment call.
      `.github/PULL_REQUEST_TEMPLATE/*.md`, any casing) and structure the
      body per that template — passing `--body` suppresses `gh`'s own
      template handling, so the template must be applied here or it is
-     silently lost. No template → plain sections.
+     silently lost. No repo template → fill the default template
+     (`../../templates/pr-body-template.md`).
    - Body content: what changed and why, how it was verified (which
      gates ran and their results), and anything the reviewer must know —
      sourced from `.local/PLAN.md` and `.local/TODO.md`.

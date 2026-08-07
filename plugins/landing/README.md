@@ -209,16 +209,20 @@ plan reaches its landing step.
    non-zero exit stops, keeps tracking state `In Progress`, and must be
    fixed before retrying — landing never lands red.
 3. **Dispatch on strategy:**
-   - **`github-pr`** — if a `build` plugin providing a create-pr skill is
-     installed, delegates this step (and the record step) to it instead of
-     the built-in path; otherwise checks that `git remote get-url origin`
+   - **`github-pr`** — delegates to the forge plugin matching the repo's
+     origin remote (e.g. `forge-github`) when one provides a create-pr
+     skill, passing the base branch, the default body template, and the
+     content context gathered so far (see `docs/forge-interface.md` and
+     `templates/pr-body-template.md`); otherwise falls back to the
+     built-in path, which checks that `git remote get-url origin`
      resolves to a GitHub remote and `gh auth status` succeeds (`Blocked`
      with exact remediation if either fails), runs
      `git push -u origin <branch>`, then `gh pr create --base
-     <merge.target>` with a title and body sourced from `.local/PLAN.md`
-     and `.local/TODO.md`. Sets tracking state `Awaiting User Review` with
-     the PR URL. The orchestrator never merges the PR — under this policy,
-     merging is the user's act.
+     <merge.target>` with a title and body composed as flowing
+     paragraphs — never hard-wrapped — sourced from `.local/PLAN.md` and
+     `.local/TODO.md`. Sets tracking state `Awaiting User Review` with
+     the PR URL. The orchestrator never merges the PR — under this
+     policy, merging is the user's act.
    - **`local-merge`** — locates the worktree where `merge.target` is
      checked out (stops and asks if none is found; v0.1 does not merge
      into a branch with no checkout), merges the work branch there
@@ -277,18 +281,39 @@ profile knob, so a contradictory combination cannot be declared.
 - Cleanup targeting the session's own cwd → skipped; commands printed for
   the user instead.
 
+<!--
+Contract: B04 landing-forge-interface (README leg)
+
+Behavior:
+  Implementation updates this README to match the skill changes:
+  - The github-pr bullet in the workflow walkthrough (Commands section)
+    describes forge delegation (a forge plugin matching the origin
+    remote, e.g. forge-github, handles push+create when installed) with
+    the built-in gh path as fallback, and names the flowing-prose
+    formatting conventions the built-in path applies. No build
+    references.
+  - The Roadmap section's "build plugin delegation" item is REMOVED
+    (replaced by the forge interface, which is no longer roadmap).
+  - Relationships: the build soft-integration bullet loses its
+    delegation-seam sentence (build may still detect landing — that is
+    build's business, described from build's side only if mentioned at
+    all); a forge-plugins bullet is added: landing delegates forge
+    operations to an installed forge-<forge> plugin per
+    docs/forge-interface.md, and works without one.
+  - A pointer to docs/forge-interface.md and templates/
+    pr-body-template.md is added where the github-pr path is described.
+Invariants:
+  - No reference to the build plugin's delegation seam remains anywhere
+    in this README.
+  - Required H2 skeleton unchanged.
+-->
+
 ## Roadmap
 
 - **v0.2 candidate — enforcement:** a PreToolUse guard that blocks
   `git merge` into `merge.target` under `github-pr` and `gh pr create`
   under `local-merge`. v0.1 ships awareness (SessionStart injection), not
   enforcement.
-- **build plugin delegation:** the `build` plugin's create-pr skill is
-  the delegation target for `/landing:land`'s github-pr path (the seam is
-  already in the skill) — this replaces the earlier standalone
-  `pr-workflow` plugin plan. `build` does not ship a create-pr skill yet
-  (only `sync-pr`, which updates an existing PR's description), so the
-  delegation seam is currently dormant.
 
 ## Tests
 
@@ -322,10 +347,12 @@ installed version until you run the update command yourself
   anything to act on.
 - **Soft integrations:**
   - `build` — detects landing's presence and adds merge-policy context
-    to its own delivery-framework summary; `/landing:land` in turn
-    documents a delegation seam to a `build` create-pr skill for the
-    github-pr path (see Roadmap — not yet implemented on the `build`
-    side).
+    to its own delivery-framework summary.
+  - **forge plugins** — `/landing:land`'s github-pr path delegates
+    push-and-create to an installed `forge-<forge>` plugin (e.g.
+    `forge-github`) matching the repo's origin remote, per
+    `docs/forge-interface.md`; landing works without one, falling back
+    to its built-in path.
   - `tracking` — landing reads and writes `.local/TODO.md`: the pre-land
     checklist gates Step 1 of `/landing:land`, and Step 4 records the
     terminal state (`Awaiting User Review`, `Complete`, `Blocked`, `In

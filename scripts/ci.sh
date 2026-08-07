@@ -363,7 +363,7 @@ run_validate_stage() {
   fi
   local targets=(".claude-plugin/marketplace.json")
   local names
-  mapfile -t names < <(find "$ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+  mapfile -t names < <(find "$ROOT/plugins" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's|.*/||' | sort)
   local n
   for n in "${names[@]}"; do
     targets+=("plugins/$n")

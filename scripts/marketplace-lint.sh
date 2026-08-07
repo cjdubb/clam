@@ -28,7 +28,7 @@ check "marketplace.json is valid JSON" \
   "$(jq -e . "$MARKETPLACE" >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 mapfile -t marketplace_names < <(jq -r '.plugins[].name' "$MARKETPLACE" 2>/dev/null | sort)
-mapfile -t dir_names < <(find "$ROOT/plugins" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | xargs -n1 basename | sort)
+mapfile -t dir_names < <(find "$ROOT/plugins" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's|.*/||' | sort)
 
 for name in "${dir_names[@]}"; do
   if ! printf '%s\n' "${marketplace_names[@]}" | grep -qx "$name"; then

@@ -225,7 +225,7 @@ row_status_for() {
 
 FAILED=0
 
-mapfile -t plugin_names < <(find plugins -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+mapfile -t plugin_names < <(find plugins -mindepth 1 -maxdepth 1 -type d | sed 's|.*/||' | sort)
 
 for name in "${plugin_names[@]}"; do
   readme="plugins/$name/README.md"

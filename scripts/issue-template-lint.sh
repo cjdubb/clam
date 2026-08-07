@@ -70,7 +70,7 @@ print_array() { # elements... (possibly zero) -> one per line, nothing if zero e
 # directory name, alphabetical. Directories only -- stray files such as
 # plugins/PLUGIN_README_TEMPLATE.md are ignored.
 # ---------------------------------------------------------------------------
-mapfile -t PLUGIN_DIRS < <(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+mapfile -t PLUGIN_DIRS < <(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sed 's|.*/||' | sort)
 EXPECTED_OPTIONS=("repo-wide / other" "${PLUGIN_DIRS[@]}")
 
 # ---------------------------------------------------------------------------

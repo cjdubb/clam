@@ -152,11 +152,42 @@ realpath_of() {
   python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$1" 2> /dev/null
 }
 
+# Contract: 003-B13 full header values — header_value(), server-index scope (plan 003-followup-fixes)
+#
+# Behavior: header_value(<name>) returns the header's COMPLETE value —
+#   everything after the name and colon, internal spaces intact, CR
+#   stripped — so assertions compare full values instead of truncated
+#   prefixes.
+# Inputs: a header name (case-insensitive); $HEADERS holding a raw
+#   response-header dump (unchanged).
+# Outputs: the full value of the FIRST matching header line; empty when
+#   the header is absent (unchanged).
+# Errors: none new; a missing $HEADERS file behaves as today (empty).
+# Invariants: every existing call site keeps passing once the server
+#   normalizes its Content-Type values to the spaced form (the server
+#   half of this contract lives in serve.py); a WRONG full value still
+#   fails — Content-Type assertions compare the whole value, not a
+#   prefix (closes #300).
+# Edge cases: a value containing further colons or semicolons
+#   (preserved verbatim); leading whitespace after the colon
+#   (normalized consistently with the sibling suite's helper); the
+#   header absent (empty string, comparisons fail loudly).
+
+# Everything after "<name>:" on the header line, so a value carrying its own
+# "; charset=..." survives intact — awk's $2 stopped at the first space and
+# turned every such value into a prefix, which no assertion could then tell
+# apart from the real thing. Surrounding whitespace and the line's CR go; what
+# is between them is returned verbatim. (landing-page.test.sh reads headers the
+# same way.)
 header_value() { # <header name>
-  awk -v want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]'):" '
-    { k = tolower($1) }
-    k == want { sub(/\r$/, "", $2); print $2; exit }
-  ' "$HEADERS" 2> /dev/null
+  python3 - "$HEADERS" "$1" << 'PY' 2> /dev/null
+import sys
+want = sys.argv[2].lower() + ':'
+for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
+    if line.lower().startswith(want):
+        print(line[len(want):].strip())
+        break
+PY
 }
 
 write_seed() { # <file> [<path> <epoch>]...
@@ -247,6 +278,65 @@ WIN='[^0-9/.~]{0,40}'
 text_matches() { # <text> <ere>
   printf '%s' "$1" | grep -Eqi -- "$2"
 }
+
+# =============================================================================
+# The header reader itself, checked against a fixture before any assertion
+# trusts it. A helper that quietly hands back a prefix turns every header
+# comparison below into a check that cannot fail, which is how a truncating one
+# went unnoticed for as long as it did (#300).
+# =============================================================================
+
+HV_FIXTURE="$WORK/header-value.fixture"
+printf 'HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nLocation: http://127.0.0.1:8080/doc/x\r\nETag: "first"\r\nETag: "second"\r\n\r\n' > "$HV_FIXTURE"
+HEADERS_REAL="$HEADERS"
+HEADERS="$HV_FIXTURE"
+
+hv="$(header_value Content-Type)"
+if [ "$hv" = 'text/html; charset=utf-8' ]; then
+  pass "header_value: returns the whole value — internal space and semicolon intact, CR stripped"
+else
+  fail "header_value: returned \"$hv\", expected the whole \"text/html; charset=utf-8\""
+fi
+
+hv="$(header_value content-TYPE)"
+if [ "$hv" = 'text/html; charset=utf-8' ]; then
+  pass "header_value: matches the header name case-insensitively"
+else
+  fail "header_value: a differently-cased name returned \"$hv\""
+fi
+
+hv="$(header_value Location)"
+if [ "$hv" = 'http://127.0.0.1:8080/doc/x' ]; then
+  pass "header_value: colons inside a value are preserved verbatim"
+else
+  fail "header_value: a value carrying colons returned \"$hv\""
+fi
+
+hv="$(header_value ETag)"
+if [ "$hv" = '"first"' ]; then
+  pass "header_value: the FIRST matching header line wins"
+else
+  fail "header_value: with two ETag lines it returned \"$hv\", expected the first"
+fi
+
+hv="$(header_value X-Not-Sent)"
+if [ -z "$hv" ]; then
+  pass "header_value: an absent header is the empty string"
+else
+  fail "header_value: an absent header returned \"$hv\", expected empty"
+fi
+
+# A request that never happened leaves no dump at all; that has to read as
+# "no such header", not as a traceback on this suite's stderr.
+HEADERS="$WORK/header-dump.absent"
+hv="$(header_value Content-Type)"
+if [ -z "$hv" ]; then
+  pass "header_value: a missing header dump is the empty string, quietly"
+else
+  fail "header_value: a missing header dump returned \"$hv\", expected empty"
+fi
+
+HEADERS="$HEADERS_REAL"
 
 # --- Fixtures ----------------------------------------------------------------
 IDX_HOME="$(mktemp -d "$HOME/.render-doc-indextest.XXXXXX")"
@@ -458,16 +548,16 @@ else
   fail "GET /: expected 200, got $RESP_CODE"
 fi
 
+# The COMPLETE value, compared as one string — the media type and its charset
+# are one fact, not two. The pair of prefix/substring checks this replaces
+# passed on 'text/html;charset=utf-8' and on 'text/html; charset=utf-8' alike,
+# which is how the routes' spellings drifted apart unnoticed; the spaced form is
+# /doc's, and every route uses it (#300).
 ctype="$(header_value Content-Type)"
-if printf '%s' "$ctype" | grep -qi '^text/html'; then
-  pass "GET /: Content-Type is text/html (\"$ctype\")"
+if [ "$ctype" = 'text/html; charset=utf-8' ]; then
+  pass "GET /: Content-Type is exactly \"text/html; charset=utf-8\""
 else
-  fail "GET /: Content-Type is \"$ctype\", expected text/html; charset=utf-8"
-fi
-if printf '%s' "$ctype" | grep -qi 'charset=utf-8'; then
-  pass "GET /: Content-Type names charset=utf-8"
-else
-  fail "GET /: Content-Type \"$ctype\" does not name charset=utf-8"
+  fail "GET /: Content-Type is \"$ctype\", expected exactly \"text/html; charset=utf-8\""
 fi
 
 clen="$(header_value Content-Length)"

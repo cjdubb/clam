@@ -151,16 +151,53 @@ s.close()")"
   printf '%s' "$p"
 }
 
+# Contract: 003-B10 registry-litter teardown — claim_port retry (plan 003-followup-fixes)
+#
+# Behavior: claim_port retries freshly drawn ports a BOUNDED, small,
+#   fixed number of times when a drawn port collides with stale /tmp
+#   state (an existing pidfile or registry file), failing only when
+#   every attempt collides.
+# Inputs: none (each attempt draws through free_port).
+# Outputs: PORT set and appended to PORTS on success; non-zero only
+#   after the bounded attempts are exhausted.
+# Errors: a free_port failure still propagates as failure immediately.
+# Invariants: 27183 is never claimed; another process's /tmp state is
+#   never deleted to claim a port — the refuse-to-clobber property is
+#   preserved as collision AVOIDANCE, not clobbering; every claimed
+#   port still lands in PORTS so the EXIT trap cleans it.
+# Edge cases: first draw clean (no retry, today's fast path); all
+#   attempts colliding (fails, message still names the collision); a
+#   pidfile without a registry file and vice versa (each alone counts
+#   as a collision).
+
 # Every port this suite hands to render.sh is claimed through here, so the EXIT
 # trap knows which pidfile and which registry file to clean up. A port whose
-# /tmp files already exist is refused rather than clobbered.
+# /tmp files already exist is never clobbered — it is abandoned and another one
+# is drawn, which is the only safe move: those files may belong to a live server
+# this suite knows nothing about.
+#
+# The kernel hands out ports the /tmp litter of an earlier run can already be
+# sitting on, so one collision says nothing about the next draw. A small fixed
+# number of attempts turns that into the non-event it is; giving up only after
+# all of them keeps a genuinely wedged environment loud.
+#
+# Only a port that CLEARS the check is recorded in PORTS. The trap deletes the
+# pidfile and registry file of every port in there, so recording a collided one
+# would make this suite delete exactly the foreign state it just refused to
+# clobber.
 PORT=""
 claim_port() {
-  PORT="$(free_port)" || return 1
-  PORTS+=("$PORT")
-  [ -e "/tmp/render-doc-serve-$PORT.pid" ] && return 1
-  [ -e "/tmp/render-doc-registry-$PORT.json" ] && return 1
-  return 0
+  # Five attempts, spelled the way this file's other bounded waits are.
+  for _ in 1 2 3 4 5; do
+    PORT="$(free_port)" || return 1
+    if [ ! -e "/tmp/render-doc-serve-$PORT.pid" ] \
+      && [ ! -e "/tmp/render-doc-registry-$PORT.json" ]; then
+      PORTS+=("$PORT")
+      return 0
+    fi
+  done
+  # PORT still names the last collision, so the caller's message stays true.
+  return 1
 }
 
 alive() { kill -0 "$1" 2> /dev/null; }

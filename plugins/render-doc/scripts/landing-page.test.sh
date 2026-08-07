@@ -701,15 +701,10 @@ else
 fi
 
 ctype="$(header_value Content-Type)"
-if printf '%s' "$ctype" | grep -qi '^text/html'; then
-  pass "GET /project/<root>: Content-Type is text/html (\"$ctype\")"
+if [ "$ctype" = 'text/html; charset=utf-8' ]; then
+  pass "GET /project/<root>: Content-Type is exactly \"text/html; charset=utf-8\""
 else
-  fail "GET /project/<root>: Content-Type is \"$ctype\", expected text/html; charset=utf-8"
-fi
-if printf '%s' "$ctype" | grep -qi 'charset=utf-8'; then
-  pass "GET /project/<root>: Content-Type names charset=utf-8"
-else
-  fail "GET /project/<root>: Content-Type \"$ctype\" does not name charset=utf-8"
+  fail "GET /project/<root>: Content-Type is \"$ctype\", expected exactly \"text/html; charset=utf-8\""
 fi
 
 clen="$(header_value Content-Length)"

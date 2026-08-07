@@ -200,12 +200,38 @@ SERVE_PY="$PLUGIN_ROOT/scripts/serve.py"
 # retirement-prose note below.
 mapfile -t B06_SWEEP < <(find "$PLUGIN_ROOT" -type f ! -name '*.test.sh' | sort)
 
+# Contract: 003-B12 sweep check de-piped (plan 003-followup-fixes)
+#
+# Behavior: the sweep-coverage check asserts each expected file's
+#   membership in B06_SWEEP without a writer-side pipeline into a -q
+#   grep (herestring, temp file, or a pure-bash membership loop).
+# Inputs: B06_SWEEP and the expected relative paths (unchanged).
+# Outputs: identical pass/fail lines for identical sweep contents.
+# Errors: none new.
+# Invariants: SIGPIPE-immune under pipefail; the token scan later in
+#   this suite that reuses B06_SWEEP is untouched (closes #336).
+# Edge cases: an expected file missing from the sweep (still fails);
+#   an empty sweep (the outer guard below is unchanged).
+
+# Whole-string equality over the array itself, which is what `grep -qxF` was
+# asked for here. The pipeline it replaces had a writer — printf, feeding every
+# swept path — on the other side of a reader that exits at its first hit: under
+# `set -o pipefail` that SIGPIPE (141) becomes the pipeline's status and a
+# COVERED file reports as uncovered, the more likely the larger the sweep grows.
+in_sweep() { # <absolute path>
+  local f
+  for f in ${B06_SWEEP[@]+"${B06_SWEEP[@]}"}; do
+    [ "$f" = "$1" ] && return 0
+  done
+  return 1
+}
+
 if [ "${#B06_SWEEP[@]}" -gt 0 ]; then
   pass "B06 clause 1: sweep visited ${#B06_SWEEP[@]} non-test file(s) under the plugin"
   for expected in README.md skills/render/SKILL.md assets/template.html \
     assets/marked.min.js scripts/serve.py scripts/render.sh \
     .claude-plugin/plugin.json; do
-    if printf '%s\n' "${B06_SWEEP[@]}" | grep -qxF -- "$PLUGIN_ROOT/$expected"; then
+    if in_sweep "$PLUGIN_ROOT/$expected"; then
       pass "B06 clause 1: sweep covers $expected"
     else
       fail "B06 clause 1: sweep does not cover $expected — residue there would go unseen"

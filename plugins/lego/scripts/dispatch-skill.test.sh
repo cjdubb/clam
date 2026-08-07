@@ -33,12 +33,34 @@ has_f() { # content literal
   if grep -qF -- "$2" <<<"$1"; then echo yes; else echo no; fi
 }
 
+# has_f is newline-sensitive: this file's prose wraps at ~80 columns, so a
+# multi-word literal (e.g. "accepted path") can have its own words land on
+# opposite sides of a source line break, and a plain fixed-string match
+# against the unwrapped section text would then miss prose that reads
+# correctly to a human. has_fn (fixed-string, wrap-tolerant) collapses
+# whitespace runs — including newlines — to a single space first. Defined
+# here (moved up from its original location further down) so B10's checks,
+# which need it earlier in the file, can use it too.
+has_fn() { # content literal
+  local flat; flat=$(tr '\n' ' ' <<<"$1" | tr -s ' ')
+  if grep -qF -- "$2" <<<"$flat"; then echo yes; else echo no; fi
+}
+
 if [[ ! -f "$SKILL" ]]; then
   echo "FAIL  SKILL.md not found at $SKILL"
   exit 1
 fi
 
 RAW=$(cat "$SKILL")
+
+# Comment-stripped view, built once up front (moved ahead of its original
+# location) because B10's "no reference" checks below need it before the
+# later comment-stripped-view checks do. The scaffold docblocks embedded in
+# SKILL.md as HTML comments describe what the finished prose must say, but
+# are not the prose itself — stripping them first means a comment's own
+# vocabulary can never satisfy a "the real prose says X" or "the real prose
+# no longer says Y" check.
+STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 
 # --- Frontmatter ---------------------------------------------------------
 # Lines strictly between the first two '---' delimiters.
@@ -83,14 +105,23 @@ done
 # fails the test suite instead of silently regressing.
 check "token: #### 5a. Compose PR content" \
   "$(has_f "$RAW" '#### 5a. Compose PR content')" "yes"
-check "token: #### 5b. Write manifest and deliver" \
-  "$(has_f "$RAW" '#### 5b. Write manifest and deliver')" "yes"
+check "token: #### 5b. Write manifest and assemble" \
+  "$(has_f "$RAW" '#### 5b. Write manifest and assemble')" "yes"
 check "token: --manifest .local/pr-manifest.json" \
   "$(has_f "$RAW" '--manifest .local/pr-manifest.json')" "yes"
-check "token: pr-body-template.md" \
-  "$(has_f "$RAW" 'pr-body-template.md')" "yes"
 check "token: merge master into the integration branch before delivery" \
   "$(has_f "$RAW" 'merge master into the integration branch before delivery')" "yes"
+
+# --- B10 lego-delivery-refactor-reapply (contract: "Contract: B10", search
+# SKILL.md for it) — pr-body-template.md removal marker -------------------
+# plugins/lego/templates/pr-body-template.md carries its own "Contract: B10"
+# removal marker: the file is deleted at implementation and no lego file may
+# reference it afterward. Checked against $STRIPPED (comment-stripped) so
+# this contract's own vocabulary, sitting in SKILL.md's B10 HTML comment,
+# cannot satisfy a check that is supposed to prove the REAL prose stopped
+# referencing the file.
+check "B10: SKILL.md file-wide has no reference to pr-body-template.md" \
+  "$(has_f "$STRIPPED" 'pr-body-template.md')" "no"
 
 # --- Delivery freshness and the post-deliver gate ------------------------
 # Scoped per step, the same way the pipe-safety checks below are, so
@@ -98,7 +129,7 @@ check "token: merge master into the integration branch before delivery" \
 # belong rather than anywhere in the file. Step 5 runs from its heading to
 # 5a's; step 5b from its heading to the next top-level section.
 SECTION_5=$(awk '/^### 5\. Delivery$/{flag=1; next} /^#### 5a\. Compose PR content$/{flag=0} flag' "$SKILL")
-SECTION_5B=$(awk '/^#### 5b\. Write manifest and deliver$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' "$SKILL")
+SECTION_5B=$(awk '/^#### 5b\. Write manifest and assemble$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' "$SKILL")
 
 # Step 5: the pre-delivery master merge must start with a fetch (a merge
 # against a stale ref is a no-op that invalidates every base-relative
@@ -115,10 +146,70 @@ check "5b: delivery must match the integration branch on delivered paths" \
   "$(has_f "$SECTION_5B" 'must match the integration branch exactly on the paths it')" "yes"
 check "5b: stated as a gate, not a suggestion" \
   "$(has_f "$SECTION_5B" 'This is a gate, not a suggestion')" "yes"
-check "5b: deliver refuses to push on divergence" \
-  "$(has_f "$SECTION_5B" 'refuses to push on any divergence')" "yes"
 check "5b: an unverified delivery is not handed over" \
   "$(has_f "$SECTION_5B" 'An unverified delivery is not handed over')" "yes"
+
+# --- B10 lego-delivery-refactor-reapply (contract: "Contract: B10" HTML
+# comment before section 5b) ------------------------------------------------
+# assemble keeps the tip-restore/byte-gate mechanism (Behavior item 1 in the
+# contract: "the tip-restore gate... UNCHANGED"), but its ending changes: no
+# push, no PR, STOP after the branch is built and gated. So the gate is still
+# described, but the OLD "refuses to push on any divergence" wording — which
+# names an action (push) that no longer exists — must be gone, replaced by
+# some abort/fail wording that does not mention push. Concept-anchored
+# (tolerant of exact phrasing), mirroring the file's existing OR-style checks
+# elsewhere (e.g. the chase-cap checks below).
+GATE_ABORTS_WITHOUT_PUSH="no"
+if [[ "$(has_f "$SECTION_5B" 'aborts on any divergence')" == "yes" || \
+      "$(has_f "$SECTION_5B" 'refuses to complete on any divergence')" == "yes" || \
+      "$(has_f "$SECTION_5B" 'refuses to build on any divergence')" == "yes" || \
+      "$(has_f "$SECTION_5B" 'exits 4 on any divergence')" == "yes" || \
+      "$(has_f "$SECTION_5B" 'fails on any divergence')" == "yes" ]]; then
+  GATE_ABORTS_WITHOUT_PUSH="yes"
+fi
+check "5b: gate aborts on divergence (reworded off push, B10)" \
+  "$GATE_ABORTS_WITHOUT_PUSH" "yes"
+check "5b: old 'refuses to push on any divergence' wording is gone" \
+  "$(has_f "$SECTION_5B" 'refuses to push')" "no"
+
+# Invocation: assemble, not deliver.
+check "5b: invocation uses worktree.sh assemble --manifest" \
+  "$(has_f "$SECTION_5B" 'worktree.sh assemble --manifest')" "yes"
+check "5b: old worktree.sh deliver --manifest invocation is gone" \
+  "$(has_f "$SECTION_5B" 'worktree.sh deliver --manifest')" "no"
+
+# Invariant: no gh/push/PR-creation instruction anywhere in this skill.
+check "5b: no 'gh pr create' reference" \
+  "$(has_f "$SECTION_5B" 'gh pr create')" "no"
+check "5b: no 'opens the PR' / 'opens a PR' instruction" \
+  "$(has_f "$SECTION_5B" 'opens a PR')" "no"
+check "5b: old push-then-open-PR sentence is gone" \
+  "$(has_f "$SECTION_5B" 'Otherwise it')" "no"
+
+# The assembled branch (assemble's last stdout line) is the handoff
+# artifact for the repo's landing flow, described WITHOUT naming landing,
+# build, or any forge plugin — lego stays forge-agnostic. Token checks
+# rather than a bare substring check for "build", since "assemble builds
+# and gates the delivery branch" (the contract's own Behavior wording)
+# would otherwise make the verb "builds" a false positive for the "build"
+# plugin name.
+check "5b: assembled branch described as the handoff artifact" \
+  "$(has_fn "$SECTION_5B" 'handoff artifact')" "yes"
+NAMES_COMPANION_PLUGIN="no"
+COMPANION_PLUGIN_NEEDLES=('/landing:' 'landing plugin' '/build:' 'build plugin' 'forge-github' 'forge-gitlab' 'forge plugin') # architecture-lint: allow these are literals a test asserts the ABSENCE of in lego's own SKILL.md prose (B10), not a real lego->landing/build reference
+for needle in "${COMPANION_PLUGIN_NEEDLES[@]}"; do
+  if [[ "$(has_f "$SECTION_5B" "$needle")" == "yes" ]]; then
+    NAMES_COMPANION_PLUGIN="yes"
+  fi
+done
+check "5b: names no companion plugin (landing/build/forge)" \
+  "$NAMES_COMPANION_PLUGIN" "no"
+
+# Step 5's own intro line ("open the PR") is file-wide banned by the same
+# Invariant — checked in SECTION_5 (the step-5 intro, above 5a/5b) since
+# that is where the old sentence lives.
+check "5: step intro no longer instructs opening the PR" \
+  "$(has_f "$SECTION_5" 'open the PR')" "no"
 
 # --- Comment-stripped, step-scoped views (used by everything below) ------
 # The scaffold docblocks embedded in SKILL.md as HTML comments describe what
@@ -241,8 +332,13 @@ readme_section() { # content start_literal stop_literal
   ' <<<"$1"
 }
 
-MERGE_BULLET=$(readme_section "$README_RAW" '- `merge <plan-slug>' '- `deliver --manifest')
-DELIVER_BULLET=$(readme_section "$README_RAW" '- `deliver --manifest' '- `remove <plan-slug>')
+# NOTE (B10): the merge/remove/clean bullet markers below are unaffected by
+# B10 (those subcommands are unchanged); only the `deliver` bullet is
+# renamed `assemble` (worktree.sh Contract: B10, item 6 — "deliver" no
+# longer exists as a subcommand), so MERGE_BULLET's stop marker and the
+# renamed bullet's own start marker both move to `- `assemble --manifest`.
+MERGE_BULLET=$(readme_section "$README_RAW" '- `merge <plan-slug>' '- `assemble --manifest')
+ASSEMBLE_BULLET=$(readme_section "$README_RAW" '- `assemble --manifest' '- `remove <plan-slug>')
 REMOVE_BULLET=$(readme_section "$README_RAW" '- `remove <plan-slug>' '- `clean`')
 CLEAN_BULLET=$(readme_section "$README_RAW" '- `clean`' '**`scripts/realm.sh')
 WORKER_BRIEFS_BULLET=$(readme_section "$README_RAW" '- Worker briefs are always written to' '- Escalations (')
@@ -252,10 +348,21 @@ check "README merge bullet: names the archive path" \
 check "README merge bullet: failed archive skips removal" \
   "$(has_f "$MERGE_BULLET" 'skips removal')" "yes"
 
-check "README deliver bullet: names the archive path" \
-  "$(has_f "$DELIVER_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
-check "README deliver bullet: failed archive skips removal" \
-  "$(has_f "$DELIVER_BULLET" 'skips removal')" "yes"
+check "README assemble bullet: names the archive path" \
+  "$(has_f "$ASSEMBLE_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
+check "README assemble bullet: failed archive skips removal" \
+  "$(has_f "$ASSEMBLE_BULLET" 'skips removal')" "yes"
+
+# --- B10 lego-delivery-refactor-reapply (contract: "Contract: B10" HTML
+# comment before "## Relationships to other plugins") ----------------------
+check "B10: README assemble bullet has no 'gh pr create' reference" \
+  "$(has_f "$ASSEMBLE_BULLET" 'gh pr create')" "no"
+check "B10: README assemble bullet no longer says it pushes to origin" \
+  "$(has_f "$ASSEMBLE_BULLET" 'pushes to \`origin\`')" "no"
+check "B10: README assemble bullet no longer says it opens a PR" \
+  "$(has_f "$ASSEMBLE_BULLET" 'opens a PR')" "no"
+check "B10: README assemble bullet keeps the byte-gate wording" \
+  "$(has_f "$ASSEMBLE_BULLET" 'integration tip byte for byte')" "yes"
 
 check "README remove bullet: names the archive path" \
   "$(has_f "$REMOVE_BULLET" '.local/units/<plan-slug>/<unit-id>/')" "yes"
@@ -273,6 +380,42 @@ check "README clean bullet: still does not claim to archive" \
 #     scripts/version-bump-lint.sh.
 #   - README.md (repo root) version cell matching plugin.json: enforced by
 #     scripts/readme-lint.sh's root-table check.
+
+# --- B10 lego-delivery-refactor-reapply, continued: README-wide and
+# "## Relationships to other plugins" checks, plugin.json wording, and the
+# pr-body-template.md deletion marker --------------------------------------
+# README's own comment-stripped view, mirroring $STRIPPED for SKILL.md
+# above: README.md's "Contract: B10" HTML comment (before "## Relationships
+# to other plugins") itself contains the phrase "no gh pr create", so an
+# unstripped "no reference" check would pass today for the wrong reason —
+# the words sitting in the comment, not in real prose.
+README_STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$README")
+
+check "B10: README file-wide has no reference to pr-body-template.md" \
+  "$(has_f "$README_STRIPPED" 'pr-body-template.md')" "no"
+
+RELATIONSHIPS=$(awk '/^## Relationships to other plugins$/{flag=1; next} /^## Uninstalling$/{flag=0} flag' <<<"$README_STRIPPED")
+check "B10: README relationships section has no 'gh pr create' reference" \
+  "$(has_f "$RELATIONSHIPS" 'gh pr create')" "no"
+check "B10: README relationships section no longer names 'worktree.sh deliver'" \
+  "$(has_f "$RELATIONSHIPS" 'worktree.sh deliver')" "no"
+check "B10: README relationships section describes assembly" \
+  "$(has_f "$RELATIONSHIPS" 'assemble')" "yes"
+
+PLUGIN_JSON="$SCRIPT_DIR/../.claude-plugin/plugin.json"
+if [[ ! -f "$PLUGIN_JSON" ]]; then
+  echo "FAIL  plugin.json not found at $PLUGIN_JSON"
+  exit 1
+fi
+PLUGIN_JSON_RAW=$(cat "$PLUGIN_JSON")
+check "B10: plugin.json description drops the old incremental-PR wording" \
+  "$(has_f "$PLUGIN_JSON_RAW" 'delivering accepted work incrementally as PRs to master/main')" "no"
+check "B10: plugin.json description uses assembly wording instead" \
+  "$(has_f "$PLUGIN_JSON_RAW" 'assembl')" "yes"
+
+TEMPLATE_PATH="$SCRIPT_DIR/../templates/pr-body-template.md"
+check "B10: templates/pr-body-template.md is deleted" \
+  "$([[ -f "$TEMPLATE_PATH" ]] && echo yes || echo no)" "no"
 
 # --- Teammate teardown content (contract: B01 dispatch-teammate-teardown) --
 # The contract's own scaffold docblock is embedded as an HTML comment at four
@@ -297,18 +440,6 @@ check "README clean bullet: still does not claim to archive" \
 # that would pass regardless of whether the meaning is right. See this
 # wave's report for which clauses those are.
 #
-# has_f is newline-sensitive: this file's prose wraps at ~80 columns, so a
-# multi-word literal (e.g. "accepted path") can have its own words land on
-# opposite sides of a source line break, and a plain fixed-string match
-# against the unwrapped section text would then miss prose that reads
-# correctly to a human. has_fn (fixed-string, wrap-tolerant) collapses
-# whitespace runs — including newlines — to a single space first. Used only
-# for this block's new checks below; existing checks above are untouched.
-has_fn() { # content literal
-  local flat; flat=$(tr '\n' ' ' <<<"$1" | tr -s ' ')
-  if grep -qF -- "$2" <<<"$flat"; then echo yes; else echo no; fi
-}
-
 WORKER_BRIEFS=$(awk '/^## Worker briefs$/{flag=1; next} /^## Unit status file$/{flag=0} flag' <<<"$STRIPPED")
 SECTION_4=$(awk '/^### 4\. Local merge$/{flag=1; next} /^### 5\. Delivery$/{flag=0} flag' <<<"$STRIPPED")
 UNIT_STATUS=$(awk '/^## Unit status file$/{flag=1; next} /^## Dispatch order$/{flag=0} flag' <<<"$STRIPPED")

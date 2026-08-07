@@ -49,6 +49,11 @@
 # Invariants:
 #   - Pass count is EXACTLY 48, failures EXACTLY 0. A changed count is a
 #     defect, not an improvement, whichever direction it moves.
+#     (Retired 2026-08-07, orchestrator ruling at plan-003 acceptance: the
+#     exact-count clause held only for plan 001's own delivery — later plans
+#     legitimately grow this suite with regression coverage, and the count
+#     was already 54 before plan 003 touched it. Failures EXACTLY 0 and the
+#     no-weakening clause below remain binding.)
 #   - No assertion may be weakened, skipped, merged, or deleted.
 #   - wave-check.sh's observable behaviour is unchanged on every path:
 #     stdout, stderr and exit code byte-identical, jq present or absent.
@@ -477,6 +482,105 @@ commit_sed() {
   sed -i "$expr" "$repo/$rel"
   git -C "$repo" add -- "$rel"
   git -C "$repo" commit -q -m "$msg"
+}
+
+# ---------------------------------------------------------------------------
+# Fixture helpers: oversized inputs (Contract: 003-B09).
+#
+# Reproducing the defect 003-B09 retires needs two properties at once, and
+# neither alone is enough: input comfortably larger than the pipe buffer
+# (64 KiB on Linux), AND the matching line at the FRONT of it. `grep -q`
+# stops at its first match, so a writer feeding it through a pipe is killed
+# by SIGPIPE with most of its input unwritten, and under `set -o pipefail`
+# the pipeline reports 141 rather than grep's verdict. Every fixture here is
+# built to both properties; each is paired in the tests below with a
+# trailing-match control, so a verdict that depends on WHERE the match sits
+# rather than on what the input contains is visible as a difference between
+# the pair.
+# ---------------------------------------------------------------------------
+
+# Line counts and byte floor. ~500 KB at the line lengths below — a wide
+# margin over the 64 KiB buffer, so the fixtures stay oversized under any
+# plausible edit to the filler text; assert_oversized pins the margin so a
+# fixture that quietly shrank cannot let this whole section pass vacuously.
+OVERSIZED_LINES=8000
+OVERSIZED_FILLER="filler: ordinary suite output, carrying no diagnostic at all"
+OVERSIZED_STUB_PADDING="# padding: this stub is deliberately larger than the pipe buffer"
+OVERSIZED_MIN_BYTES=262144
+
+# assert_oversized <path> <label>
+assert_oversized() {
+  local path="$1" label="$2" bytes
+  bytes="$(wc -c < "$path")"
+  if [ "$bytes" -lt "$OVERSIZED_MIN_BYTES" ]; then
+    record_fail "$label: fixture is only $bytes bytes, under the $OVERSIZED_MIN_BYTES-byte floor this section needs to outrun the pipe buffer"
+  fi
+}
+
+# write_oversized_stub <repo> <relpath> <signature-line> <first|last>
+#   A stub of OVERSIZED_LINES padding lines carrying exactly one signature
+#   line, placed either at the TOP of the file (a grep matching it leaves
+#   almost the whole file unwritten) or at the BOTTOM (the whole file is
+#   consumed before the match). Everything else — shebang, contract docblock,
+#   padding — is byte-identical between the two variants and across calls, so
+#   two stubs differing only in their signature line differ ONLY there.
+write_oversized_stub() {
+  local repo="$1" rel="$2" sig="$3" pos="$4"
+  mkdir -p "$(dirname "$repo/$rel")"
+  {
+    printf '%s\n' "#!/usr/bin/env bash"
+    if [ "$pos" = "first" ]; then
+      printf '%s\n' "$sig" '  echo "NotImplemented" >&2' '  return 70' '}'
+    fi
+    printf '%s\n' "# <!--" "# Contract: FIXTURE oversized" "#" \
+      "# Behavior:" "#   Does the thing, at length." "# -->"
+    yes "$OVERSIZED_STUB_PADDING" | head -n "$OVERSIZED_LINES"
+    if [ "$pos" = "last" ]; then
+      printf '%s\n' "$sig" '  echo "NotImplemented" >&2' '  return 70' '}'
+    fi
+  } > "$repo/$rel"
+}
+
+# commit_oversized_stub <repo> <relpath> <signature-line> <first|last> <msg>
+#   Writes and commits, per the header's CONTRACT-DIFF fixture convention.
+#   Called a second time on the same path it rewrites the stub in place, which
+#   is how the mutation fixtures below change a signature line and nothing
+#   else.
+commit_oversized_stub() {
+  local repo="$1" rel="$2" sig="$3" pos="$4" msg="$5"
+  write_oversized_stub "$repo" "$rel" "$sig" "$pos"
+  git -C "$repo" add -- "$rel"
+  git -C "$repo" commit -q -m "$msg"
+}
+
+# make_oversized_cmd <exit-code> <first-line> <last-line>
+#   A fake test command whose combined output is comfortably larger than the
+#   pipe buffer: <first-line>, then OVERSIZED_LINES filler lines, then
+#   <last-line>. Either boundary line may be empty; which end carries the
+#   interesting line is the whole point.
+make_oversized_cmd() {
+  local ec="$1" first="$2" last="$3"
+  local body=""
+  if [ -n "$first" ]; then
+    body+="$(printf 'printf "%%s\\n" %q' "$first")"$'\n'
+  fi
+  body+="$(printf 'yes %q | head -n %s' "$OVERSIZED_FILLER" "$OVERSIZED_LINES")"$'\n'
+  if [ -n "$last" ]; then
+    body+="$(printf 'printf "%%s\\n" %q' "$last")"$'\n'
+  fi
+  body+="exit $ec"
+  make_raw_cmd "$body"
+}
+
+# capture_cmd_output <cmd> -- runs a fake test command and returns the path of
+# a file holding its combined output, so its size can be asserted directly
+# rather than assumed from the generator.
+capture_cmd_output() {
+  local cmd="$1" f
+  f="$(mktemp)"
+  track_tmp "$f"
+  "$cmd" >"$f" 2>&1
+  printf '%s' "$f"
 }
 
 # ===========================================================================
@@ -1237,6 +1341,194 @@ test_scaffold_ref_ignored_in_test_mode_with_a_warning() {
 }
 
 # ===========================================================================
+# Contract: 003-B09 wave-check pipe-free greps (issues #330 / #301)
+#
+# Two membership checks in the script feed a shell variable into a `grep -q`
+# through a pipe: CONTRACT-DIFF's signature-survival check, and RED-RUN's
+# collection-error scan. `grep -q` exits at its first match, so on input
+# larger than the pipe buffer an EARLY match kills the writer with SIGPIPE and
+# `set -o pipefail` reports 141 instead of grep's verdict — which the
+# signature check reads as "line absent" (a false DIRTY on a surface nobody
+# touched) and the scan reads as "pattern did not match" (a wrong-reason red
+# waved through). Both verdicts must follow from what the input CONTAINS and
+# never from where in it the match happens to sit, which is why every
+# leading-match test here has a trailing-match counterpart.
+#
+# These tests are black-box like the rest of the file: none of them can see
+# the 141, only the verdict it corrupts.
+# ===========================================================================
+
+# Behavior 1, and the edge case "the signature line matching at line 1 of a
+# multi-hundred-KB stub (the observed false-DIRTY shape)". Nothing about this
+# stub changed between <ref> and the working tree.
+test_contract_diff_clean_on_oversized_stub_matching_early() {
+  local repo cmd ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  commit_oversized_stub "$repo" "src/oversized.sh" "do_thing() {" "first" "scaffold an oversized stub"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  assert_oversized "$repo/src/oversized.sh" "oversized stub with its signature at the top"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/oversized.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "PASS" "an untouched oversized stub whose signature sits near the start of the file"
+  assert_check "$RUN_OUT" "GREEN-RUN" "PASS" "untouched oversized stub: the suite itself is unaffected"
+  assert_check "$RUN_OUT" "REALM" "PASS" "untouched oversized stub: the worktree is clean"
+  assert_shape "GREEN-RUN" "untouched oversized stub: output shape"
+  assert_summary "WAVE-CHECK RESULT: PASS" "untouched oversized stub: summary line"
+  assert_eq 0 "$RUN_EXIT" "untouched oversized stub: exit code (stderr: $RUN_ERR)"
+}
+
+# The control for the test above, and the edge case "the match on the file's
+# final line": same size, same content, signature moved to the end so the
+# whole file is read before the match. Identical verdict, or the verdict is
+# being decided by position rather than by content.
+test_contract_diff_clean_on_oversized_stub_matching_at_the_end() {
+  local repo cmd ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  commit_oversized_stub "$repo" "src/oversized.sh" "do_thing() {" "last" "scaffold an oversized stub"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  assert_oversized "$repo/src/oversized.sh" "oversized stub with its signature at the end"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/oversized.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "PASS" "an untouched oversized stub whose signature sits on its last lines"
+  assert_summary "WAVE-CHECK RESULT: PASS" "untouched oversized stub, trailing signature: summary line"
+  assert_eq 0 "$RUN_EXIT" "untouched oversized stub, trailing signature: exit code (stderr: $RUN_ERR)"
+}
+
+# Invariant "genuinely changed surfaces ... are still detected", at the size
+# where the check misreports. The docblock is byte-identical to <ref>, so only
+# the signature half of the clause can catch this.
+test_contract_diff_detects_a_changed_signature_in_an_oversized_stub() {
+  local repo cmd ref docblock_now docblock_ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  commit_oversized_stub "$repo" "src/oversized.sh" "do_thing() {" "first" "scaffold an oversized stub"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  commit_oversized_stub "$repo" "src/oversized.sh" "do_the_thing() {" "first" "rename the public function"
+
+  docblock_now="$(sed -n '/^# <!--$/,/^# -->$/p' "$repo/src/oversized.sh")"
+  docblock_ref="$(git -C "$repo" show "$ref:src/oversized.sh" | sed -n '/^# <!--$/,/^# -->$/p')"
+  if [ "$docblock_now" != "$docblock_ref" ]; then
+    record_fail "fixture bug: the docblock must be byte-identical to <ref> so only the signature change can be caught"
+    return
+  fi
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/oversized.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "FAIL" "a renamed signature in an oversized stub is still caught"
+  assert_contains "$(check_line "$RUN_OUT" "CONTRACT-DIFF")" "src/oversized.sh" "renamed signature in an oversized stub: the failing detail names the stub"
+  assert_eq 1 "$RUN_EXIT" "renamed signature in an oversized stub: exit code"
+}
+
+# Edge case "a signature line containing regex metacharacters (still matched
+# fixed and whole-line)". The signature carries ( ) [ ] . * + ? and |, every
+# one of which changes meaning the moment the comparison stops being fixed.
+# The second half then replaces that line with a strict SUPERSTRING of itself:
+# only a whole-line comparison can still call that a changed surface.
+test_contract_diff_signature_match_is_fixed_and_whole_line() {
+  local repo cmd ref sig
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  sig='def parse(a, b) -> Dict[str, Any]:  # a.*b+c?d|e'
+  commit_oversized_stub "$repo" "src/meta.sh" "$sig" "first" "scaffold a stub with a metacharacter-rich signature"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  assert_oversized "$repo/src/meta.sh" "oversized stub with a metacharacter-rich signature"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/meta.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "PASS" "a metacharacter-rich signature surviving verbatim is clean, matched as a fixed string"
+  assert_eq 0 "$RUN_EXIT" "metacharacter-rich signature intact: exit code (stderr: $RUN_ERR)"
+
+  commit_oversized_stub "$repo" "src/meta.sh" "$sig  extended" "first" "extend the signature line"
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/meta.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "FAIL" "the ref signature surviving only as a PREFIX of a longer line is not survival"
+  assert_contains "$(check_line "$RUN_OUT" "CONTRACT-DIFF")" "src/meta.sh" "signature line extended: the failing detail names the stub"
+  assert_eq 1 "$RUN_EXIT" "signature line extended: exit code"
+}
+
+# Errors: "a missing stub file still reports MISSING". The complement of the
+# existing missing-at-<ref> case — here the stub exists at <ref> and is gone
+# from the working tree, the branch that answers MISSING before any
+# line-membership question is asked at all.
+test_contract_diff_stub_missing_from_worktree_reports_missing() {
+  local repo cmd ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  commit_oversized_stub "$repo" "src/oversized.sh" "do_thing() {" "first" "scaffold an oversized stub"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  git -C "$repo" rm -q -- src/oversized.sh
+  git -C "$repo" commit -q -m "delete the stub"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/oversized.sh
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "FAIL" "a stub present at <ref> and gone from the working tree"
+  assert_contains "$(check_line "$RUN_OUT" "CONTRACT-DIFF")" "src/oversized.sh" "stub deleted from the working tree: the failing detail names the path"
+  assert_eq 1 "$RUN_EXIT" "stub deleted from the working tree: exit code"
+}
+
+# Behavior 2, and the invariant that genuine wrong-reason reds are still
+# detected: the very first line of a multi-hundred-KB red run carries a
+# diagnostic the default pattern matches. Classification must follow from what
+# the output contains, not from how much of it the scanner bothered to read.
+test_red_run_classifies_a_leading_diagnostic_in_oversized_output() {
+  local repo cmd captured
+  repo="$(new_git_repo)"
+  cmd="$(make_oversized_cmd 1 "ImportError: No module named widgets" "")"
+  captured="$(capture_cmd_output "$cmd")"
+  assert_oversized "$captured" "oversized red run with its diagnostic on line 1"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "a diagnostic on line 1 of an oversized red run is a wrong-reason red"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "leading diagnostic in oversized output: the FAIL is labeled COLLECTION"
+  assert_shape "RED-RUN" "leading diagnostic in oversized output: output shape"
+  assert_eq 1 "$RUN_EXIT" "leading diagnostic in oversized output: exit code"
+}
+
+# The control for the test above: same size, same diagnostic, moved to the
+# last line so the whole output is read before the match. Identical verdict,
+# or the classification is being decided by position rather than by content.
+test_red_run_classifies_a_trailing_diagnostic_in_oversized_output() {
+  local repo cmd captured
+  repo="$(new_git_repo)"
+  cmd="$(make_oversized_cmd 1 "" "ModuleNotFoundError: No module named widgets")"
+  captured="$(capture_cmd_output "$cmd")"
+  assert_oversized "$captured" "oversized red run with its diagnostic on the last line"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "a diagnostic on the last line of an oversized red run is a wrong-reason red"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "trailing diagnostic in oversized output: the FAIL is labeled COLLECTION"
+  assert_eq 1 "$RUN_EXIT" "trailing diagnostic in oversized output: exit code"
+}
+
+# Invariant "no other check in this script changes", aimed at the one the
+# rewrite is most likely to lose: the scan reads the SUCCESS-LINE-FILTERED
+# output, not the captured file. The only pattern token in this oversized run
+# sits on a passing framework line (issue #326), so the filter must still drop
+# it — a rewrite that read the capture file directly would fail here.
+test_red_run_success_line_exclusion_holds_on_oversized_output() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_oversized_cmd 1 "ok - collection error is still detected" "not ok - an ordinary failing assertion")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "an oversized run whose only pattern token sits on a passing line"
+  assert_shape "RED-RUN" "pattern token on a passing line in oversized output: output shape"
+  assert_eq 0 "$RUN_EXIT" "pattern token on a passing line in oversized output: exit code (stderr: $RUN_ERR)"
+}
+
+# Edge case "empty scanned output (no match, never an error)": every line of
+# this red run is a framework success line, so the filter leaves the scan
+# nothing at all to read. Empty input is not a match, and not an error either.
+test_red_run_empty_scanned_output_is_not_a_failure() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_raw_cmd "$(printf 'printf "%%s\\n" "ok - one"\nprintf "%%s\\n" "ok - two"\nexit 1')")"
+
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "a red run every line of which is filtered out leaves the scan empty, which is not a match"
+  assert_shape "RED-RUN" "empty scanned output: output shape"
+  assert_eq 0 "$RUN_EXIT" "empty scanned output: exit code (stderr: $RUN_ERR)"
+}
+
+# ===========================================================================
 # Output format and the captured-output temp file
 # (Outputs clause; Invariants: exit codes; SKIPPED carries its reason)
 # ===========================================================================
@@ -1544,6 +1836,16 @@ run_test "CONTRACT-DIFF: signature line changed -> FAIL" test_contract_diff_fail
 run_test "CONTRACT-DIFF: stub missing at <ref> -> FAIL naming the path" test_contract_diff_fail_when_stub_missing_at_ref
 run_test "CONTRACT-DIFF: --stub is repeatable, still one line" test_contract_diff_stub_flag_is_repeatable
 run_test "CONTRACT-DIFF: --scaffold-ref ignored in test mode, with a warning" test_scaffold_ref_ignored_in_test_mode_with_a_warning
+
+run_test "003-B09: untouched oversized stub, signature near the start -> CLEAN" test_contract_diff_clean_on_oversized_stub_matching_early
+run_test "003-B09: untouched oversized stub, signature at the end -> CLEAN" test_contract_diff_clean_on_oversized_stub_matching_at_the_end
+run_test "003-B09: renamed signature in an oversized stub -> FAIL" test_contract_diff_detects_a_changed_signature_in_an_oversized_stub
+run_test "003-B09: signature matched fixed and whole-line" test_contract_diff_signature_match_is_fixed_and_whole_line
+run_test "003-B09: stub gone from the working tree -> FAIL naming the path" test_contract_diff_stub_missing_from_worktree_reports_missing
+run_test "003-B09: diagnostic on line 1 of oversized output -> FAIL COLLECTION" test_red_run_classifies_a_leading_diagnostic_in_oversized_output
+run_test "003-B09: diagnostic on the last line of oversized output -> FAIL COLLECTION" test_red_run_classifies_a_trailing_diagnostic_in_oversized_output
+run_test "003-B09: success-line exclusion holds on oversized output" test_red_run_success_line_exclusion_holds_on_oversized_output
+run_test "003-B09: empty scanned output is not a match and not an error" test_red_run_empty_scanned_output_is_not_a_failure
 
 run_test "output: stdout carries nothing but WAVE-CHECK lines" test_stdout_carries_nothing_but_wave_check_lines
 run_test "output: every status token is PASS|FAIL|SKIPPED" test_status_tokens_are_legal

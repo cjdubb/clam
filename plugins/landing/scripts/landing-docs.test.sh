@@ -102,5 +102,105 @@ check "README.md has '## Roadmap' between Commands and Relationships" \
 check "README.md has '## Tests' between Commands and Relationships" \
   "$(between_commands_and_relationships '## Tests')" "yes"
 
+# 6. B04: landing becomes a higher-order plugin over forge plugins.
+#    land/SKILL.md and README.md content checks below run against the
+#    files with HTML comment blocks (the contract docblocks) stripped
+#    out first. The B04 docblocks already describe every required
+#    change in detail -- including the build-plugin phrases being
+#    removed and the forge-plugin phrases being added -- so a raw-file
+#    check could pass on the unimplemented stub for the wrong reason
+#    (the docblock already says it), or never be able to fail for the
+#    "old text is gone" checks (the docblock's own explanatory prose
+#    keeps referencing "the build plugin" as part of describing what to
+#    remove, even once removal is done). Stripping ensures every check
+#    is answered by the actual skill instructions / README prose, never
+#    by the docblock commentary describing them. Note: unlike the
+#    forge-interface spec, land/SKILL.md and README.md do NOT ban the
+#    word "tracking" -- landing's cooperative, non-delegating
+#    relationship with the tracking plugin (.local/TODO.md state
+#    updates) is unrelated to B04 and stays; only the build
+#    delegation-seam content is in scope here.
+strip_comments() { # file
+  awk '/<!--/{c=1} !c{print} /-->/{c=0}' "$1" 2>/dev/null
+}
+
+LAND_BODY="$(strip_comments "$LAND_SKILL")"
+README_BODY="$(strip_comments "$README")"
+
+body_has_literal() { # body needle
+  printf '%s' "$1" | grep -qF -- "$2" && echo yes || echo no
+}
+body_has_pattern_ci() { # body extended-regex
+  printf '%s' "$1" | grep -qiE -- "$2" && echo yes || echo no
+}
+
+# near_pattern: true only when "needle" appears within +/- window lines of
+# the first line matching "anchor". Plain literal/pattern presence checks
+# for merge.target, .local/PLAN.md, and "built-in" are USELESS here on
+# their own -- all three strings already appear in the pre-B04 prose for
+# unrelated reasons (the profile-key table, the old build-delegation
+# step's own body-sourcing note, the old build-delegation step's own
+# fallback clause), so a bare presence check would pass on the
+# unimplemented file today and could never go red for missing B04 work.
+# Anchoring each to proximity of "forge plugin" -- a phrase absent from
+# both files until the forge-delegation content is actually written --
+# makes the check answer the real question: is this string part of the
+# NEW forge-delegation description, not just present somewhere else in
+# the document.
+near_pattern() { # body anchor-pattern needle-pattern window
+  local body="$1" anchor="$2" needle="$3" window="${4:-10}"
+  local line total start end window_text
+  line="$(printf '%s\n' "$body" | grep -niE -- "$anchor" | head -1 | cut -d: -f1)"
+  [[ -z "$line" ]] && { echo no; return; }
+  total="$(printf '%s\n' "$body" | wc -l)"
+  start=$(( line - window )); [[ $start -lt 1 ]] && start=1
+  end=$(( line + window )); [[ $end -gt $total ]] && end=$total
+  window_text="$(printf '%s\n' "$body" | sed -n "${start},${end}p")"
+  printf '%s' "$window_text" | grep -qiE -- "$needle" && echo yes || echo no
+}
+
+check "land/SKILL.md: old build-delegation text is gone" \
+  "$(body_has_literal "$LAND_BODY" 'providing a create-pr skill')" "no"
+check "land/SKILL.md: no stray reference to the build plugin" \
+  "$(body_has_pattern_ci "$LAND_BODY" '\bbuild\b')" "no"
+check "land/SKILL.md: forge plugin delegation is documented" \
+  "$(body_has_pattern_ci "$LAND_BODY" 'forge plugin')" "yes"
+check "land/SKILL.md: forge delegation passes the base branch via merge.target" \
+  "$(near_pattern "$LAND_BODY" 'forge plugin' 'merge\.target' 15)" "yes"
+check "land/SKILL.md: passes the default body template" \
+  "$(body_has_pattern_ci "$LAND_BODY" 'pr-body-template')" "yes"
+check "land/SKILL.md: forge delegation content context includes PLAN.md and TODO.md" \
+  "$(near_pattern "$LAND_BODY" 'forge plugin' '\.local/PLAN\.md' 15)" "yes"
+check "land/SKILL.md: built-in path kept as the no-forge-plugin fallback" \
+  "$(near_pattern "$LAND_BODY" 'forge plugin' 'built-in' 15)" "yes"
+check "land/SKILL.md: fallback covers an unavailable forge skill" \
+  "$(body_has_pattern_ci "$LAND_BODY" 'unavailable')" "yes"
+check "land/SKILL.md: built-in path uses flowing-paragraph formatting" \
+  "$(body_has_pattern_ci "$LAND_BODY" 'flowing')" "yes"
+check "land/SKILL.md: built-in path is never hard-wrapped" \
+  "$(body_has_pattern_ci "$LAND_BODY" 'hard-wrap')" "yes"
+
+# 7. B04 (README leg): the workflow walkthrough documents forge
+#    delegation with the built-in path as fallback, the Roadmap item
+#    proposing build delegation is removed, the Relationships build
+#    bullet loses its delegation-seam sentence, and a forge-plugins
+#    bullet plus pointers to the spec/template are added.
+check "README.md: old build-delegation text is gone" \
+  "$(body_has_literal "$README_BODY" 'providing a create-pr skill')" "no"
+check "README.md: Roadmap no longer proposes build plugin delegation" \
+  "$(body_has_pattern_ci "$README_BODY" 'build plugin delegation')" "no"
+check "README.md: Relationships no longer documents a build delegation seam" \
+  "$(body_has_pattern_ci "$README_BODY" 'delegation seam to a')" "no"
+check "README.md: documents forge plugin delegation" \
+  "$(body_has_pattern_ci "$README_BODY" 'forge plugin')" "yes"
+check "README.md: points at docs/forge-interface.md" \
+  "$(body_has_literal "$README_BODY" 'docs/forge-interface.md')" "yes"
+check "README.md: points at templates/pr-body-template.md" \
+  "$(body_has_pattern_ci "$README_BODY" 'pr-body-template')" "yes"
+check "README.md: github-pr path names the flowing-paragraph convention" \
+  "$(body_has_pattern_ci "$README_BODY" 'flowing')" "yes"
+check "README.md: github-pr path names the built-in path as the forge-delegation fallback" \
+  "$(near_pattern "$README_BODY" 'forge plugin' 'built-in' 10)" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

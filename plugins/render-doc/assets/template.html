@@ -1387,14 +1387,39 @@ __CYTOSCAPE_DAGRE_SPLICE__
       }
     }
 
+    /* Contract: 004-B25 hide TOC in graph view (plan 004-graph-view-toc-and-plan-as-graph)
+
+       Behavior: activateGraphView() hides the #toc nav; deactivateGraphView()
+         restores it. The Contents pane is never visible while the graph
+         view is active; when the card view returns, the TOC is fully
+         functional - links, expand/collapse controls, and scroll
+         tracking all behave exactly as before the graph was opened.
+       Inputs: the #toc element; the existing graph-view lifecycle
+         (activateGraphView / deactivateGraphView call sites).
+       Outputs: no new markup, no new external resources; visibility is
+         toggled on the existing #toc element only.
+       Errors: a failure while hiding or restoring the TOC never breaks
+         rendering (same degrade posture as the rest of the graph
+         lifecycle - the page stays usable).
+       Invariants: file:// pages and non-work-graph docTypes are
+         unaffected (they never activate the graph view); the TOC's
+         content, ids, and controls are byte-unchanged - only visibility
+         toggles; the feedback drawer and node panel are untouched.
+       Edge cases: graph-build failure (activate immediately degrades to
+         deactivate) leaves the TOC visible, as the card view is showing;
+         a live-update re-render while the graph is active keeps the TOC
+         hidden. */
+
     /* Show the graph container and build/lay out the cytoscape instance;
        any throw while building or laying out the graph degrades back to
        the card view (Errors clause, 229-B02) rather than breaking the page. */
     function activateGraphView() {
       var docEl = document.getElementById("doc");
       var container = document.getElementById("graph-view");
+      var tocEl = document.getElementById("toc");
       docEl.style.display = "none";
       container.hidden = false;
+      if (tocEl) { tocEl.hidden = true; }
       try {
         if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
         cyInstance = renderWorkGraphGraphView();
@@ -1410,8 +1435,10 @@ __CYTOSCAPE_DAGRE_SPLICE__
         try { cyInstance.destroy(); } catch (err) { /* already gone */ }
         cyInstance = null;
       }
+      var tocEl = document.getElementById("toc");
       document.getElementById("graph-view").hidden = true;
       document.getElementById("doc").style.display = "";
+      if (tocEl) { tocEl.hidden = false; }
       closeNodePanel();
       state.graphOn = false;
     }

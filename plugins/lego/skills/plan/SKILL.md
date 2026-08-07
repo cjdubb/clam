@@ -343,6 +343,16 @@ a PR.
    section. Every contract change after approval is appended to the
    Changelog.
 
+   Every artifact the plan document references — the decision files it
+   cites, the protocols it relies on, sibling plan documents — is carried
+   as a relative markdown link resolvable from the plan file's own
+   directory, never a bare path or name, so a reader previewing or serving
+   the plan reaches what it references in one click. An artifact that does
+   not exist yet when the plan is written is linked where it is
+   first referenced, not named now and linked once it lands; a reference
+   that lives outside the plan's own worktree is a link too, wherever a
+   resolvable relative path to it exists.
+
    The Landing strategy section carries Step 3a's sizing decisions to disk so
    `/lego:dispatch` delivers from a recorded plan instead of improvising
    branch names, titles, and commit subjects at delivery time. It names the

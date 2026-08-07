@@ -35,6 +35,11 @@
 #   - "Owner rationale": Step 3's owner bullet says WHY engineer ownership
 #     exists (design authorship), so orchestrators offer it as a first-class
 #     choice at plan time rather than an edge case.
+#   - "Links rule" (Contract: 003-B24): Step 4's plan-document specification
+#     requires every artifact the plan references to be carried as a relative
+#     markdown link. Located as well as present — inside Step 4's item 1 (the
+#     plan document) rather than item 2 (the block map), and stated in no
+#     other step.
 #   - "Invariants": the original Step 0-5 headings all survive unchanged, and
 #     Step 0a's own invariant text no longer points at the removed Step 5a.
 # This file does not test prose semantics beyond tokens/headings/order —
@@ -278,6 +283,59 @@ for tok in "Owner: agent or engineer" "authorship" "first-class"; do
   check "Step 3 section token: $tok" \
     "$(has_f "$STEP3_SECTION" "$tok")" "yes"
 done
+
+# --- 7b. Contract: 003-B24 plan-skill links rule (within Step 4 only) ------
+# One group per docblock clause. Stripped text, for the same reason as every
+# other section-token group here: 003-B24's own docblock states the rule it
+# requires, so matching against the raw file would pass while Step 4's prose
+# still says nothing about links.
+STEP4_SECTION="$(section_text '## Step 4: Write the artifacts' <<<"$STRIPPED")"
+
+# Behavior: every referenced artifact is carried as a relative markdown link,
+# never a bare path, so a served or previewed plan reaches it in one click.
+for tok in "relative markdown link" "bare path" "one click"; do
+  check "Step 4 links-rule Behavior token: $tok" \
+    "$(has_f "$STEP4_SECTION" "$tok")" "yes"
+done
+
+# Behavior: the three kinds of referenced artifact the rule names. "decision
+# file" and not bare "decision" — Step 4 already says "sizing decisions", so
+# the shorter token would pass without a word of the rule being written.
+for tok in "decision file" "protocol" "sibling plan"; do
+  check "Step 4 links-rule artifact kind: $tok" \
+    "$(has_f "$STEP4_SECTION" "$tok")" "yes"
+done
+
+# Outputs: "an added requirement inside Step 4's plan-document
+# specification" — item 1, which specifies the plan document, and not item 2,
+# which specifies the block map: a different artifact, in a different file,
+# whose entries are a fixed field list rather than prose.
+PLANDOC_LINE=$(first_heading_line '1. **Plan document**')
+BLOCKMAP_LINE=$(first_heading_line '2. **Block map entries**')
+LINKRULE_LINE=$(first_heading_line 'relative markdown link')
+check_after "links rule sits inside Step 4's plan-document item" \
+  "$LINKRULE_LINE" "$PLANDOC_LINE"
+check_before "links rule precedes the block-map item" \
+  "$LINKRULE_LINE" "$BLOCKMAP_LINE"
+
+# Invariants: "no other step's guidance changes; the rule is stated once, in
+# Step 4, where the plan document's contents are specified." Step 4 is
+# covered by the token checks above; every other top-level section must be
+# free of it, so the rule cannot end up restated at the point of use.
+for h in '## Step 0a' '## Step 0:' '## Step 1:' '## Step 2:' '## Step 3:' '## Step 5:'; do
+  check "links rule is not restated in $h" \
+    "$(has_f "$(section_text "$h" <<<"$STRIPPED")" "relative markdown link")" "no"
+done
+
+# Edge case: an artifact that does not exist yet when the plan is written is
+# linked when it is first referenced, not left as a bare name until later.
+check "Step 4 links-rule Edge case: linked when first referenced" \
+  "$(has_f "$STEP4_SECTION" "first referenced")" "yes"
+
+# Edge case: a reference outside the plan file's own worktree is still
+# written as a link wherever a resolvable relative path exists.
+check "Step 4 links-rule Edge case: a reference outside the plan's worktree" \
+  "$(has_f "$STEP4_SECTION" "outside the plan")" "yes"
 
 # --- 8. Original steps preserved (headings intact) --------------------------
 for h in "## Step 0: Establish the deliverable — a hard gate" \

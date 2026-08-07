@@ -8,14 +8,29 @@
 #   Verifies the build plugin's structure is complete and coherent:
 #   - plugin.json is valid JSON with required fields (name, description, version)
 #   - README.md exists and is non-empty
-#   - hooks.json wires a SessionStart hook
-#   - build-context.sh exists and is executable
-#   - sync-pr skill exists (SKILL.md present)
+#   - sync-pr skill does NOT exist (B06 build-cleanup: removed, moved to
+#     forge-github)
 #   - No references to the removed .claude/clam-profile.md path in the
 #     repo (cross-plugin coherence check)
 #   - .claude/clam-profile.jsonc exists and is valid JSON (after comment
 #     stripping)
 #   - build plugin is registered in .claude-plugin/marketplace.json
+#
+# Contract: B06 build-cleanup
+#
+# Behavior:
+#   The sync-pr skill directory is deleted at implementation. Check 5
+#   below asserts ABSENCE of both paths.
+#
+# Contract: B09 build-skill-conversion
+#
+# Behavior:
+#   The SessionStart hook is removed entirely: hooks/hooks.json and
+#   scripts/build-context.sh no longer exist, and the plugin registers no
+#   hooks at all. In its place, plugins/build/skills/context/SKILL.md
+#   exists (skills/ is reintroduced, superseding B06's incidental
+#   "skills/ itself is gone" observation — B06's actual contract, sync-pr
+#   absence, remains asserted below).
 #
 # The "no legacy references" check is scoped to plugins/landing/,
 # plugins/build/, and .claude/ (the surfaces the .claude/clam-profile.md
@@ -37,6 +52,8 @@ README="$PLUGIN_ROOT/README.md"
 HOOKS_JSON="$PLUGIN_ROOT/hooks/hooks.json"
 HOOK_SCRIPT="$PLUGIN_ROOT/scripts/build-context.sh"
 SYNC_PR_SKILL="$PLUGIN_ROOT/skills/sync-pr/SKILL.md"
+SYNC_PR_DIR="$PLUGIN_ROOT/skills/sync-pr"
+CONTEXT_SKILL="$PLUGIN_ROOT/skills/context/SKILL.md"
 MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
 CLAM_PROFILE_JSONC="$REPO_ROOT/.claude/clam-profile.jsonc"
 
@@ -73,39 +90,35 @@ check "README.md is non-empty" \
   "$([ -s "$README" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
-# 3. hooks.json wires a SessionStart hook
+# 3. hooks removed entirely (B09): the plugin registers no hooks at all
 # ---------------------------------------------------------------------------
 
-check "hooks.json is valid JSON" \
-  "$(jq -e . "$HOOKS_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
-
-session_start_count=$(jq -r '[.hooks.SessionStart[]?.hooks[]?] | length' "$HOOKS_JSON" 2>/dev/null)
-check "hooks.json wires at least one SessionStart hook" \
-  "$([[ "$session_start_count" =~ ^[0-9]+$ ]] && [[ "$session_start_count" -gt 0 ]] && echo yes || echo no)" "yes"
-
-session_start_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$HOOKS_JSON" 2>/dev/null)
-check "SessionStart hook command references build-context.sh" \
-  "$(grep -qF 'build-context.sh' <<<"$session_start_command" && echo yes || echo no)" "yes"
+check "hooks/hooks.json does not exist (B09: hook removed, no replacement hook)" \
+  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
-# 4. deliver-context.sh exists and is executable
+# 4. build-context.sh does not exist (B09: hook script removed with the hook)
 # ---------------------------------------------------------------------------
 
-check "build-context.sh exists" "$([ -f "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
-check "build-context.sh is executable" "$([ -x "$HOOK_SCRIPT" ] && echo yes || echo no)" "yes"
+check "build-context.sh does not exist (B09: hook removed, no replacement script)" \
+  "$([ -f "$HOOK_SCRIPT" ] && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
-# 5. sync-pr skill exists
+# 5. sync-pr skill removed (B06 build-cleanup): moved to forge-github.
+#    skills/context/SKILL.md exists (B09: on-demand replacement for the
+#    removed hook).
 # ---------------------------------------------------------------------------
 
-check "skills/sync-pr/SKILL.md exists" \
-  "$([ -f "$SYNC_PR_SKILL" ] && echo yes || echo no)" "yes"
-check "skills/sync-pr/SKILL.md is non-empty" \
-  "$([ -s "$SYNC_PR_SKILL" ] && echo yes || echo no)" "yes"
+check "skills/sync-pr/SKILL.md does not exist (B06: skill removed)" \
+  "$([ -f "$SYNC_PR_SKILL" ] && echo present || echo absent)" "absent"
+check "skills/sync-pr/ directory does not exist (B06: skill removed)" \
+  "$([ -d "$SYNC_PR_DIR" ] && echo present || echo absent)" "absent"
+check "skills/context/SKILL.md exists (B09: on-demand hook replacement)" \
+  "$([ -f "$CONTEXT_SKILL" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # 6. no references to the removed .claude/clam-profile.md path, scoped to
-#    plugins/landing/, plugins/deliver/, and .claude/
+#    plugins/landing/, plugins/build/, and .claude/
 # ---------------------------------------------------------------------------
 
 LEGACY_REFS=$(grep -rIlF \
@@ -133,7 +146,7 @@ check ".claude/clam-profile.jsonc is valid JSON after stripping // comments" \
   "$(sed 's#//.*##' "$CLAM_PROFILE_JSONC" 2>/dev/null | jq -e . >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
-# 8. deliver plugin is registered in .claude-plugin/marketplace.json
+# 8. build plugin is registered in .claude-plugin/marketplace.json
 # ---------------------------------------------------------------------------
 
 check "marketplace.json is valid JSON" \

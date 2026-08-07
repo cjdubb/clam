@@ -455,8 +455,13 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # same pin and moves in lockstep, so the two suites never disagree; this is a
 # literal retarget only — no assertion added, removed, or weakened, and the
 # PASS count this file's own B06 contract freezes is unchanged.
+# Retargeted again to 0.9.0 by 003-B21 (plan 003-followup-fixes), whose own
+# contract states the 0.8.0 -> 0.9.0 bump. followups-docs.test.sh and
+# workgraph-live-view.test.sh carry the same pin and move in lockstep. Again
+# a literal retarget only — no assertion added, removed, or weakened, and the
+# frozen PASS count is unchanged.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.8.0" "$plugin_version" "0.8.0"
+check "plugin.json version is exactly 0.9.0" "$plugin_version" "0.9.0"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

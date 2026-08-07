@@ -235,5 +235,46 @@ else
   pass "NotImplemented placeholder comment removed once implemented"
 fi
 
+# ===========================================================================
+# 003-B21 — authoring defaults recorded (plan 003-followup-fixes, issue #333)
+#
+# Source of truth: the "Contract: 003-B21 ... tracking half" bash comment
+# above the rules heredoc in plugins/tracking/scripts/session-context.sh,
+# which requires "the templates it points at (templates/WORKGRAPH.md and
+# templates/FOLLOWUPS.md)" to state the authoring defaults recorded in
+# docs/protocols/work-graph.md.
+#
+# Two of the three defaults have a meaning in THIS template and are asserted
+# here:
+#   - plain-language titles embedding no foreign id scheme: this template's
+#     own entry heading carries a `[short title]`, so the rule applies to it
+#     directly;
+#   - a follow-up captured mid-effort gets a work-graph node AT CAPTURE, with
+#     its disposition mirrored onto that node as the entry resolves — the one
+#     default that is specifically about follow-ups.
+# The third ("one node per ACTUAL work item — distinct phases by distinct
+# actors get distinct nodes") is a graph-structure rule about nodes this
+# document does not own; it is asserted against docs/protocols/work-graph.md
+# and templates/WORKGRAPH.md in workgraph-template.test.sh instead of being
+# forced into a follow-ups list. Flagged rather than silently skipped: if the
+# orchestrator reads the contract as requiring all three verbatim in both
+# templates, this is the assertion to add.
+#
+# Scoped to $body_text (the comment-scoped body established above) for the
+# same reason the F<NN> numbering clauses are: this template carries no
+# scaffold comment today, so $body_text is the whole file, but the scoping
+# survives one being added. Verified against the current template: none of
+# these patterns match today.
+# ===========================================================================
+
+assert_contains_re_i "B21: entry titles are plain language" "$body_text" \
+  'titles?[^.]{0,80}plain[ -]language|plain[ -]language[^.]{0,80}titles?'
+assert_contains_re_i "B21: a follow-up captured mid-effort also gets a work-graph node" "$body_text" \
+  'node[^.]{0,160}captur|captur[^.]{0,160}node'
+assert_contains_re_i "B21: that node is added AT CAPTURE, not when the entry resolves" "$body_text" \
+  'at[[:space:]]+captur|moment[^.]{0,40}captur|when[^.]{0,30}captur'
+assert_contains_re_i "B21: the entry's disposition is mirrored onto that node" "$body_text" \
+  'mirror[^.]{0,140}node|node[^.]{0,140}mirror'
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit "$FAILED"

@@ -56,6 +56,38 @@ a dropped disposition requires a reason. An empty graph — the header and
 `Focus: none` with no node entries — is valid; entries appear only once
 decomposition genuinely begins.
 
+## Authoring defaults
+
+Three defaults govern how nodes are written. A graph that ignores them
+still parses; it just stops answering the questions this document exists
+to answer.
+
+**Node titles are plain language.** A title names the work in the words
+a reader would use out loud — "serve the graph over HTTP", not a
+borrowed label. `N<NN>` is the only identifier a title needs; ids from
+other numbering systems — issue refs, plan-step labels, any scheme owned
+elsewhere — belong in the `Notes:` field or in the artifacts that own
+them, never in the title. A title carrying a foreign id is unreadable to
+anyone without that scheme to hand, and quietly ties the graph to an
+artifact it does not control.
+
+**One node per actual work item.** A node stands for work someone is
+doing, not for a topic. When a problem is worked as distinct phases by
+distinct actors — a test-writing pass and an implementation pass over
+the same code, say — each phase is its own node, carrying its own
+dependency edge onto the phase before it. Collapsed into a single node,
+the live phase is invisible; kept apart, who is doing what right now
+reads from the graph alone.
+
+**A follow-up captured mid-effort gets a node at capture.** Add the node
+the moment the item is captured — open, parented where the work belongs
+— rather than waiting to see whether it is acted on. When the follow-up
+resolves, mirror that disposition onto its node: `done` once the work is
+done, `dropped (<reason>)` when it is dropped or handed to another
+effort. A follow-up with no node is invisible to every reader of the
+graph, and a node whose disposition was never mirrored back reports work
+as live long after it stopped being so.
+
 ## Real-time discipline
 
 Nodes are added at the moment a decomposition or a new subproblem

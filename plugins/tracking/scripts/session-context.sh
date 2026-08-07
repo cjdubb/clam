@@ -119,6 +119,16 @@ never removed. When asked to show the work graph, render it as an indented
 ASCII tree: children nested under their parents, \`[needs: N<NN>]\` dependency
 annotations, a status glyph per node, and an arrow marking the Focus node.
 
+Three defaults govern how graph nodes are written. Node titles are plain
+language — \`N<NN>\` is the only identifier a title needs, and ids from other
+numbering systems belong in \`Notes:\` or in the artifacts that own them. Add
+one node per actual work item rather than one per topic: when a problem is
+worked as distinct phases by distinct actors, each phase is its own node
+carrying its own dependency edge, so who is doing what right now reads from
+the graph alone. And a follow-up captured mid-effort gets its graph node at
+capture, not once it is acted on — mirror the follow-up's outcome onto that
+node as the entry resolves.
+
 The moment \`.local/WORKGRAPH.md\` is created, check the skill catalog for a
 skill that can serve a markdown document as a live, self-updating HTML view
 without opening a browser; when one is available, serve
@@ -135,7 +145,10 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
   approaches; first write the analysis to \`.local/decisions/NNN-<slug>.md\`
   per the /decision-log:rundown template — options, evidence, recommendation,
   if-deferred path — then populate \`Decision Needed:\` with the question, the
-  recommended option, and the file path).
+  recommended option, and the file path). Every artifact a decision document
+  references — a plan, a graph, another decision, a piece of code — is carried
+  as a relative markdown link resolvable from that decision file's own
+  directory, never as a bare path in backticks.
 - **Parked, summons once then waits:** \`Awaiting User Review\` (draft PR up,
   user reviewing at their own pace).
 - **Parked, resumes on its own, stays silent:** \`Awaiting Agent\`,

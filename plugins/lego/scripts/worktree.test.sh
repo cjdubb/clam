@@ -52,12 +52,12 @@
 # observable behavior, so two of B04's clauses no longer hold verbatim:
 #   - The pass count moves from 115 to 120. It is still exact: any other
 #     value is a defect.
-#   - test_deliver_divergence_from_integration_tip_blocks_push is REPLACED,
+#   - test_assemble_divergence_from_integration_tip_blocks_push is REPLACED,
 #     not weakened. Its fixture (a path advanced on the integration branch
 #     after the unit merged) is the one B06's contract names as "plan 001's
 #     G5 abort case becomes a pass", so the same arrangement is now asserted
 #     to succeed by
-#     test_deliver_restores_integration_tip_content_not_unit_commit. Its
+#     test_assemble_restores_integration_tip_content_not_unit_commit. Its
 #     other assertions -- nothing pushed, no PR, delivery branch cleaned up
 #     -- survive inverted in that test and unchanged in the other failure
 #     tests. No other assertion in this file is weakened, skipped, merged,
@@ -87,10 +87,20 @@
 #     value is a defect, whichever direction it moves.
 # Nothing else changes. B10 appends nine tests in their own section after the
 # B07 extraCommits tests and edits, reorders, weakens and deletes nothing.
-# test_deliver_underlying_git_failure_on_push (the unreachable-origin
-# fixture) is untouched and must stay green: it asserts exit 4 with a single
-# "ERROR: " line, and which of the two failures it reaches under a fresh-base
-# deliver -- the fetch or the push -- was never part of its assertions.
+# test_assemble_underlying_git_failure_on_push (the unreachable-origin
+# fixture) was originally untouched here, asserting exit 4 with a single
+# "ERROR: " line on the premise that a fresh-base deliver still reaches a
+# push after resolving BASE_REF, whichever of the fetch or the push actually
+# failed first. Superseded by B10 lego-delivery-refactor-reapply (plan
+# 001-fix-pr-line-lengths): push no longer exists, and this fresh-base
+# resolution's own ls-remote-first design (line ~1324 of worktree.sh) makes
+# an unreachable origin indistinguishable from an origin that simply lacks
+# <base-branch> -- ls-remote fails silently either way, so BASE_REF falls
+# back to the local base and no fetch is even attempted. The premise this
+# test pinned is gone; it is renamed and rewritten as
+# test_assemble_unreachable_origin_falls_back_to_local_base, asserting the
+# new correct behavior (exit 0, local-base fallback, no stderr) rather than
+# the old exit-4 failure. See that test for the full rationale.
 # -->
 set -u
 
@@ -639,7 +649,7 @@ test_requires_git_work_tree() {
   # itself is never read on this path: require_repo_root fires first, for
   # the git-worktree reason this test is about, not the manifest-required
   # reason. The path need not exist or be valid JSON.
-  run_in "$dir" deliver --manifest "$dir/unused-manifest.json" plan1 master U01 slug1
+  run_in "$dir" assemble --manifest "$dir/unused-manifest.json" plan1 master U01 slug1
   [ "$RUN_EXIT" -eq 3 ] || record_fail "deliver outside git worktree: expected exit 3, got $RUN_EXIT"
 
   run_in "$dir" remove plan1 U01 slug1
@@ -1604,7 +1614,7 @@ test_merge_guard_check_order_unit_branch_before_self_merge() {
 # it as the thing worth testing.
 # ===========================================================================
 
-test_deliver_usage() {
+test_assemble_usage() {
   local repo manifest
   repo="$(new_git_repo)"
   # --manifest is parsed and required *before* the positional-argument usage
@@ -1615,83 +1625,102 @@ test_deliver_usage() {
   # read on any of these (usage_die fires first), so it need not exist.
   manifest="$repo/unused-manifest.json"
 
-  run_in "$repo" deliver --manifest "$manifest"
+  run_in "$repo" assemble --manifest "$manifest"
   [ "$RUN_EXIT" -eq 2 ] || record_fail "no args: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1
+  run_in "$repo" assemble --manifest "$manifest" plan1
   [ "$RUN_EXIT" -eq 2 ] || record_fail "1 arg: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master
+  run_in "$repo" assemble --manifest "$manifest" plan1 master
   [ "$RUN_EXIT" -eq 2 ] || record_fail "2 args (plan-slug + base-branch, no unit id/slug pair): expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01
   [ "$RUN_EXIT" -eq 2 ] || record_fail "3 args (dangling unit-id with no matching slug): expected exit 2, got $RUN_EXIT"
 }
 
-test_deliver_odd_paired_args() {
+test_assemble_odd_paired_args() {
   local repo manifest
   repo="$(new_git_repo)"
   manifest="$repo/unused-manifest.json"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01 greetstuff U02
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff U02
   [ "$RUN_EXIT" -eq 2 ] || record_fail "odd count of unit-id/unit-slug args after plan-slug+base-branch (U02 has no matching slug): expected exit 2, got $RUN_EXIT"
 }
 
-test_deliver_invalid_chars() {
+test_assemble_invalid_chars() {
   local repo manifest
   repo="$(new_git_repo)"
   manifest="$repo/unused-manifest.json"
 
-  run_in "$repo" deliver --manifest "$manifest" "plan slug" master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" "plan slug" master U01 greetstuff
   [ "$RUN_EXIT" -eq 2 ] || record_fail "space in plan-slug: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 "master;rm" U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 "master;rm" U01 greetstuff
   [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in base-branch: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master "U0/1" greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master "U0/1" greetstuff
   [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in unit-id: expected exit 2, got $RUN_EXIT"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01 'slug;rm'
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 'slug;rm'
   [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid char in unit-slug: expected exit 2, got $RUN_EXIT"
 }
 
-test_deliver_manifest_flag_required() {
+test_assemble_manifest_flag_required() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
 
-  run_in "$repo" deliver plan1 master U01 greetstuff
+  run_in "$repo" assemble plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "deliver without --manifest: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "deliver without --manifest"
 }
 
-test_deliver_missing_gh() {
-  local repo
+# B10: gh is no longer a dependency of assemble at all -- the old
+# require_gh/missing-gh exit-3 path is removed along with every push/PR
+# call. GH=/nonexistent must therefore succeed exactly like any other run;
+# a lingering dependency check would regress this to exit 3.
+test_assemble_succeeds_without_gh() {
+  local repo manifest
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
   commit_file "$repo" "src/greet_test.sh" "greet test v1" "lego(U01): tests"
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  # require_gh fires before the manifest file is ever opened, so the
-  # manifest just needs to be present as a flag; its content (and even
-  # whether the path exists) is irrelevant to this error path.
-  GH=/nonexistent run_in "$repo" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "gh absent: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "gh absent"
-  # Exit 3 alone cannot distinguish require_gh firing from the manifest
-  # path simply not being readable (also exit 3) -- both are indistinguishable
-  # by exit code, so pin the message too, the same way
-  # pr-size-check.test.sh's jq-absent test pins "mentions jq".
-  case "$RUN_ERR" in
-    *gh*|*GH*) : ;;
-    *) record_fail "gh absent: diagnostic does not mention gh (stderr: $RUN_ERR)" ;;
-  esac
+  manifest="$(write_valid_manifest "$repo" "test: succeeds without gh" "lego/deliver/plan1/U01" U01)"
+
+  GH=/nonexistent run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "gh is no longer a dependency of assemble: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name as last stdout line, GH=/nonexistent"
 }
 
-test_deliver_missing_dependencies() {
+# B10: not only is gh not required -- it is never invoked, even when a
+# working gh IS present on PATH and would succeed. The shim would record any
+# invocation; a successful assemble must leave its log untouched.
+test_assemble_never_invokes_gh_even_when_present() {
+  local repo manifest
+  repo="$(build_deliver_base)"
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet_test.sh" "greet test v1" "lego(U01): tests"
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  make_gh_shim
+  manifest="$(write_valid_manifest "$repo" "test: never invokes gh" "lego/deliver/plan1/U01" U01)"
+
+  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name as last stdout line"
+  if [ -s "$GH_SHIM_LOG" ]; then
+    record_fail "B10: assemble must never invoke gh, but the shim log is non-empty: $(cat "$GH_SHIM_LOG")"
+  fi
+}
+
+test_assemble_missing_dependencies() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -1701,7 +1730,7 @@ test_deliver_missing_dependencies() {
   # jq/config.json/blocks.md are all required before the manifest file is
   # read, so --manifest just needs to be present here too; content/existence
   # of the manifest path is irrelevant to these error paths.
-  JQ=/nonexistent run_in "$repo" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
+  JQ=/nonexistent run_in "$repo" assemble --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "jq absent: expected exit 3, got $RUN_EXIT"
   # Same masking as the gh-absent case above: exit 3 alone also fires when
   # the manifest just isn't readable, so pin the message too.
@@ -1713,27 +1742,27 @@ test_deliver_missing_dependencies() {
   local repo2
   repo2="$(new_git_repo)"
   write_blocks_md "$repo2"
-  run_in "$repo2" deliver --manifest "$repo2/unused-manifest.json" plan1 master U01 greetstuff
+  run_in "$repo2" assemble --manifest "$repo2/unused-manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "config.json missing: expected exit 3, got $RUN_EXIT"
 
   local repo3
   repo3="$(new_git_repo)"
   write_config_json "$repo3" "true"
-  run_in "$repo3" deliver --manifest "$repo3/unused-manifest.json" plan1 master U01 greetstuff
+  run_in "$repo3" assemble --manifest "$repo3/unused-manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "blocks.md missing: expected exit 3, got $RUN_EXIT"
 }
 
-test_deliver_zero_branch_match() {
+test_assemble_zero_branch_match() {
   local repo manifest
   repo="$(build_deliver_base)"
   manifest="$(write_valid_manifest "$repo" "test: zero branch match" "lego/deliver/plan1/U01" U01)"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "constructed unit branch absent: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "constructed unit branch absent"
 }
 
-test_deliver_cross_plan_isolation() {
+test_assemble_cross_plan_isolation() {
   local repo
   repo="$(build_deliver_base)"
   # A same-unit-id branch under a different plan must never be picked up by
@@ -1747,12 +1776,10 @@ test_deliver_cross_plan_isolation() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: cross plan isolation" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -1782,7 +1809,7 @@ test_deliver_cross_plan_isolation() {
 # -- reachable via the base -- is never a candidate: the tests restore is
 # skipped (as if no tests commit existed) and the impl commit still
 # delivers cleanly.
-test_deliver_stale_tests_commit_in_base_history_is_skipped() {
+test_assemble_stale_tests_commit_in_base_history_is_skipped() {
   local repo root_sha
   repo="$(build_deliver_base)"
   root_sha="$(git -C "$repo" rev-list --max-parents=0 master)"
@@ -1803,13 +1830,11 @@ test_deliver_stale_tests_commit_in_base_history_is_skipped() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n '{title: "test: stale tests subject outside unit paths", branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "lego(U01): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "stale cross-history same-subject commit must be skipped, not fatal: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -1840,7 +1865,7 @@ test_deliver_stale_tests_commit_in_base_history_is_skipped() {
 # a no-op -- deliver fails the build rather than opening a PR silently
 # missing the unit. The distinguishing diagnostic must say the commit
 # touched no files, not that it was a merge.
-test_deliver_unit_with_empty_commit_fails_loudly() {
+test_assemble_unit_with_empty_commit_fails_loudly() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U03-nocodeslug" master
@@ -1848,21 +1873,16 @@ test_deliver_unit_with_empty_commit_fails_loudly() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U03-nocodeslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: empty commits" "lego/deliver/plan1/U03" U03)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U03 nocodeslug
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U03 nocodeslug
   [ "$RUN_EXIT" -eq 4 ] || record_fail "empty implementation commit: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_one_error_line "$RUN_ERR" "empty implementation commit"
   case "$RUN_ERR" in
     *"touched no files"*) : ;;
     *) record_fail "expected stderr to distinguish 'touched no files' from the merge-commit case: got [$RUN_ERR]" ;;
   esac
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected no PR to be opened for a unit that restores nothing"
-  fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U03"; then
     record_fail "expected no delivery branch to survive the failed build"
   fi
@@ -1877,7 +1897,7 @@ test_deliver_unit_with_empty_commit_fails_loudly() {
 # skips merges, so the plain same-subject commit (what the
 # merge-then-stamp-a-separate-commit workaround already assumes) is what
 # gets delivered.
-test_deliver_stamped_merge_commit_is_not_resolved() {
+test_assemble_stamped_merge_commit_is_not_resolved() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -1893,14 +1913,12 @@ test_deliver_stamped_merge_commit_is_not_resolved() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n '{title: "test: stamped merge is not resolved", branch: "lego/deliver/plan1/U01",
           commits: {U01: {impl: "lego(U01): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -1920,7 +1938,7 @@ test_deliver_stamped_merge_commit_is_not_resolved() {
 # exists ONLY on a stamped merge. Skipping merges leaves nothing to
 # resolve, so deliver must fail loudly (missing required implementation
 # commit) rather than open a PR that silently omits the unit.
-test_deliver_only_a_stamped_merge_fails_loudly() {
+test_assemble_only_a_stamped_merge_fails_loudly() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -1935,20 +1953,15 @@ test_deliver_only_a_stamped_merge_fails_loudly() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n '{title: "test: only a stamped merge", branch: "lego/deliver/plan1/U01",
           commits: {U01: {impl: "lego(U01): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "a unit whose only same-subject commit is a merge must fail loudly: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_one_error_line "$RUN_ERR" "stamped merge is the only same-subject commit"
 
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected no PR to be opened when the unit resolves to nothing"
-  fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
     record_fail "expected no delivery branch to survive the failed deliver"
   fi
@@ -1969,9 +1982,10 @@ test_deliver_only_a_stamped_merge_fails_loudly() {
 # The headline behavior, and the same fixture plan 001 asserted aborts at the
 # byte-gate: the integration branch carries a follow-up fix to a delivered
 # path that never reached the unit branch. Restoring from the unit commit
-# replays the older state and the gate stops the push; restoring from the tip
-# delivers the fix and the PR opens.
-test_deliver_restores_integration_tip_content_not_unit_commit() {
+# replays the older state and the gate would have blocked the build (under
+# B10 there is no push to stop, but the gate's abort condition is unchanged);
+# restoring from the tip delivers the fix and the build succeeds.
+test_assemble_restores_integration_tip_content_not_unit_commit() {
   local repo head_before status_before
   repo="$(build_deliver_base)"
 
@@ -1985,14 +1999,12 @@ test_deliver_restores_integration_tip_content_not_unit_commit() {
   head_before="$(git -C "$repo" rev-parse HEAD)"
   status_before="$(git -C "$repo" status --porcelain)"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: tip restore" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "a path advanced on integration after the unit merged must deliver the tip content, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name as last stdout line"
   case "$RUN_ERR" in
     *"diverges from the integration tip"*)
       record_fail "the byte-gate must pass by construction under tip-restore: got [$RUN_ERR]" ;;
@@ -2006,11 +2018,8 @@ test_deliver_restores_integration_tip_content_not_unit_commit() {
     record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
   fi
 
-  if [ -z "$(git -C "$repo" ls-remote --heads origin "lego/deliver/plan1/U01" 2>/dev/null)" ]; then
-    record_fail "expected the delivery branch to be pushed to origin once the gate passes"
-  fi
-  if [ ! -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected gh pr create to have been invoked (shim log is empty)"
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "lego/deliver/plan1/U01" 2>/dev/null)" ]; then
+    record_fail "B10: assemble never pushes anywhere -- the delivery branch must not appear on origin"
   fi
 
   assert_eq "$head_before" "$(git -C "$repo" rev-parse HEAD)" "deliver never moves the integration worktree's HEAD"
@@ -2021,7 +2030,7 @@ test_deliver_restores_integration_tip_content_not_unit_commit() {
 # commit's own diff-tree. A path that moved on integration but appears in no
 # unit commit must not be swept into the delivery, and the byte-gate stays
 # scoped to the restored union rather than the whole tree.
-test_deliver_file_list_still_comes_from_the_unit_commit() {
+test_assemble_file_list_still_comes_from_the_unit_commit() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2035,12 +2044,10 @@ test_deliver_file_list_still_comes_from_the_unit_commit() {
     "src/greet.sh" $'greet v2 (integration)\n' \
     "src/other.sh" $'other v2 (integration, in no unit commit)\n'
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: file list from the unit commit" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -2056,7 +2063,7 @@ test_deliver_file_list_still_comes_from_the_unit_commit() {
 
 # A restored path that is ABSENT at the integration tip and TRACKED in the
 # delivery worktree is removed, so the delivery matches the tip there too.
-test_deliver_path_absent_at_tip_is_removed_when_tracked() {
+test_assemble_path_absent_at_tip_is_removed_when_tracked() {
   local repo
   repo="$(build_deliver_base)"
   # On master (the delivery base), so the delivery worktree tracks it. The
@@ -2072,12 +2079,10 @@ test_deliver_path_absent_at_tip_is_removed_when_tracked() {
   git -C "$repo" rm -q -- "src/doomed.sh"
   git -C "$repo" commit -q -m "fix: the unit's path is deleted on the integration branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: path absent at tip is removed" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "a path deleted on integration must be removed from the delivery, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   case "$RUN_ERR" in
     *"diverges from the integration tip"*)
@@ -2102,7 +2107,7 @@ test_deliver_path_absent_at_tip_is_removed_when_tracked() {
 # unit added it and integration dropped it again, so the base branch never
 # had it): there is nothing to remove, so it is silently skipped -- not a git
 # failure, and not restored from the unit commit either.
-test_deliver_path_absent_at_tip_and_untracked_is_skipped() {
+test_assemble_path_absent_at_tip_and_untracked_is_skipped() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2115,12 +2120,10 @@ test_deliver_path_absent_at_tip_and_untracked_is_skipped() {
   git -C "$repo" rm -q -- "src/unit-only.sh"
   git -C "$repo" commit -q -m "fix: the unit's new file is dropped on the integration branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: absent and untracked is skipped" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "a path absent at the tip and untracked in the delivery worktree must be skipped, not fail: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ -z "$RUN_ERR" ] || record_fail "skipping an untracked absent path must be silent: got stderr [$RUN_ERR]"
 
@@ -2141,7 +2144,7 @@ test_deliver_path_absent_at_tip_and_untracked_is_skipped() {
 # holds, the restore stages nothing and no commit is created. Here
 # integration backs the unit's change out again, so the implementation
 # restore is a genuine no-op even though the unit commit does differ.
-test_deliver_noop_restore_when_tip_matches_the_delivery_base() {
+test_assemble_noop_restore_when_tip_matches_the_delivery_base() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2152,14 +2155,12 @@ test_deliver_noop_restore_when_tip_matches_the_delivery_base() {
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
   commit_file "$repo" "src/greet.sh" $'greet v0\n' "revert: back the unit's change out on the integration branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n '{title: "test: no-op restore under tip content", branch: "lego/deliver/plan1/U01",
           commits: {U01: {tests: "lego(U01): contract + tests", impl: "lego(U01): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -2182,7 +2183,7 @@ test_deliver_noop_restore_when_tip_matches_the_delivery_base() {
 # UNIT COMMIT: an implementation commit that touched no files fails loudly
 # with the distinguishing diagnostic even when the integration tip is full of
 # content a tip-derived file list would have found.
-test_deliver_empty_unit_commit_still_fails_when_the_tip_has_content() {
+test_assemble_empty_unit_commit_still_fails_when_the_tip_has_content() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U03-nocodeslug" master
@@ -2191,27 +2192,22 @@ test_deliver_empty_unit_commit_still_fails_when_the_tip_has_content() {
   integrate_units "$repo" "lego/plan1/U03-nocodeslug"
   commit_file "$repo" "src/other.sh" $'other v2 (integration)\n' "fix: unrelated work on the integration branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: empty commit, non-empty tip" "lego/deliver/plan1/U03" U03)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U03 nocodeslug
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U03 nocodeslug
   [ "$RUN_EXIT" -eq 4 ] || record_fail "empty implementation commit: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_one_error_line "$RUN_ERR" "empty implementation commit under tip-restore"
   case "$RUN_ERR" in
     *"touched no files"*) : ;;
     *) record_fail "expected stderr to distinguish 'touched no files' from the merge-commit case: got [$RUN_ERR]" ;;
   esac
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected no PR to be opened for a unit that restores nothing"
-  fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U03"; then
     record_fail "expected no delivery branch to survive the failed build"
   fi
 }
 
-test_deliver_missing_implementation_commit_fails() {
+test_assemble_missing_implementation_commit_fails() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U04-needsimplslug" master
@@ -2221,12 +2217,12 @@ test_deliver_missing_implementation_commit_fails() {
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: missing impl commit" "lego/deliver/plan1/U04" U04)"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U04 needsimplslug
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U04 needsimplslug
   [ "$RUN_EXIT" -eq 4 ] || record_fail "missing implementation commit: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "missing implementation commit"
 }
 
-test_deliver_delivery_branch_already_exists() {
+test_assemble_delivery_branch_already_exists() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2237,12 +2233,23 @@ test_deliver_delivery_branch_already_exists() {
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: delivery branch pre-exists" "lego/deliver/plan1/U01" U01)"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "delivery branch pre-exists: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "delivery branch pre-exists (EC3)"
 }
 
-test_deliver_underlying_git_failure_on_push() {
+# B10 lego-delivery-refactor-reapply (plan 001-fix-pr-line-lengths): this
+# fixture used to fail at deliver's push (exit 4). Under B10, assemble has
+# no push at all, and the fresh-base resolution's own design (worktree.sh
+# ~line 1324: `ls-remote --heads origin <base-branch>` with stderr
+# discarded) makes an unreachable origin indistinguishable from an origin
+# that simply lacks <base-branch> -- both make ls-remote report nothing, so
+# BASE_REF falls back to the local base and no fetch is even attempted. The
+# correct behavior for this exact fixture is therefore success, built from
+# the local base unchanged. (The silent-fallback diagnosability question --
+# should an unreachable origin be distinguished from one merely lacking the
+# branch? -- is out of scope here; tracked as follow-up F08.)
+test_assemble_unreachable_origin_falls_back_to_local_base() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2254,12 +2261,20 @@ test_deliver_underlying_git_failure_on_push() {
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: unreachable origin" "lego/deliver/plan1/U01" U01)"
 
-  run_in "$repo" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "unreachable origin: expected exit 4, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "unreachable origin (underlying git failure)"
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "unreachable origin: fresh-base resolution treats a failed ls-remote the same as an origin lacking <base-branch> (local-base fallback, no push to fail at under B10): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name as last stdout line, unreachable origin"
+  if [ -n "$RUN_ERR" ]; then
+    record_fail "unreachable origin falling back to the local base must be silent on stderr: got [$RUN_ERR]"
+  fi
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
+    assert_eq "greet v1" "$(git -C "$repo" show "lego/deliver/plan1/U01:src/greet.sh" 2>/dev/null || echo MISSING)" "delivery branch built from the local base ref, unaffected by the unreachable origin"
+  else
+    record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
+  fi
 }
 
-test_deliver_tests_commit_optional_success() {
+test_assemble_tests_commit_optional_success() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U02-soloslug" master
@@ -2267,8 +2282,6 @@ test_deliver_tests_commit_optional_success() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U02-soloslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   # commits.U02.impl must equal the literal string this test asserts is on
   # the delivery branch, since impl subject is now always manifest-sourced
   # (impl is a required field with no default fallback once a manifest is
@@ -2277,10 +2290,10 @@ test_deliver_tests_commit_optional_success() {
   jq -n '{title: "test: tests commit optional", branch: "lego/deliver/plan1/U02", commits: {U02: {impl: "lego(U02): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U02 soloslug
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (assembled branch name), got $RUN_OUT_LINES"
+  assert_eq "lego/deliver/plan1/U02" "$RUN_OUT_LAST" "assembled branch name as last stdout line"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
     local subjects
@@ -2300,7 +2313,7 @@ test_deliver_tests_commit_optional_success() {
   fi
 }
 
-test_deliver_single_unit_union_and_newest_and_spaces() {
+test_assemble_single_unit_union_and_newest_and_spaces() {
   local repo master_tip
   repo="$(build_deliver_base)"
   master_tip="$(git -C "$repo" rev-parse master)"
@@ -2322,22 +2335,21 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-  # Manifest title mirrors the old default's shape ("lego: U01") since the
-  # gh-args assertions below check for that pattern; branch/commit subjects
-  # mirror the old defaults too, since the delivery-branch/commit-subject
-  # assertions below check for those exact strings. This proves manifest
-  # pass-through wiring, not the (now-removed) hardcoded defaults.
+  # Manifest title/branch/commit subjects mirror the old defaults' shapes
+  # ("lego: U01" / "lego/deliver/plan1/U01" / etc.) purely so the
+  # delivery-branch/commit-subject assertions below check for those exact
+  # strings. This proves manifest pass-through wiring, not the (now-removed)
+  # hardcoded defaults; title itself is otherwise vestigial (never consumed
+  # by any gh/PR call under B10).
   mkdir -p "$repo/.local"
   jq -n '{title: "lego: U01", branch: "lego/deliver/plan1/U01",
           commits: {U01: {tests: "lego(U01): contract + tests", impl: "lego(U01): implementation"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (PR URL), got $RUN_OUT_LINES"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+  [ "$RUN_OUT_LINES" -eq 1 ] || record_fail "expected exactly 1 stdout line (assembled branch name), got $RUN_OUT_LINES"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name as last stdout line"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
     record_fail "expected delivery branch lego/deliver/plan1/U01 to exist"
@@ -2385,38 +2397,11 @@ test_deliver_single_unit_union_and_newest_and_spaces() {
   fi
 
   if git -C "$repo" worktree list | grep -q "deliver/plan1/U01"; then
-    record_fail "expected the temporary delivery worktree to be removed after deliver (D4)"
-  fi
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"lego: "*"U01"*) : ;;
-      *) record_fail "expected gh pr create invocation to carry a title starting 'lego: ' mentioning U01" ;;
-    esac
-    case "$ghargs" in
-      *"## B01 — greet"*) : ;;
-      *) record_fail "expected PR body to include the B01 heading line" ;;
-    esac
-    case "$ghargs" in
-      *"- Contract: greets politely and covers the happy path"*) : ;;
-      *) record_fail "expected PR body to include B01's Contract line" ;;
-    esac
-    case "$ghargs" in
-      *"## B02 — other"*) : ;;
-      *) record_fail "expected PR body to include the B02 heading line" ;;
-    esac
-    case "$ghargs" in
-      *"- Contract: handles the other responsibilities of the unit"*) : ;;
-      *) record_fail "expected PR body to include B02's Contract line" ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
+    record_fail "expected the temporary delivery worktree to be removed after assemble (D4)"
   fi
 }
 
-test_deliver_multi_unit_branch_naming_and_pr_title_order() {
+test_assemble_multi_unit_branch_naming_and_pr_title_order() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2429,8 +2414,6 @@ test_deliver_multi_unit_branch_naming_and_pr_title_order() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff" "lego/plan1/U02-soloslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   # Branch naming is no longer constructed by deliver at all -- it always
   # comes from the (now-required) manifest "branch" field. Use explicit
   # custom values (not the old "lego/deliver/.../U01+U02" / "lego: ..."
@@ -2441,7 +2424,7 @@ test_deliver_multi_unit_branch_naming_and_pr_title_order() {
                        commits: {U01: {impl: "impl subject for U01"}, U02: {impl: "impl subject for U02"}}}')"
   printf '%s' "$manifest" > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/custom/multi-unit-delivery"; then
@@ -2451,30 +2434,10 @@ test_deliver_multi_unit_branch_naming_and_pr_title_order() {
     record_fail "expected the old constructed default branch name NOT to be created; branch is manifest-only now"
   fi
 
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs u01_pos u02_pos
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Custom multi-unit title U01 U02"*) : ;;
-      *) record_fail "expected PR title to be the manifest-provided title" ;;
-    esac
-    if ! printf '%s' "$ghargs" | grep -qF "U01"; then
-      record_fail "expected PR title/body to mention U01"
-    fi
-    if ! printf '%s' "$ghargs" | grep -qF "U02"; then
-      record_fail "expected PR title/body to mention U02"
-    fi
-    u01_pos="${ghargs%%U01*}"
-    u02_pos="${ghargs%%U02*}"
-    if [ "${#u01_pos}" -ge "${#u02_pos}" ]; then
-      record_fail "expected unit ids to be listed in argument order (U01 before U02)"
-    fi
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
+  assert_eq "custom/multi-unit-delivery" "$RUN_OUT_LAST" "assembled branch name (manifest-provided) as last stdout line"
 }
 
-test_deliver_multi_unit_argument_order_is_not_sorted() {
+test_assemble_multi_unit_argument_order_is_not_sorted() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2487,47 +2450,41 @@ test_deliver_multi_unit_argument_order_is_not_sorted() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff" "lego/plan1/U02-soloslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   # The delivery branch name is now entirely manifest-provided (not
   # constructed from unit-id argument order at all), so branch naming no
-  # longer proves anything about argument order. What still depends on
-  # argument order is the PR body: ALL_HEADINGS is built by iterating
-  # unit_ids in argument order, so delivering U02 before U01 must produce
-  # B03's heading (U02's block) before B01's heading (U01's block) in the
-  # default body, proving the iteration is positional, not sorted.
+  # longer proves anything about argument order. Under B10 there is no PR
+  # body to inspect either (the old ALL_HEADINGS-in-argument-order proof
+  # lived there). What still depends on argument order is the delivery
+  # branch's own commit sequence: units are restored in argument order, so
+  # delivering U02 before U01 must produce U02's implementation commit
+  # BEFORE (older than) U01's on the resulting branch, proving the
+  # restore iteration is positional, not sorted.
   local manifest
   manifest="$(jq -n '{title: "test: order not sorted", branch: "custom/order-test-branch",
                        commits: {U01: {impl: "impl subject for U01"}, U02: {impl: "impl subject for U02"}}}')"
   printf '%s' "$manifest" > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U02 soloslug U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U02 soloslug U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/custom/order-test-branch"; then
     record_fail "expected delivery branch 'custom/order-test-branch' (manifest-provided, order-independent) to exist"
-  fi
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs b03_pos b01_pos
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    if ! printf '%s' "$ghargs" | grep -qF "## B03 — solo"; then
-      record_fail "expected PR body to include the B03 (U02's block) heading"
-    fi
-    if ! printf '%s' "$ghargs" | grep -qF "## B01 — greet"; then
-      record_fail "expected PR body to include the B01 (U01's block) heading"
-    fi
-    b03_pos="${ghargs%%"## B03 — solo"*}"
-    b01_pos="${ghargs%%"## B01 — greet"*}"
-    if [ "${#b03_pos}" -ge "${#b01_pos}" ]; then
-      record_fail "expected U02's heading (B03) before U01's heading (B01), reflecting argument order (U02 first), not sorted"
-    fi
   else
-    record_fail "expected gh to have been invoked (shim log is empty)"
+    local subjects u01_line u02_line
+    subjects="$(git -C "$repo" log --format=%s custom/order-test-branch)"
+    # git log lists newest-first: the unit argued LAST is restored last and
+    # so its commit is newest, appearing EARLIER (smaller line number) here.
+    u01_line="$(printf '%s\n' "$subjects" | grep -nF "impl subject for U01" | head -n1 | cut -d: -f1)"
+    u02_line="$(printf '%s\n' "$subjects" | grep -nF "impl subject for U02" | head -n1 | cut -d: -f1)"
+    if [ -z "$u01_line" ] || [ -z "$u02_line" ]; then
+      record_fail "expected both U01's and U02's implementation commits on the delivery branch"
+    elif [ "$u01_line" -ge "$u02_line" ]; then
+      record_fail "expected U01's commit (argued second: U02 then U01) to be newer than U02's, reflecting argument order, not sorted"
+    fi
   fi
 }
 
-test_deliver_noop_restore_creates_no_second_commit() {
+test_assemble_noop_restore_creates_no_second_commit() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U05-noopslug" master
@@ -2538,8 +2495,6 @@ test_deliver_noop_restore_creates_no_second_commit() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U05-noopslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   # commits.U05.tests is deliberately left unset: this exercises the
   # optional-tests-subject fallback (B01 clause 6) at the same time, and the
   # default "lego(U05): contract + tests" is what the assertion below checks
@@ -2548,7 +2503,7 @@ test_deliver_noop_restore_creates_no_second_commit() {
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: noop restore" "lego/deliver/plan1/U05" U05)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U05 noopslug
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U05 noopslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U05"; then
@@ -2570,28 +2525,28 @@ test_deliver_noop_restore_creates_no_second_commit() {
 # deliver --manifest (B01 deliver-manifest)
 # ===========================================================================
 
-test_deliver_manifest_invalid_file() {
+test_assemble_manifest_invalid_file() {
   local repo
   repo="$(build_deliver_base)"
   # Manifest validation happens before any unit-branch resolution, so no
   # unit branch needs to exist to exercise this error path.
 
-  run_in "$repo" deliver --manifest "$repo/.local/does-not-exist.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/does-not-exist.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "unreadable manifest path: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "unreadable manifest path"
 }
 
-test_deliver_manifest_invalid_json() {
+test_assemble_manifest_invalid_json() {
   local repo
   repo="$(build_deliver_base)"
   printf 'not { valid json' > "$repo/.local/manifest.json"
 
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest file is not valid JSON: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest file is not valid JSON"
 }
 
-test_deliver_manifest_missing_title() {
+test_assemble_manifest_missing_title() {
   local repo
   repo="$(build_deliver_base)"
   # Manifest validation (and thus this rejection) happens before any
@@ -2599,7 +2554,7 @@ test_deliver_manifest_missing_title() {
   jq -n '{branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest missing title: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest missing title"
   case "$RUN_ERR" in
@@ -2608,13 +2563,13 @@ test_deliver_manifest_missing_title() {
   esac
 }
 
-test_deliver_manifest_missing_branch() {
+test_assemble_manifest_missing_branch() {
   local repo
   repo="$(build_deliver_base)"
   jq -n '{title: "test: missing branch", commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
 
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest missing branch: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest missing branch"
   case "$RUN_ERR" in
@@ -2623,7 +2578,7 @@ test_deliver_manifest_missing_branch() {
   esac
 }
 
-test_deliver_manifest_missing_unit_impl() {
+test_assemble_manifest_missing_unit_impl() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2631,7 +2586,7 @@ test_deliver_manifest_missing_unit_impl() {
   # key at all).
   jq -n '{title: "test: missing unit impl", branch: "lego/deliver/plan1/U01"}' \
     > "$repo/.local/manifest.json"
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest missing commits.U01.impl (no commits key): expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest missing commits.U01.impl (no commits key)"
 
@@ -2641,12 +2596,12 @@ test_deliver_manifest_missing_unit_impl() {
   jq -n '{title: "test: missing unit impl multi", branch: "lego/deliver/plan1/U01+U02",
           commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
   [ "$RUN_EXIT" -eq 3 ] || record_fail "manifest missing commits.U02.impl (second of two units): expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest missing commits.U02.impl (second of two units)"
 }
 
-test_deliver_manifest_body_optional_default() {
+test_assemble_manifest_body_optional_default() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2654,34 +2609,18 @@ test_deliver_manifest_body_optional_default() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  # A full manifest (title, branch, commits.U01.impl) but no "body": PR
-  # body must fall back to the auto-generated headings+contracts default.
+  # A full manifest (title, branch, commits.U01.impl) but no "body": under
+  # B10 body is vestigial (never consumed by any gh/PR call), so all this
+  # proves is that omitting it is not a validation failure -- required-field
+  # validation is scoped to title/branch/commits.<id>.impl only.
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: body optional" "lego/deliver/plan1/U01" U01)"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"## B01 — greet"*) : ;;
-      *) record_fail "expected the default auto-generated PR body when manifest omits 'body'" ;;
-    esac
-    case "$ghargs" in
-      *"- Contract: greets politely and covers the happy path"*) : ;;
-      *) record_fail "expected the default PR body to include B01's Contract line" ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "manifest omitting 'body' must not fail validation: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 }
 
-test_deliver_manifest_tests_subject_optional_default() {
+test_assemble_manifest_tests_subject_optional_default() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2696,10 +2635,8 @@ test_deliver_manifest_tests_subject_optional_default() {
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: tests subject optional" "lego/deliver/plan1/U01" U01)"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -2713,7 +2650,12 @@ test_deliver_manifest_tests_subject_optional_default() {
   fi
 }
 
-test_deliver_manifest_title_override() {
+# title/body override no longer have any observable effect under B10 (no
+# gh/PR call consumes them; they are vestigial pass-through fields), so the
+# old title- and body-override tests are gone. What survives from them is
+# the still-load-bearing invariant both relied on incidentally: the manifest
+# file itself is read-only and must never be modified by assemble.
+test_assemble_manifest_file_is_read_only() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2721,78 +2663,21 @@ test_deliver_manifest_title_override() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  # branch and commits.U01.impl are also required now; fill them with
-  # arbitrary valid values so this test isolates the title-override
-  # behavior it's named for.
-  jq -n '{title: "Custom PR Title", branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "test impl for U01"}}}' \
+  jq -n '{title: "Custom PR Title", body: "Custom PR body text",
+          branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
   local manifest_before
   manifest_before="$(cat "$repo/.local/manifest.json")"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   local manifest_after
   manifest_after="$(cat "$repo/.local/manifest.json")"
-  assert_eq "$manifest_before" "$manifest_after" "manifest file is read-only and must never be modified by deliver"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Custom PR Title"*) : ;;
-      *) record_fail "expected gh pr create to be called with the manifest title override" ;;
-    esac
-    case "$ghargs" in
-      *"lego: U01"*) record_fail "expected the default title 'lego: U01' NOT to be used when manifest overrides title" ;;
-      *) : ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
+  assert_eq "$manifest_before" "$manifest_after" "manifest file is read-only and must never be modified by assemble"
 }
 
-test_deliver_manifest_body_override() {
-  local repo
-  repo="$(build_deliver_base)"
-  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
-  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
-  git -C "$repo" checkout -q master
-  integrate_units "$repo" "lego/plan1/U01-greetstuff"
-
-  # title and branch and commits.U01.impl are also required now; fill them
-  # with arbitrary valid values so this test isolates the body-override
-  # behavior it's named for.
-  jq -n '{title: "test: body override", body: "Custom PR body text",
-          branch: "lego/deliver/plan1/U01", commits: {U01: {impl: "test impl for U01"}}}' \
-    > "$repo/.local/manifest.json"
-
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if [ -s "$GH_SHIM_LOG" ]; then
-    local ghargs
-    ghargs="$(cat "$GH_SHIM_LOG")"
-    case "$ghargs" in
-      *"Custom PR body text"*) : ;;
-      *) record_fail "expected gh pr create to be called with the manifest body override" ;;
-    esac
-    case "$ghargs" in
-      *"## B01 — greet"*) record_fail "expected the default body heading NOT to appear when manifest overrides body" ;;
-      *) : ;;
-    esac
-  else
-    record_fail "expected gh to have been invoked (shim log is empty)"
-  fi
-}
-
-test_deliver_manifest_branch_override() {
+test_assemble_manifest_branch_override() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2807,10 +2692,8 @@ test_deliver_manifest_branch_override() {
           commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/custom/delivery-branch"; then
@@ -2821,7 +2704,7 @@ test_deliver_manifest_branch_override() {
   fi
 }
 
-test_deliver_manifest_commit_subjects_override() {
+test_assemble_manifest_commit_subjects_override() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2837,10 +2720,8 @@ test_deliver_manifest_commit_subjects_override() {
           commits: {U01: {tests: "custom tests subject", impl: "custom impl subject"}}}' \
     > "$repo/.local/manifest.json"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U01"; then
@@ -2863,7 +2744,7 @@ test_deliver_manifest_commit_subjects_override() {
   fi
 }
 
-test_deliver_manifest_partial() {
+test_assemble_manifest_partial() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2876,19 +2757,12 @@ test_deliver_manifest_partial() {
   # rather than silently deliver with defaults filled in.
   printf '{"title": "Only Title Overridden"}' > "$repo/.local/manifest.json"
 
-  # Deterministic isolation, same rationale as
-  # test_deliver_manifest_branch_already_exists: a stub/buggy
-  # implementation that doesn't validate would otherwise fall through to a
-  # real, unauthenticated `gh pr create`.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "partial manifest missing branch/commits.impl: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "partial manifest missing required fields"
 }
 
-test_deliver_manifest_branch_already_exists() {
+test_assemble_manifest_branch_already_exists() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2904,21 +2778,12 @@ test_deliver_manifest_branch_already_exists() {
           commits: {U01: {impl: "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
 
-  # Use the gh shim so this test is deterministic and isolates the branch-
-  # collision check: without it, a correct implementation still exits 4
-  # before ever invoking gh, but a stubbed implementation that ignores the
-  # manifest branch override would fall through to a real, unauthenticated
-  # `gh pr create` and could exit non-zero for an unrelated reason (network/
-  # auth failure) instead of failing on the intended assertion.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
-
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "manifest branch already exists: expected exit 4, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "manifest branch already exists"
 }
 
-test_deliver_manifest_empty_object() {
+test_assemble_manifest_empty_object() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2931,16 +2796,14 @@ test_deliver_manifest_empty_object() {
   printf '{}' > "$repo/.local/manifest.json"
 
   # Deterministic isolation, same rationale as
-  # test_deliver_manifest_branch_already_exists.
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
+  # test_assemble_manifest_branch_already_exists.
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "empty object manifest missing required fields: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "empty object manifest missing required fields"
 }
 
-test_deliver_manifest_empty_string_field_treated_as_absent() {
+test_assemble_manifest_empty_string_field_treated_as_absent() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -2955,19 +2818,19 @@ test_deliver_manifest_empty_string_field_treated_as_absent() {
 
   printf '{"title": "", "branch": "lego/deliver/plan1/U01", "commits": {"U01": {"impl": "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "empty-string title treated as absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "empty-string title treated as absent"
 
   printf '{"title": "t", "branch": "", "commits": {"U01": {"impl": "test impl for U01"}}}' \
     > "$repo/.local/manifest.json"
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "empty-string branch treated as absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "empty-string branch treated as absent"
 
   printf '{"title": "t", "branch": "lego/deliver/plan1/U01", "commits": {"U01": {"impl": ""}}}' \
     > "$repo/.local/manifest.json"
-  run_in "$repo" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "empty-string commits.U01.impl treated as absent: expected exit 3, got $RUN_EXIT"
   assert_single_error_line "$RUN_ERR" "empty-string commits.U01.impl treated as absent"
 }
@@ -2980,7 +2843,7 @@ test_deliver_manifest_empty_string_field_treated_as_absent() {
 # only Code path) after the unit branched. Without --force, deliver must
 # refuse: exit 4, with an error mentioning both "Code paths" and "--force"
 # (the exact die message documented in cmd_deliver's integration of B03).
-test_deliver_files_not_in_code_field_are_included() {
+test_assemble_files_not_in_code_field_are_included() {
   local repo
   repo="$(build_deliver_base)"
 
@@ -2990,12 +2853,10 @@ test_deliver_files_not_in_code_field_are_included() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U02-soloslug"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: unlisted files" "lego/deliver/plan1/U02" U02)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U02 soloslug
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/deliver/plan1/U02"; then
@@ -3167,6 +3028,18 @@ test_unknown_subcommand() {
   assert_single_error_line "$RUN_ERR" "unknown subcommand"
 }
 
+# B10: deliver is gone as a subcommand name -- it must be rejected exactly
+# like any other unrecognized subcommand (usage error, exit 2), not treated
+# as a deprecated alias for assemble.
+test_deliver_subcommand_is_unknown() {
+  local repo
+  repo="$(new_git_repo)"
+
+  run_in "$repo" deliver --manifest "$repo/unused-manifest.json" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "B10: 'deliver' must be an unknown subcommand: expected exit 2, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "deliver as unknown subcommand"
+}
+
 # ===========================================================================
 # merge: auto-removal of the unit worktree (B01 worktree-auto-cleanup)
 # ===========================================================================
@@ -3238,7 +3111,7 @@ test_merge_worktree_removal_failure_does_not_change_exit_code() {
 # deliver: auto-removal of unit branches/worktrees (B01 worktree-auto-cleanup)
 # ===========================================================================
 
-test_deliver_cleanup_removes_unit_branch_and_worktree() {
+test_assemble_cleanup_removes_unit_branch_and_worktree() {
   local repo container branch wt
   repo="$(build_deliver_base)"
   container="$(dirname "$repo")"
@@ -3256,14 +3129,12 @@ test_deliver_cleanup_removes_unit_branch_and_worktree() {
   # cleanup did not run or did not succeed) -- deliver must remove it too.
   git -C "$repo" worktree add -q "$wt" "$branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: cleanup removes branch and worktree" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line after cleanup"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name still printed as last stdout line after cleanup"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     record_fail "expected unit branch $branch to be deleted after a successful deliver"
@@ -3279,7 +3150,7 @@ test_deliver_cleanup_removes_unit_branch_and_worktree() {
   fi
 }
 
-test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
+test_assemble_cleanup_branch_deletion_failure_still_exits_0() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="lego/plan1/U01-greetstuff"
@@ -3296,14 +3167,12 @@ test_deliver_cleanup_branch_deletion_failure_still_exits_0() {
   git -C "$repo" checkout -q -b integration master
   commit_file "$repo" "src/greet.sh" "greet v1" "same content, reached without merging the unit branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: cleanup branch deletion failure" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "deliver cleanup failure must never change deliver's exit code: expected exit 0, got $RUN_EXIT"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed despite cleanup failure"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name still printed despite cleanup failure"
 
   if [ -z "$RUN_ERR" ]; then
     record_fail "expected a warning on stderr when unit-branch cleanup fails"
@@ -3904,8 +3773,8 @@ test_archive_merge_failure_warns_and_keeps_worktree_exit0() {
   fi
 }
 
-test_archive_deliver_failure_warns_and_keeps_worktree_and_branch() {
-  local repo wt branch manifest newpath
+test_archive_assemble_failure_warns_and_keeps_worktree_and_branch() {
+  local repo wt branch manifest
   repo="$(build_deliver_base)"
   wt="$(dirname "$repo")/$(basename "$repo")-U01"
   branch="lego/plan1/U01-greetstuff"
@@ -3922,15 +3791,13 @@ test_archive_deliver_failure_warns_and_keeps_worktree_and_branch() {
 
   printf 'blocker\n' > "$repo/.local/units"
 
-  make_gh_shim
-  newpath="$GH_SHIM_BIN:$PATH"
-  manifest="$(write_valid_manifest "$repo" "test: archive failure on deliver" "lego/deliver/plan1/U01" U01)"
+  manifest="$(write_valid_manifest "$repo" "test: archive failure on assemble" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "archive failure must never change deliver's exit code: expected exit 0, got $RUN_EXIT"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line despite the archive failure"
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "archive failure must never change assemble's exit code: expected exit 0, got $RUN_EXIT"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name still printed as last stdout line despite the archive failure"
   if [ -z "$RUN_ERR" ]; then
-    record_fail "expected a warning on stderr when the unit archive fails during deliver's cleanup"
+    record_fail "expected a warning on stderr when the unit archive fails during assemble's cleanup"
   fi
 
   if [ ! -d "$wt" ]; then
@@ -4061,8 +3928,8 @@ test_archive_deterministic_across_identical_repo_state() {
   fi
 }
 
-test_archive_deliver_success_archives_before_removing_worktree() {
-  local repo container branch wt manifest newpath dest
+test_archive_assemble_success_archives_before_removing_worktree() {
+  local repo container branch wt manifest dest
   repo="$(build_deliver_base)"
   container="$(dirname "$repo")"
   branch="lego/plan1/U01-greetstuff"
@@ -4072,11 +3939,11 @@ test_archive_deliver_success_archives_before_removing_worktree() {
   commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
   git -C "$repo" checkout -q master
   # Simulate the unit having already been merged into the integration branch
-  # (e.g. via `worktree.sh merge`) before delivery, so `git branch -d` in
-  # deliver's cleanup step can succeed -- same setup as
-  # test_deliver_cleanup_removes_unit_branch_and_worktree.
+  # (e.g. via `worktree.sh merge`) before assembly, so `git branch -d` in
+  # assemble's cleanup step can succeed -- same setup as
+  # test_assemble_cleanup_removes_unit_branch_and_worktree.
   git -C "$repo" merge -q --no-ff -m "lego: merge $branch" "$branch"
-  # A worktree for the unit branch still lingers at deliver's cleanup step;
+  # A worktree for the unit branch still lingers at assemble's cleanup step;
   # seed its .local/ audit trail by hand since this worktree was not created
   # via `add`.
   git -C "$repo" worktree add -q "$wt" "$branch"
@@ -4085,13 +3952,11 @@ test_archive_deliver_success_archives_before_removing_worktree() {
   printf 'deliver report\n' > "$wt/.local/reports/01.md"
   printf 'deliver status\n' > "$wt/.local/status.md"
 
-  make_gh_shim
-  newpath="$GH_SHIM_BIN:$PATH"
-  manifest="$(write_valid_manifest "$repo" "test: deliver success archives before removing worktree" "lego/deliver/plan1/U01" U01)"
+  manifest="$(write_valid_manifest "$repo" "test: assemble success archives before removing worktree" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL still printed as last stdout line after a successful archive+cleanup"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name still printed as last stdout line after a successful archive+cleanup"
 
   dest="$repo/.local/units/plan1/U01"
   assert_eq "deliver brief" "$(cat "$dest/briefs/01.md" 2>/dev/null)" "archived briefs/01.md content intact"
@@ -4099,13 +3964,13 @@ test_archive_deliver_success_archives_before_removing_worktree() {
   assert_eq "deliver status" "$(cat "$dest/status.md" 2>/dev/null)" "archived status.md content intact"
 
   if [ -d "$wt" ]; then
-    record_fail "expected the unit worktree to be removed after a successful deliver (archive lands first, then removal)"
+    record_fail "expected the unit worktree to be removed after a successful assemble (archive lands first, then removal)"
   fi
   if git -C "$repo" worktree list | grep -qF "$wt"; then
     record_fail "expected git worktree list to no longer include the removed unit worktree"
   fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
-    record_fail "expected the unit branch to be deleted after a successful deliver"
+    record_fail "expected the unit branch to be deleted after a successful assemble"
   fi
 }
 
@@ -4235,15 +4100,14 @@ build_extra_commits_fixture() {
 # (so extraCommits is the only possible defect, and so a run that wrongly
 # succeeds cannot contaminate the next sub-case's branches), writes a
 # manifest whose top-level "extraCommits" is the given raw JSON verbatim, and
-# runs deliver through the gh shim. Sets the RUN_* globals, GH_SHIM_LOG and
-# EXTRA_FIXTURE_REPO. Called as a plain statement, never via $(...).
+# runs assemble. Sets the RUN_* globals and EXTRA_FIXTURE_REPO. Called as a
+# plain statement, never via $(...).
 EXTRA_FIXTURE_REPO=""
 run_deliver_with_extra_commits() {
   local extra_json="$1"
   local repo
   repo="$(build_extra_commits_fixture)"
   EXTRA_FIXTURE_REPO="$repo"
-  make_gh_shim
   mkdir -p "$repo/.local"
   printf '{"title":"test: extraCommits validation","branch":"custom/extra-commits-validation","commits":{"U01":{"impl":"unit impl subject"}},"extraCommits":%s}' \
     "$extra_json" > "$repo/.local/manifest.json"
@@ -4254,7 +4118,7 @@ run_deliver_with_extra_commits() {
   if ! jq empty "$repo/.local/manifest.json" >/dev/null 2>&1; then
     record_fail "test setup invalid: manifest built for extraCommits=$extra_json is not valid JSON, so exit 3 would be the JSON check, not the extraCommits check"
   fi
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
 }
 
 # deliver_extra_commits_outcome <extraCommits-json-or-empty-for-absent> --
@@ -4268,7 +4132,6 @@ deliver_extra_commits_outcome() {
   local repo branch
   branch="custom/extra-commits-invariant"
   repo="$(build_extra_commits_fixture)"
-  make_gh_shim
   mkdir -p "$repo/.local"
   if [ -n "$extra_json" ]; then
     jq -n --argjson e "$extra_json" --arg b "$branch" \
@@ -4279,7 +4142,7 @@ deliver_extra_commits_outcome() {
       '{title: "test: extraCommits invariant", branch: $b, commits: {U01: {impl: "unit impl subject"}}}' \
       > "$repo/.local/manifest.json"
   fi
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   printf 'exit=%s tree=%s subjects=%s' \
     "$RUN_EXIT" \
     "$(git -C "$repo" rev-parse "$branch^{tree}" 2>/dev/null)" \
@@ -4291,7 +4154,7 @@ deliver_extra_commits_outcome() {
 # paths are carried by no unit commit at all, so nothing but an extraCommits
 # entry can put them on the delivery branch; the second one contains a space,
 # the arrangement B02's Code paths already use to catch unquoted expansions.
-test_deliver_extra_commits_appended_after_unit_commits_in_order() {
+test_assemble_extra_commits_appended_after_unit_commits_in_order() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-order"
@@ -4310,8 +4173,6 @@ test_deliver_extra_commits_appended_after_unit_commits_in_order() {
     "src/other.sh" $'other v2 (integration only)\n' \
     "src/dir with space/file.sh" $'spacey v2 (integration only)\n'
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n --arg b "$branch" \
     '{title: "test: extraCommits order", branch: $b,
@@ -4323,9 +4184,9 @@ test_deliver_extra_commits_appended_after_unit_commits_in_order() {
   local manifest_before
   manifest_before="$(cat "$repo/.local/manifest.json")"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff U02 soloslug
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "https://github.com/example/lego-fixture/pull/123" "$RUN_OUT_LAST" "PR URL as last stdout line"
+  assert_eq "$branch" "$RUN_OUT_LAST" "assembled branch name as last stdout line"
 
   assert_eq "$manifest_before" "$(cat "$repo/.local/manifest.json")" "the manifest file is read-only; extraCommits must not modify it"
 
@@ -4370,7 +4231,7 @@ test_deliver_extra_commits_appended_after_unit_commits_in_order() {
 # assertions below are the observable face of "these paths join
 # DELIVERED_PATHS": a restore from anywhere but the tip would be reported
 # divergent and nothing would be pushed.
-test_deliver_extra_commit_content_comes_from_the_integration_tip() {
+test_assemble_extra_commit_content_comes_from_the_integration_tip() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-tip-content"
@@ -4384,8 +4245,6 @@ test_deliver_extra_commit_content_comes_from_the_integration_tip() {
   commit_file "$repo" "src/needsimpl.sh" $'needsimpl v2 (integration tip)\n' \
     "fix: advance the path past every version the unit branch holds"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n --arg b "$branch" \
     '{title: "test: extraCommits tip content", branch: $b,
@@ -4393,7 +4252,7 @@ test_deliver_extra_commit_content_comes_from_the_integration_tip() {
       extraCommits: [{subject: "chore: carry the integration-only fix", files: ["src/needsimpl.sh"]}]}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   case "$RUN_ERR" in
     *"diverges from the integration tip"*)
@@ -4418,11 +4277,8 @@ test_deliver_extra_commit_content_comes_from_the_integration_tip() {
   if ! printf '%s\n' "$subjects" | grep -qF "chore: carry the integration-only fix"; then
     record_fail "expected the entry's subject to appear as a commit on the delivery branch"
   fi
-  if [ -z "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
-    record_fail "expected the delivery branch to be pushed once the gate passed"
-  fi
-  if [ ! -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected gh pr create to have been invoked (shim log is empty)"
+  if [ -n "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
+    record_fail "B10: assemble never pushes anywhere -- the delivery branch must not appear on origin"
   fi
 }
 
@@ -4430,7 +4286,7 @@ test_deliver_extra_commit_content_comes_from_the_integration_tip() {
 # the integration tip and TRACKED in the delivery worktree is removed, and
 # that removal is a real staged change, so the entry still produces its
 # commit.
-test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
+test_assemble_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-absent-tracked"
@@ -4447,8 +4303,6 @@ test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
   git -C "$repo" rm -q -- "src/retired.sh"
   git -C "$repo" commit -q -m "chore: delete the retired script on the integration branch"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n --arg b "$branch" \
     '{title: "test: extraCommits absent-at-tip path", branch: $b,
@@ -4456,7 +4310,7 @@ test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
       extraCommits: [{subject: "chore: drop the retired script", files: ["src/retired.sh"]}]}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "an entry path deleted on integration must be removed, not abort: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   case "$RUN_ERR" in
     *"diverges from the integration tip"*)
@@ -4481,7 +4335,7 @@ test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked() {
 # UNTRACKED in the delivery worktree is silently skipped -- no git failure and
 # no fabricated content. The second entry (a path the tip really does carry)
 # is what proves the skip is a skip and not the whole field being ignored.
-test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
+test_assemble_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-absent-untracked"
@@ -4492,8 +4346,6 @@ test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
   commit_file "$repo" "src/other.sh" $'other v2 (integration only)\n' "fix: integration-only follow-up"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n --arg b "$branch" \
     '{title: "test: extraCommits untracked absent path", branch: $b,
@@ -4502,7 +4354,7 @@ test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
                      {subject: "chore: an entry naming a path the tip has", files: ["src/other.sh"]}]}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "an entry path absent at the tip and untracked in the delivery worktree must be skipped, not fail: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   [ -z "$RUN_ERR" ] || record_fail "skipping an untracked absent entry path must be silent: got stderr [$RUN_ERR]"
 
@@ -4527,7 +4379,7 @@ test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped() {
 # whose tip content already equals the delivery base's. Neither is an error,
 # and neither trips the byte-gate (their paths still join DELIVERED_PATHS,
 # where they compare equal to the tip).
-test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit() {
+test_assemble_extra_commit_entry_staging_no_diff_creates_no_commit() {
   local repo branch
   repo="$(build_deliver_base)"
   branch="custom/extra-commits-noop-entry"
@@ -4538,8 +4390,6 @@ test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit() {
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
   commit_file "$repo" "src/other.sh" $'other v2 (integration only)\n' "fix: integration-only follow-up"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   # src/solo.sh is untouched everywhere, so restoring it from the tip stages
   # nothing at all.
@@ -4551,7 +4401,7 @@ test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit() {
                      {subject: "chore: a path already at the tip content", files: ["src/solo.sh"]}]}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
   case "$RUN_ERR" in
     *"diverges from the integration tip"*)
@@ -4575,7 +4425,7 @@ test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit() {
 # non-empty arm is what makes this discriminating rather than vacuous: if a
 # non-empty array produced that same delivery too, the field would simply be
 # ignored.
-test_deliver_extra_commits_absent_and_empty_reproduce_previous_behavior() {
+test_assemble_extra_commits_absent_and_empty_reproduce_previous_behavior() {
   local absent empty nonempty
   absent="$(deliver_extra_commits_outcome "")"
   empty="$(deliver_extra_commits_outcome '[]')"
@@ -4592,7 +4442,7 @@ test_deliver_extra_commits_absent_and_empty_reproduce_previous_behavior() {
 }
 
 # Malformed shape: the field is present but is not an array at all.
-test_deliver_extra_commits_not_an_array_exits_3() {
+test_assemble_extra_commits_not_an_array_exits_3() {
   run_deliver_with_extra_commits '{"subject":"chore: x","files":["src/other.sh"]}'
   [ "$RUN_EXIT" -eq 3 ] || record_fail "extraCommits set to an object instead of an array: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "extraCommits is an object, not an array"
@@ -4612,7 +4462,7 @@ test_deliver_extra_commits_not_an_array_exits_3() {
 
 # Malformed entry: "subject" missing entirely, or present but empty (the
 # manifest-wide "empty string is absent" rule).
-test_deliver_extra_commits_entry_missing_or_empty_subject_exits_3() {
+test_assemble_extra_commits_entry_missing_or_empty_subject_exits_3() {
   run_deliver_with_extra_commits '[{"files":["src/other.sh"]}]'
   [ "$RUN_EXIT" -eq 3 ] || record_fail "entry missing subject: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "extraCommits entry missing subject"
@@ -4637,7 +4487,7 @@ test_deliver_extra_commits_entry_missing_or_empty_subject_exits_3() {
 }
 
 # Malformed entry: "files" missing, empty, or not an array.
-test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3() {
+test_assemble_extra_commits_entry_files_missing_empty_or_non_array_exits_3() {
   run_deliver_with_extra_commits '[{"subject":"chore: no files key"}]'
   [ "$RUN_EXIT" -eq 3 ] || record_fail "entry missing files: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "extraCommits entry missing files"
@@ -4666,7 +4516,7 @@ test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3() {
 # The rejection happens in pass 1, before anything is built: no delivery
 # branch, no temporary worktree, nothing pushed, no PR -- and the unit's own
 # branch is left alone, since deliver's post-run cleanup never ran either.
-test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree() {
+test_assemble_extra_commits_malformed_dies_before_any_branch_or_worktree() {
   run_deliver_with_extra_commits '[{"files":["src/other.sh"]}]'
   [ "$RUN_EXIT" -eq 3 ] || record_fail "malformed extraCommits: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
 
@@ -4680,9 +4530,6 @@ test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree() {
   if [ -n "$(git -C "$repo" ls-remote --heads origin "custom/extra-commits-validation" 2>/dev/null)" ]; then
     record_fail "expected nothing to be pushed when extraCommits is malformed"
   fi
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "expected no PR to be opened when extraCommits is malformed"
-  fi
   if ! git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
     record_fail "expected the unit branch to survive: a manifest rejection must not run deliver's post-delivery cleanup"
   fi
@@ -4690,7 +4537,7 @@ test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree() {
 
 # A valid extraCommits field does not buy a manifest out of B01's
 # required-field validation: the missing commits.<unit>.impl still wins.
-test_deliver_extra_commits_does_not_relax_required_field_validation() {
+test_assemble_extra_commits_does_not_relax_required_field_validation() {
   local repo
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
@@ -4698,15 +4545,13 @@ test_deliver_extra_commits_does_not_relax_required_field_validation() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
-  local newpath="$GH_SHIM_BIN:$PATH"
   mkdir -p "$repo/.local"
   jq -n '{title: "test: extraCommits does not relax required fields",
           branch: "custom/extra-commits-required-fields",
           extraCommits: [{subject: "chore: a perfectly valid entry", files: ["src/other.sh"]}]}' \
     > "$repo/.local/manifest.json"
 
-  run_cmd "$repo" "$newpath" deliver --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$repo/.local/manifest.json" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "valid extraCommits but missing commits.U01.impl: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "required-field validation still applies alongside extraCommits"
   case "$RUN_ERR" in
@@ -4794,7 +4639,7 @@ build_fresh_base_fixture() {
 # a commit whose objects the fixture repo has never seen; the delivery branch
 # must still fork from that remote tip, which is only reachable by fetching.
 # The side branch is the "no fetch of anything beyond <base-branch>" tripwire.
-test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale() {
+test_assemble_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale() {
   local repo origin_tip side_tip local_base_before head_before status_before
   repo="$(build_deliver_base)"
   local_base_before="$(git -C "$repo" rev-parse master)"
@@ -4809,11 +4654,10 @@ test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale(
   head_before="$(git -C "$repo" rev-parse HEAD)"
   status_before="$(git -C "$repo" status --porcelain)"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: fresh base resolution" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "stale local base, fresh origin: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -4835,42 +4679,33 @@ test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale(
     record_fail "nothing beyond <base-branch> may be fetched: the side branch's objects reached the repo"
   fi
 
-  local gh_args
-  gh_args="$(cat "$GH_SHIM_LOG")"
-  case "$gh_args" in
-    *"--base master"*) : ;;
-    *) record_fail "gh pr create must keep the plain <base-branch> NAME: got [$gh_args]" ;;
-  esac
-  case "$gh_args" in
-    *"--base origin/"*) record_fail "gh pr create must not target a remote-tracking ref: got [$gh_args]" ;;
-  esac
-
   assert_eq "$local_base_before" "$(git -C "$repo" rev-parse master)" "the local base branch is never moved by the fetch"
   assert_eq "$head_before" "$(git -C "$repo" rev-parse HEAD)" "deliver never moves the integration worktree's HEAD"
   assert_eq "$status_before" "$(git -C "$repo" status --porcelain)" "deliver never modifies the integration worktree's files"
 }
 
-# No origin at all: there is nothing to fetch and nothing to push, so today's
-# behaviour is to build the delivery branch from the local ref and fail at
-# the push. Reaching THAT failure -- rather than a fetch error or an earlier
-# "base branch not found" -- is the observable proof that base resolution
-# fell through to the local ref untouched.
-test_deliver_without_an_origin_remote_uses_the_local_base_unchanged() {
+# No origin at all: there is nothing to fetch and (under B10) nothing to
+# push either, so base resolution falls through to the local ref and the
+# build succeeds -- "works with no origin remote configured" is now an
+# explicit B10 invariant, not a failure at a push step that no longer
+# exists.
+test_assemble_without_an_origin_remote_uses_the_local_base_unchanged() {
   local repo
   repo="$(build_fresh_base_fixture)"
   git -C "$repo" remote remove origin
 
-  make_gh_shim
-  local manifest
-  manifest="$(write_valid_manifest "$repo" "test: no origin remote" "lego/deliver/plan1/U01" U01)"
+  local manifest branch="lego/deliver/plan1/U01"
+  manifest="$(write_valid_manifest "$repo" "test: no origin remote" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 4 ] || record_fail "no origin remote: expected exit 4 at the push, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_single_error_line "$RUN_ERR" "no origin remote"
-  case "$RUN_ERR" in
-    *push*) : ;;
-    *) record_fail "with no origin, base resolution must fall through to the local ref and the run must get as far as the push: got [$RUN_ERR]" ;;
-  esac
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "B10: no origin remote must not be fatal (no fetch, no push): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$branch" "$RUN_OUT_LAST" "assembled branch name as last stdout line, no origin remote configured"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    assert_eq "greet v1 (unit)" "$(git -C "$repo" show "$branch:src/greet.sh" 2>/dev/null || echo MISSING)" "the delivery branch is built from the local base ref when no origin remote exists"
+  else
+    record_fail "expected delivery branch $branch to exist"
+  fi
   if [ -n "$(git -C "$repo" for-each-ref --format='%(refname)' 'refs/remotes/origin/*')" ]; then
     record_fail "no origin remote: nothing may be fetched"
   fi
@@ -4880,7 +4715,7 @@ test_deliver_without_an_origin_remote_uses_the_local_base_unchanged() {
 # for base resolution: the local ref wins. The base here exists only locally
 # AND carries a commit origin has never seen, so a delivery branch that
 # contains it can only have forked from the local ref.
-test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref() {
+test_assemble_origin_without_the_base_branch_falls_back_to_the_local_ref() {
   local repo mainline_tip
   repo="$(build_deliver_base)"
   git -C "$repo" checkout -q -b mainline master
@@ -4892,11 +4727,10 @@ test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref() {
   git -C "$repo" checkout -q mainline
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: origin lacks the base branch" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 mainline U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 mainline U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "origin lacks <base-branch>: expected exit 0 on the local-ref fallback, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -4912,29 +4746,22 @@ test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref() {
     record_fail "origin does not carry <base-branch>; there is nothing to fetch"
   fi
 
-  local gh_args
-  gh_args="$(cat "$GH_SHIM_LOG")"
-  case "$gh_args" in
-    *"--base mainline"*) : ;;
-    *) record_fail "gh pr create must keep the plain <base-branch> NAME: got [$gh_args]" ;;
-  esac
 }
 
 # origin is reachable and still advertises <base-branch>, so this is the
 # "carries it but the fetch fails" case, not the fallback case: the fetch
 # cannot complete because refs/remotes/origin/master is blocked by a
 # directory/file ref conflict, leaving git nowhere to write the fetched tip.
-test_deliver_fetch_failure_dies_naming_the_fetch() {
+test_assemble_fetch_failure_dies_naming_the_fetch() {
   local repo
   repo="$(build_fresh_base_fixture)"
   git -C "$repo" update-ref -d refs/remotes/origin/master
   git -C "$repo" update-ref "refs/remotes/origin/master/blocked" "$(git -C "$repo" rev-parse master)"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: fetch failure" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "origin carries <base-branch> but the fetch cannot complete: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "failed fetch of <base-branch>"
   case "$RUN_ERR" in
@@ -4948,9 +4775,6 @@ test_deliver_fetch_failure_dies_naming_the_fetch() {
   if [ -n "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
     record_fail "nothing may be pushed when the base fetch fails"
   fi
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "no PR may be opened when the base fetch fails"
-  fi
 }
 
 # The same clause with every signal that origin carries <base-branch> intact
@@ -4959,16 +4783,15 @@ test_deliver_fetch_failure_dies_naming_the_fetch() {
 # fetch refspec is pointed at the branch this worktree has checked out, which
 # git refuses to update. A stale origin/master that still resolves is exactly
 # the state a swallowed fetch failure would deliver from.
-test_deliver_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch() {
+test_assemble_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch() {
   local repo
   repo="$(build_fresh_base_fixture)"
   git -C "$repo" config remote.origin.fetch "+refs/heads/master:refs/heads/integration"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: fetch failure, tracking ref intact" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "reachable origin, advertised branch, failing fetch: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "failed fetch with an intact tracking ref"
   case "$RUN_ERR" in
@@ -4978,22 +4801,18 @@ test_deliver_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch() {
   if [ -n "$(git -C "$repo" ls-remote --heads origin "$branch" 2>/dev/null)" ]; then
     record_fail "nothing may be pushed when the base fetch fails"
   fi
-  if [ -s "$GH_SHIM_LOG" ]; then
-    record_fail "no PR may be opened when the base fetch fails"
-  fi
 }
 
 # Unchanged behaviour, guarded: a base resolvable neither remotely nor
 # locally is still the same exit 4 with the same message.
-test_deliver_base_missing_locally_and_remotely_exits_4() {
+test_assemble_base_missing_locally_and_remotely_exits_4() {
   local repo
   repo="$(build_fresh_base_fixture)"
 
-  make_gh_shim
   local manifest
   manifest="$(write_valid_manifest "$repo" "test: base nowhere" "lego/deliver/plan1/U01" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 nosuchbase U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 nosuchbase U01 greetstuff
   [ "$RUN_EXIT" -eq 4 ] || record_fail "base resolvable neither remotely nor locally: expected exit 4, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_single_error_line "$RUN_ERR" "base branch not found"
   case "$RUN_ERR" in
@@ -5009,7 +4828,7 @@ test_deliver_base_missing_locally_and_remotely_exits_4() {
 # Edge case: the local base is AHEAD of origin (unpushed commits). The PR
 # targets the remote branch, so origin still wins -- the ahead-only commit
 # must be absent from the delivery branch.
-test_deliver_local_base_ahead_of_origin_still_forks_from_origin() {
+test_assemble_local_base_ahead_of_origin_still_forks_from_origin() {
   local repo origin_tip ahead_sha
   repo="$(build_deliver_base)"
   origin_tip="$(git -C "$repo" rev-parse master)"
@@ -5022,11 +4841,10 @@ test_deliver_local_base_ahead_of_origin_still_forks_from_origin() {
   git -C "$repo" checkout -q master
   integrate_units "$repo" "lego/plan1/U01-greetstuff"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: local base ahead of origin" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "local base ahead of origin: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -5049,7 +4867,7 @@ test_deliver_local_base_ahead_of_origin_still_forks_from_origin() {
 
 # Edge case: no local <base-branch> ref at all. Remote resolution suffices --
 # deliver succeeds where today it dies "base branch not found".
-test_deliver_local_base_absent_with_the_remote_branch_present_succeeds() {
+test_assemble_local_base_absent_with_the_remote_branch_present_succeeds() {
   local repo origin_tip
   repo="$(build_deliver_base)"
   origin_tip="$(advance_origin_branch "$repo" master "docs/remote-only.md" $'remote only\n' "docs: a commit that only ever reached origin")"
@@ -5062,11 +4880,10 @@ test_deliver_local_base_absent_with_the_remote_branch_present_succeeds() {
   # entirely -- as it does in a worktree that never created one.
   git -C "$repo" branch -D master >/dev/null 2>&1
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: no local base ref" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "local base ref absent, remote branch present: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -5081,13 +4898,6 @@ test_deliver_local_base_absent_with_the_remote_branch_present_succeeds() {
   if git -C "$repo" show-ref --verify --quiet "refs/heads/master"; then
     record_fail "deliver must not recreate a local base branch"
   fi
-
-  local gh_args
-  gh_args="$(cat "$GH_SHIM_LOG")"
-  case "$gh_args" in
-    *"--base master"*) : ;;
-    *) record_fail "gh pr create must keep the plain <base-branch> NAME even when no local ref exists: got [$gh_args]" ;;
-  esac
 }
 
 # The lower bound handed to newest_commit_with_subject moves with the base
@@ -5097,7 +4907,7 @@ test_deliver_local_base_absent_with_the_remote_branch_present_succeeds() {
 # is below the lower bound and excluded; under the stale one it is inside the
 # scan range and -- being the newer of the two by commit date -- outranks the
 # unit's own commit, so the wrong commit's file list is delivered.
-test_deliver_subject_scan_lower_bound_uses_the_fresh_base() {
+test_assemble_subject_scan_lower_bound_uses_the_fresh_base() {
   local repo stray_sha unit_sha
   repo="$(build_deliver_base)"
   stray_sha="$(advance_origin_branch "$repo" master "src/other.sh" $'other v9 (an older plan, already on origin)\n' "lego(U01): implementation" "2026-06-01T00:00:00Z")"
@@ -5124,11 +4934,10 @@ test_deliver_subject_scan_lower_bound_uses_the_fresh_base() {
   first_under_stale="$(git -C "$repo" log --no-merges --format='%H' "master..lego/plan1/U01-greetstuff" | head -n1)"
   [ "$first_under_stale" = "$stray_sha" ] || record_fail "fixture precondition: expected the stray commit ($stray_sha) to be scanned first under the stale local base, got [$first_under_stale]"
 
-  make_gh_shim
   local manifest branch="lego/deliver/plan1/U01"
   manifest="$(write_valid_manifest "$repo" "test: subject scan lower bound" "$branch" U01)"
 
-  run_cmd "$repo" "$GH_SHIM_BIN:$PATH" deliver --manifest "$manifest" plan1 master U01 greetstuff
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
   [ "$RUN_EXIT" -eq 0 ] || record_fail "same-subject stray on origin's base: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -5188,50 +4997,50 @@ run_test "merge: guard passes for a detached HEAD current branch (B01 merge-self
 run_test "merge: guard runs before the dirty-tree check (B01 merge-self-guard)" test_merge_guard_runs_before_dirty_tree_check
 run_test "merge: guard check (1) unit-worktree fires before check (2) self-merge when both apply (B01 merge-self-guard)" test_merge_guard_check_order_unit_branch_before_self_merge
 
-run_test "deliver: usage error on wrong argument count (plan-scoped, --manifest present)" test_deliver_usage
-run_test "deliver: usage error on odd unit-id/unit-slug pair count (--manifest present)" test_deliver_odd_paired_args
-run_test "deliver: usage error on invalid characters in plan-slug/base-branch/unit-id/unit-slug (--manifest present)" test_deliver_invalid_chars
-run_test "deliver --manifest: --manifest flag itself is required, dies exit 3 when absent (B01 manifest-required)" test_deliver_manifest_flag_required
-run_test "deliver: missing gh dependency" test_deliver_missing_gh
-run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)" test_deliver_missing_dependencies
-run_test "deliver: constructed unit branch does not exist" test_deliver_zero_branch_match
-run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_deliver_cross_plan_isolation
-run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_deliver_stale_tests_commit_in_base_history_is_skipped
-run_test "deliver: unit whose implementation commit touches no files fails loudly, not silently" test_deliver_unit_with_empty_commit_fails_loudly
-run_test "deliver: a merge stamped with the unit subject is skipped; the plain same-subject commit wins" test_deliver_stamped_merge_commit_is_not_resolved
-run_test "deliver: a stamped merge as the ONLY same-subject commit fails loudly instead of contributing nothing" test_deliver_only_a_stamped_merge_fails_loudly
-run_test "deliver: restores content from the integration tip, not the resolved unit commit (B06 deliver tip-restore)" test_deliver_restores_integration_tip_content_not_unit_commit
-run_test "deliver: the restored file list still comes from the unit commit's diff-tree, not the tip (B06 deliver tip-restore)" test_deliver_file_list_still_comes_from_the_unit_commit
-run_test "deliver: a path absent at the integration tip is removed when tracked in the delivery worktree (B06 deliver tip-restore)" test_deliver_path_absent_at_tip_is_removed_when_tracked
-run_test "deliver: a path absent at the integration tip and untracked in the delivery worktree is silently skipped (B06 deliver tip-restore)" test_deliver_path_absent_at_tip_and_untracked_is_skipped
-run_test "deliver: a restore whose tip content matches the delivery worktree creates no commit (B06 deliver tip-restore)" test_deliver_noop_restore_when_tip_matches_the_delivery_base
-run_test "deliver: an empty unit commit still fails loudly when the integration tip has content (B06 deliver tip-restore)" test_deliver_empty_unit_commit_still_fails_when_the_tip_has_content
-run_test "deliver: missing required implementation commit" test_deliver_missing_implementation_commit_fails
-run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_deliver_delivery_branch_already_exists
-run_test "deliver: underlying git failure (unreachable origin) on push" test_deliver_underlying_git_failure_on_push
-run_test "deliver: tests commit is optional (untested prose unit)" test_deliver_tests_commit_optional_success
-run_test "deliver: single unit - union of Code paths, newest-exact-subject, space path (EC1,EC2,D1,D4)" test_deliver_single_unit_union_and_newest_and_spaces
-run_test "deliver: multi-unit branch naming is manifest-provided (not constructed); PR title/body order still argument-order (B01 manifest-required)" test_deliver_multi_unit_branch_naming_and_pr_title_order
-run_test "deliver: multi-unit argument order is preserved, not sorted, in PR body headings (branch naming is now manifest-only) (B01 manifest-required)" test_deliver_multi_unit_argument_order_is_not_sorted
-run_test "deliver: restore producing no changes creates no second commit" test_deliver_noop_restore_creates_no_second_commit
+run_test "deliver: usage error on wrong argument count (plan-scoped, --manifest present)" test_assemble_usage
+run_test "deliver: usage error on odd unit-id/unit-slug pair count (--manifest present)" test_assemble_odd_paired_args
+run_test "deliver: usage error on invalid characters in plan-slug/base-branch/unit-id/unit-slug (--manifest present)" test_assemble_invalid_chars
+run_test "deliver --manifest: --manifest flag itself is required, dies exit 3 when absent (B01 manifest-required)" test_assemble_manifest_flag_required
+run_test "assemble: succeeds with GH=/nonexistent -- gh is no longer a dependency (B10)" test_assemble_succeeds_without_gh
+run_test "assemble: never invokes gh, even when a working gh is present on PATH (B10)" test_assemble_never_invokes_gh_even_when_present
+run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)" test_assemble_missing_dependencies
+run_test "deliver: constructed unit branch does not exist" test_assemble_zero_branch_match
+run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_assemble_cross_plan_isolation
+run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_assemble_stale_tests_commit_in_base_history_is_skipped
+run_test "deliver: unit whose implementation commit touches no files fails loudly, not silently" test_assemble_unit_with_empty_commit_fails_loudly
+run_test "deliver: a merge stamped with the unit subject is skipped; the plain same-subject commit wins" test_assemble_stamped_merge_commit_is_not_resolved
+run_test "deliver: a stamped merge as the ONLY same-subject commit fails loudly instead of contributing nothing" test_assemble_only_a_stamped_merge_fails_loudly
+run_test "deliver: restores content from the integration tip, not the resolved unit commit (B06 deliver tip-restore)" test_assemble_restores_integration_tip_content_not_unit_commit
+run_test "deliver: the restored file list still comes from the unit commit's diff-tree, not the tip (B06 deliver tip-restore)" test_assemble_file_list_still_comes_from_the_unit_commit
+run_test "deliver: a path absent at the integration tip is removed when tracked in the delivery worktree (B06 deliver tip-restore)" test_assemble_path_absent_at_tip_is_removed_when_tracked
+run_test "deliver: a path absent at the integration tip and untracked in the delivery worktree is silently skipped (B06 deliver tip-restore)" test_assemble_path_absent_at_tip_and_untracked_is_skipped
+run_test "deliver: a restore whose tip content matches the delivery worktree creates no commit (B06 deliver tip-restore)" test_assemble_noop_restore_when_tip_matches_the_delivery_base
+run_test "deliver: an empty unit commit still fails loudly when the integration tip has content (B06 deliver tip-restore)" test_assemble_empty_unit_commit_still_fails_when_the_tip_has_content
+run_test "deliver: missing required implementation commit" test_assemble_missing_implementation_commit_fails
+run_test "deliver: delivery branch already exists at new plan-scoped path (EC3)" test_assemble_delivery_branch_already_exists
+run_test "assemble: an unreachable origin falls back to the local base (B10 no push, ls-remote-first fresh-base design)" test_assemble_unreachable_origin_falls_back_to_local_base
+run_test "deliver: tests commit is optional (untested prose unit)" test_assemble_tests_commit_optional_success
+run_test "deliver: single unit - union of Code paths, newest-exact-subject, space path (EC1,EC2,D1,D4)" test_assemble_single_unit_union_and_newest_and_spaces
+run_test "assemble: multi-unit branch naming is manifest-provided, not constructed (B01 manifest-required)" test_assemble_multi_unit_branch_naming_and_pr_title_order
+run_test "assemble: multi-unit argument order is preserved, not sorted, in the delivery branch's commit sequence (branch naming is manifest-only) (B01 manifest-required)" test_assemble_multi_unit_argument_order_is_not_sorted
+run_test "deliver: restore producing no changes creates no second commit" test_assemble_noop_restore_creates_no_second_commit
 
-run_test "deliver --manifest: unreadable manifest path exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_file
-run_test "deliver --manifest: invalid JSON exits 3 (B01 deliver-manifest)" test_deliver_manifest_invalid_json
-run_test "deliver --manifest: missing non-empty title exits 3 (B01 manifest-required)" test_deliver_manifest_missing_title
-run_test "deliver --manifest: missing non-empty branch exits 3 (B01 manifest-required)" test_deliver_manifest_missing_branch
-run_test "deliver --manifest: missing non-empty commits.<unit-id>.impl for any delivered unit exits 3 (B01 manifest-required)" test_deliver_manifest_missing_unit_impl
-run_test "deliver --manifest: body remains optional, falls back to auto-generated default (B01 manifest-required)" test_deliver_manifest_body_optional_default
-run_test "deliver --manifest: per-unit tests commit subject remains optional, falls back to default (B01 manifest-required)" test_deliver_manifest_tests_subject_optional_default
-run_test "deliver --manifest: title override replaces default PR title (B01 deliver-manifest)" test_deliver_manifest_title_override
-run_test "deliver --manifest: body override replaces default PR body (B01 deliver-manifest)" test_deliver_manifest_body_override
-run_test "deliver --manifest: branch override replaces default delivery branch name (B01 deliver-manifest)" test_deliver_manifest_branch_override
-run_test "deliver --manifest: commit subject overrides replace default tests/impl subjects (B01 deliver-manifest)" test_deliver_manifest_commit_subjects_override
-run_test "deliver --manifest: partial manifest missing required fields (branch/commits.impl) is rejected exit 3 (B01 manifest-required)" test_deliver_manifest_partial
-run_test "deliver --manifest: manifest branch already exists exits 4 (B01 deliver-manifest)" test_deliver_manifest_branch_already_exists
-run_test "deliver --manifest: empty object manifest is rejected for missing required fields, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_object
-run_test "deliver --manifest: empty-string required field (title/branch/commits.impl) treated as absent, exit 3 (B01 manifest-required)" test_deliver_manifest_empty_string_field_treated_as_absent
+run_test "deliver --manifest: unreadable manifest path exits 3 (B01 deliver-manifest)" test_assemble_manifest_invalid_file
+run_test "deliver --manifest: invalid JSON exits 3 (B01 deliver-manifest)" test_assemble_manifest_invalid_json
+run_test "deliver --manifest: missing non-empty title exits 3 (B01 manifest-required)" test_assemble_manifest_missing_title
+run_test "deliver --manifest: missing non-empty branch exits 3 (B01 manifest-required)" test_assemble_manifest_missing_branch
+run_test "deliver --manifest: missing non-empty commits.<unit-id>.impl for any delivered unit exits 3 (B01 manifest-required)" test_assemble_manifest_missing_unit_impl
+run_test "deliver --manifest: body remains optional, falls back to auto-generated default (B01 manifest-required)" test_assemble_manifest_body_optional_default
+run_test "deliver --manifest: per-unit tests commit subject remains optional, falls back to default (B01 manifest-required)" test_assemble_manifest_tests_subject_optional_default
+run_test "assemble --manifest: manifest file is never modified, even with title/body set (title/body are vestigial under B10 -- no gh/PR call consumes them) (B01 deliver-manifest)" test_assemble_manifest_file_is_read_only
+run_test "deliver --manifest: branch override replaces default delivery branch name (B01 deliver-manifest)" test_assemble_manifest_branch_override
+run_test "deliver --manifest: commit subject overrides replace default tests/impl subjects (B01 deliver-manifest)" test_assemble_manifest_commit_subjects_override
+run_test "deliver --manifest: partial manifest missing required fields (branch/commits.impl) is rejected exit 3 (B01 manifest-required)" test_assemble_manifest_partial
+run_test "deliver --manifest: manifest branch already exists exits 4 (B01 deliver-manifest)" test_assemble_manifest_branch_already_exists
+run_test "deliver --manifest: empty object manifest is rejected for missing required fields, exit 3 (B01 manifest-required)" test_assemble_manifest_empty_object
+run_test "deliver --manifest: empty-string required field (title/branch/commits.impl) treated as absent, exit 3 (B01 manifest-required)" test_assemble_manifest_empty_string_field_treated_as_absent
 
-run_test "deliver: files not in Code: field are included via commit diff-tree" test_deliver_files_not_in_code_field_are_included
+run_test "deliver: files not in Code: field are included via commit diff-tree" test_assemble_files_not_in_code_field_are_included
 
 run_test "remove: usage error on wrong argument count (plan-scoped)" test_remove_usage
 run_test "remove: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_remove_invalid_chars
@@ -5242,12 +5051,13 @@ run_test "remove: dirty worktree fails" test_remove_dirty_worktree_fails
 run_test "remove: unmerged branch fails (worktree still removed)" test_remove_unmerged_branch_fails
 
 run_test "unknown subcommand" test_unknown_subcommand
+run_test "deliver: gone as a subcommand, rejected as unknown (exit 2) (B10)" test_deliver_subcommand_is_unknown
 
 run_test "merge: removes unit worktree on success, keeps branch (B01)" test_merge_removes_unit_worktree_on_success
 run_test "merge: unit-worktree cleanup failure does not change exit code (B01)" test_merge_worktree_removal_failure_does_not_change_exit_code
 
-run_test "deliver: cleanup removes unit branch and worktree, keeps delivery branch and PR URL (B01)" test_deliver_cleanup_removes_unit_branch_and_worktree
-run_test "deliver: branch-cleanup failure does not change exit code or suppress PR URL (B01)" test_deliver_cleanup_branch_deletion_failure_still_exits_0
+run_test "deliver: cleanup removes unit branch and worktree, keeps delivery branch and PR URL (B01)" test_assemble_cleanup_removes_unit_branch_and_worktree
+run_test "deliver: branch-cleanup failure does not change exit code or suppress PR URL (B01)" test_assemble_cleanup_branch_deletion_failure_still_exits_0
 
 run_test "clean: bare clean and extra arguments are usage errors (B02 clean-plan-scoped)" test_clean_usage_unexpected_args
 run_test "clean --all: requires running inside a git work tree (B01)" test_clean_requires_git_work_tree
@@ -5268,39 +5078,39 @@ run_test "archive: a .local/ holding none of the three components archives nothi
 run_test "archive: add's empty briefs/reports/ are archived as empty directories, distinguishing archived-empty from never-archived (B01 worktree-unit-archive)" test_archive_empty_seeded_dirs_are_archived_as_empty
 run_test "archive: re-archiving overwrites same-named destination files and leaves destination-only files in place (B01 worktree-unit-archive)" test_archive_rearchive_overwrites_same_named_preserves_others
 run_test "archive: merge warns and keeps the worktree on an archive failure, exit 0 (B01 worktree-unit-archive)" test_archive_merge_failure_warns_and_keeps_worktree_exit0
-run_test "archive: deliver warns and keeps both the worktree and branch on an archive failure, exit 0, PR URL still last stdout line (B01 worktree-unit-archive)" test_archive_deliver_failure_warns_and_keeps_worktree_and_branch
+run_test "archive: assemble warns and keeps both the worktree and branch on an archive failure, exit 0, assembled branch name still last stdout line (B01 worktree-unit-archive)" test_archive_assemble_failure_warns_and_keeps_worktree_and_branch
 run_test "archive: remove exits 4 and removes nothing on an archive failure (B01 worktree-unit-archive)" test_archive_remove_failure_exit4_removes_nothing
 run_test "archive: clean never archives, by design (B01 worktree-unit-archive)" test_archive_clean_does_not_archive
 run_test "archive: never modifies a tracked file in the invoking worktree (B01 worktree-unit-archive)" test_archive_never_modifies_invoking_worktree_tracked_files
 run_test "archive: deterministic across identical repo state and arguments (B01 worktree-unit-archive)" test_archive_deterministic_across_identical_repo_state
-run_test "archive: deliver's successful cleanup archives the worktree's audit trail before removing it, keeps branch deleted, PR URL still last stdout line (B01 worktree-unit-archive)" test_archive_deliver_success_archives_before_removing_worktree
+run_test "archive: assemble's successful cleanup archives the worktree's audit trail before removing it, keeps branch deleted, assembled branch name still last stdout line (B01 worktree-unit-archive)" test_archive_assemble_success_archives_before_removing_worktree
 run_test "archive: a successful merge archive leaves the source worktree's .local/ untouched when the later removal fails, proving copy-not-move (B01 worktree-unit-archive)" test_archive_merge_success_removal_failure_preserves_source_copy
 
 run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
 run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present
 run_test "realm.sh: \$LEGO_CONFIG overrides only the override file's location; base path is fixed (NEW)" test_realm_lego_config_env_overrides_only_override_location_base_fixed
 
-run_test "deliver --manifest: extraCommits appends one commit per entry, in manifest order, after every unit commit (B07 manifest extraCommits)" test_deliver_extra_commits_appended_after_unit_commits_in_order
-run_test "deliver --manifest: an extra commit's content comes from the integration tip, not any unit-branch version (B07 manifest extraCommits)" test_deliver_extra_commit_content_comes_from_the_integration_tip
-run_test "deliver --manifest: an entry path absent at the tip is removed when tracked in the delivery worktree (B07 manifest extraCommits)" test_deliver_extra_commit_path_absent_at_tip_is_removed_when_tracked
-run_test "deliver --manifest: an entry path absent at the tip and untracked is silently skipped (B07 manifest extraCommits)" test_deliver_extra_commit_path_absent_at_tip_and_untracked_is_skipped
-run_test "deliver --manifest: an entry whose restore stages no diff creates no commit (B07 manifest extraCommits)" test_deliver_extra_commit_entry_staging_no_diff_creates_no_commit
-run_test "deliver --manifest: absent and empty extraCommits reproduce the previous delivery; non-empty does not (B07 manifest extraCommits)" test_deliver_extra_commits_absent_and_empty_reproduce_previous_behavior
-run_test "deliver --manifest: extraCommits that is not an array exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_not_an_array_exits_3
-run_test "deliver --manifest: an entry with a missing or empty subject exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_entry_missing_or_empty_subject_exits_3
-run_test "deliver --manifest: an entry whose files is missing, empty or not an array exits 3 (B07 manifest extraCommits)" test_deliver_extra_commits_entry_files_missing_empty_or_non_array_exits_3
-run_test "deliver --manifest: a malformed extraCommits dies before any branch, worktree, push or PR (B07 manifest extraCommits)" test_deliver_extra_commits_malformed_dies_before_any_branch_or_worktree
-run_test "deliver --manifest: a valid extraCommits does not relax the required-field validation (B07 manifest extraCommits)" test_deliver_extra_commits_does_not_relax_required_field_validation
+run_test "deliver --manifest: extraCommits appends one commit per entry, in manifest order, after every unit commit (B07 manifest extraCommits)" test_assemble_extra_commits_appended_after_unit_commits_in_order
+run_test "deliver --manifest: an extra commit's content comes from the integration tip, not any unit-branch version (B07 manifest extraCommits)" test_assemble_extra_commit_content_comes_from_the_integration_tip
+run_test "deliver --manifest: an entry path absent at the tip is removed when tracked in the delivery worktree (B07 manifest extraCommits)" test_assemble_extra_commit_path_absent_at_tip_is_removed_when_tracked
+run_test "deliver --manifest: an entry path absent at the tip and untracked is silently skipped (B07 manifest extraCommits)" test_assemble_extra_commit_path_absent_at_tip_and_untracked_is_skipped
+run_test "deliver --manifest: an entry whose restore stages no diff creates no commit (B07 manifest extraCommits)" test_assemble_extra_commit_entry_staging_no_diff_creates_no_commit
+run_test "deliver --manifest: absent and empty extraCommits reproduce the previous delivery; non-empty does not (B07 manifest extraCommits)" test_assemble_extra_commits_absent_and_empty_reproduce_previous_behavior
+run_test "deliver --manifest: extraCommits that is not an array exits 3 (B07 manifest extraCommits)" test_assemble_extra_commits_not_an_array_exits_3
+run_test "deliver --manifest: an entry with a missing or empty subject exits 3 (B07 manifest extraCommits)" test_assemble_extra_commits_entry_missing_or_empty_subject_exits_3
+run_test "deliver --manifest: an entry whose files is missing, empty or not an array exits 3 (B07 manifest extraCommits)" test_assemble_extra_commits_entry_files_missing_empty_or_non_array_exits_3
+run_test "deliver --manifest: a malformed extraCommits dies before any branch, worktree, push or PR (B07 manifest extraCommits)" test_assemble_extra_commits_malformed_dies_before_any_branch_or_worktree
+run_test "deliver --manifest: a valid extraCommits does not relax the required-field validation (B07 manifest extraCommits)" test_assemble_extra_commits_does_not_relax_required_field_validation
 
-run_test "deliver: a stale local base forks the delivery branch from the freshly fetched origin/<base>, and nothing beyond it is fetched (B10 deliver fresh-base)" test_deliver_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale
-run_test "deliver: no origin remote resolves the local base unchanged, failing at the push as today (B10 deliver fresh-base)" test_deliver_without_an_origin_remote_uses_the_local_base_unchanged
-run_test "deliver: an origin that does not carry <base-branch> falls back to the local ref and succeeds (B10 deliver fresh-base)" test_deliver_origin_without_the_base_branch_falls_back_to_the_local_ref
-run_test "deliver: origin carries <base-branch> but the fetch fails -> exit 4 naming the fetch (B10 deliver fresh-base)" test_deliver_fetch_failure_dies_naming_the_fetch
-run_test "deliver: a failing fetch is fatal even with a resolvable stale origin/<base> to fall back on (B10 deliver fresh-base)" test_deliver_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch
-run_test "deliver: a base resolvable neither remotely nor locally is still exit 4 'base branch not found' (B10 deliver fresh-base)" test_deliver_base_missing_locally_and_remotely_exits_4
-run_test "deliver: a local base AHEAD of origin still forks from origin; the unpushed commit is absent (B10 deliver fresh-base)" test_deliver_local_base_ahead_of_origin_still_forks_from_origin
-run_test "deliver: no local <base-branch> ref at all succeeds when origin carries it (B10 deliver fresh-base)" test_deliver_local_base_absent_with_the_remote_branch_present_succeeds
-run_test "deliver: the subject-scan lower bound moves with the base, excluding a same-subject stray already on origin (B10 deliver fresh-base)" test_deliver_subject_scan_lower_bound_uses_the_fresh_base
+run_test "deliver: a stale local base forks the delivery branch from the freshly fetched origin/<base>, and nothing beyond it is fetched (B10 deliver fresh-base)" test_assemble_forks_from_the_freshly_fetched_origin_when_the_local_base_is_stale
+run_test "deliver: no origin remote resolves the local base unchanged, failing at the push as today (B10 deliver fresh-base)" test_assemble_without_an_origin_remote_uses_the_local_base_unchanged
+run_test "deliver: an origin that does not carry <base-branch> falls back to the local ref and succeeds (B10 deliver fresh-base)" test_assemble_origin_without_the_base_branch_falls_back_to_the_local_ref
+run_test "deliver: origin carries <base-branch> but the fetch fails -> exit 4 naming the fetch (B10 deliver fresh-base)" test_assemble_fetch_failure_dies_naming_the_fetch
+run_test "deliver: a failing fetch is fatal even with a resolvable stale origin/<base> to fall back on (B10 deliver fresh-base)" test_assemble_fetch_failure_with_an_intact_tracking_ref_dies_naming_the_fetch
+run_test "deliver: a base resolvable neither remotely nor locally is still exit 4 'base branch not found' (B10 deliver fresh-base)" test_assemble_base_missing_locally_and_remotely_exits_4
+run_test "deliver: a local base AHEAD of origin still forks from origin; the unpushed commit is absent (B10 deliver fresh-base)" test_assemble_local_base_ahead_of_origin_still_forks_from_origin
+run_test "deliver: no local <base-branch> ref at all succeeds when origin carries it (B10 deliver fresh-base)" test_assemble_local_base_absent_with_the_remote_branch_present_succeeds
+run_test "deliver: the subject-scan lower bound moves with the base, excluding a same-subject stray already on origin (B10 deliver fresh-base)" test_assemble_subject_scan_lower_bound_uses_the_fresh_base
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

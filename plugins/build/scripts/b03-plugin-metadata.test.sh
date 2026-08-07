@@ -188,6 +188,32 @@ check "README names /build:context (B09: on-demand skill replacement)" \
   "$(has "$readme_body_facts" '/build:context')" "yes"
 
 # ---------------------------------------------------------------------------
+# README.md — the /build:build lifecycle front door (B02)
+# ---------------------------------------------------------------------------
+
+section_body() { # heading -> that section's body, up to the next H2
+  awk -v want="$1" '
+    $0 == want {found=1; next}
+    found && /^## / {exit}
+    found {print}
+  ' "$README" | sed '/<!--/,/-->/d'
+}
+
+what_to_expect=$(section_body '## What to expect')
+commands=$(section_body '## Commands')
+
+check "README names /build:build (B02: new lifecycle front door skill)" \
+  "$(has "$readme_body_facts" '/build:build')" "yes"
+check "README's 'What to expect' section names /build:build (B02)" \
+  "$(has "$what_to_expect" '/build:build')" "yes"
+check "README's 'Commands' section names /build:build (B02)" \
+  "$(has "$commands" '/build:build')" "yes"
+check "README describes /build:build's purpose as the lifecycle front door (B02)" \
+  "$(has "$readme_body_facts" 'front door')" "yes"
+check "README describes /build:build routing between resuming and starting work (B02)" \
+  "$(printf '%s' "$readme_body_facts" | grep -qiE 'resume[^.]{0,120}(start|new)|(start|new)[^.]{0,120}resume' && echo yes || echo no)" "yes"
+
+# ---------------------------------------------------------------------------
 # README.md — whole-file invariant: no hard dependency on companion plugins
 # ---------------------------------------------------------------------------
 

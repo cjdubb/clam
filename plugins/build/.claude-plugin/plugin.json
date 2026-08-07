@@ -1,7 +1,7 @@
 {
   "name": "build",
   "description": "High-level software delivery framework composing landing, lego, and tracking into a single lifecycle.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

@@ -24,12 +24,21 @@ no setup step to enable that.
 
 ## What to expect
 
-build ships one on-demand skill, `/build:context`. Nothing fires
-automatically — you invoke it when you want to be oriented in the delivery
-framework this repo runs under, and it presents a conversational summary,
-not a file or setting change.
+build ships two on-demand skills, `/build:build` and `/build:context`.
+Nothing fires automatically — you invoke either one when you want it, and
+both present a conversational summary, not a file or setting change.
 
-Running it checks for companion plugin directories under `plugins/` (a
+`/build:build` is the lifecycle front door. It detects which companion
+plugins are installed and whether the current worktree carries in-flight
+work, then routes the session accordingly: resuming work already in
+progress, or starting new work from a standing start. Like the rest of
+build, it writes no files and changes no settings — it works out where the
+session is and hands off to the right next step.
+
+`/build:context` is the orientation skill: you invoke it when you want to
+be oriented in the delivery framework this repo runs under.
+
+Running `/build:context` checks for companion plugin directories under `plugins/` (a
 directory-based check, not an import of their code) and frames the
 installed subset:
 
@@ -49,9 +58,16 @@ repo with none installed still gets a minimal framing explaining build's
 standalone, composite purpose and suggesting the companion plugins. The
 framing stays conceptual: it names what each companion governs without
 prescribing what to do next or mapping states to specific companion
-skills. Beyond this on-demand skill, build is otherwise inert.
+skills. Beyond these on-demand skills, build is otherwise inert.
 
 ## Common workflows
+
+### Start or pick up work
+
+Run `/build:build`. It works out whether this worktree already carries
+in-flight work and routes you there, or sets you up to start something
+new — using whichever companion plugins happen to be installed, and
+degrading gracefully when none are.
 
 ### See what's available in a session
 
@@ -65,6 +81,11 @@ composite purpose, without any of them.
 
 ### Skills
 
+- **`/build:build`** — on-demand skill that acts as the lifecycle front
+  door: it detects companion plugins and in-flight work state, then routes
+  the session to resume work already in progress or to start new work.
+  Conversational only: no files written, no settings changed, no hooks
+  registered.
 - **`/build:context`** — on-demand skill that detects companion plugins
   and presents the delivery framework framing described above under What
   to expect. Purely conceptual and conversational: no files written, no

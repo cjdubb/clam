@@ -103,13 +103,13 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.14.6 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.15.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.2.0 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.9.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
 | [statusline](plugins/statusline/) | ✅ v0.5.5 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to your awake hours, context usage. One explicit global write via `/statusline:setup`. |
-| [landing](plugins/landing/) | ✅ v0.2.6 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
+| [landing](plugins/landing/) | ✅ v0.3.0 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.3 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
 | [worktrees](plugins/worktrees/) | ✅ v0.1.4 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
@@ -118,7 +118,7 @@ auto-update doesn't refresh the recorded install path
 | [privacy](plugins/privacy/) | ✅ v0.2.4 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
-| [build](plugins/build/) | ✅ v0.3.0 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle. Provides PR description sync (`/build:sync-pr`) and delivery workflow context. |
+| [build](plugins/build/) | ✅ v0.4.0 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle, providing delivery workflow context. |
 | [render-doc](plugins/render-doc/) | ✅ v0.11.0 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.3 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [notifications](plugins/notifications/) | ✅ v0.1.2 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
@@ -126,6 +126,7 @@ auto-update doesn't refresh the recorded install path
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.2 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
 | [management](plugins/management/) | ✅ v0.6.0 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.1.2 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
+| [forge-github](plugins/forge-github/) | ✅ v0.1.0 | GitHub forge implementation: `/forge-github:create-pr` opens PRs and `/forge-github:sync-pr` keeps their descriptions current, both composing flowing-prose descriptions via the `gh` CLI. |
 | [debugging](plugins/debugging/) | ✅ v0.2.4 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
@@ -134,6 +135,42 @@ auto-update doesn't refresh the recorded install path
      insert new rows before it. Both rules are enforced: scripts/readme-lint.sh
      (version agreement) and plugins/debugging/scripts/b10-registration.test.sh
      (last-row invariant). -->
+
+<!--
+Contract: B08 registration (plan 001-fix-pr-line-lengths)
+Behavior: register the forge-github plugin and sync this repo's
+registration surfaces to the post-refactor state of build, landing, and
+lego.
+Outputs:
+- .claude-plugin/marketplace.json: exactly one forge-github entry (name,
+  source "./plugins/forge-github", non-empty description naming both
+  skills, no version field) — landed at scaffold for directory/entry
+  parity; content is contractual. The build entry's description updated
+  to drop its PR-description-sync claim (the skill moved to
+  forge-github); landing's and lego's descriptions updated only if they
+  contradict the post-refactor behavior.
+- The Plugins table above: exactly one forge-github row (inserted before
+  the debugging row — standing last-row invariant), and the build,
+  landing, and lego rows' versions and descriptions agree with their
+  plugin.json files at implementation time (build's row no longer
+  mentions /build:sync-pr).
+- .github/ISSUE_TEMPLATE/{bug,feature}.yml: forge-github in each
+  affected-plugin dropdown, alphabetical order (landed at scaffold for
+  issue-template-lint parity).
+- .claude/settings.local.json: forge-github@clam enabled alongside the
+  other repo plugins.
+Invariants: every marketplace plugin has exactly one table row whose
+  version agrees with its plugin.json; debugging stays the last row;
+  planned rows untouched; no duplicate entries; the registration reaches
+  master only together with the working plugin (single-PR delivery G02;
+  integration-branch intermediate states are internal).
+Errors: n/a — declarative edits; validity enforced by marketplace-lint,
+  readme-lint's root-table check, issue-template-lint, and this block's
+  tests.
+Edge cases: row placement beyond the before-debugging invariant mirrors
+  the existing ordering style and is not contractual; presence,
+  uniqueness, and version agreement are.
+-->
 
 See [MIGRATION.md](MIGRATION.md) for the full element-by-element mapping from
 clam-code, including what is deliberately left behind.

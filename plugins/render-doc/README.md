@@ -84,11 +84,29 @@ per-node fallback that keeps one bad entry from breaking the rest of the
 tree. A topbar "Graph" toggle switches a Work Graph document from that card
 tree to a node-and-edge view rendered with cytoscape and a dagre layout:
 nodes are status-colored, Parent and Deps edges get distinct edge styles,
-and the Focus node gets a highlight. Clicking a node jumps back to its card,
-and the graph view is the default on load for Work Graph documents, with
-the card tree one toggle away. Any other H1 gets baseline rendering: TOC
-with scroll tracking, collapsible h2 sections, styled GFM tables. A topbar
-toggle switches to generic rendering at any time.
+and the Focus node gets a highlight. Tapping a node opens a side panel with
+that node's full information — id, title, status with its reason, goal,
+parent, deps, and notes — without leaving the graph; the panel's "Go to
+card" control drops back to the card tree and scrolls to that node, and the
+panel closes on its Close button, on a tap of empty graph background, or by
+being replaced when another node is tapped. If the panel cannot be opened
+for any reason, tapping a node goes back to its card exactly as it always
+did, so a tap always does something. The graph view is the default on load for
+Work Graph documents, with the card tree one toggle away. Any other H1 gets
+baseline rendering: TOC with scroll tracking, collapsible h2 sections,
+styled GFM tables. A topbar toggle switches to generic rendering at any
+time.
+
+On a page served by the annotation server, prose references to other repo
+markdown documents — a bare or backticked path token ending in `.md`, either
+absolute or relative to the document's own directory — become links to that
+file's server view, so a document that names an artifact without writing an
+explicit markdown link still navigates. Links the author wrote are left
+exactly as they are, and so is anything inside a fenced code block. No
+existence check is possible in the browser, so a reference to a file that
+isn't there links anyway and clicks through to the server's ordinary JSON
+error. A failure in the linking pass leaves the prose plain and the page
+rendered. Pages opened straight from disk over `file://` are unaffected.
 
 ### Leave feedback that writes back into the source
 
@@ -335,6 +353,7 @@ bash plugins/render-doc/scripts/landing-docs.test.sh
 bash plugins/render-doc/scripts/hostname-allowlist.test.sh
 bash plugins/render-doc/scripts/dual-bind.test.sh
 bash plugins/render-doc/scripts/hostname-docs.test.sh
+bash plugins/render-doc/scripts/node-panel.test.sh
 ```
 
 ## Provenance
@@ -388,20 +407,3 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
-
-<!-- Contract: 003-B20 G07 docs + bump (plan 003-followup-fixes) (remove at acceptance)
-Behavior: this README and skills/render/SKILL.md describe the
-  graph-primary work-graph view - tapping a node opens a side panel with
-  the node's full information, the card view stays one control away -
-  and the auto-linking of prose references to repo markdown documents on
-  http-served pages. The new panel suite is named in this README's Tests
-  list (the server-docs suite enforces that pairing).
-Inputs: n/a (prose).
-Outputs: plugin.json version 0.11.0 -> 0.12.0; root README render-doc
-  version cell updated to match.
-Errors: n/a.
-Invariants: each described feature states its degradation beside it
-  (panel failure degrades to tap-to-card; linkify failure leaves prose
-  plain and the page rendered); no plugin is named anywhere.
-Edge cases: n/a.
--->

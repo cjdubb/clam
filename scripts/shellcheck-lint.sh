@@ -78,14 +78,12 @@
 #   - Invoking shellcheck once over the full file list, not once per file:
 #     this gate must not reintroduce the fork-per-file cost that plan 001
 #     exists to remove.
-#   - SC2317 is excluded at the invocation rather than baselined. All ~7,200
-#     of this repo's instances are false positives from the test-harness
+#   - SC2317 and SC2329 are excluded at the invocation rather than baselined.
+#     All instances in this repo are false positives from the test-harness
 #     idiom (`run_test "$name" <fn>` dispatching through `"$@"`, `cleanup`
 #     running from a `trap`), and baselining them would fail every new test
-#     file for no real defect. Amended 2026-08-05 at delivery, after CI
-#     showed the first push's baseline going stale on exactly this. No other
-#     code is excluded: suppression belongs in the baseline, where it is
-#     visible and shrink-only.
+#     file for no real defect. No other code is excluded: suppression belongs
+#     in the baseline, where it is visible and shrink-only.
 #
 # Edge cases:
 #   - Repo with no tracked *.sh files: clean pass, exit 0, "no files to
@@ -176,19 +174,19 @@ fi
 # with repo-relative argv paths means shellcheck echoes back repo-relative
 # paths too, satisfying the cwd-independence invariant for free.
 #
-# SC2317 ("Command appears to be unreachable") is excluded at the invocation,
-# not baselined. Every one of this repo's ~7,200 instances is a false positive
-# from the test-harness idiom: `run_test "$name" <fn>` invokes each test
-# function through `"$@"` and `cleanup` runs from a `trap`, neither of which
-# the tool's reachability analysis can follow. Baselining them instead would
-# make every new test file fail this check for no real defect, and the
-# baseline's own rule forbids adding rows to fix that.
+# SC2317 ("Command appears to be unreachable") and SC2329 ("This function is
+# never invoked") are excluded at the invocation, not baselined. Every instance
+# in this repo is a false positive from the test-harness idiom: `run_test
+# "$name" <fn>` invokes each test function through `"$@"` and `cleanup` runs
+# from a `trap`, neither of which the tool's reachability analysis can follow.
+# Baselining them instead would make every new test file fail this check for no
+# real defect, and the baseline's own rule forbids adding rows to fix that.
 # ---------------------------------------------------------------------------
 OUT_FILE="$(mktemp)"
 ERR_FILE="$(mktemp)"
 trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
 
-( cd "$ROOT" && shellcheck -f gcc --exclude=SC2317 -- "${FILES[@]}" >"$OUT_FILE" 2>"$ERR_FILE" )
+( cd "$ROOT" && shellcheck -f gcc --exclude=SC2317,SC2329 -- "${FILES[@]}" >"$OUT_FILE" 2>"$ERR_FILE" )
 SC_EXIT=$?
 
 # The tool's own exit codes: 0 clean, 1 findings reported. Anything else

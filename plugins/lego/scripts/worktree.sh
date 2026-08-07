@@ -811,7 +811,18 @@ cmd_add() {
       *) base_dir="$REPO_ROOT/$worktree_dir" ;;
     esac
   fi
-  base_dir="$(realpath -m -- "$base_dir")"
+  # portable realpath -m: resolve the longest existing prefix, keep the tail
+  local _rp_resolved="" _rp_tail="" _rp_try="$base_dir"
+  while [ ! -e "$_rp_try" ] && [ "$_rp_try" != "/" ] && [ "$_rp_try" != "." ]; do
+    _rp_tail="/$(basename -- "$_rp_try")$_rp_tail"
+    _rp_try="$(dirname -- "$_rp_try")"
+  done
+  if [ -e "$_rp_try" ]; then
+    _rp_resolved="$(cd "$_rp_try" && pwd -P)$_rp_tail"
+  else
+    _rp_resolved="$base_dir"
+  fi
+  base_dir="$_rp_resolved"
 
   local new_wt branch
   new_wt="$base_dir/$(basename -- "$REPO_ROOT")-$unit_id"

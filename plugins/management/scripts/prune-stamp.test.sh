@@ -253,7 +253,7 @@ check "NOFILE: stdout empty (no output on an error path)" "$OUT" ""
 check_true "NOFILE: stderr names the path it looked for" \
   "$(grep -qF -- "$(stampfile "$CFG_NOFILE")" "$STDERR"; yesno $?)"
 check_true "NOFILE: stamp file still absent (not created by the failure)" \
-  "$([[ ! -e "$(stampfile "$CFG_NOFILE")" ]]; yesno $?)"
+  "$(if [[ ! -e "$(stampfile "$CFG_NOFILE")" ]]; then yesno 0; else yesno 1; fi)"
 check "NOFILE: no backup file created" "$(nbackups "$CFG_NOFILE")" "0"
 
 echo ""
@@ -271,7 +271,7 @@ NOJQ_TREE_BEFORE=$(tree_digest "$CFG_NOJQ")
 run_prune_nojq "$CFG_NOJQ" alpha "$T_USER"
 check "NOJQ: exit 4" "$RC" "4"
 check "NOJQ: stdout empty (no output on an error path)" "$OUT" ""
-check_true "NOJQ: stderr message present" "$([[ -n "$ERR" ]]; yesno $?)"
+check_true "NOJQ: stderr message present" "$(if [[ -n "$ERR" ]]; then yesno 0; else yesno 1; fi)"
 check "NOJQ: fixture untouched (no delete attempted without jq)" \
   "$(tree_digest "$CFG_NOJQ")" "$NOJQ_TREE_BEFORE"
 check "NOJQ: no backup file created" "$(nbackups "$CFG_NOJQ")" "0"
@@ -297,7 +297,7 @@ BAD_TREE_BEFORE=$(tree_digest "$CFG_BAD")
 run_prune "$CFG_BAD" alpha "$T_USER"
 check "BADJSON: exit 5" "$RC" "5"
 check "BADJSON: stdout empty (no output on an error path)" "$OUT" ""
-check_true "BADJSON: stderr message present" "$([[ -n "$ERR" ]]; yesno $?)"
+check_true "BADJSON: stderr message present" "$(if [[ -n "$ERR" ]]; then yesno 0; else yesno 1; fi)"
 check "BADJSON: corrupt file byte-identical (never repaired or overwritten)" \
   "$(hash_of "$(stampfile "$CFG_BAD")")" "$BAD_MD5_BEFORE"
 check "BADJSON: corrupt file same inode (never rewritten in place)" \
@@ -319,7 +319,7 @@ OBJ_MD5_BEFORE=$(hash_of "$(stampfile "$CFG_OBJ")")
 run_prune "$CFG_OBJ" alpha "$T_USER"
 check "NOTARRAY object: exit 5" "$RC" "5"
 check "NOTARRAY object: stdout empty (no output on an error path)" "$OUT" ""
-check_true "NOTARRAY object: stderr message present" "$([[ -n "$ERR" ]]; yesno $?)"
+check_true "NOTARRAY object: stderr message present" "$(if [[ -n "$ERR" ]]; then yesno 0; else yesno 1; fi)"
 check "NOTARRAY object: file left exactly as found" \
   "$(hash_of "$(stampfile "$CFG_OBJ")")" "$OBJ_MD5_BEFORE"
 check "NOTARRAY object: no backup file created" "$(nbackups "$CFG_OBJ")" "0"
@@ -354,7 +354,7 @@ check "EMPTYFILE: fixture precondition, file is 0 bytes" \
 run_prune "$CFG_ZERO" alpha "$T_USER"
 check "EMPTYFILE: 0-byte file is not valid JSON -> exit 5" "$RC" "5"
 check "EMPTYFILE: stdout empty (no output on an error path)" "$OUT" ""
-check_true "EMPTYFILE: stderr message present" "$([[ -n "$ERR" ]]; yesno $?)"
+check_true "EMPTYFILE: stderr message present" "$(if [[ -n "$ERR" ]]; then yesno 0; else yesno 1; fi)"
 check "EMPTYFILE: file still present and still 0 bytes (not repaired)" \
   "$(wc -c < "$(stampfile "$CFG_ZERO")" | tr -d ' ')" "0"
 check "EMPTYFILE: no backup file created" "$(nbackups "$CFG_ZERO")" "0"
@@ -428,7 +428,7 @@ DEL_BACKUP_DATE="${DEL_BACKUP##*.bak-}"
 check_true "DELETE: backup is named <file>.bak-<YYYY-MM-DD>" \
   "$(printf '%s' "$DEL_BACKUP_DATE" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; yesno $?)"
 check_true "DELETE: backup date is today ($TODAY_LOCAL local / $TODAY_UTC UTC)" \
-  "$([[ "$DEL_BACKUP_DATE" == "$TODAY_LOCAL" || "$DEL_BACKUP_DATE" == "$TODAY_UTC" ]]; yesno $?)"
+  "$(if [[ "$DEL_BACKUP_DATE" == "$TODAY_LOCAL" || "$DEL_BACKUP_DATE" == "$TODAY_UTC" ]]; then yesno 0; else yesno 1; fi)"
 check "DELETE: backup holds the pre-delete content byte-for-byte" \
   "$(hash_of "$DEL_BACKUP")" "$DEL_MD5_BEFORE"
 

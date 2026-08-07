@@ -341,6 +341,48 @@ block_has_link_to() { # <html fragment> <absolute md path>
     | grep -qxF -- "/doc$(enc "$2")"
 }
 
+# Case-insensitive occurrences of a literal in the RAW body — markup and the
+# inline stylesheet alike. visible_text() drops the stylesheet on purpose, so it
+# is the wrong reader for a clause about a CSS class (003-B15).
+raw_count_ci() { # <needle>
+  python3 - "$BODY" "$1" << 'PY' 2> /dev/null
+import sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+print(data.lower().count(sys.argv[2].lower()))
+PY
+}
+
+# The <li> element carrying the /doc link for one document. Entry elements are
+# never nested, so the non-greedy match is exact.
+li_for() { # <absolute md path>
+  python3 - "$BODY" "/doc$(enc "$1")" << 'PY' 2> /dev/null
+import re
+import sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+want = 'href="%s"' % sys.argv[2]
+for m in re.finditer(r'<li\b.*?</li>', data, re.S | re.I):
+    if want in m.group(0):
+        sys.stdout.write(m.group(0))
+        break
+PY
+}
+
+# The same element with the two things that legitimately differ between any two
+# entries — the link target and the link text — replaced by placeholders. What
+# survives is the markup shape, which 003-B15 requires to be the SAME for a
+# served and a never-served entry. Comparing two shapes rather than asserting
+# one literal shape keeps a faithful rewrite of the markup from failing this.
+li_shape() { # <li html>
+  python3 -c '
+import re
+import sys
+li = sys.argv[1]
+li = re.sub(r"href=\"[^\"]*\"", "href=\"HREF\"", li)
+li = re.sub(r"(<a\b[^>]*>).*?(</a>)", r"\1TEXT\2", li, flags=re.S)
+sys.stdout.write(li)
+' "$1" 2> /dev/null
+}
+
 # The response body as a JSON {"error": "<non-empty>"} object — scope_error's
 # shape, which the contract says these failures mirror.
 json_error_ok() {
@@ -794,8 +836,22 @@ else
 fi
 
 # =============================================================================
-# Behavior 2 (order and marking): served first in last-served order, then
-# unserved by mtime descending, each unserved document marked
+# Behavior 2 (order): served first in last-served order, then unserved by mtime
+# descending
+#
+# Contract: 003-B15 unserved marker removed (plan 003-followup-fixes)
+#
+# The landing page is the second of the two pages the block covers, and its
+# entries carry an extra element the index's do not — the protocol-field
+# annotation — so "identical markup for served and never-served" is asserted
+# between two documents that BOTH lack one: PLAN.md (served, seeded 5000) and
+# café.md (never served, no State:/Status: line). An annotated document would
+# make the two shapes differ for a reason this block has nothing to do with.
+#
+# Absence is asserted over the RAW body: visible_text() drops <style> with its
+# contents on purpose, and the .unserved rule this block deletes lives exactly
+# there. The ordering clauses below are UNCHANGED by the block and now carry the
+# whole distinction, so they stay anchored on fixture-known names.
 # =============================================================================
 
 in_order "$PAGE_TEXT" "order: served documents list in last-served order" \
@@ -808,24 +864,40 @@ in_order "$PAGE_TEXT" "order: unserved documents follow mtime, newest first" \
   "NOTES.md" "DECIDE.md" "BOTH.md" "LONG.md" "LATE.md" "PLAIN.md" \
   "NOTANCHOR.md" "EMPTYSTATE.md" "UNREADABLE.md"
 
-n_marks="$(text_count "$PAGE_TEXT" unserved)"
-# 11 top-level unserved documents plus the 5 inside the three groups. The
-# headline is deliberately excluded: whether the headline document itself
-# carries the mark is not something the contract settles.
-if [ "${n_marks:-0}" -ge 16 ]; then
-  pass "marking: every unserved document carries an \"unserved\" mark ($n_marks marks)"
+n_marker="$(raw_count_ci "unserved")"
+if [ "${n_marker:-0}" = "0" ]; then
+  pass "marker: no \"unserved\" text, marker or CSS class anywhere in the landing page"
 else
-  fail "marking: the page carries $n_marks \"unserved\" marks, expected at least one per unserved document (16)"
+  fail "marker: the landing page carries \"unserved\" $n_marker time(s) — its markup or its stylesheet still marks never-served documents"
 fi
 
-p_second="$(text_pos "$PAGE_TEXT" "SECOND.md")"
-p_mark="$(text_pos "$PAGE_TEXT" "unserved")"
-p_second="${p_second:--1}"
-p_mark="${p_mark:--1}"
-if [ "$p_second" -ge 0 ] && [ "$p_mark" -gt "$p_second" ]; then
-  pass "marking: no served document is marked unserved (the first mark follows every served entry)"
+if body_has 'class="unserved"'; then
+  fail "marker: an entry still carries the unserved CSS class"
 else
-  fail "marking: an \"unserved\" mark at $p_mark precedes the served SECOND.md at $p_second"
+  pass "marker: no entry carries an unserved CSS class"
+fi
+
+served_li="$(li_for "$MAIN_PLAN")"
+unserved_li="$(li_for "$MAIN_UTF8")"
+if [ -z "$served_li" ] || [ -z "$unserved_li" ]; then
+  fail "markup: a served and a never-served entry element could not both be located; the identical-markup clause is unchecked"
+elif [ "$(li_shape "$served_li")" = "$(li_shape "$unserved_li")" ]; then
+  pass "markup: a never-served entry is marked up exactly like a served one (only its link target and text differ)"
+else
+  fail "markup: the served entry is \"$(li_shape "$served_li")\" but the never-served entry is \"$(li_shape "$unserved_li")\""
+fi
+
+# Position is the whole distinction now, so the served/unserved boundary is
+# asserted from the fixture's own names rather than from where the first mark
+# fell: SECOND.md is the last served document, NOTES.md the first never-served.
+p_second="$(text_pos "$PAGE_TEXT" "SECOND.md")"
+p_notes="$(text_pos "$PAGE_TEXT" "NOTES.md")"
+p_second="${p_second:--1}"
+p_notes="${p_notes:--1}"
+if [ "$p_second" -ge 0 ] && [ "$p_notes" -gt "$p_second" ]; then
+  pass "order: the served/never-served boundary is position alone (every served entry precedes the first never-served one)"
+else
+  fail "order: the served SECOND.md at $p_second does not precede the never-served NOTES.md at $p_notes"
 fi
 
 # =============================================================================
@@ -1236,14 +1308,14 @@ fi
 # =============================================================================
 # Left to acceptance review
 # =============================================================================
-# Three things are deliberately unasserted. WHERE a registered document that
+# Two things are deliberately unasserted. WHERE a registered document that
 # lives outside .local is placed on the page: the contract puts it in the
 # document set and says nothing about its position, so pinning one would invent
-# a rule (that it is listed at all is asserted above). Whether the headline
-# document itself carries the "unserved" mark, for the same reason. And how the
-# page LOOKS — that the collapsed groups are usable, that the headline reads as
-# a headline — which is a browser judgement the orchestrator makes at
-# acceptance.
+# a rule (that it is listed at all is asserted above). And how the page LOOKS —
+# that the collapsed groups are usable, that the headline reads as a headline,
+# and (since 003-B15) that position alone really is legible enough to tell a
+# never-served document from a served one — which is a browser judgement the
+# orchestrator makes at acceptance.
 
 # --- Summary -----------------------------------------------------------------
 if [ "$SKIPPED" -gt 0 ]; then

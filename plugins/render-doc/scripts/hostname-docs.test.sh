@@ -435,7 +435,11 @@ if [ -n "$readme_scripts" ]; then
   has_f "$readme_scripts" '/project/' "README Scripts: the worktree landing page route is still documented"
   has "$readme_scripts" 'render-doc-registry' \
     "README Scripts: the registry's /tmp file, keyed by port, is still documented"
-  has_f "$readme_scripts" 'unserved' \
+  # Anchored on the feature, not on the marker the page used to print for it:
+  # 003-B15 removed the "unserved" mark from the index and 003-B18 removed the
+  # word from this paragraph with it, so a guard spelled that way would go red on
+  # a faithful rewrite of prose this block never touches.
+  has "$readme_scripts" 'discover|never[- ]served' \
     "README Scripts: the index's filesystem discovery is still documented"
   # The rejection half of the Host rule survives the widening: naming more
   # accepted forms must not read as dropping the check.

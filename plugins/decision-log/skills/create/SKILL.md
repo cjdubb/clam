@@ -87,6 +87,8 @@ The draft MUST include:
 - **Pros/Cons grounded in the codebase:** reference actual files, patterns, and constraints discovered during exploration
 </mandatory>
 
+**Link every artifact the DL references.** The thing under decision, sibling decision logs, plans, protocol documents — each is carried as a relative markdown link, resolvable from the decision file's own directory (`[2025-11-02 - DL - retire the legacy scheduler](2025-11-02-DL-retire-legacy-scheduler.md)`), never a bare path or a bare name. A DL is read rendered — in a preview pane, or served as HTML for a reviewer — as often as it is read raw, and a bare path is dead text in those views: the reader has to be able to reach whatever you are asking them to judge in one click. Two cases look like exceptions and are not. An artifact reachable only by URL is already a link, so the rule adds nothing to it. An artifact that does not exist yet is linked anyway — the link is what records what the decision depends on.
+
 <decision_tree name="draft_quality">
 
 | Check | Fail Action |
@@ -96,6 +98,7 @@ The draft MUST include:
 | Pros/Cons are generic (not grounded in codebase) | Re-explore to find concrete evidence |
 | Impact section is vague | Quantify where possible: latency numbers, error rates, dev hours |
 | Options lack estimated effort | Add relative effort estimates |
+| A referenced artifact appears as a bare path or name | Convert it to a relative markdown link |
 
 </decision_tree>
 

@@ -106,7 +106,7 @@ auto-update doesn't refresh the recorded install path
 | [lego](plugins/lego/) | ✅ v0.14.6 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
-| [decision-log](plugins/decision-log/) | ✅ v0.1.3 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
+| [decision-log](plugins/decision-log/) | ✅ v0.2.0 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.8.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
 | [statusline](plugins/statusline/) | ✅ v0.5.5 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to your awake hours, context usage. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.2.5 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |

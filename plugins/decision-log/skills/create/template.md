@@ -91,6 +91,7 @@ Avoid vague statements like "improve performance" - specify what's slow and by h
 
 ## Related
 
-- {Link to related decision logs}
+- {Each related decision log as a relative markdown link, resolvable from this file's directory: [2025-11-02 - DL - retire the legacy scheduler](2025-11-02-DL-retire-legacy-scheduler.md)}
+- {The artifact under decision, and any plan or protocol this decision rests on, carried the same way: [the ingestion rewrite plan](../plans/002-ingestion-rewrite.md)}
 - Ticket: {ticket reference via the issue-tracker skill (`ref`); omit under provider `none`}
 ```

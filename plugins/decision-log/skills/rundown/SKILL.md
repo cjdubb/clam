@@ -23,7 +23,7 @@ Canonical; the clam session workflow (session-modes plugin; formerly the clam-co
 # Decision: <question>
 
 Status: Open
-Refs: <ticket / PR / related decision files>
+Refs: <ticket / PR / related decision files, each as a relative markdown link>
 
 ## Context
 
@@ -55,6 +55,7 @@ What happens if the user does not decide, or just replies "go".
 Rules:
 
 - Evidence goes in `## Context` at write time, while it is still in the context window. Compaction discards exploration and superseded approaches, which is exactly the analysis behind a pending decision; it cannot be re-derived later.
+- Every artifact the decision references — the thing under decision, sibling decision files, plans, protocols — goes in as a relative markdown link resolvable from the decision file's own directory (`[001 typecheck gate](001-typecheck-gate.md)`), never a bare path or name. These files are read rendered as often as raw, and a bare path is dead text there.
 - Mandatory per option: what it entails in plain terms, pros, cons. Optional depth fields (effort, risk, reversibility) only when material to the choice; forcing them invites formulaic filler.
 - `## Recommendation` (which option and why) and `## If Deferred` are mandatory: they are what make a bare "go" reply safe to act on.
 - `Status:` stays `Open` until decided, then becomes `Resolved (<choice>; <who>, <YYYY-MM-DD>)`.

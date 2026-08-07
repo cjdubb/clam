@@ -576,6 +576,44 @@
   .drawer-foot .btn { flex: 1; text-align: center; }
   .drawer-empty { color: var(--muted-2); font-size: 12.5px; text-align: center; padding: 18px 10px; }
 
+  /* ---------- Graph node detail panel (styling follows the drawer) ---------- */
+  #node-panel {
+    position: fixed;
+    right: 18px; top: 76px;
+    width: min(360px, calc(100vw - 36px));
+    max-height: min(70vh, calc(100vh - 110px));
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+    z-index: 55;
+  }
+  #node-panel[hidden] { display: none; }
+  .node-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--display); font-weight: 700; font-size: 14px;
+  }
+  .node-panel-head .btn { font-size: 11px; padding: 3px 10px; }
+  .node-panel-body { overflow-y: auto; padding: 10px 14px; flex: 1; font-size: 13px; }
+  .np-row { margin-bottom: 9px; overflow-wrap: break-word; }
+  .np-row .np-k {
+    display: block;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--muted-2); margin-bottom: 2px;
+  }
+  .np-row .np-v { display: block; color: var(--text); white-space: pre-wrap; }
+  .node-panel-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+  .node-panel-foot .btn { flex: 1; text-align: center; }
+
+  /* Auto-linked cross-document references keep the surrounding text's look. */
+  a.doc-ref { color: var(--teal, #2dd4bf); text-decoration: underline dotted; }
+  a.doc-ref.code-ref { font-family: var(--mono); }
+
   /* ---------- Manual-copy overlay (clipboard API fallback) ---------- */
   .copy-overlay {
     position: fixed; inset: 0; z-index: 80;
@@ -666,6 +704,17 @@
     <div class="drawer-foot">
       <button class="btn" id="copy-all">Copy all feedback</button>
       <button class="btn" id="clear-all">Clear</button>
+    </div>
+  </aside>
+
+  <aside class="node-panel" id="node-panel" aria-label="Node details" hidden>
+    <div class="node-panel-head">
+      <span id="panel-title">Node</span>
+      <button class="btn" id="panel-close">Close</button>
+    </div>
+    <div class="node-panel-body" id="panel-body"></div>
+    <div class="node-panel-foot">
+      <button class="btn" id="panel-jump">Go to card</button>
     </div>
   </aside>
 
@@ -766,6 +815,74 @@ __CYTOSCAPE_DAGRE_SPLICE__
       }
     }
 
+    /* Contract: 003-B19 graph node side panel (plan 003-followup-fixes)
+
+       Behavior: on work-graph pages with the graph view active, tapping a
+         node opens a side panel (the existing right-hand feedback aside
+         is the styling precedent) showing that node's full information -
+         id, title, status with any reason, goal, parent, deps, and notes
+         - WITHOUT leaving the graph or altering the current view mode. A
+         control inside the panel jumps to the node's card: it deactivates
+         the graph exactly as the existing toggle does and scrolls to the
+         node's section with the existing jump highlight. The panel closes
+         on its close control, on tapping empty graph background, and on
+         tapping another node (which opens that node instead). Closes
+         issue 332.
+       Inputs: the captured work-graph model, EXTENDED to retain each
+         node's goal and notes text (today the capture keeps only
+         id/title/statusKind/statusReason/parent/deps plus the live
+         section ref). The model the graph build and the panel consume is
+         a GENERIC {nodes, edges, focus} shape whose consumers key on no
+         docType-specific field names beyond the node payloads - a second
+         document type can plug its own model in without reworking the
+         build or the panel (DL-008 Q3 enabler).
+       Outputs: panel markup rendered from model data only, HTML-escaped;
+         no new external resources.
+       Errors: a model node missing goal or notes renders the panel with
+         those rows absent - never an exception; any failure while opening
+         the panel degrades to today's tap-to-card behavior rather than
+         breaking the graph.
+       Invariants: the card view stays reachable via the existing toggle;
+         the graph-build-failure fallback to the card view is unchanged; a
+         live-update re-render closes any open panel cleanly and never
+         errors; the feedback aside keeps its own markup, ids, and
+         behavior untouched.
+       Edge cases: tapping the same node twice (no duplicate panels;
+         close-then-reopen is acceptable); a re-render arriving while a
+         dropped node's panel is open (the panel simply closes); very long
+         notes (the panel scrolls, the page does not). */
+
+    /* Contract: 003-B22 cross-doc auto-linking (plan 003-followup-fixes)
+
+       Behavior: on http(s)-served rendered pages, a prose reference to a
+         repo markdown document - a bare or backticked path token ending
+         in .md, either absolute or relative (resolved against the source
+         document's own directory via the embedded sourcePath) - renders
+         as a link to that file's /doc view, so a document that names an
+         artifact without an explicit markdown link still navigates (F08).
+         Author-written markdown links are held INVARIANT: a reference
+         already inside an anchor is never re-wrapped.
+       Inputs: the rendered DOM's text and inline-code spans; sourcePath;
+         location.protocol.
+       Outputs: anchor elements pointing at "/doc" plus the
+         percent-encoded resolved target path; file:// pages are
+         byte-identical to today (no linkification).
+       Errors: NO client-side existence or scope check is attempted (none
+         is possible) - a reference to a missing or out-of-scope file
+         links anyway and clicks through to the server's normal JSON
+         error, an accepted trade-off recorded at planning; any failure
+         of the linkify pass leaves the affected span un-linkified and
+         the page rendered - linkification never breaks rendering.
+       Invariants: text outside path tokens is untouched; existing
+         anchors, the TOC, sectionize output, and every schema transform
+         behave exactly as today; live-update re-renders re-apply
+         linkification idempotently (no nested or duplicated anchors).
+       Edge cases: a token containing spaces (not linkified - tokens are
+         delimited conservatively); ../ traversal in a relative reference
+         (resolved lexically before encoding); a token inside a fenced
+         code BLOCK (left alone - only prose and inline code linkify);
+         the same path referenced twice (each occurrence links). */
+
     /* ---------- Doc-type detection hook ---------- */
     var TAGS = ["COMMENT", "QUESTION", "CONCERN", "APPROVE", "EVIDENCE"];
     function detectDocType(md) {
@@ -828,6 +945,9 @@ __CYTOSCAPE_DAGRE_SPLICE__
        ================================================================= */
 
     function render() {
+      /* Sections are rebuilt from scratch below, so any open node panel is
+         holding references into DOM that is about to be discarded. */
+      closeNodePanel();
       var doc = document.getElementById("doc");
       var hero = document.getElementById("hero");
       var html;
@@ -846,6 +966,10 @@ __CYTOSCAPE_DAGRE_SPLICE__
       highlightTags(hero);
       workGraphModel = (docType === "work-graph") ? captureWorkGraphModel(doc) : null;
       if (state.schemaOn && docType !== "generic") applySchema(doc);
+      try {
+        linkifyDocRefs(doc);
+        linkifyDocRefs(hero);
+      } catch (err) { /* linkification never breaks rendering */ }
       buildToc(doc);
       attachAnnotators(hero, doc);
       if (state.graphOn) {
@@ -1019,6 +1143,73 @@ __CYTOSCAPE_DAGRE_SPLICE__
       });
     }
 
+    /* ---------- Cross-document auto-linking (003-B22) ----------
+       A path token is delimited conservatively: no whitespace, ending in
+       ".md", bounded by whitespace or common punctuation. Anything looser
+       would swallow prose. */
+    var MD_REF_RE = /(^|[\s(\[<"'`])(\/?[A-Za-z0-9._@+~-]+(?:\/[A-Za-z0-9._@+~-]+)*\.md)(?=$|[\s)\]>"'`,;:.!?])/g;
+
+    /* Resolve a reference against the source document's own directory and
+       collapse "." / ".." segments lexically — the server is never asked
+       whether the target exists. */
+    function resolveDocRef(token) {
+      var base = token.charAt(0) === "/" ? token : sourcePath.replace(/[^/]*$/, "") + token;
+      var out = [];
+      base.split("/").forEach(function (seg) {
+        if (!seg || seg === ".") return;
+        if (seg === "..") { out.pop(); return; }
+        out.push(seg);
+      });
+      return "/" + out.join("/");
+    }
+
+    function linkifyTextNode(textNode, inCode) {
+      var text = textNode.nodeValue;
+      var frag = document.createDocumentFragment();
+      var last = 0, m, linked = false;
+      MD_REF_RE.lastIndex = 0;
+      while ((m = MD_REF_RE.exec(text)) !== null) {
+        var start = m.index + m[1].length;
+        frag.appendChild(document.createTextNode(text.slice(last, start)));
+        var a = document.createElement("a");
+        a.className = inCode ? "doc-ref code-ref" : "doc-ref";
+        a.href = "/doc" + encodeURI(resolveDocRef(m[2]));
+        a.textContent = m[2];
+        frag.appendChild(a);
+        last = start + m[2].length;
+        linked = true;
+      }
+      if (!linked) return;
+      frag.appendChild(document.createTextNode(text.slice(last)));
+      textNode.parentNode.replaceChild(frag, textNode);
+    }
+
+    /* Prose and inline code linkify; author-written anchors and fenced code
+       blocks are left exactly as they are. Runs from render(), so every
+       live-update repaint re-links a freshly built DOM rather than nesting
+       anchors inside the previous pass's output. */
+    function linkifyDocRefs(root) {
+      if (!servedOverNetwork || !sourcePath) return;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          if (!n.nodeValue || n.nodeValue.indexOf(".md") === -1) return NodeFilter.FILTER_REJECT;
+          var el = n.parentElement;
+          if (!el) return NodeFilter.FILTER_REJECT;
+          if (el.closest("a") || el.closest("pre") || el.closest("script, style")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var targets = [];
+      var t;
+      while ((t = walker.nextNode())) targets.push(t);
+      targets.forEach(function (textNode) {
+        var el = textNode.parentElement;
+        linkifyTextNode(textNode, !!(el && el.matches("code")));
+      });
+    }
+
     /* =================================================================
        Schema-aware layer
        ================================================================= */
@@ -1097,30 +1288,19 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var container = document.getElementById("graph-view");
       container.replaceChildren();
 
+      /* The build consumes the generic {nodes, edges, focus} model only: any
+         document type able to produce that shape renders here unchanged. */
+      var model = workGraphModel;
       var elements = [];
-      workGraphModel.order.forEach(function (id) {
-        var node = workGraphModel.nodesById[id];
+      model.nodes.forEach(function (node) {
         var label = node.id + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "");
-        var classes = "wg-graph-" + node.statusKind + (id === workGraphModel.focusId ? " wg-graph-focus" : "");
+        var classes = "wg-graph-" + node.statusKind + (node.id === model.focus ? " wg-graph-focus" : "");
         elements.push({ data: { id: node.id, label: label }, classes: classes });
       });
-      workGraphModel.order.forEach(function (id) {
-        var p = workGraphModel.effectiveParent[id];
-        if (p && workGraphModel.nodesById[p]) {
-          elements.push({
-            data: { id: "wg-parent-" + p + "-" + id, source: p, target: id },
-            classes: "wg-graph-edge-parent"
-          });
-        }
-      });
-      workGraphModel.order.forEach(function (id) {
-        workGraphModel.nodesById[id].deps.forEach(function (dep) {
-          if (workGraphModel.nodesById[dep]) {
-            elements.push({
-              data: { id: "wg-dep-" + dep + "-" + id, source: dep, target: id },
-              classes: "wg-graph-edge-dep"
-            });
-          }
+      model.edges.forEach(function (edge) {
+        elements.push({
+          data: { id: edge.id, source: edge.source, target: edge.target },
+          classes: "wg-graph-edge-" + edge.kind
         });
       });
 
@@ -1180,18 +1360,31 @@ __CYTOSCAPE_DAGRE_SPLICE__
 
       cy.on("tap", "node", function (evt) {
         var id = evt.target.id();
-        deactivateGraphView();
-        state.graphOn = false;
-        updateChrome();
-        var tapped = workGraphModel && workGraphModel.nodesById[id];
-        if (tapped && tapped.sec) {
-          tapped.sec.scrollIntoView({ behavior: "smooth", block: "center" });
-          tapped.sec.classList.add("wg-jump-highlight");
-          setTimeout(function () { tapped.sec.classList.remove("wg-jump-highlight"); }, 1600);
-        }
+        try {
+          if (openNodePanel(id)) return;
+        } catch (err) { /* degrade below */ }
+        tapToCard(id);
+      });
+
+      cy.on("tap", function (evt) {
+        if (evt.target === cy) closeNodePanel();
       });
 
       return cy;
+    }
+
+    /* 229-B02's original click-to-card, kept as the degrade path for a panel
+       that would not open (Errors clause, 003-B19). It deliberately shares no
+       helper with the panel, since it runs precisely when panel code threw. */
+    function tapToCard(id) {
+      deactivateGraphView();
+      updateChrome();
+      var tapped = (workGraphModel && workGraphModel.byId) ? workGraphModel.byId[id] : null;
+      if (tapped && tapped.sec) {
+        tapped.sec.scrollIntoView({ behavior: "smooth", block: "center" });
+        tapped.sec.classList.add("wg-jump-highlight");
+        setTimeout(function () { tapped.sec.classList.remove("wg-jump-highlight"); }, 1600);
+      }
     }
 
     /* Show the graph container and build/lay out the cytoscape instance;
@@ -1219,6 +1412,61 @@ __CYTOSCAPE_DAGRE_SPLICE__
       }
       document.getElementById("graph-view").hidden = true;
       document.getElementById("doc").style.display = "";
+      closeNodePanel();
+      state.graphOn = false;
+    }
+
+    /* ---------- Graph node detail panel (003-B19) ----------
+       One panel element, reused: opening a second node repaints it rather
+       than stacking, so the same node tapped twice can never duplicate. */
+    var panelNodeId = null;
+
+    function closeNodePanel() {
+      var panel = document.getElementById("node-panel");
+      if (!panel) return;
+      panelNodeId = null;
+      panel.hidden = true;
+      var body = document.getElementById("panel-body");
+      if (body) body.replaceChildren();
+    }
+
+    /* One label/value row, both set as text — model data never becomes
+       markup (Outputs clause). */
+    function panelRow(label, value) {
+      var row = document.createElement("div");
+      row.className = "np-row";
+      var k = document.createElement("span");
+      k.className = "np-k";
+      k.textContent = label;
+      var v = document.createElement("span");
+      v.className = "np-v";
+      v.textContent = value;
+      row.appendChild(k);
+      row.appendChild(v);
+      return row;
+    }
+
+    /* Paint the panel for one model node. Returns false when the node is not
+       in the model, so the caller can fall back to the card view. */
+    function openNodePanel(id) {
+      var node = (workGraphModel && workGraphModel.byId) ? workGraphModel.byId[id] : null;
+      var panel = document.getElementById("node-panel");
+      var body = document.getElementById("panel-body");
+      if (!node || !panel || !body) return false;
+      document.getElementById("panel-title").textContent = node.id;
+      body.replaceChildren();
+      body.appendChild(panelRow("Title", node.title));
+      body.appendChild(panelRow("Status", node.statusKind === "dropped"
+        ? "dropped (" + node.statusReason + ")"
+        : node.statusKind));
+      if (node.goal) body.appendChild(panelRow("Goal", node.goal));
+      body.appendChild(panelRow("Parent", node.parent || "none"));
+      body.appendChild(panelRow("Deps", (node.deps && node.deps.length) ? node.deps.join(", ") : "none"));
+      if (node.notes) body.appendChild(panelRow("Notes", node.notes));
+      panelNodeId = node.id;
+      panel.hidden = false;
+      panel.scrollTop = 0;
+      return true;
     }
 
     /* Contract: B01 workgraph-transform (plan 001-render-doc-workgraph-transform)
@@ -1503,8 +1751,17 @@ __CYTOSCAPE_DAGRE_SPLICE__
        reference (for click-to-card scrolling) are kept. Returns null when
        docType isn't work-graph or zero sections parse. */
     var WG_FOCUS_RE = /^Focus: (N[0-9]+|none)[ \t]*$/m;
+
+    /* The prose of one parsed field, flattened to plain text for the panel. */
+    function wgFieldPlainText(nodes) {
+      if (!nodes || !nodes.length) return "";
+      return nodes.map(function (n) { return n.textContent || ""; })
+        .join("").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
+    }
+
     function captureWorkGraphModel(doc) {
-      var nodesById = {};
+      var byId = {};
+      var nodes = [];
       var order = [];
       Array.prototype.forEach.call(doc.querySelectorAll(".doc-sec"), function (sec) {
         var heading = sec.dataset.heading || "";
@@ -1512,27 +1769,53 @@ __CYTOSCAPE_DAGRE_SPLICE__
         try {
           var clone = sec.cloneNode(true);
           var parsed = parseWorkGraphNode(clone, heading);
+          var goalText = wgFieldPlainText(parsed.goalNodes);
+          var notesText = wgFieldPlainText(parsed.notesNodes);
           decorateWorkGraphNode(parsed);
-          nodesById[parsed.id] = {
+          var node = {
             id: parsed.id,
             title: parsed.title,
             statusKind: parsed.statusKind,
             statusReason: parsed.statusReason,
+            goal: goalText,
+            notes: notesText,
             parent: parsed.parent,
             deps: parsed.deps,
             sec: sec
           };
+          byId[parsed.id] = node;
+          nodes.push(node);
           order.push(parsed.id);
         } catch (err) { /* excluded from the graph, same fallback posture as the card transform */ }
       });
       if (!order.length) return null;
+
+      /* Edges belong to the MODEL, not to the graph build: parent edges come
+         from the cycle-broken parent chain, dep edges from each node's Deps.
+         A second document type supplies its own edges the same way. */
+      var effectiveParent = breakWorkGraphCycles(order, byId);
+      var edges = [];
+      order.forEach(function (id) {
+        var p = effectiveParent[id];
+        if (p && byId[p]) {
+          edges.push({ id: "wg-parent-" + p + "-" + id, source: p, target: id, kind: "parent" });
+        }
+      });
+      order.forEach(function (id) {
+        byId[id].deps.forEach(function (dep) {
+          if (byId[dep]) {
+            edges.push({ id: "wg-dep-" + dep + "-" + id, source: dep, target: id, kind: "dep" });
+          }
+        });
+      });
+
       var fm = WG_FOCUS_RE.exec(sourceMd);
       var focusId = fm ? fm[1] : null;
       return {
-        nodesById: nodesById,
-        order: order,
-        effectiveParent: breakWorkGraphCycles(order, nodesById),
-        focusId: (focusId && focusId !== "none" && nodesById[focusId]) ? focusId : null
+        nodes: nodes,
+        edges: edges,
+        focus: (focusId && focusId !== "none" && byId[focusId]) ? focusId : null,
+        byId: byId
       };
     }
 
@@ -2440,6 +2723,24 @@ __CYTOSCAPE_DAGRE_SPLICE__
     document.getElementById("feedback-btn").addEventListener("click", function () {
       document.getElementById("drawer").classList.toggle("show");
     });
+    document.getElementById("panel-close").addEventListener("click", function () {
+      closeNodePanel();
+    });
+
+    /* The panel's jump control: leave the graph exactly as the toggle does,
+       then land on the node's own card with the existing jump highlight. */
+    document.getElementById("panel-jump").addEventListener("click", function () {
+      var target = (panelNodeId && workGraphModel && workGraphModel.byId)
+        ? workGraphModel.byId[panelNodeId] : null;
+      deactivateGraphView();
+      updateChrome();
+      if (target && target.sec) {
+        target.sec.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.sec.classList.add("wg-jump-highlight");
+        setTimeout(function () { target.sec.classList.remove("wg-jump-highlight"); }, 1600);
+      }
+    });
+
     document.getElementById("drawer-close").addEventListener("click", function () {
       document.getElementById("drawer").classList.remove("show");
     });

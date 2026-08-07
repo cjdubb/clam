@@ -79,9 +79,16 @@ land red — a failing gate is not a judgment call.
 3. `git push -u origin <branch>`.
 4. `gh pr create --base <merge.target>` with:
    - Title: imperative one-line summary of the change.
-   - Body: what changed and why, how it was verified (which gates ran and
-     their results), and anything the reviewer must know — sourced from
-     `.local/PLAN.md` and `.local/TODO.md`.
+   - Body structure: look for a repo-standard PR template first, in the
+     usual GitHub locations (for example
+     `.github/PULL_REQUEST_TEMPLATE.md` or
+     `.github/PULL_REQUEST_TEMPLATE/*.md`, any casing) and structure the
+     body per that template — passing `--body` suppresses `gh`'s own
+     template handling, so the template must be applied here or it is
+     silently lost. No template → plain sections.
+   - Body content: what changed and why, how it was verified (which
+     gates ran and their results), and anything the reviewer must know —
+     sourced from `.local/PLAN.md` and `.local/TODO.md`.
 5. Hand off per `merged-by: user`: set `.local/TODO.md` State to
    `Awaiting User Review` with the PR URL in `Current Task:`, follow the
    tracking plugin's summons rules, and end the turn with the PR URL and

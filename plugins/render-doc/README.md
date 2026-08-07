@@ -354,6 +354,7 @@ bash plugins/render-doc/scripts/hostname-allowlist.test.sh
 bash plugins/render-doc/scripts/dual-bind.test.sh
 bash plugins/render-doc/scripts/hostname-docs.test.sh
 bash plugins/render-doc/scripts/node-panel.test.sh
+bash plugins/render-doc/scripts/toc-graph-view.test.sh
 ```
 
 ## Provenance

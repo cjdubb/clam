@@ -376,7 +376,7 @@ the merge.
 ### 5. Delivery
 
 `main-prs` mode only. Once every unit in a PR group is `Accepted` and
-locally merged, compose the PR content and open the PR.
+locally merged, compose the PR content and assemble the delivery branch.
 
 Before composing the manifest, run `git fetch origin`, then
 merge master into the integration branch before delivery.
@@ -391,7 +391,7 @@ same escalation rule as the Conflicts section: resolve trivial,
 mechanical conflicts yourself; escalate anything else to the engineer
 with the conflicting paths and a recommendation.
 
-`deliver` builds the delivery branch from the **local** `<base-branch>` ref,
+`assemble` builds the delivery branch from the **local** `<base-branch>` ref,
 not from `origin/master`, so fast-forward the base checkout as well — when
 its tree is clean:
 
@@ -445,8 +445,10 @@ the delivered blocks' contracts. Template resolution order:
    case-sensitive): `.github/PULL_REQUEST_TEMPLATE.md`,
    `.github/pull_request_template.md`, `docs/pull_request_template.md`,
    `PULL_REQUEST_TEMPLATE.md`, `pull_request_template.md`.
-2. If no repo template exists, use the plugin's default template at
-   `${CLAUDE_PLUGIN_ROOT}/templates/pr-body-template.md`.
+2. If no repo template exists, compose the body directly from the plan
+   document's Landing strategy row and the delivered blocks' headings and
+   contracts — the same default `assemble` itself falls back to when the
+   manifest omits a body.
 
 Fill every section of the resolved template. Write for a reviewer who has
 only the diff and this PR description — no access to `.local/`, the planning
@@ -476,11 +478,11 @@ doesn't, treat it as the same plan defect, not a value to trust as-is. Under
 `local-only` delivery mode, nothing is opened here — the recorded Landing
 strategy is simply what the engineer delivers by hand.
 
-#### 5b. Write manifest and deliver
+#### 5b. Write manifest and assemble
 
 Before writing the manifest, measure this PR group against the size budget
-— `deliver` builds the branch, pushes, and opens the PR in one operation, so
-this is the last point a size check can still change the outcome:
+— `assemble` builds and gates the delivery branch, so this is the last
+point a size check can still change what gets handed off:
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/scripts/pr-size-check.sh <base-branch>...<integration-branch> -- <the group's Code paths>
@@ -489,10 +491,10 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pr-size-check.sh <base-branch>...<integration-bran
 The range to measure is the base branch against the integration branch,
 scoped to this group's `Code:` paths from `.local/blocks.md` — step 5's sync
 (merge master into the integration branch before delivery) already made this
-equivalent to the diff `deliver` will actually produce. Act on the result:
+equivalent to the diff `assemble` will actually produce. Act on the result:
 
 - **exit 0** (within budget): proceed to write the manifest and call
-  `deliver`.
+  `assemble`.
 - **exit 1** (over budget): if the plan's Landing strategy row for this
   group records a written justification, re-run with `--justified` to
   record the overrun explicitly, then proceed — a justified overrun is what
@@ -510,13 +512,13 @@ in the plan Changelog and the unit status file's Timeline like any other
 escalation. The budget itself is `delivery.prSizeBudget` from the effective
 config, resolved by the script.
 
-If master moved between the check and `deliver` by enough to matter, the
+If master moved between the check and `assemble` by enough to matter, the
 step-5 sync above is what keeps the two ranges equivalent — a large move
 re-runs the check. A group of one unit whose single block is inherently
 oversized still goes through the justified path above; the decision to
 accept that is made by the engineer at plan time, not here. Under
 `local-only` delivery mode, no PR is ever opened, so the size gate does not
-apply — nothing to measure, nothing to deliver.
+apply — nothing to measure, nothing to assemble.
 
 Write the composed content as a JSON manifest file at
 `.local/pr-manifest.json` with this schema:
@@ -535,18 +537,18 @@ Write the composed content as a JSON manifest file at
 }
 ```
 
-Then call deliver with the manifest:
+Then call assemble with the manifest:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh deliver --manifest .local/pr-manifest.json <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh assemble --manifest .local/pr-manifest.json <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...]
 ```
 
 This builds a delivery branch from master/main containing only complete
 blocks — contract, tests, and implementation together, never a bare stub;
-that's also what keeps a brownfield "changing" block safe to deliver — and
-opens the PR. PRs target master/main only, never any other branch. Raise PR
-groups' PRs in dependency order: a group's PR waits until every group it
-depends on has its own PR merged.
+that's also what keeps a brownfield "changing" block safe to deliver.
+Assemble PR groups in dependency order: a group is assembled only once
+every group it depends on has already been assembled and handed off —
+whoever lands them raises PRs in that same order.
 
 The delivery branch must match the integration branch exactly on the paths it
 delivers. This is a gate, not a suggestion — the check is:
@@ -558,15 +560,15 @@ git diff <integration-branch> <delivery-branch> -- <the delivered paths>
 Empty output is the only pass. Anything else is a defect in the delivery, not
 a difference to reason away: it is how a stale base, a restore that reverted
 a file, and a unit that contributed nothing have each shipped before.
-`deliver` now enforces this mechanically: it compares the branch it built
+`assemble` now enforces this mechanically: it compares the branch it built
 against the integration tip on every path it restored, and
-refuses to push on any divergence — so a `deliver` that exits 0 has already
+aborts on any divergence — so an `assemble` that exits 0 has already
 passed the gate. Run the diff by hand whenever the PR was produced any other
 way. An unverified delivery is not handed over.
 
-After the PR is opened, the deliver command removes each delivered unit's
+After assembly succeeds, the assemble command removes each delivered unit's
 branch and any remaining worktree as a best-effort side effect (warns on
-failure, never changes the deliver exit code). Under the normal flow, step
+failure, never changes the assemble exit code). Under the normal flow, step
 4's `merge` already removed the worktree, so this is a fallback for the
 case where one lingered, not the usual path. When a worktree is still
 present at this point, the command archives it first — `briefs/`,
@@ -574,12 +576,13 @@ present at this point, the command archives it first — `briefs/`,
 exactly as `merge` does, before removing it. When that archive fails, the
 command warns and skips both the worktree removal and that unit's branch
 deletion, since a branch checked out in a surviving worktree cannot be
-deleted anyway; the deliver exit code is unaffected either way.
+deleted anyway; the assemble exit code is unaffected either way.
 
-Under `local-only`, or when `origin`/`gh` is unavailable under `main-prs`
-(warn and degrade), skip PR creation entirely and the engineer delivers
-manually. Unit worktrees were already removed by `merge` (step 4); unit
-branches are cleaned up by `clean` at dispatch completion (see "Done").
+The assembled branch (`lego/deliver/<plan-slug>/...`, assemble's last
+stdout line) is the handoff artifact this step produces; raising a PR from
+it — or landing it any other way — happens outside this skill. Unit
+worktrees were already removed by `merge` (step 4); unit branches are
+cleaned up by `clean` at dispatch completion (see "Done").
 
 ## Composition blocks
 

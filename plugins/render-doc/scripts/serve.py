@@ -195,6 +195,36 @@ def scope_error(md_real):
 annotate_lock = threading.Lock()
 
 
+# Contract: 003-B17 stale scaffold notes gone (plan 003-followup-fixes)
+#
+# DELIBERATELY UNIMPLEMENTED — the ten pre-plan-003 notes are still in
+# place; deleting them is this block's implementation, which also
+# removes this note.
+#
+# Behavior: the TEN stale 'DELIBERATELY UNIMPLEMENTED' notes left by
+#   earlier plans' scaffolds — eight in this file (the served-doc
+#   registry comment below; the worktree_siblings, discover_docs and
+#   index_doc_entries docstrings; the raw-doc route, docs.json handler,
+#   project index and worktree landing page comments) and two in
+#   render.sh (the --open server client and --serve registration
+#   contracts) — are deleted. Every one of those blocks has long been
+#   implemented, so each note now falsely describes live code as
+#   unimplemented.
+# Inputs: n/a (comment-only change).
+# Outputs: no behavior change anywhere; comments only.
+# Errors: n/a.
+# Invariants: every 'Contract:' marker, every contract clause, and
+#   every signature line in those docblocks survives byte-for-byte —
+#   ONLY the unimplemented-status sentences go; the legitimate
+#   references to the phrase in test files (five today) are untouched;
+#   plan-003's own status notes (like this block's, above) are NOT this
+#   block's targets — each is removed by its own block's
+#   implementation; all suites stay green (closes #302).
+# Edge cases: a status note spanning several lines (the whole note
+#   goes, nothing else); a note embedded mid-docblock (the surrounding
+#   clauses keep their exact text and order).
+
+
 # Contract: B02 served-doc registry (plan 001-render-graph-always)
 #
 # DELIBERATELY UNIMPLEMENTED. The two functions below raise; implementing
@@ -388,6 +418,57 @@ def render_headline(entry):
     return (f'<div class="headline"><a href="{href_esc}">WORKGRAPH.md</a> '
             f'<span class="meta">{count_esc} open nodes | Focus: {focus_esc}'
             f'</span></div>')
+
+
+# Contract: 003-B15 unserved marker removed (plan 003-followup-fixes)
+#
+# DELIBERATELY UNIMPLEMENTED — render_group below and
+# render_project_entry still emit the '(unserved)' span, and both
+# pages' CSS still ships the .unserved rule; removing them is this
+# block's implementation, which also removes this note.
+#
+# Behavior: GET / and the worktree landing page list never-served
+#   documents IDENTICALLY to served ones except for position: within a
+#   group, served entries first (registry order), then never-served
+#   entries by mtime descending — the ORDER clause is unchanged. No
+#   "unserved" text, marker, or CSS class appears anywhere in either
+#   page's markup or styles.
+# Inputs: unchanged (the merged registry-plus-discovery entry lists;
+#   entries whose lastServed is None are the never-served ones).
+# Outputs: entry <li> markup identical for served and never-served
+#   entries; the .unserved style rule gone from both pages' CSS.
+# Errors: unchanged (every degradation clause is untouched).
+# Invariants: ordering, grouping, headline, and every other index and
+#   landing-page clause hold verbatim; every docblock clause in this
+#   file that promises a visible "unserved" mark (four today) is
+#   rewritten to promise the position-only distinction instead.
+# Edge cases: a group holding only never-served docs (renders like any
+#   group); a doc served mid-session (moves sets on the next request,
+#   as today); suites that LOCATED never-served entries by the marker
+#   re-anchor on fixture-known paths (DL-007 item 1).
+
+
+# Contract: 003-B16 homepage groups collapsed (plan 003-followup-fixes)
+#
+# DELIBERATELY UNIMPLEMENTED — render_group below still opens with
+# '<details open>'; dropping the attribute is this block's
+# implementation, which also removes this note.
+#
+# Behavior: every worktree group on GET / renders as '<details>' with
+#   NO open attribute — collapsed by default, matching the landing
+#   page's subdirectory-group precedent — while the summary label,
+#   headline, and entry markup inside are unchanged.
+# Inputs: unchanged.
+# Outputs: the only markup delta is the absent open attribute on every
+#   index group.
+# Errors: none.
+# Invariants: expand/collapse stays scriptless native details/summary;
+#   the landing page's own groups (already collapsed) are untouched;
+#   render_group's docstring clause "expanded by default" is rewritten
+#   to collapsed (DL-007 item 2, Q4: ALL groups collapsed, no
+#   exception).
+# Edge cases: a single-group index (also collapsed); a group holding
+#   only a WORKGRAPH.md headline (collapsed like any other).
 
 
 def render_group(root, label, entries):
@@ -826,6 +907,25 @@ def host_allowed(host):
     return _HOST_ALLOWED_RE.fullmatch(host) is not None
 
 
+# Contract: 003-B13 full header values — Content-Type normalization (plan 003-followup-fixes)
+#
+# Behavior: every HTML and plain-text response this server sends uses
+#   the spaced Content-Type form the /doc route already uses —
+#   'text/html; charset=utf-8', and 'text/plain; charset=utf-8' for
+#   /raw. Exactly three call sites change: the /raw 200, the index
+#   (GET /) 200, and the worktree landing page 200.
+# Inputs: n/a.
+# Outputs: header value byte shape only; bodies, status codes, ETag,
+#   and every other header are unchanged.
+# Errors: none.
+# Invariants: JSON responses (send_json) keep their current form;
+#   nothing else about response emission changes; the suites' shared
+#   header helper reads FULL header values (its own half of this
+#   contract lives in the suites), so a wrong full value still fails
+#   (closes #300).
+# Edge cases: none beyond the three named call sites.
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     timeout = 30  # per-request socket timeout: a silent connection cannot wedge a thread forever
 
@@ -989,7 +1089,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         self.send_response(200)
-        self.send_header('Content-Type', 'text/plain;charset=utf-8')
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
         self.send_header('Content-Length', str(len(content)))
         self.send_header('ETag', etag)
         self.end_headers()
@@ -1071,7 +1171,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         content = build_index_html(groups).encode('utf-8')
         self.send_response(200)
-        self.send_header('Content-Type', 'text/html;charset=utf-8')
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(content)))
         self.end_headers()
         self.wfile.write(content)
@@ -1192,7 +1292,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         content = build_project_html(
             label, headline_entry, flat_entries, group_order, groups).encode('utf-8')
         self.send_response(200)
-        self.send_header('Content-Type', 'text/html;charset=utf-8')
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(content)))
         self.end_headers()
         self.wfile.write(content)

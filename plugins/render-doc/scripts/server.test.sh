@@ -37,6 +37,24 @@ PID_PATHS=()
 HOME_DIRS=()
 TMP_DIRS=()
 
+# Contract: 003-B10 registry-litter teardown — server.test.sh scope (plan 003-followup-fixes)
+#
+# Behavior: every /tmp/render-doc-registry-<port>.json this suite can
+#   cause to exist (any server it starts writes one after a successful
+#   serve) is removed by the EXIT trap, alongside the pidfile cleanup
+#   that already exists.
+# Inputs: the suite's own port/pidfile bookkeeping (PID_PATHS and
+#   friends) — whatever identifies the ports this run used.
+# Outputs: after any exit — pass, fail, or signal — no
+#   /tmp/render-doc-registry-<port>.json remains for any port this
+#   suite used.
+# Errors: cleanup stays best-effort (rm -f); a file already gone is not
+#   an error.
+# Invariants: the live default port 27183 is never touched; other
+#   suites' or servers' /tmp files are never removed; the suite's
+#   assertion semantics are unchanged.
+# Edge cases: a server killed before it ever wrote a registry file
+#   (nothing to remove); several ports used in one run (all cleaned).
 cleanup() {
   for p in ${SERVER_PIDS[@]+"${SERVER_PIDS[@]}"}; do
     [ -n "$p" ] && kill "$p" 2> /dev/null
@@ -46,8 +64,26 @@ cleanup() {
     [ -n "$p" ] && kill -9 "$p" 2> /dev/null
   done
   # rm -rf, not rm -f: one pidfile path is deliberately a directory below.
+  #
+  # Every port this suite serves on is recorded here, so the pidfile path is
+  # also the handle on the registry file the server there wrote — that file
+  # outlives the process, nothing else deletes it, and left behind it is the
+  # stale state that fails the NEXT run to draw the same port from the kernel.
   for f in ${PID_PATHS[@]+"${PID_PATHS[@]}"}; do
-    [ -n "$f" ] && rm -rf "$f"
+    [ -n "$f" ] || continue
+    rm -rf "$f"
+    port="${f##*/render-doc-serve-}"
+    port="${port%.pid}"
+    # Ports are kernel-drawn and never 27183, so the live default server's
+    # registry is out of reach by construction; the guard says so anyway,
+    # because "the caller promised" is thin cover for an rm in /tmp. A path that
+    # is not a pidfile leaves a non-numeric remainder and is skipped by the same
+    # test. Best-effort: a server killed before it registered anything has no
+    # file here, and that is normal.
+    case "$port" in
+      '' | *[![:digit:]]* | 27183) continue ;;
+      *) rm -f "/tmp/render-doc-registry-$port.json" ;;
+    esac
   done
   for d in ${HOME_DIRS[@]+"${HOME_DIRS[@]}"}; do
     [ -n "$d" ] && chmod -R u+rwX "$d" 2> /dev/null; rm -rf "$d"

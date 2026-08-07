@@ -46,6 +46,24 @@ mkdir -p "$OPEN_BIN" "$PYBIN"
 FIXTURE_PIDS=()
 PORTS=()
 
+# Contract: 003-B10 registry-litter teardown — open.test.sh scope (plan 003-followup-fixes)
+#
+# Behavior: every /tmp/render-doc-registry-<port>.json this suite can
+#   cause to exist (render.sh --serve registers documents on the
+#   servers it starts) is removed by the EXIT trap, alongside the
+#   per-port pidfile cleanup that already exists.
+# Inputs: the PORTS array (every port the suite claimed).
+# Outputs: after any exit — pass, fail, or signal — no
+#   /tmp/render-doc-registry-<port>.json remains for any port this
+#   suite used.
+# Errors: cleanup stays best-effort (rm -f); a file already gone is not
+#   an error.
+# Invariants: the live default port 27183 is never touched; other
+#   suites' or servers' /tmp files are never removed; the suite's
+#   assertion semantics are unchanged.
+# Edge cases: a server killed before it ever wrote a registry file
+#   (nothing to remove); several ports claimed in one run (all
+#   cleaned).
 cleanup() {
   local p f
   for p in ${FIXTURE_PIDS[@]+"${FIXTURE_PIDS[@]}"}; do
@@ -62,9 +80,17 @@ cleanup() {
     [ -n "$p" ] && kill -9 "$p" 2> /dev/null
   done
   for p in ${PORTS[@]+"${PORTS[@]}"}; do
+    # Ports are kernel-drawn and never 27183, so the live default server is out
+    # of reach by construction; the guard says so anyway, because "the caller
+    # promised" is thin cover for an rm in /tmp.
+    [ "$p" = 27183 ] && continue
     f="/tmp/render-doc-serve-$p.pid"
     [ -f "$f" ] && kill -9 "$(cat "$f" 2> /dev/null)" 2> /dev/null
-    rm -f "$f"
+    # The registry file outlives the server that wrote it, and nothing else ever
+    # deletes it: left behind, it is the stale state that fails the NEXT suite
+    # to draw this port from the kernel. Best-effort — a port whose server never
+    # got as far as registering a document has no file here, and that is normal.
+    rm -f "$f" "/tmp/render-doc-registry-$p.json"
   done
   rm -rf "$WORK"
 }
@@ -120,12 +146,15 @@ s.close()")"
 }
 
 # Every port this suite hands to render.sh is claimed through here, so the EXIT
-# trap knows which pidfiles to clean up.
+# trap knows which pidfiles and registry files to clean up. Only a port that
+# CLEARS the check is recorded: the trap deletes the /tmp files of every port in
+# PORTS, so recording a port whose files were already there would make this
+# suite delete exactly the foreign state it refused to clobber.
 PORT=""
 claim_port() {
   PORT="$(free_port)" || return 1
-  PORTS+=("$PORT")
   [ -e "/tmp/render-doc-serve-$PORT.pid" ] && return 1
+  PORTS+=("$PORT")
   return 0
 }
 

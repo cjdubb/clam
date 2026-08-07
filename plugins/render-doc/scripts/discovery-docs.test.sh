@@ -207,11 +207,52 @@ src = open(sys.argv[1], encoding='utf-8').read()
 print(ast.get_docstring(ast.parse(src)) or '')
 " "$SERVE" 2> /dev/null | flatten)"
 
-# The text around every discovery mention in a region. Empty when discovery is
-# not documented at all, which is what keeps every fact check honest: no
-# mention, no window, no accidental pass from a neighbour.
-discovery_window() { # <flattened region>
-  printf '%s\n' "$1" | grep -oEi ".{0,$WINDOW}($DISCOVERY).{0,$WINDOW}" 2> /dev/null | tr '\n' ' '
+# Contract: 003-B11 linear doc anchors (plan 003-followup-fixes)
+#
+# Behavior: the windowing helper is replaced by the window_around()
+#   idiom the sibling docs suites use (find each anchor match, slice a
+#   fixed-width window either side of it, linear time), with IDENTICAL
+#   assertion semantics: same anchor alternation, same window width,
+#   same joined single-string output shape, both call sites converted.
+# Inputs: a flattened region string (unchanged).
+# Outputs: the concatenated windows around every anchor match —
+#   equivalent content to today's helper for the same inputs; empty
+#   when the region is empty or no anchor matches (the honesty
+#   property: no mention, no window, no accidental pass).
+# Errors: none new.
+# Invariants: suite verdicts are unchanged for unchanged inputs; suite
+#   runtime drops from ~28s to under ~2s (closes #334).
+# Edge cases: an anchor at the region's start or end (window truncates
+#   cleanly); overlapping matches (each windowed; duplication tolerated
+#   as today); case-insensitive matching preserved.
+
+# The text around every anchor mention in a region — here, every discovery
+# mention. Empty when discovery is not documented at all, which is what keeps
+# every fact check honest: no mention, no window, no accidental pass from a
+# neighbour.
+#
+# The obvious spelling of this — `grep -oEi ".{0,$WINDOW}($2).{0,$WINDOW}"` —
+# is correct but pathologically slow once the anchor actually matches: on a
+# region flattened to one ~20KB line grep expands a DFA state per (start
+# offset x window length) pair, and the two windowed anchors below took ~27s of
+# every run of this suite. Finding the anchor and slicing either side of it is
+# the same answer in linear time. (landing-docs.test.sh and
+# hostname-docs.test.sh carry the same helper and document the same
+# measurement.)
+window_around() { # <flattened region> <anchor ERE>
+  ANCHOR="$2" ANCHOR_WINDOW="$WINDOW" python3 -c '
+import os
+import re
+import sys
+
+data = sys.stdin.read()
+width = int(os.environ["ANCHOR_WINDOW"])
+spans = [
+    data[max(0, m.start() - width):m.end() + width]
+    for m in re.finditer(os.environ["ANCHOR"], data, re.I)
+]
+sys.stdout.write(" ".join(spans))
+' <<< "$1" 2> /dev/null
 }
 
 # =============================================================================
@@ -245,7 +286,7 @@ else
   pass "README: the '### Failure modes' section is present"
 fi
 
-readme_window="$(discovery_window "$readme_region")"
+readme_window="$(window_around "$readme_region" "$DISCOVERY")"
 
 if [ -z "$readme_region" ]; then
   fail "README: none of the three sections could be located — no discovery clause can be checked"
@@ -313,7 +354,7 @@ fi
 # Clause: serve.py's header prose describes discovery and its degradation
 # =============================================================================
 
-serve_window="$(discovery_window "$serve_header")"
+serve_window="$(window_around "$serve_header" "$DISCOVERY")"
 
 if [ -z "$serve_header" ]; then
   fail "serve.py: the module docstring could not be read — no header clause can be checked"

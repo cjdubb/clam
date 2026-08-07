@@ -304,8 +304,10 @@ fi
 # Re-pinned 32 → 33 when the voice port section was added (plan
 # 001-the-voice): the pin tracks the current legitimate section inventory,
 # so a deliberate addition moves it and an accidental one still fails.
+# Re-pinned 33 → 34 when the forge-github section was added (plan
+# 001-fix-pr-line-lengths): same protocol, deliberate inventory move.
 check "total '## ' heading count in MIGRATION.md is unchanged by B01" \
-  "$(grep -cE '^## ' <<<"$BODY")" "33"
+  "$(grep -cE '^## ' <<<"$BODY")" "34"
 UNASSIGNED="$(section_body '## Unassigned — decide at port time')"
 check "pre-existing Unassigned writing-cluster line is unchanged by B01" \
   "$([ "$(grep -qF 'writing-markdown' <<<"$UNASSIGNED" && echo 1)" = "1" ] && [ "$(grep -qF 'rtfm' <<<"$UNASSIGNED" && echo 1)" = "1" ] && echo yes || echo no)" "yes"

@@ -588,3 +588,14 @@ already landed on `origin/master` under a different SHA. Neither contributes
 a distinct candidate beyond what the rows above already carry, so treating
 them as additional rows would restate the map rather than extend the action
 list.
+
+## forge-github — new (not a port)
+
+No clam-code ancestor: clam-code created PRs inline in its deliver flow
+rather than through a forge abstraction. forge-github is born in this repo
+as the first implementation of the forge interface
+(`plugins/landing/docs/forge-interface.md`), extracted so that landing
+delegates PR mechanics (`/forge-github:create-pr`, `/forge-github:sync-pr`)
+instead of owning `gh` calls itself. The PR-description flowing-prose
+conventions it carries originate from this repo's issue #53, not from any
+clam-code element.

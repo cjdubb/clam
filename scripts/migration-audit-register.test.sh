@@ -423,8 +423,10 @@ fi
 # Re-pinned 32 → 33 when the voice port section was added (plan
 # 001-the-voice): the pin tracks the current legitimate section inventory,
 # so a deliberate addition moves it and an accidental one still fails.
+# Re-pinned 33 → 34 when the forge-github section was added (plan
+# 001-fix-pr-line-lengths): same protocol, deliberate inventory move.
 check "total '## ' heading count in MIGRATION.md is unchanged by B03" \
-  "$(grep -cE '^## ' <<<"$BODY")" "33"
+  "$(grep -cE '^## ' <<<"$BODY")" "34"
 
 # "Every row traces to a B01 or B02 section; no row introduces a claim that
 # appears nowhere else in the file" and "every element that B01 or B02

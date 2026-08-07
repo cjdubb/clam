@@ -33,6 +33,7 @@ plugins/debugging/scripts/b10-registration.test.sh	SC2016
 plugins/debugging/scripts/structure.test.sh	SC2016
 plugins/decision-log/scripts/rundown-render-seam.test.sh	SC2088
 plugins/landing/scripts/landing-docs.test.sh	SC2155
+plugins/lego/scripts/blocks-lint.test.sh	SC2015
 plugins/lego/scripts/dispatch-scheduling.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2088
@@ -68,10 +69,14 @@ plugins/orchestrator-handover/scripts/b01-skill.test.sh	SC2034
 plugins/privacy/scripts/structure.test.sh	SC2088
 plugins/render-doc/scripts/migration.test.sh	SC2016
 plugins/render-doc/scripts/open.test.sh	SC2034
+plugins/render-doc/scripts/open.test.sh	SC2119
+plugins/render-doc/scripts/open.test.sh	SC2120
+plugins/render-doc/scripts/render.sh	SC2015
 plugins/render-doc/scripts/render.test.sh	SC2016
 plugins/render-doc/scripts/render.test.sh	SC2088
 plugins/render-doc/scripts/server.test.sh	SC2016
 plugins/render-doc/scripts/server.test.sh	SC2034
+plugins/render-doc/scripts/structure.test.sh	SC2015
 plugins/render-doc/scripts/structure.test.sh	SC2016
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2016
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2034
@@ -108,6 +113,7 @@ plugins/tracking/scripts/compaction-wiring.test.sh	SC2016
 plugins/tracking/scripts/followups-docs.test.sh	SC2016
 plugins/tracking/scripts/followups-docs.test.sh	SC2034
 plugins/tracking/scripts/followups-lifecycle.test.sh	SC2016
+plugins/tracking/scripts/keep-working.sh	SC2015
 plugins/tracking/scripts/keep-working.sh	SC2034
 plugins/tracking/scripts/no-todo-nudge.test.sh	SC2034
 plugins/tracking/scripts/post-compact-recovery.test.sh	SC2181

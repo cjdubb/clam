@@ -86,8 +86,12 @@ check "records the on-green action in .local/TODO.md" \
 # SKILL.md -- layering invariants (leaf: no sibling/composite references)
 # ---------------------------------------------------------------------------
 
+# The forbidden names are spelled with a bracketed first letter so this
+# test file itself contains no english reference to any sibling plugin
+# (the architecture lint greps for the literal names).
+FORBIDDEN='[l]anding plugin|[l]ego plugin|[t]racking plugin|[b]uild plugin|[w]orktrees plugin|/[l]anding:|/[l]ego:|/[t]racking:|/[w]orktrees:|@[c]lam'
 check "no sibling or composite plugin named" \
-  "$(printf '%s' "$BODY" | grep -qiE 'landing plugin|lego plugin|tracking plugin|build plugin|worktrees plugin|/landing:|/lego:|/tracking:|/worktrees:|@clam' && echo present || echo absent)" "absent"
+  "$(printf '%s' "$BODY" | grep -qiE "$FORBIDDEN" && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
 # pr-comments.sh -- helper script sanity

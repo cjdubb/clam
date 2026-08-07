@@ -127,7 +127,7 @@
     {
       "name": "forge-github",
       "source": "./plugins/forge-github",
-      "description": "GitHub forge implementation: /forge-github:create-pr opens pull requests and /forge-github:sync-pr keeps their descriptions in sync, both via the gh CLI with flowing-prose formatting conventions. Implements the forge interface the landing plugin delegates to; also works standalone.",
+      "description": "GitHub forge implementation: /forge-github:create-pr opens pull requests, /forge-github:sync-pr keeps their descriptions in sync, and /forge-github:address-pr-feedback triages review comments and requests re-review behind an approval gate, all via the gh CLI with flowing-prose formatting conventions. Implements the forge interface the landing plugin delegates to; also works standalone.",
       "category": "delivery"
     }
   ]

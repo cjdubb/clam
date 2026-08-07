@@ -35,7 +35,10 @@ invoke one of its skills. Running `/forge-github:create-pr` pushes the
 current branch and opens a pull request; running `/forge-github:sync-pr`
 brings an existing open PR's description up to date with the branch. Both
 compose flowing-prose descriptions rather than hard-wrapped text, so the
-result renders cleanly on GitHub.
+result renders cleanly on GitHub. Running
+`/forge-github:address-pr-feedback` fetches a PR's review comments,
+proposes a resolution and draft reply for each, and stops for your
+approval before changing any code or posting anything.
 
 ## Common workflows
 
@@ -50,15 +53,28 @@ addressing review feedback, run `/forge-github:sync-pr` to recompose the
 description from the branch's current state and apply it with `gh pr
 edit`. It works on a PR opened by create-pr, by another tool, or by hand.
 
+**Work through review feedback.** When a reviewer leaves comments, run
+`/forge-github:address-pr-feedback`. It fetches every comment as
+structured data (severity, thread state, location), presents each one
+verbatim with a proposed resolution and draft response, and waits for
+your approval. Only then does it make the approved fixes, post the
+replies, re-sync the description if the changes made it stale, and — once
+CI is green — put the PR back in the reviewer's queue with a formal
+re-review request.
+
 ## Commands
 
 - `/forge-github:create-pr` — push the current branch and open a pull
   request against a base branch, composing the title and description.
 - `/forge-github:sync-pr` — update the description of the current
   branch's open pull request to reflect its current state.
+- `/forge-github:address-pr-feedback` — triage a pull request's review
+  comments, propose resolutions and draft replies for approval, execute
+  the approved changes, and request re-review.
 
-Their full behavioral contracts live in the skills' SKILL.md docblocks
-(`skills/create-pr/SKILL.md`, `skills/sync-pr/SKILL.md`).
+Their full behavioral contracts live in the skills' SKILL.md files
+(`skills/create-pr/SKILL.md`, `skills/sync-pr/SKILL.md`,
+`skills/address-pr-feedback/SKILL.md`).
 
 ## Relationships to other plugins
 
@@ -76,6 +92,6 @@ invokes landing, and works standalone whether or not landing is present.
 /plugin uninstall forge-github@clam
 ```
 
-Uninstalling removes the two skills; it does not affect any pull request
-already created or synced by them, and does not touch your `gh` CLI
-authentication.
+Uninstalling removes the three skills; it does not affect any pull
+request already created, synced, or commented on by them, and does not
+touch your `gh` CLI authentication.

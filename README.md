@@ -126,7 +126,7 @@ auto-update doesn't refresh the recorded install path
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.2 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
 | [management](plugins/management/) | ✅ v0.6.0 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.1.2 | Voice communication spec: a SessionStart hook injects conclusion-first, working-memory-friendly reply structure into every session. Ported from clam-code. |
-| [forge-github](plugins/forge-github/) | ✅ v0.1.0 | GitHub forge implementation: `/forge-github:create-pr` opens PRs and `/forge-github:sync-pr` keeps their descriptions current, both composing flowing-prose descriptions via the `gh` CLI. |
+| [forge-github](plugins/forge-github/) | ✅ v0.2.0 | GitHub forge implementation: `/forge-github:create-pr` opens PRs, `/forge-github:sync-pr` keeps their descriptions current, and `/forge-github:address-pr-feedback` triages review comments behind an approval gate, all via the `gh` CLI with flowing-prose descriptions. |
 | [debugging](plugins/debugging/) | ✅ v0.2.4 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json

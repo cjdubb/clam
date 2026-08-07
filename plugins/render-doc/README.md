@@ -384,3 +384,39 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
+
+<!-- Contract: 003-B18 G06 docs + bump (plan 003-followup-fixes) (remove at acceptance)
+Behavior: this README's two index-behavior statements - the listing
+  description under "What to expect" and the discovery section's
+  marked-as-unserved sentence - are rewritten for the new defaults:
+  never-served documents list unmarked, distinguished only by position
+  (after served entries, newest first), and every worktree group on the
+  index opens collapsed. serve.py's module-docstring prose is aligned to
+  the same two facts. Phrasing stays capability/protocol-only.
+Inputs: n/a (prose).
+Outputs: plugin.json version 0.10.1 -> 0.11.0; root README render-doc
+  version cell updated to match.
+Errors: n/a.
+Invariants: every other README clause (discovery degradation, landing
+  page, hostname matrix, the Tests list) is untouched; the docs suites'
+  prose anchors are updated by the same unit's test wave, never left
+  asserting the removed marker.
+Edge cases: n/a.
+-->
+
+<!-- Contract: 003-B20 G07 docs + bump (plan 003-followup-fixes) (remove at acceptance)
+Behavior: this README and skills/render/SKILL.md describe the
+  graph-primary work-graph view - tapping a node opens a side panel with
+  the node's full information, the card view stays one control away -
+  and the auto-linking of prose references to repo markdown documents on
+  http-served pages. The new panel suite is named in this README's Tests
+  list (the server-docs suite enforces that pairing).
+Inputs: n/a (prose).
+Outputs: plugin.json version 0.11.0 -> 0.12.0; root README render-doc
+  version cell updated to match.
+Errors: n/a.
+Invariants: each described feature states its degradation beside it
+  (panel failure degrades to tap-to-card; linkify failure leaves prose
+  plain and the page rendered); no plugin is named anywhere.
+Edge cases: n/a.
+-->

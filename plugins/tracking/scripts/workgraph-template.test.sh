@@ -7,6 +7,10 @@
 # checking the two files AGREE with each other (B02's Invariant "Marker
 # spellings agree exactly with docs/protocols/work-graph.md").
 #
+# A fourth block at the bottom covers 003-B21 authoring-defaults-recorded,
+# which extends both of those same two files; see its own section header for
+# the contract and the scoping rationale.
+#
 # Comment-scoped assertions: every content-presence/absence check below
 # reads only the file content strictly AFTER the leading contract
 # comment's closing '-->' (or the whole file, once the comment is deleted
@@ -445,6 +449,124 @@ elif printf '%s\n' "$STATUS_TEXT_B02" | grep -qE -- "$status_regex_extracted"; t
     "extracted regex '$status_regex_extracted' unexpectedly matched B02's enum line"
 else
   pass "Agreement: B01's stated Status-open regex does NOT match B02's example enum line"
+fi
+
+# ===========================================================================
+# 003-B21 — authoring defaults recorded (plan 003-followup-fixes, issue #333)
+#
+# Source of truth: the "Contract: 003-B21 ... protocol half" HTML comment
+# atop docs/protocols/work-graph.md, and the "Contract: 003-B21 ... tracking
+# half" bash comment above the rules heredoc in
+# plugins/tracking/scripts/session-context.sh. Three authoring defaults,
+# stated by the protocol document (normative) and restated by the template
+# it is instantiated from:
+#   (1) node titles in plain language, embedding no foreign id scheme —
+#       N<NN> is the only identifier a title needs, and ids from other
+#       numbering systems live in `Notes:` or in the artifacts that own them;
+#   (2) one node per ACTUAL work item — a problem worked as distinct phases
+#       by distinct actors gets one node per phase, each with its own
+#       dependency edge, so who is doing what right now reads from the
+#       graph alone;
+#   (3) a follow-up captured mid-effort gets a node AT CAPTURE, with its
+#       disposition mirrored onto that node when the follow-up resolves.
+#
+# Scoped to $B01_BODY / $B02_BODY (everything after the leading contract
+# comment's closing '-->'), exactly as every other clause in this suite is:
+# both scaffold comments state these defaults in full, so an unscoped read
+# would let each assertion pass against the COMMENT on the unimplemented
+# stub. Both bodies were verified to match none of these patterns before
+# the assertions were written.
+#
+# Wording is not contracted verbatim, so these are flexible token/proximity
+# regexes on the load-bearing facts, the same style the rest of this suite
+# and workgraph-docs.test.sh use.
+#
+# Two 003-B21 clauses add no assertions here, because assertions already in
+# this file cover them over the whole body — new prose included:
+#   - Outputs "no machine-read marker changes": the verbatim Focus and
+#     Status-open regex checks, the Goal/Status/Parent/Deps/Notes field-order
+#     check, and the Agreement block above all re-run against the extended
+#     document.
+#   - Invariants "names no plugin" / "every existing section's semantics are
+#     unchanged, the guidance is additive": the B01 and B02 hook/script/
+#     plugins-path/plugin-name absence scans and the six-H2 presence-and-
+#     order check likewise cover the extended document. (Note for the
+#     implementation wave: the B02 scan forbids the substring "script" in
+#     any form, so "descriptive"/"prescriptive" would fail it.)
+# ===========================================================================
+
+B21_TITLES_RE='titles?[^.]{0,80}plain[ -]language|plain[ -]language[^.]{0,80}titles?'
+B21_ONLYID_RE='only[[:space:]]+identifier'
+B21_NUMBERING_RE='numbering[[:space:]]+systems?|(other|another|foreign)[^.]{0,40}(numbering|id scheme)'
+B21_ONE_PER_RE='(one|a)[[:space:]]+node[[:space:]]+per[^.]{0,40}work[[:space:]]+item'
+B21_PHASE_ACTOR_RE='phases?[^.]{0,140}actors?|actors?[^.]{0,140}phases?'
+B21_OWN_NODE_RE='own[[:space:]]+node'
+B21_OWN_DEP_RE='own[^.]{0,30}(dependency|dep\b|deps\b)'
+B21_FU_CAPTURE_RE='follow-?up[^.]{0,160}captur|captur[^.]{0,160}follow-?up'
+B21_AT_CAPTURE_RE='at[[:space:]]+captur|moment[^.]{0,40}captur|when[^.]{0,30}captur'
+
+# --- Default 1: plain-language titles, no foreign id scheme (B01) ---
+
+assert_contains_re_i "B21/B01: node titles are plain language" \
+  "$B01_BODY" "$B21_TITLES_RE"
+assert_contains_re_i "B21/B01: N<NN> is the only identifier a title needs" \
+  "$B01_BODY" "$B21_ONLYID_RE"
+assert_contains_re_i "B21/B01: ids from other numbering systems are excluded from titles" \
+  "$B01_BODY" "$B21_NUMBERING_RE"
+assert_contains_re_i "B21/B01: those ids belong in Notes: or the artifacts that own them" \
+  "$B01_BODY" 'notes[^.]{0,140}(own|belong)|(own|belong)[^.]{0,140}notes'
+
+# --- Default 2: one node per actual work item (B01) ---
+
+assert_contains_re_i "B21/B01: one node per ACTUAL work item" \
+  "$B01_BODY" "$B21_ONE_PER_RE"
+assert_contains_re_i "B21/B01: distinct phases are worked by distinct actors" \
+  "$B01_BODY" "$B21_PHASE_ACTOR_RE"
+assert_contains_re_i "B21/B01: each such phase is its own node" \
+  "$B01_BODY" "$B21_OWN_NODE_RE"
+assert_contains_re_i "B21/B01: each such phase carries its own dependency edge" \
+  "$B01_BODY" "$B21_OWN_DEP_RE"
+assert_contains_re_i "B21/B01: who is doing what right now reads from the graph alone" \
+  "$B01_BODY" 'graph[[:space:]]+alone'
+
+# --- Default 3: a follow-up gets a node at capture, disposition mirrored (B01) ---
+
+assert_contains_re_i "B21/B01: a follow-up captured mid-effort gets a node" \
+  "$B01_BODY" "$B21_FU_CAPTURE_RE"
+assert_contains_re_i "B21/B01: that node is added AT CAPTURE, not when the follow-up resolves" \
+  "$B01_BODY" "$B21_AT_CAPTURE_RE"
+assert_contains_re_i "B21/B01: the follow-up's disposition is mirrored onto that node" \
+  "$B01_BODY" 'mirror'
+assert_contains_re_i "B21/B01: the mirroring happens as/when the follow-up resolves" \
+  "$B01_BODY" 'mirror[^.]{0,160}resolv|resolv[^.]{0,160}mirror'
+
+# --- The WORKGRAPH template states the same three defaults (B02) ---
+
+assert_contains_re_i "B21/B02: template states node titles are plain language" \
+  "$B02_BODY" "$B21_TITLES_RE"
+assert_contains_re_i "B21/B02: template states N<NN> is the only identifier a title needs" \
+  "$B02_BODY" "$B21_ONLYID_RE"
+assert_contains_re_i "B21/B02: template excludes other numbering systems from titles" \
+  "$B02_BODY" "$B21_NUMBERING_RE"
+assert_contains_re_i "B21/B02: template states one node per ACTUAL work item" \
+  "$B02_BODY" "$B21_ONE_PER_RE"
+assert_contains_re_i "B21/B02: template states distinct phases are worked by distinct actors" \
+  "$B02_BODY" "$B21_PHASE_ACTOR_RE"
+assert_contains_re_i "B21/B02: template states each such phase is its own node" \
+  "$B02_BODY" "$B21_OWN_NODE_RE"
+assert_contains_re_i "B21/B02: template states each such phase carries its own dependency edge" \
+  "$B02_BODY" "$B21_OWN_DEP_RE"
+assert_contains_re_i "B21/B02: template states a follow-up captured mid-effort gets a node" \
+  "$B02_BODY" "$B21_FU_CAPTURE_RE"
+assert_contains_re_i "B21/B02: template states the follow-up's disposition is mirrored onto that node" \
+  "$B02_BODY" 'mirror'
+
+# Acceptance: the 003-B21 protocol-half contract comment is removed (checked
+# against the raw file, same as the B01/B02 checks above).
+if grep -qF -- "Contract: 003-B21" "$B01_FILE" 2>/dev/null; then
+  fail "B21: the 'Contract: 003-B21' scaffolding HTML comment has been removed from the protocol doc" "still present"
+else
+  pass "B21: the 'Contract: 003-B21' scaffolding HTML comment has been removed from the protocol doc"
 fi
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

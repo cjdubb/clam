@@ -11,3 +11,7 @@ One entry per follow-up, appended at the moment it's mentioned. Entries are disp
 - Statement: [the follow-up in one or two sentences]
 
 F<NN> is a zero-padded sequence number scoped to this file (F01, F02, …).
+
+Entry titles are plain language — the follow-up as a reader would say it out loud, with no borrowed id in the title; ids from other numbering systems belong in `Refs:`.
+
+A follow-up captured mid-effort also gets a work-graph node at capture, not once it is acted on, so the work it implies is visible wherever work is read. Mirror the entry's disposition onto that node as the entry resolves.

@@ -306,9 +306,12 @@ assert_contains_re_i "PreCompact bullet: the trailing 'any SUBAGENT-LOG-*.md' cl
 # README and version-bump-lint has no docs exemption); see the matching
 # note in workgraph-docs.test.sh and .local/FOLLOWUPS.md F05. Retargeted
 # again to 0.8.0 by B09 (plan 001-render-graph-always), in lockstep with
-# workgraph-docs.test.sh's copy of the same pin.
+# workgraph-docs.test.sh's copy of the same pin. Retargeted again to 0.9.0
+# by 003-B21 (plan 003-followup-fixes), whose contract states the
+# 0.8.0 -> 0.9.0 bump, in lockstep with workgraph-docs.test.sh and
+# workgraph-live-view.test.sh.
 b07_plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.8.0" "$b07_plugin_version" "0.8.0"
+check "plugin.json version is exactly 0.9.0" "$b07_plugin_version" "0.9.0"
 
 EXPECTED_B07_DESCRIPTION='Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), resume-after-/clear via SessionStart injection, and a work graph (.local/WORKGRAPH.md) for recursive problem decomposition.'
 b07_plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
@@ -324,8 +327,8 @@ check "plugin.json description is unchanged by the B07 version bump" \
 tracking_row=$(grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "root README.md: the tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "root README.md: tracking row's version cell is v0.8.0" "$tracking_row" \
-    '✅ *v0\.8\.0'
+assert_contains_re_i "root README.md: tracking row's version cell is v0.9.0" "$tracking_row" \
+    '✅ *v0\.9\.0'
 
 # ===========================================================================
 # Clause: `bash scripts/readme-lint.sh` (repo root) still passes for

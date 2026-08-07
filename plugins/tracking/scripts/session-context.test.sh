@@ -527,6 +527,151 @@ test_b06_rules_mention_open_questions() {
     fi
 }
 
+# --- 003-B21: work-graph authoring defaults + the linked-artifact rule ---
+#
+# Contract: the "Contract: 003-B21 authoring defaults recorded — tracking
+# half" bash comment above the rules heredoc in session-context.sh (plan
+# 003-followup-fixes, issue #333). The injected prose must state the three
+# authoring defaults recorded in docs/protocols/work-graph.md — plain-
+# language node titles embedding no foreign id scheme; one node per ACTUAL
+# work item, so distinct phases worked by distinct actors get distinct nodes
+# with their own dependency edges; a follow-up captured mid-effort gets a
+# graph node AT CAPTURE with its disposition mirrored onto that node — and
+# the injected decision-file instruction must additionally require every
+# artifact a decision document references to be carried as a RELATIVE
+# markdown link, never a bare path.
+#
+# Asserted against the hook's OUTPUT, not against session-context.sh's text.
+# The 003-B21 contract comment restates every clause below almost verbatim,
+# so a grep over the script would pass against the comment alone on the
+# unimplemented stub; comments are never emitted, so an output assertion is
+# immune to that by construction. Every pattern below was checked against
+# today's injected context first — none of them match.
+#
+# The rules heredoc is unconditional (it fires on any SessionStart, with or
+# without .local/), so these fixtures use a bare directory, mirroring
+# test_b06_rules_mention_open_questions.
+#
+# Three 003-B21 clauses are covered by assertions that already exist
+# elsewhere rather than duplicated here:
+#   - Outputs "the FOLLOWUPS machine-read injection contract further down
+#     this file is unchanged": followups-capture.test.sh pins the exact
+#     '# Open follow-ups (N)' header, the per-entry lines, and the
+#     empty-output cases.
+#   - Invariants "the injection structure and ordering are unchanged":
+#     workgraph-capture.test.sh's test_b03_wiring_order_all_four_blocks pins
+#     the rules -> resume -> follow-ups -> work-graph assembly order.
+#   - "plugin.json 0.8.0 -> 0.9.0 with the root README tracking version cell
+#     in step": version-bump-lint and readme-lint enforce that pairing
+#     mechanically. No new assertion pins the literal here; the three
+#     pre-existing pins elsewhere in the tracking suites are retargeted to
+#     0.9.0 in lockstep, as every prior tracking bump has done.
+
+# Runs the hook in a bare directory and echoes the injected context flattened
+# to one line. The prose is hard-wrapped, so a proximity regex's two halves
+# routinely land on different source lines; grep matches per physical line.
+b21_flat_context() { # fixture-name
+    local wd="$TMPROOT/$1"
+    mkdir -p "$wd"
+    run_hook "$wd" \
+        | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null \
+        | tr '\n' ' '
+}
+
+# Test: the injected rules state the three work-graph authoring defaults.
+test_b21_rules_state_authoring_defaults() {
+    local ctx
+    ctx=$(b21_flat_context b21-defaults)
+
+    # Default 1 — plain-language titles, no foreign id scheme.
+    assert_contains_re_i "B21: injected rules state node titles are plain language" "$ctx" \
+        'titles?[^.]{0,80}plain[ -]language|plain[ -]language[^.]{0,80}titles?'
+    assert_contains_re_i "B21: injected rules state N<NN> is the only identifier a title needs" "$ctx" \
+        'only[[:space:]]+identifier'
+    assert_contains_re_i "B21: injected rules exclude other numbering systems from titles" "$ctx" \
+        'numbering[[:space:]]+systems?|(other|another|foreign)[^.]{0,40}(numbering|id scheme)'
+    assert_contains_re_i "B21: injected rules put those ids in Notes: or the artifacts that own them" "$ctx" \
+        'notes[^.]{0,140}(own|belong)|(own|belong)[^.]{0,140}notes'
+
+    # Default 2 — one node per ACTUAL work item.
+    assert_contains_re_i "B21: injected rules state one node per ACTUAL work item" "$ctx" \
+        '(one|a)[[:space:]]+node[[:space:]]+per[^.]{0,40}work[[:space:]]+item'
+    assert_contains_re_i "B21: injected rules state distinct phases are worked by distinct actors" "$ctx" \
+        'phases?[^.]{0,140}actors?|actors?[^.]{0,140}phases?'
+    assert_contains_re_i "B21: injected rules give each such phase its own node" "$ctx" \
+        'own[[:space:]]+node'
+    assert_contains_re_i "B21: injected rules give each such phase its own dependency edge" "$ctx" \
+        'own[^.]{0,30}(dependency|dep\b|deps\b)'
+
+    # Default 3 — a follow-up gets a graph node at capture, mirrored on resolve.
+    assert_contains_re_i "B21: injected rules give a mid-effort follow-up a graph node" "$ctx" \
+        'node[^.]{0,120}follow-?up|follow-?up[^.]{0,120}node'
+    assert_contains_re_i "B21: injected rules add that node AT CAPTURE" "$ctx" \
+        'at[[:space:]]+captur|moment[^.]{0,40}captur|when[^.]{0,30}captur'
+    assert_contains_re_i "B21: injected rules mirror the follow-up's disposition onto that node" "$ctx" \
+        'mirror[^.]{0,140}node|node[^.]{0,140}mirror'
+}
+
+# Test: the injected decision-file instruction requires a relative markdown
+# link to every artifact the decision document references (the F08 authoring
+# half of this contract).
+test_b21_rules_require_relative_artifact_links() {
+    local ctx
+    ctx=$(b21_flat_context b21-links)
+
+    assert_contains_re_i "B21/F08: injected rules require a relative markdown link" "$ctx" \
+        'relative[^.]{0,40}link|markdown[[:space:]]+link[^.]{0,40}relative'
+    assert_contains_re_i "B21/F08: the link resolves from the decision file's own directory" "$ctx" \
+        'resolvable|decision[^.]{0,30}director'
+    assert_contains_re_i "B21/F08: a bare path is not acceptable" "$ctx" \
+        'bare[[:space:]]+path'
+    assert_contains_re_i "B21/F08: the rule covers every artifact the decision document references" "$ctx" \
+        'artifact|referenced[[:space:]]+(document|file|path)'
+}
+
+# Test (invariant): the new prose stays capability-phrased — it names no
+# plugin.
+#
+# This cannot be a blanket "no plugin is named" scan. The injected context
+# necessarily carries real `plugins/tracking/templates/...` paths (the hook
+# points agents at template files that genuinely live there), the rules
+# header reads "# Tracking (clam tracking plugin)", and the decision-file
+# instruction already cites a skill id — all pre-existing, none in this
+# contract's scope. What IS checkable, and is the leak this contract invites
+# — "ids from other numbering systems" is exactly where a block/unit id
+# scheme would get named after its plugin — is that no OTHER plugin id
+# appears. The list is restricted to ids with no ordinary-English sense, so
+# a match is necessarily a plugin reference and never innocent prose.
+# Green at birth by design: it is a regression guard on the new prose, not a
+# red-until-implemented behavior assertion.
+test_b21_rules_name_no_other_plugin() {
+    local ctx name found=""
+    ctx=$(b21_flat_context b21-noplugin)
+    for name in lego render-doc ask-in-text orchestrator-handover session-data \
+        skill-tracker statusline worktrees; do
+        if printf '%s' "$ctx" | grep -qiE -- "\\b${name}\\b"; then
+            found="$name"
+            break
+        fi
+    done
+    if [ -z "$found" ]; then
+        pass "B21: the injected rules name no other plugin"
+    else
+        fail "B21: the injected rules name no other plugin" "found '$found' in the injected context"
+    fi
+}
+
+# Test (acceptance): the 003-B21 scaffolding contract comment is gone from
+# session-context.sh once the block lands.
+test_b21_contract_comment_removed() {
+    if grep -qF -- "Contract: 003-B21" "$HOOK" 2>/dev/null; then
+        fail "B21: the 'Contract: 003-B21' scaffolding comment has been removed from session-context.sh" \
+            "still present"
+    else
+        pass "B21: the 'Contract: 003-B21' scaffolding comment has been removed from session-context.sh"
+    fi
+}
+
 # --- Run all tests ---
 test_auto_create_when_local_exists
 test_auto_create_has_state
@@ -556,6 +701,12 @@ test_b06_open_questions_ordering
 test_b06_open_questions_hint_and_bullet_style
 test_b06_notimplemented_placeholder_gone
 test_b06_rules_mention_open_questions
+
+# 003-B21
+test_b21_rules_state_authoring_defaults
+test_b21_rules_require_relative_artifact_links
+test_b21_rules_name_no_other_plugin
+test_b21_contract_comment_removed
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

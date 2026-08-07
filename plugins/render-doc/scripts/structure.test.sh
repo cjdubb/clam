@@ -450,6 +450,200 @@ else
   fail "B06 clause 4: plugin.json version $pj_version is below the $B06_VERSION_FLOOR floor"
 fi
 
+# =============================================================================
+# Contract: 003-B17 stale scaffold notes gone (plan 003-followup-fixes)
+#
+# Ten notes left by earlier plans' scaffolds still say DELIBERATELY
+# UNIMPLEMENTED above code that has long since been implemented — eight in
+# serve.py, two in render.sh. They are deleted; everything else in those
+# docblocks stays byte-for-byte.
+#
+# This lands in the composition suite because the claim spans serve.py and
+# render.sh together and belongs to neither's behaviour: it is source hygiene,
+# the same species as B06 clause 1's retired-design sweep just above, and no
+# behavioural suite owns it.
+#
+# TWO scoping traps, and both are why this section greps exactly two named files
+# and never the plugin, the tree, or B06_SWEEP:
+#
+#   1. assets/template.html carries plan-003's OWN scaffold notes for blocks
+#      that have not been implemented yet. They are legitimately there, and a
+#      plugin-wide sweep for the phrase would fail on content this very plan is
+#      keeping until a later block lands.
+#   2. The phrase appears inside the plan-003 contract comments themselves —
+#      including this block's, which quotes it to say what must go. Those
+#      comments are present until acceptance, so every absence check below runs
+#      against a copy with the plan-003 contract blocks removed. Without that,
+#      the checks would be red forever and go green only at acceptance, which
+#      tests nothing about the implementation.
+#
+# The five legitimate references in test files are a third exclusion, handled
+# by naming the two source files rather than by filtering.
+# =============================================================================
+
+B17_NOTE='DELIBERATELY UNIMPLEMENTED'
+
+# A copy of a source file with every plan-003 contract comment block removed: a
+# "# Contract: 003-B<NN>" line and the consecutive comment lines beneath it.
+b17_strip_003() { # <file> <output file>
+  python3 - "$1" << 'PY' > "$2" 2> /dev/null
+import re
+import sys
+
+out = []
+skipping = False
+with open(sys.argv[1], encoding='utf-8') as fh:
+    for line in fh:
+        if re.match(r'\s*#\s*Contract:\s*003-B[0-9]+', line):
+            skipping = True
+            continue
+        if skipping:
+            if re.match(r'\s*#', line):
+                continue
+            skipping = False
+        out.append(line)
+sys.stdout.write(''.join(out))
+PY
+}
+
+B17_RENDER_SH="$PLUGIN_ROOT/scripts/render.sh"
+B17_FILES=("$SERVE_PY" "$B17_RENDER_SH")
+for f in "${B17_FILES[@]}"; do
+  rel="${f#"$PLUGIN_ROOT"/}"
+  stripped="$WORK/b17-$(basename "$f").stripped"
+  b17_strip_003 "$f" "$stripped"
+
+  if [ ! -s "$stripped" ]; then
+    fail "B17: the plan-003 strip of $rel produced nothing — no note check can be trusted"
+    continue
+  fi
+
+  # The strip has to be proven, not assumed: a broken stripper that deleted
+  # nothing would let the plan-003 comments' own use of the phrase fail every
+  # check below, and one that deleted everything would pass them vacuously.
+  if ! grep -qE 'Contract: 003-B[0-9]+' "$f"; then
+    pass "B17: no plan-003 contract comment remains in $rel to prove the strip against"
+  elif grep -qE 'Contract: 003-B[0-9]+' "$stripped"; then
+    fail "B17: a plan-003 contract comment survived the strip of $rel — the note checks below are unreliable"
+  else
+    pass "B17: plan-003 contract comments are stripped from the $rel copy"
+  fi
+
+  n_notes="$(grep -cF -- "$B17_NOTE" "$stripped" 2> /dev/null)"
+  : "${n_notes:=0}"
+  if [ "$n_notes" -eq 0 ]; then
+    pass "B17: no stale scaffold note remains in $rel"
+  else
+    fail "B17: $rel still carries $n_notes stale '$B17_NOTE' note(s): $(grep -nF -- "$B17_NOTE" "$stripped" | head -3 | tr '\n' ' ')"
+  fi
+done
+
+# Preservation, the other half of the contract: only the status sentences go.
+# Each docblock is represented by its Contract: marker, one clause line, and the
+# signature the docblock sits above — all byte-for-byte. The clause lines are
+# chosen from clauses no OTHER block of this unit rewrites: B15 rewrites the
+# marker sentences in the index_doc_entries and 002-B04 docblocks and B16
+# rewrites B03's clause 6, so a line from any of those would fail here for a
+# reason that has nothing to do with B17.
+B17_SERVE_KEEP=(
+  '# Contract: B02 served-doc registry (plan 001-render-graph-always)'
+  '#   The server remembers which documents it has served, so the index page'
+  'def registry_record(md_real):'
+  'def registry_entries():'
+  'def worktree_siblings(root):'
+  'Contract: 002-B01 discovery scan — worktree_siblings'
+  '    Behavior: Return the worktree root realpaths of every worktree of the'
+  'def discover_docs(root):'
+  'Contract: 002-B01 discovery scan — discover_docs'
+  '    Inputs: root — an absolute worktree root realpath.'
+  'def index_doc_entries():'
+  'Contract: 002-B02 index discovery integration'
+  '    Behavior: The document set for GET / — the registry united with'
+  '# Contract: B01 raw-doc route (plan 001-render-graph-always)'
+  '    #   GET /raw/<abs-md-path> serves the CURRENT bytes of the source'
+  'def _serve_raw(self, md_path):'
+  '    # Contract: B02 served-doc registry — /docs.json handler; see the'
+  '    # module-level B02 contract above registry_record for the full spec.'
+  'def _serve_docs_json(self):'
+  '    # Contract: B03 project index (plan 001-render-graph-always)'
+  '    #   1. Source of truth: registry_entries() (B02) — already scope-pruned'
+  'def _serve_index(self):'
+  '    # Contract: 002-B04 worktree landing page (plan 002-discovery-landing-dns)'
+  '    #   GET /project/<abs worktree root> responds 200 text/html;'
+  'def _serve_project(self, root_path):'
+)
+# Presence alone would pass a rewrite that kept every clause but shuffled them,
+# and the contract's edge case holds the surrounding clauses to their exact order
+# as well as their exact text. Both KEEP arrays are written in file order, so the
+# first match of each literal must come out strictly increasing. This runs only
+# once every literal is present, or a lost line would be reported twice.
+b17_in_order() { # <file> <label> <literal>...
+  local file="$1" label="$2"
+  shift 2
+  local prev=0 n line
+  for line in "$@"; do
+    n="$(grep -nF -m1 -- "$line" "$file" 2> /dev/null | cut -d: -f1)"
+    if [ "${n:-0}" -le "$prev" ]; then
+      fail "B17: $label keeps the preserved clauses but reorders them (\"$line\" at line ${n:-?}, after line $prev)"
+      return 1
+    fi
+    prev="$n"
+  done
+  pass "B17: the preserved clauses of $label keep their contract order"
+}
+
+b17_kept=0
+for line in "${B17_SERVE_KEEP[@]}"; do
+  if grep -qF -- "$line" "$SERVE_PY"; then
+    b17_kept=$((b17_kept + 1))
+  else
+    fail "B17: serve.py lost a line the contract preserves byte-for-byte: $line"
+  fi
+done
+if [ "$b17_kept" -eq "${#B17_SERVE_KEEP[@]}" ]; then
+  pass "B17: every Contract: marker, sampled clause and signature line survives in serve.py ($b17_kept lines)"
+  b17_in_order "$SERVE_PY" "serve.py" "${B17_SERVE_KEEP[@]}"
+fi
+
+B17_RENDER_KEEP=(
+  '# Contract: B02 --open server client (plan 001-render-doc-fixed-port-server)'
+  '#   Point a browser at the document, served by the shared server described'
+  'if [ "$OPEN" -eq 1 ]; then'
+  '# Contract: B08 --serve registration mode (plan 001-render-graph-always)'
+  '#   render.sh <doc.md> --serve makes the document available (and'
+  'if [ "$SERVE_MODE" -eq 1 ]; then'
+)
+b17_kept=0
+for line in "${B17_RENDER_KEEP[@]}"; do
+  if grep -qF -- "$line" "$B17_RENDER_SH"; then
+    b17_kept=$((b17_kept + 1))
+  else
+    fail "B17: render.sh lost a line the contract preserves byte-for-byte: $line"
+  fi
+done
+if [ "$b17_kept" -eq "${#B17_RENDER_KEEP[@]}" ]; then
+  pass "B17: every Contract: marker, sampled clause and signature line survives in render.sh ($b17_kept lines)"
+  b17_in_order "$B17_RENDER_SH" "render.sh" "${B17_RENDER_KEEP[@]}"
+fi
+
+# The legitimate references live in test files, where a suite asserting its own
+# block's note was removed has to spell the phrase out. Those are not this
+# block's targets and must come through untouched.
+b17_refs=0
+for t in live-update graph-default topbar-nav; do
+  tf="$PLUGIN_ROOT/scripts/$t.test.sh"
+  if [ ! -f "$tf" ]; then
+    fail "B17: the suite carrying a legitimate reference is missing: scripts/$t.test.sh"
+  elif grep -qF -- "$B17_NOTE" "$tf"; then
+    b17_refs=$((b17_refs + 1))
+  else
+    fail "B17: scripts/$t.test.sh lost its legitimate reference to the phrase"
+  fi
+done
+if [ "$b17_refs" -eq 3 ]; then
+  pass "B17: the legitimate references in test files are untouched (3 suites)"
+fi
+
 # --- Summary ------------------------------------------------------------------
 if [ "$FAILURES" -gt 0 ]; then
   printf 'structure.test.sh: %d assertion(s) failed\n' "$FAILURES" >&2

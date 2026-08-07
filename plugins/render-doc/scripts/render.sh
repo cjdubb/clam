@@ -178,11 +178,16 @@ open_file() {
   fi
 }
 
-# Contract: B02 --open server client (plan 001-render-doc-fixed-port-server)
+# Contract: 003-B17 stale scaffold notes gone — render.sh scope (plan 003-followup-fixes)
 #
-# DELIBERATELY UNIMPLEMENTED. The block below is a stub that fails loudly;
-# everything above this line (the render pipeline) is finished code and must
-# keep working unchanged.
+# The two stale notes in this file — in the B02 --open server client
+# contract directly below and the B08 --serve registration contract
+# further down — falsely describe long-implemented code as
+# unimplemented and are deleted, with every Contract: marker, clause,
+# and signature line preserved byte-for-byte. Full contract in
+# serve.py's 003-B17 block (closes #302).
+
+# Contract: B02 --open server client (plan 001-render-doc-fixed-port-server)
 #
 # Reference implementation to port from:
 #   /home/cwilliamson/github/clam-code @ origin/master (41442a2),
@@ -338,10 +343,6 @@ if [ "$OPEN" -eq 1 ]; then
 fi
 
 # Contract: B08 --serve registration mode (plan 001-render-graph-always)
-#
-# DELIBERATELY UNIMPLEMENTED. The block below is a stub that fails loudly;
-# the render pipeline and the --open block above are finished code and must
-# keep working unchanged.
 #
 # Behavior:
 #   render.sh <doc.md> --serve makes the document available (and

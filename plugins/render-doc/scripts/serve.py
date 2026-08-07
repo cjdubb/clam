@@ -11,8 +11,11 @@ docblock immediately below for the full behavioral spec.
 
 The project index (GET /) does not stop at what has been served: it also
 discovers markdown documents under a served worktree's .local/, at any
-depth, and across every one of that worktree's sibling checkouts, listing
-never-served documents alongside the rest. That discovery scan degrades
+depth, and across every one of that worktree's sibling checkouts. A
+document that has never been served is listed exactly like one that has,
+told apart only by position — after the served entries of its group,
+newest first — and every group on the index renders collapsed, so a
+reader opens the one project they came for. That discovery scan degrades
 to the registry-only listing whenever it fails for an environmental
 reason (git missing, a failing subprocess, an unreadable directory).
 
@@ -197,10 +200,6 @@ annotate_lock = threading.Lock()
 
 # Contract: 003-B17 stale scaffold notes gone (plan 003-followup-fixes)
 #
-# DELIBERATELY UNIMPLEMENTED — the ten pre-plan-003 notes are still in
-# place; deleting them is this block's implementation, which also
-# removes this note.
-#
 # Behavior: the TEN stale 'DELIBERATELY UNIMPLEMENTED' notes left by
 #   earlier plans' scaffolds — eight in this file (the served-doc
 #   registry comment below; the worktree_siblings, discover_docs and
@@ -226,11 +225,6 @@ annotate_lock = threading.Lock()
 
 
 # Contract: B02 served-doc registry (plan 001-render-graph-always)
-#
-# DELIBERATELY UNIMPLEMENTED. The two functions below raise; implementing
-# them — and wiring registry_record into the serve paths — is the block's
-# implementation. Nothing above this comment changes for B02 except that
-# wiring.
 #
 # Behavior:
 #   The server remembers which documents it has served, so the index page
@@ -422,11 +416,6 @@ def render_headline(entry):
 
 # Contract: 003-B15 unserved marker removed (plan 003-followup-fixes)
 #
-# DELIBERATELY UNIMPLEMENTED — render_group below and
-# render_project_entry still emit the '(unserved)' span, and both
-# pages' CSS still ships the .unserved rule; removing them is this
-# block's implementation, which also removes this note.
-#
 # Behavior: GET / and the worktree landing page list never-served
 #   documents IDENTICALLY to served ones except for position: within a
 #   group, served entries first (registry order), then never-served
@@ -450,10 +439,6 @@ def render_headline(entry):
 
 # Contract: 003-B16 homepage groups collapsed (plan 003-followup-fixes)
 #
-# DELIBERATELY UNIMPLEMENTED — render_group below still opens with
-# '<details open>'; dropping the attribute is this block's
-# implementation, which also removes this note.
-#
 # Behavior: every worktree group on GET / renders as '<details>' with
 #   NO open attribute — collapsed by default, matching the landing
 #   page's subdirectory-group precedent — while the summary label,
@@ -474,7 +459,7 @@ def render_headline(entry):
 def render_group(root, label, entries):
     """The <details> block for one worktree's group of registered documents:
     the WORKGRAPH.md headline (if present) followed by every other document
-    as a worktree-relative link, expanded by default."""
+    as a worktree-relative link, collapsed by default."""
     headline = None
     others = []
     for e in entries:
@@ -483,7 +468,7 @@ def render_group(root, label, entries):
         else:
             others.append(e)
 
-    parts = ['<details open><summary>', html.escape(label), '</summary>']
+    parts = ['<details><summary>', html.escape(label), '</summary>']
     if headline is not None:
         parts.append(render_headline(headline))
     if others:
@@ -492,9 +477,7 @@ def render_group(root, label, entries):
             rel = os.path.relpath(e['path'], root)
             href_esc = html.escape(
                 '/doc' + urllib.parse.quote(e['path'], safe='/'), quote=True)
-            mark = (' <span class="unserved">(unserved)</span>'
-                    if e.get('lastServed') is None else '')
-            parts.append(f'<li><a href="{href_esc}">{html.escape(rel)}</a>{mark}</li>')
+            parts.append(f'<li><a href="{href_esc}">{html.escape(rel)}</a></li>')
         parts.append('</ul>')
     parts.append('</details>')
     return ''.join(parts)
@@ -508,8 +491,6 @@ def render_group(root, label, entries):
 
 def worktree_siblings(root):
     """Contract: 002-B01 discovery scan — worktree_siblings
-
-    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B01").
 
     Behavior: Return the worktree root realpaths of every worktree of the
       repository that `root` belongs to, `root` itself included, by running
@@ -560,8 +541,6 @@ def worktree_siblings(root):
 def discover_docs(root):
     """Contract: 002-B01 discovery scan — discover_docs
 
-    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B01").
-
     Behavior: Return the markdown documents under `root`/.local — every
       file matching .local/**/*.md at any depth — as candidates for the
       index (B02) and the worktree landing page (B04).
@@ -609,10 +588,6 @@ def discover_docs(root):
 def index_doc_entries():
     """Contract: 002-B02 index discovery integration
 
-    DELIBERATELY UNIMPLEMENTED. Raises NotImplementedError("002-B02"). Wiring
-    _serve_index to consume this function IS part of the block's
-    implementation; until then GET / stays registry-only.
-
     Behavior: The document set for GET / — the registry united with
       filesystem discovery:
       1. Start from registry_entries() (already scope-pruned, sorted by
@@ -625,10 +600,10 @@ def index_doc_entries():
          {"path": ..., "lastServed": None, "mtime": <epoch number>}.
       With this wired, GET / groups exactly as today (worktree_label,
       headline, details/summary), except: unserved entries (lastServed
-      None) list AFTER every served entry in their group, each visibly
-      marked with text containing "unserved"; and groups may now exist
-      for worktrees that never served a doc, rendering exactly like
-      served groups (label, headline when .local/WORKGRAPH.md exists).
+      None) list AFTER every served entry in their group and are told
+      apart by that position alone; and groups may now exist for
+      worktrees that never served a doc, rendering exactly like served
+      groups (label, headline when .local/WORKGRAPH.md exists).
     Inputs: none (module state: the registry; the filesystem).
     Outputs: list of dicts as above — served entries first in
       registry_entries() order, then unserved entries sorted by mtime
@@ -758,21 +733,20 @@ def read_doc_annotation(path):
 
 def render_project_entry(entry, rel_text):
     """One <li> for a landing-page document: its /doc link (text = the
-    caller-supplied relative path), an "unserved" mark when unregistered, and
-    its protocol-field annotation when it has one — all file-derived text
-    escaped."""
+    caller-supplied relative path) and its protocol-field annotation when it
+    has one — all file-derived text escaped. An unregistered document gets
+    the same <li> as a registered one; its position on the page, after every
+    served entry, is the whole distinction."""
     href = '/doc' + urllib.parse.quote(entry['path'], safe='/')
     href_esc = html.escape(href, quote=True)
     text_esc = html.escape(rel_text)
-    mark = (' <span class="unserved">(unserved)</span>'
-            if entry.get('lastServed') is None else '')
     ann_html = ''
     annotation = read_doc_annotation(entry['path'])
     if annotation is not None:
         field, value = annotation
         value_esc = html.escape(value[:60])
         ann_html = f' <span class="ann">{html.escape(field)}: {value_esc}</span>'
-    return f'<li><a href="{href_esc}">{text_esc}</a>{mark}{ann_html}</li>'
+    return f'<li><a href="{href_esc}">{text_esc}</a>{ann_html}</li>'
 
 
 def render_project_group(name, items):
@@ -801,7 +775,6 @@ INDEX_STYLE = (
     "ul.docs li{padding:.15rem 0;}"
     "ul.docs a{color:#c7d0e0;text-decoration:none;}"
     "ul.docs a:hover{text-decoration:underline;}"
-    ".unserved{color:#9098a8;font-style:italic;}"
     ".empty{color:#9098a8;padding:2rem 0;}"
 )
 
@@ -1027,8 +1000,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # Contract: B01 raw-doc route (plan 001-render-graph-always)
     #
-    # DELIBERATELY UNIMPLEMENTED — the method body raises.
-    #
     # Behavior:
     #   GET /raw/<abs-md-path> serves the CURRENT bytes of the source
     #   markdown file itself (never the rendered sibling), so an open page
@@ -1097,7 +1068,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # Contract: B02 served-doc registry — /docs.json handler; see the
     # module-level B02 contract above registry_record for the full spec.
-    # DELIBERATELY UNIMPLEMENTED — raises.
     def _serve_docs_json(self):
         try:
             docs = registry_entries()
@@ -1106,8 +1076,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json(200, {"docs": docs})
 
     # Contract: B03 project index (plan 001-render-graph-always)
-    #
-    # DELIBERATELY UNIMPLEMENTED — the method body raises.
     #
     # Behavior:
     #   GET / responds 200 text/html; charset=utf-8 with ONE self-contained
@@ -1135,7 +1103,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     #   6. Each group is independently expandable/collapsible without
     #      scripting (details/summary), so a reader can select one
     #      project and see only that project's documents; every group
-    #      renders expanded by default (the open attribute).
+    #      renders collapsed by default (no open attribute).
     #   7. A listed file that cannot be read, or whose markers cannot be
     #      parsed, is STILL listed (label + link) with its count and Focus
     #      shown as unavailable — one bad file never drops an entry and
@@ -1178,10 +1146,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # Contract: 002-B04 worktree landing page (plan 002-discovery-landing-dns)
     #
-    # DELIBERATELY UNIMPLEMENTED — both method bodies raise
-    # NotImplementedError("002-B04"). The do_GET route wiring is present at
-    # scaffold so requests reach these stubs.
-    #
     # Behavior:
     #   GET /project/<abs worktree root> responds 200 text/html;
     #   charset=utf-8 with ONE self-contained page (inline CSS only, no
@@ -1195,8 +1159,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     #      entries whose worktree_label root is this root — same merge
     #      semantics as B02: a registered path keeps its registry entry,
     #      others join unserved. Served docs list first (last-served
-    #      order), then unserved by mtime descending, each unserved doc
-    #      visibly marked with text containing "unserved".
+    #      order), then unserved by mtime descending, an unserved doc
+    #      told apart by that position alone.
     #   3. Headline: exactly <root>/.local/WORKGRAPH.md (the protocol's
     #      named path, docs/protocols/work-graph.md), when present: its
     #      /doc link plus open-node count and Focus id via the protocol's

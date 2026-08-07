@@ -271,6 +271,26 @@ group_has_link_to() { # <label> <absolute md path>
   group_hrefs "$1" | grep -qxF -- "$want"
 }
 
+# The opening <details ...> tag of the group whose <summary> carries <label>.
+# Groups are never nested, so the non-greedy match is exact. One group's own tag
+# rather than a page-wide count: a per-group clause must not be satisfiable by a
+# different group elsewhere on the page.
+details_tag_for() { # <label>
+  python3 - "$BODY" "$1" << 'PY' 2> /dev/null
+import re
+import sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+want = sys.argv[2]
+for m in re.finditer(r'<details\b[^>]*>.*?</details>', data, re.S | re.I):
+    block = m.group(0)
+    sm = re.search(r'<summary\b[^>]*>(.*?)</summary>', block, re.S | re.I)
+    text = re.sub(r'<[^>]*>', ' ', sm.group(1)) if sm else ''
+    if want in text:
+        sys.stdout.write(re.match(r'<details\b[^>]*>', block, re.I).group(0))
+        break
+PY
+}
+
 # A visible-text window that cannot be spanned by a path: / . and ~ are
 # excluded, so a digit from a group label can never satisfy a count clause.
 WIN='[^0-9/.~]{0,40}'
@@ -590,7 +610,14 @@ else
 fi
 
 # =============================================================================
-# Clause 6: one collapsible, expanded-by-default group per worktree
+# Clause 6: one collapsible, collapsed-by-default group per worktree
+#
+# Contract: 003-B16 homepage groups collapsed (plan 003-followup-fixes)
+#
+# The open attribute is gone. Collapsibility itself is untouched and still the
+# thing clause 6 is about, so the details/summary pairing below is unchanged;
+# what flipped is the default state, to match the landing page's subdirectory
+# groups, which have always rendered collapsed.
 # =============================================================================
 
 details_count="$(grep -oi '<details' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
@@ -607,10 +634,31 @@ else
   fail "groups: found $summary_count <summary> elements, expected $expected_groups"
 fi
 open_details="$(grep -oiE '<details[^>]*\bopen\b' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
-if [ "$open_details" = "$expected_groups" ]; then
-  pass "groups: every group renders expanded by default (the open attribute)"
+if [ "$open_details" = "0" ]; then
+  pass "groups: every group renders collapsed by default (no open attribute)"
 else
-  fail "groups: $open_details of $expected_groups groups carry the open attribute"
+  fail "groups: $open_details of $expected_groups groups carry the open attribute — every group must render collapsed"
+fi
+
+# repo-delta's group holds nothing but its WORKGRAPH.md headline, so it is the
+# contract's "a group holding only a headline" edge case: it collapses like any
+# other. Read from its own slice rather than from the page-wide count, which one
+# collapsed group elsewhere could otherwise satisfy.
+delta_tag="$(details_tag_for "$L_DELTA")"
+if [ -z "$delta_tag" ]; then
+  fail "groups: repo-delta's group could not be located; the headline-only edge case is unchecked"
+elif printf '%s' "$delta_tag" | grep -qiE '\bopen\b'; then
+  fail "groups: repo-delta's headline-only group still opens with \"$delta_tag\""
+else
+  pass "groups: a group holding only a WORKGRAPH.md headline is collapsed like any other ($delta_tag)"
+fi
+
+# The scriptless invariant: expand and collapse are native details/summary, so
+# the page must still carry no script at all.
+if grep -qi '<script' "$BODY" 2> /dev/null; then
+  fail "groups: the index carries a <script> element — expand/collapse must stay scriptless"
+else
+  pass "groups: no <script> element (expand/collapse is native details/summary)"
 fi
 
 # =============================================================================
@@ -918,6 +966,54 @@ if [ "$RESP_CODE" = "200" ]; then
   pass "registry failure: yields the empty state, not a 500"
 else
   fail "registry failure: the index returned $RESP_CODE with an unreadable registry file"
+fi
+
+# =============================================================================
+# 003-B16 edge case: a single-group index is collapsed too
+#
+# "ALL groups collapsed, no exception" is the clause, and the reading it most
+# invites is that a page with only one group may as well open it. repo-beta is
+# a standalone repo with no linked worktree and no .local directory, so seeding
+# one of its documents yields an index of exactly one group.
+#
+# A fresh port is drawn through the same bounded retry the sibling suites use:
+# a port whose /tmp state already exists belongs to somebody else and is
+# abandoned rather than clobbered. start_server records the port so the EXIT
+# trap removes the registry file and pidfile this suite caused.
+# =============================================================================
+
+PORT_D=""
+for _ in 1 2 3 4 5; do
+  PORT_D="$(free_port)"
+  if [ ! -e "/tmp/render-doc-serve-$PORT_D.pid" ] \
+    && [ ! -e "/tmp/render-doc-registry-$PORT_D.json" ]; then
+    break
+  fi
+  PORT_D=""
+done
+if [ -z "$PORT_D" ]; then
+  fail "single group: every drawn port already carried /tmp state; the one-group clause is unchecked"
+else
+  BASE_D="http://127.0.0.1:$PORT_D"
+  write_seed "/tmp/render-doc-registry-$PORT_D.json" "$BETA_DESIGN" 5000
+  start_server "$PORT_D" "$WORK/srv-d.stderr"
+  if ! wait_healthy "$BASE_D"; then
+    fail "single group: the one-document server did not become healthy; the one-group clause is unchecked"
+  else
+    do_request "$BASE_D/"
+    d_details="$(grep -oi '<details' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
+    d_open="$(grep -oiE '<details[^>]*\bopen\b' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
+    if [ "$d_details" = "1" ]; then
+      pass "single group: a registry naming one worktree yields exactly one group"
+    else
+      fail "single group: found $d_details <details> elements, expected 1 — the fixture is not a single-group index"
+    fi
+    if [ "$d_open" = "0" ]; then
+      pass "single group: the only group on the page still renders collapsed"
+    else
+      fail "single group: the only group on the page carries the open attribute"
+    fi
+  fi
 fi
 
 # --- Summary -----------------------------------------------------------------

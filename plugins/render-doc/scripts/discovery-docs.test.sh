@@ -156,7 +156,10 @@ DISCOVERY='discover|scan|unserved'
 LOCAL_DIR='\.local'
 MARKDOWN='\.md|markdown'
 WORKTREES="worktree|sibling|checkout"
-# "never-served docs included and marked unserved".
+# "never-served docs are included in the listing" — the fact 002-B03 requires
+# stated. What 003-B18 changed is how they are DISTINGUISHED, asserted in its own
+# section further down; that they are listed at all is this block's clause and is
+# unaffected.
 NEVER_SERVED="unserved|never${WS}(been${WS})?(served|opened|rendered)|not${WS}(yet${WS})?(been${WS})?(served|opened)|have${WS}not${WS}been${WS}served|without${WS}(being${WS})?(served|opened)"
 # The degradation: something fails, and the listing falls back to the registry.
 FAILS="fails?|failure|unavailable|missing|cannot|can't|broken|error|degrad|falls?${WS}back|fallback"
@@ -295,7 +298,7 @@ elif [ -z "$readme_window" ]; then
   fail "README: says the index lists documents under .local"
   fail "README: says those documents are markdown"
   fail "README: says discovery reaches every worktree of a served repo"
-  fail "README: says never-served documents are listed and marked unserved"
+  fail "README: says never-served documents are listed"
   fail "README: states discovery's degradation to a registry-only listing"
   fail "README: names what fails when discovery degrades (git or the scan)"
 else
@@ -304,7 +307,7 @@ else
   has "$readme_window" "$MARKDOWN" "README: says those documents are markdown"
   has "$readme_window" "$WORKTREES" "README: says discovery reaches every worktree of a served repo"
   has "$readme_window" "$NEVER_SERVED" \
-    "README: says never-served documents are listed and marked unserved"
+    "README: says never-served documents are listed"
   if matches "$readme_window" "$FAILS" && matches "$readme_window" "$FALLBACK_STATE"; then
     pass "README: states discovery's degradation to a registry-only listing"
   else
@@ -315,11 +318,87 @@ else
   assert_no_sibling_reference "$readme_window" "README discovery prose"
 fi
 
-# The page's own word for an unlisted document is "unserved" (the index
-# contract fixes it), so the README has to use the reader's vocabulary rather
-# than a synonym of its own.
-has_f "$readme_region" 'unserved' \
-  "README: uses the page's own word, \"unserved\", for a never-served document"
+# =============================================================================
+# Contract: 003-B18 G06 docs + bump (plan 003-followup-fixes)
+#
+# Two index defaults changed under this README, so the two statements that
+# describe them are rewritten: never-served documents list UNMARKED, told apart
+# only by position (after the served ones, newest first), and every worktree
+# group on the index opens COLLAPSED. serve.py's module docstring states the
+# same two facts.
+#
+# The check that used to live here — "the README uses the page's own word,
+# unserved" — is gone with the word: the page no longer prints it, so requiring
+# the README to would pin prose to a marker that does not exist. What replaces
+# it is the opposite claim, that no marker is promised at all, plus the two
+# facts that took the marker's place. Presence checks stay alternations, as
+# everywhere in this suite: which words state the fact is the implementer's.
+#
+# The no-marker check runs on the comment-stripped body, like every other prose
+# check here — this block's own contract comment quotes the marker in order to
+# retire it, and it stays in the README until acceptance.
+# =============================================================================
+
+MARK_PROMISE="mark[a-z]*[^.]{0,60}unserved|unserved[^.]{0,60}mark[a-z]*"
+POSITION="after${WS}(the${WS})?(served|registered|opened)|by${WS}position|position${WS}alone|below${WS}(the${WS})?served"
+NEWEST_FIRST="newest${WS}first|most${WS}recent(ly)?${WS}(modified|changed|first)|mtime|modification${WS}time"
+COLLAPSED="collaps"
+
+if [ -z "$readme_region" ]; then
+  fail "README: the discovery sections could not be located — no 003-B18 clause can be checked"
+  fail "README: never-served documents are no longer described as carrying a mark"
+  fail "README: says never-served documents are distinguished by position"
+  fail "README: says the position is newest first"
+else
+  if matches "$readme_region" "$MARK_PROMISE"; then
+    fail "README: still says never-served documents are marked — the listing is unmarked now"
+  else
+    pass "README: never-served documents are no longer described as carrying a mark"
+  fi
+  has "$readme_window" "$POSITION" \
+    "README: says never-served documents are distinguished by position, after the served ones"
+  has "$readme_window" "$NEWEST_FIRST" \
+    "README: says the never-served documents run newest first"
+fi
+
+# The index's groups are collapsed by default now, which is a statement about
+# the page's own paragraph in "### Scripts" — where the landing page's already
+# collapsed groups are described too, so the absence half is what pins the
+# index's own sentence: nothing under this heading may still claim a group opens
+# expanded.
+if [ -z "$readme_scripts" ]; then
+  fail "README Scripts: the section could not be located — the collapsed-default clause is unchecked"
+else
+  if matches "$readme_scripts" 'expand'; then
+    fail "README Scripts: a group is still described as expanded — every index group opens collapsed"
+  else
+    pass "README Scripts: no group is described as expanded any more"
+  fi
+  has "$readme_scripts" "$COLLAPSED" \
+    "README Scripts: groups are described as collapsed by default"
+fi
+
+# serve.py's header prose carries the same two facts, read through the parser so
+# the contract docblocks below it cannot stand in for the module docstring.
+if [ -z "$serve_header" ]; then
+  fail "serve.py header: the module docstring could not be read — the 003-B18 alignment is unchecked"
+  fail "serve.py header: says never-served documents are distinguished by position"
+  fail "serve.py header: says the position is newest first"
+  fail "serve.py header: says the index's groups open collapsed"
+else
+  if matches "$serve_header" "$MARK_PROMISE"; then
+    fail "serve.py header: still says never-served documents are marked"
+  else
+    pass "serve.py header: never-served documents are not described as carrying a mark"
+  fi
+  # Split the way the README pair above is, so a half-done rewrite names which
+  # half is missing rather than reporting one opaque failure.
+  has "$serve_header" "$POSITION" \
+    "serve.py header: says never-served documents are distinguished by position, after the served ones"
+  has "$serve_header" "$NEWEST_FIRST" \
+    "serve.py header: says the never-served documents run newest first"
+  has "$serve_header" "$COLLAPSED" "serve.py header: says the index's groups open collapsed"
+fi
 
 # =============================================================================
 # Clause: the Failure modes table gains a row for discovery. The invariant is
@@ -412,6 +491,19 @@ else
     fail "plugin.json: version is '$pj_version', expected $VERSION_FLOOR or later"
   fi
 
+  # 003-B18's own leg, beside 002-B03's rather than replacing it: this README's
+  # prose changed a second time, under a second block, and each block's bump is
+  # pinned by the suite that owns the prose it paid for. A floor again, for the
+  # reason above — a later block of plan 003 bumps the plugin further.
+  B18_VERSION_FLOOR='0.11.0'
+  if [ -z "$pj_version" ] || [ "$pj_version" = "null" ]; then
+    fail "003-B18: plugin.json version missing or unparseable"
+  elif [ "$(printf '%s\n%s\n' "$B18_VERSION_FLOOR" "$pj_version" | sort -V | head -1)" = "$B18_VERSION_FLOOR" ]; then
+    pass "003-B18: plugin.json version is $pj_version (>= $B18_VERSION_FLOOR)"
+  else
+    fail "003-B18: plugin.json version is '$pj_version', expected $B18_VERSION_FLOOR or later"
+  fi
+
   # Byte-exact description: this block bumps the version, it does not restate
   # what the plugin is.
   EXPECTED_DESC='Render a planning or decision markdown file into a single self-contained dark-theme HTML view, with an annotation server whose in-page composer writes @TAG: feedback lines back into the source markdown.'
@@ -439,6 +531,12 @@ else
     else
       fail "root README: the render-doc row version is '$root_row_version', expected v$VERSION_FLOOR or later"
     fi
+    if [ -n "$root_row_version" ] \
+      && [ "$(printf '%s\n%s\n' "$B18_VERSION_FLOOR" "${root_row_version#v}" | sort -V | head -1)" = "$B18_VERSION_FLOOR" ]; then
+      pass "003-B18: the root README render-doc row version is $root_row_version (>= v$B18_VERSION_FLOOR)"
+    else
+      fail "003-B18: the root README render-doc row version is '${root_row_version:-missing}', expected v$B18_VERSION_FLOOR or later"
+    fi
     if [ "$root_row_version" = "v$pj_version" ]; then
       pass "root README: the render-doc row version $root_row_version matches plugin.json"
     else
@@ -456,8 +554,9 @@ fi
 # Left to acceptance review
 # =============================================================================
 # Whether the new prose is ACCURATE — that discovery really reaches every
-# sibling worktree, really marks what it has not served, and really degrades the
-# way the paragraph claims — is what discovery-scan.test.sh and
+# sibling worktree, really lists what it has not served after what it has, and
+# really degrades the way the paragraph claims — is what discovery-scan.test.sh
+# and
 # index-discovery.test.sh gate against the shipped code; these anchors prove the
 # claims are present and in the right place, not that they are true. Two
 # judgement calls also stay with the orchestrator: whether the phrasing

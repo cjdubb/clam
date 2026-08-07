@@ -50,9 +50,10 @@ When you do render a document:
   held until the composer closes. A plain `file://` open never polls.
 - The project index at `/` (see Scripts below) does not only show what has
   been served: it also discovers markdown documents that exist on disk
-  under `.local/` across every worktree of a repo it has served, listing
-  each never-served one marked "unserved" alongside what has already been
-  opened.
+  under `.local/` across every worktree of a repo it has served. A
+  document that has never been served is listed exactly like one that
+  has, told apart only by position — after the served entries of its
+  group, newest first.
 - A document page served through this server (not opened as `file://`)
   grows two plain links at the start of its topbar: "Index" back to `/`,
   and "Worktree" to that document's own per-worktree landing page (see
@@ -215,21 +216,24 @@ left scope never lingers in the listing.
 
 `GET /` is the project index: one self-contained page listing every
 registered document, grouped by worktree/project into a collapsible
-`<details>` section per group (expanded by default). A group whose
-documents include a `WORKGRAPH.md` shows it as the group's headline, with
-its open-node count and Focus id read from the work-graph protocol's
-markers; every other document in the group lists as a path relative to
-the worktree root, all linking to their live `/doc` views.
+`<details>` section per group, every one of them collapsed by default so
+the page opens as a list of projects rather than a wall of files. A group
+whose documents include a `WORKGRAPH.md` shows it as the group's
+headline, with its open-node count and Focus id read from the work-graph
+protocol's markers; every other document in the group lists as a path
+relative to the worktree root, all linking to their live `/doc` views.
 
 The index also discovers documents nobody has served yet. For every
 worktree that has served at least one document, `serve.py` scans every
 sibling worktree — every checkout of that same repo — for markdown files
 under its own `.local/`, at any depth, and lists each one after the
-served documents in its group, marked "unserved"; a worktree that has
-never served anything can therefore still get a full group, headline
-included, exactly like a worktree that has. When the discovery scan
-itself fails — git is missing, `git worktree list` errors, or the
-`.local` walk hits a problem — the index quietly falls back to listing
+served documents in its group, newest first. A document that has never
+been served carries no badge, label or styling of its own: that position
+is the whole difference between it and one you opened yesterday. A
+worktree that has never served anything can therefore still get a full
+group, headline included, exactly like a worktree that has. When the
+discovery scan itself fails — git is missing, `git worktree list` errors,
+or the `.local` walk hits a problem — the index quietly falls back to listing
 only what the registry already has, exactly as it did before discovery
 existed.
 
@@ -384,25 +388,6 @@ read the pid from `curl -s http://127.0.0.1:27183/health` (swap in your
 `/tmp/render-doc-serve-27183.pid` — and `kill` it. Rendered `.html` files
 under `.local/` are disposable derived views, not tracked by the plugin —
 remove them yourself if you don't want to keep them around.
-
-<!-- Contract: 003-B18 G06 docs + bump (plan 003-followup-fixes) (remove at acceptance)
-Behavior: this README's two index-behavior statements - the listing
-  description under "What to expect" and the discovery section's
-  marked-as-unserved sentence - are rewritten for the new defaults:
-  never-served documents list unmarked, distinguished only by position
-  (after served entries, newest first), and every worktree group on the
-  index opens collapsed. serve.py's module-docstring prose is aligned to
-  the same two facts. Phrasing stays capability/protocol-only.
-Inputs: n/a (prose).
-Outputs: plugin.json version 0.10.1 -> 0.11.0; root README render-doc
-  version cell updated to match.
-Errors: n/a.
-Invariants: every other README clause (discovery degradation, landing
-  page, hostname matrix, the Tests list) is untouched; the docs suites'
-  prose anchors are updated by the same unit's test wave, never left
-  asserting the removed marker.
-Edge cases: n/a.
--->
 
 <!-- Contract: 003-B20 G07 docs + bump (plan 003-followup-fixes) (remove at acceptance)
 Behavior: this README and skills/render/SKILL.md describe the

@@ -14,8 +14,10 @@
 #      each path exactly once, degradation to registry-only — are statements
 #      about a list, and reading them back out of HTML would prove less.
 #   2. GET / over HTTP, because the rest of the clause is about what a reader
-#      SEES: unserved entries after served ones in their group, each marked,
-#      and groups appearing for worktrees that never served anything.
+#      SEES: unserved entries after served ones in their group, listed exactly
+#      as the served ones are (003-B15 removed the visible marker, so position
+#      is the whole distinction), and groups appearing for worktrees that never
+#      served anything.
 #
 # The fixture is one repo with three worktrees plus two standalone repos, and
 # one repo that is deliberately unreachable from the registry — discovery is
@@ -263,6 +265,48 @@ group_has_link_to() { # <label> <absolute md path>
   local want
   want="/doc$(enc "$2")"
   group_hrefs "$1" | grep -qxF -- "$want"
+}
+
+# Case-insensitive occurrences of a literal in the RAW body — markup and the
+# inline stylesheet alike. The visible-text helpers below cannot see a CSS class
+# name or a rule in <style>, and 003-B15 bans the marker from both.
+raw_count_ci() { # <needle>
+  python3 - "$BODY" "$1" << 'PY' 2> /dev/null
+import sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+print(data.lower().count(sys.argv[2].lower()))
+PY
+}
+
+# The <li> element carrying the /doc link for one document. Entry elements are
+# never nested, so the non-greedy match is exact.
+li_for() { # <absolute md path>
+  python3 - "$BODY" "/doc$(enc "$1")" << 'PY' 2> /dev/null
+import re
+import sys
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+want = 'href="%s"' % sys.argv[2]
+for m in re.finditer(r'<li\b.*?</li>', data, re.S | re.I):
+    if want in m.group(0):
+        sys.stdout.write(m.group(0))
+        break
+PY
+}
+
+# The same element with the two things that legitimately differ between any two
+# entries — the link target and the link text — replaced by placeholders. What
+# survives is the markup shape, which 003-B15 requires to be the SAME for a
+# served and a never-served entry. Comparing shapes rather than asserting one
+# literal shape keeps a faithful rewrite of the markup from failing this.
+li_shape() { # <li html>
+  python3 -c '
+import re
+import sys
+li = sys.argv[1]
+li = re.sub(r"href=\"[^\"]*\"", "href=\"HREF\"", li)
+li = re.sub(r"(<a\b[^>]*>).*?(</a>)", r"\1TEXT\2", li, flags=re.S)
+sys.stdout.write(li)
+' "$1" 2> /dev/null
 }
 
 # Byte offset of <needle> within a group's VISIBLE text, or -1. Every ordering
@@ -669,32 +713,109 @@ else
   pass "GET /: an unregistered, unrelated repo does not appear on the page"
 fi
 
-# --- Unserved entries are marked, and only they ------------------------------
+# Contract: 003-B15 unserved marker removed (plan 003-followup-fixes)
+#
+# The visible marker is gone: a never-served document is listed IDENTICALLY to a
+# served one and distinguished only by where it sits. Two consequences shape the
+# assertions below.
+#
+# Absence is asserted over the RAW body, never the visible text. The mark was a
+# <span class="unserved">(unserved)</span> and the page's inline stylesheet
+# carried a matching .unserved rule; a tag-stripped slice sees neither the class
+# attribute nor the stylesheet, so a check that only read visible text would go
+# green on a page still shipping the CSS.
+#
+# Every clause that used to LOCATE the never-served entries by their mark is
+# re-anchored on the fixture paths this file chose the mtimes for — wt-main's
+# r1.md (stamped 7000) and b1.md (6000) are never served, PLAN.md (seeded 5000)
+# and notes.md (4000) are. The ordering clause itself is UNCHANGED by this
+# block; what changed is that it is now the only thing carrying the distinction,
+# which is why it is asserted as an exact sequence rather than pairwise.
+
+# --- The marker is gone from the markup and from the styles ------------------
+
+n_marker="$(raw_count_ci "unserved")"
+if [ "${n_marker:-0}" = "0" ]; then
+  pass "marker: no \"unserved\" text, marker or CSS class anywhere in the index page"
+else
+  fail "marker: the index page carries \"unserved\" $n_marker time(s) — its markup or its stylesheet still marks never-served documents"
+fi
+
+if body_has 'class="unserved"'; then
+  fail "marker: an entry still carries the unserved CSS class"
+else
+  pass "marker: no entry carries an unserved CSS class"
+fi
+
+# The block's other half is prose: the docblock clauses in serve.py that promise
+# a visible mark are rewritten to promise the position-only distinction instead.
+# Four of them do today, in index_doc_entries (this suite's own subject),
+# render_project_entry, the 002-B04 landing-page contract and the render_group
+# entry markup — so the scan is file-wide rather than a list of four line
+# numbers that would go stale the moment one moves.
+#
+# It runs against a copy with the plan-003 contract comments removed: those
+# comments quote the promise in order to retire it, and they stay in the file
+# until acceptance. Without the strip this check could only ever be red during
+# implementation and green afterwards for the wrong reason.
+SERVE_STRIPPED="$WORK/serve.stripped.py"
+python3 - "$SERVE" << 'PY' > "$SERVE_STRIPPED" 2> /dev/null
+import re
+import sys
+
+out = []
+skipping = False
+with open(sys.argv[1], encoding='utf-8') as fh:
+    for line in fh:
+        if re.match(r'\s*#\s*Contract:\s*003-B[0-9]+', line):
+            skipping = True
+            continue
+        if skipping:
+            if re.match(r'\s*#', line):
+                continue
+            skipping = False
+        out.append(line)
+sys.stdout.write(''.join(out))
+PY
+
+MARK_PROMISE='mark[a-z]*[^.]{0,60}unserved|unserved[^.]{0,60}mark[a-z]*'
+if [ ! -s "$SERVE_STRIPPED" ]; then
+  fail "marker: the plan-003 strip of serve.py produced nothing — the docblock clause is unchecked"
+elif grep -qE 'Contract: 003-B[0-9]+' "$SERVE" && grep -qE 'Contract: 003-B[0-9]+' "$SERVE_STRIPPED"; then
+  fail "marker: a plan-003 contract comment survived the strip — the docblock check is unreliable"
+elif grep -qiE -- "$MARK_PROMISE" "$SERVE_STRIPPED"; then
+  fail "marker: serve.py still ties a mark to a never-served document: $(grep -niE -- "$MARK_PROMISE" "$SERVE_STRIPPED" | head -4 | tr '\n' ' ')"
+else
+  pass "marker: no docblock clause or line in serve.py promises a visible \"unserved\" mark any more"
+fi
+
+# --- A never-served entry's markup is a served entry's markup ----------------
+
+served_li="$(li_for "$MAIN_PLAN")"
+unserved_li="$(li_for "$MAIN_R1")"
+if [ -z "$served_li" ] || [ -z "$unserved_li" ]; then
+  fail "markup: a served and a never-served entry element could not both be located; the identical-markup clause is unchecked"
+elif [ "$(li_shape "$served_li")" = "$(li_shape "$unserved_li")" ]; then
+  pass "markup: a never-served entry is marked up exactly like a served one (only its link target and text differ)"
+else
+  fail "markup: the served entry is \"$(li_shape "$served_li")\" but the never-served entry is \"$(li_shape "$unserved_li")\""
+fi
+
+# --- Position is the whole distinction ---------------------------------------
 
 main_text="$(group_text "$L_MAIN")"
 if [ -z "$main_text" ]; then
-  fail "marking: the wt-main group could not be located; its marking and ordering clauses are unchecked"
-  fail "marking: whether served entries stay unmarked is unchecked"
+  fail "order: the wt-main group could not be located; its ordering clauses are unchecked"
+  fail "order: whether the group's entries come out in the contract's exact sequence is unchecked"
 else
-  n_unserved="$(text_count "$main_text" unserved)"
-  if [ "${n_unserved:-0}" -ge 2 ]; then
-    pass "marking: both never-served documents in the group are marked \"unserved\" ($n_unserved marks)"
-  else
-    fail "marking: the wt-main group carries $n_unserved \"unserved\" marks, expected one per never-served document (2): $main_text"
-  fi
-
-  # Ordering: every served entry precedes every unserved one, and the first
-  # mark falls after the last served entry — so no served document is marked.
   p_plan="$(text_pos "$main_text" ".local/PLAN.md")"
   p_notes="$(text_pos "$main_text" "notes.md")"
   p_r1="$(text_pos "$main_text" ".local/reports/r1.md")"
   p_b1="$(text_pos "$main_text" ".local/briefs/b1.md")"
-  p_mark="$(text_pos "$main_text" "unserved")"
   p_plan="${p_plan:--1}"
   p_notes="${p_notes:--1}"
   p_r1="${p_r1:--1}"
   p_b1="${p_b1:--1}"
-  p_mark="${p_mark:--1}"
   if [ "$p_plan" -ge 0 ] && [ "$p_r1" -gt "$p_plan" ] && [ "$p_b1" -gt "$p_plan" ]; then
     pass "order: within a group, unserved documents list after every served one"
   else
@@ -705,21 +826,23 @@ else
   else
     fail "order: reports/r1.md (newer) does not precede briefs/b1.md within wt-main: $main_text"
   fi
-  if [ "$p_mark" -gt "$p_plan" ] && [ "$p_mark" -gt "$p_notes" ] && [ "$p_plan" -ge 0 ] \
-    && [ "$p_notes" -ge 0 ]; then
-    pass "marking: no served document is marked unserved (the first mark follows every served entry)"
+  # The exact sequence, which is what a reader now has instead of a mark:
+  # registry order (PLAN.md, notes.md) then mtime descending (r1.md, b1.md).
+  if [ "$p_plan" -ge 0 ] && [ "$p_notes" -gt "$p_plan" ] && [ "$p_r1" -gt "$p_notes" ] \
+    && [ "$p_b1" -gt "$p_r1" ]; then
+    pass "order: the group reads served-in-registry-order then never-served-newest-first, which is the only distinction left"
   else
-    fail "marking: an \"unserved\" mark at $p_mark precedes a served entry (PLAN.md@$p_plan, notes.md@$p_notes): $main_text"
+    fail "order: wt-main's entries are not in the contract's sequence (PLAN.md@$p_plan, notes.md@$p_notes, r1.md@$p_r1, b1.md@$p_b1): $main_text"
   fi
 fi
 
 delta_text="$(group_text "$L_DELTA")"
 if [ -z "$delta_text" ]; then
-  fail "marking: the repo-delta group could not be located; the no-false-marks clause is unchecked"
+  fail "marker: the repo-delta group could not be located; the all-served clause is unchecked"
 elif text_matches "$delta_text" 'unserved'; then
-  fail "marking: repo-delta has served every document it has, yet its group says \"unserved\": $delta_text"
+  fail "marker: repo-delta has served every document it has, yet its group says \"unserved\": $delta_text"
 else
-  pass "marking: a group whose documents were all served carries no \"unserved\" mark"
+  pass "marker: a group whose documents were all served says nothing about serving either"
 fi
 
 # --- A group for a worktree that never served anything -----------------------
@@ -752,11 +875,21 @@ else
     else
       fail "never-served group: the headline does not show Focus N02: $sibling_text"
     fi
-    n_sib_marks="$(text_count "$sibling_text" unserved)"
-    if [ "${n_sib_marks:-0}" -ge 2 ]; then
-      pass "never-served group: its listed documents are marked unserved ($n_sib_marks marks)"
+    # 003-B15's edge case: a group holding ONLY never-served documents renders
+    # like any other group, so it says nothing about serving and its entries are
+    # marked up like a served group's.
+    if text_matches "$sibling_text" 'unserved'; then
+      fail "never-served group: a group holding only never-served documents still marks them: $sibling_text"
     else
-      fail "never-served group: $n_sib_marks \"unserved\" marks, expected one per listed document: $sibling_text"
+      pass "never-served group: a group holding only never-served documents renders like any other"
+    fi
+    sib_li="$(li_for "$SIBLING_NOTES")"
+    if [ -z "$sib_li" ] || [ -z "$served_li" ]; then
+      fail "never-served group: its entry element could not be compared with a served one"
+    elif [ "$(li_shape "$sib_li")" = "$(li_shape "$served_li")" ]; then
+      pass "never-served group: its entries carry the same markup as a served group's"
+    else
+      fail "never-served group: its entry is \"$(li_shape "$sib_li")\" against a served group's \"$(li_shape "$served_li")\""
     fi
     if group_has_link_to "$L_SIBLING" "$SIBLING_NOTES" \
       && group_has_link_to "$L_SIBLING" "$SIBLING_TASKS"; then
@@ -766,8 +899,11 @@ else
     fi
   fi
 
-  # A group renders collapsible and expanded whether or not it has served
-  # anything — "exactly like served groups".
+  # Contract: 003-B16 homepage groups collapsed (plan 003-followup-fixes)
+  #
+  # A group renders collapsible and COLLAPSED whether or not it has served
+  # anything — "exactly like served groups", and now like the landing page's own
+  # subdirectory groups, which have always shipped without the open attribute.
   details_count="$(grep -oi '<details' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
   open_details="$(grep -oiE '<details[^>]*\bopen\b' "$BODY" 2> /dev/null | wc -l | tr -d ' ')"
   expected_groups="${#GROUP_LABELS[@]}"
@@ -776,10 +912,10 @@ else
   else
     fail "groups: found $details_count <details> elements, expected $expected_groups (one per worktree)"
   fi
-  if [ "$open_details" = "$expected_groups" ]; then
-    pass "groups: every group renders expanded by default, never-served groups included"
+  if [ "$open_details" = "0" ]; then
+    pass "groups: every group renders collapsed by default, never-served groups included"
   else
-    fail "groups: $open_details of $expected_groups groups carry the open attribute"
+    fail "groups: $open_details of $expected_groups groups carry the open attribute — every group must render collapsed"
   fi
 fi
 

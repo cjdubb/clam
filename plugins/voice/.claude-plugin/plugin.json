@@ -1,7 +1,7 @@
 {
   "name": "voice",
   "description": "Injects the Voice communication spec — conclusion-first, working-memory-friendly reply structure — into every session via a SessionStart hook.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

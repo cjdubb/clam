@@ -10,7 +10,7 @@
 # covered by registration.test.sh.
 #
 # Covers plugin.json:
-#   - valid JSON; name "voice"; version "0.1.2" exactly; non-empty
+#   - valid JSON; name "voice"; version "0.2.0" exactly; non-empty
 #     description naming both the Voice communication spec and its
 #     SessionStart injection, free of STUB/TODO/NotImplemented markers;
 #     .author byte-identical (jq -Sc) to marketplace.json's .owner (single
@@ -78,12 +78,11 @@ check "plugin.json is valid JSON" \
 pj_name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'voice'" "$pj_name" "voice"
 
-# Retargeted 0.1.1 -> 0.1.2 by the README Update-section wave: that wave
-# edits plugins/voice/README.md, and version-bump-lint has no docs
-# exemption, so the plugin necessarily bumps. The pin tracks the CURRENT
-# version, so every legitimate bump retargets it.
+# Retargeted 0.1.2 -> 0.2.0 by the aphorisms-and-coinage bullet added to
+# the canonical Voice text. The pin tracks the CURRENT version, so every
+# legitimate bump retargets it.
 pj_version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is exactly '0.1.2'" "$pj_version" "0.1.2"
+check "plugin.json .version is exactly '0.2.0'" "$pj_version" "0.2.0"
 
 pj_description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \

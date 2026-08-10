@@ -5,7 +5,7 @@ description: "Root-cause debugging methodology for an orchestrator: establish a 
 
 # Root Cause
 
-Debugging is a loop, not a hunch. This skill sequences the phases that turn a
+This skill sequences the phases that turn a
 reported symptom into a confirmed root cause: capture it precisely, reach a
 reliable repro, mine what changed, run a differential diagnosis, isolate by
 bisection, gather external evidence, gate acceptance on explaining everything
@@ -141,7 +141,7 @@ reader (including a future you) can trust.
   results. An explicit "0 found" is a valid recorded outcome — the sweep
   still ran, it just came back clean.
 - Whenever the sweep or the defect class shows recurrence potential, propose
-  a concrete guardrail — the highest rung that fits the cost: impossible by
+  a concrete guardrail — the strongest tier that fits the cost: impossible by
   construction, static check or lint, test, CI gate, runtime check, or
   process/documentation. The instance's own regression test (from phase 10)
   is the floor, never a substitute for the class guardrail.
@@ -154,10 +154,10 @@ reader (including a future you) can trust.
 - Edge case: when the engineer declines a proposed guardrail, journal the
   decline together with its cost/benefit rationale and the sign-off in the
   Prevention section; wrap-up proceeds from there.
-- Load `references/prevention.md` when you need the guardrail ladder in
-  full, how to scope a sweep to the class's breadth, or the ritual-guardrail
-  pitfalls to avoid (e.g. relabeling the instance test as the class
-  guardrail).
+- Load `references/prevention.md` when you need the full list of guardrail
+  tiers, how to scope a sweep to the class's breadth, or the pitfalls where
+  a guardrail exists in name only (e.g. relabeling the instance test as the
+  class guardrail).
 - Journal: record the defect-class statement, the sweep's method/scope/
   results, and the guardrail decision in the journal's Prevention section —
   labels there: `Defect class:`, `Sweep method:`, `Sweep results:`,

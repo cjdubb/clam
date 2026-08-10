@@ -15,8 +15,8 @@ starts only once every unit it depends on has locally merged. PR delivery,
 when the delivery mode calls for it, happens per PR group once every unit in
 that group is accepted and merged.
 
-Verification is not optional and not a skim: the checklists below are what
-make cheap-tier workers safe.
+Run every checklist below in full: the checklists are what make workers on
+the cheaper configured model tiers safe.
 
 ## Vocabulary
 
@@ -142,7 +142,7 @@ Every unit worktree carries `.local/status.md`, seeded by `worktree.sh add`
 transition for this unit's blocks into `.local/status.md` — Phase, Blocks,
 Timeline — in real time, in the same breath as the corresponding update to
 the integration worktree's `blocks.md`: the two never drift apart —
-a stale status file is a defect.
+update the status file at every transition.
 
 The Timeline records, as they happen: each brief written (its `NN`, wave,
 and blocks), each wave dispatched, each acceptance, each rejection (naming
@@ -551,7 +551,7 @@ every group it depends on has already been assembled and handed off —
 whoever lands them raises PRs in that same order.
 
 The delivery branch must match the integration branch exactly on the paths it
-delivers. This is a gate, not a suggestion — the check is:
+delivers. This gate blocks delivery on failure — the check is:
 
 ```
 git diff <integration-branch> <delivery-branch> -- <the delivered paths>
@@ -590,8 +590,8 @@ Dispatch a composition block's own unit once every child block is locally
 merged (step 4). It runs the exact same pipeline — its own worktree, its own
 test wave, its own implementation wave (typically thin wiring plus
 integration tests against the composition's contract) — in its own unit
-worktree. Its PR is naturally last within its subtree: composition is the
-feature-activation point.
+worktree. Its PR is naturally last within its subtree: the feature only
+activates once the composition merges.
 
 ## Scheduling
 
@@ -656,10 +656,10 @@ wait unverified until every open question is answered.
 ## Engineer-owned blocks
 
 An engineer-owned block still gets its worktree and test wave exactly as
-above — the engineer implements against verified tests, not a hand-wave.
+above — the engineer implements against verified tests.
 Once its blocks are `Tests Verified`, hand the engineer the unit worktree
-itself instead of dispatching a `lego-implementer` agent — the worktree is
-the handover, nothing else needs restating: its absolute path,
+itself instead of dispatching a `lego-implementer` agent — the handover
+needs only: the worktree's absolute path,
 `.local/status.md` for phase and blocks, and the latest brief in
 `.local/briefs/` for what's required and what's already done, all read
 straight off the worktree the same way an agent would. The same acceptance

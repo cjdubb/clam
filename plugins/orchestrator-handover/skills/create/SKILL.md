@@ -117,8 +117,8 @@ Report the created path and the one remaining step, then stop:
 > handover in its `.local/`. Run `cd <path> && clam`, pick `Build`, and the
 > new orchestrator will read the handover and proceed from Gate 1.
 
-This is a hand off, not a start: the user runs `clam` and picks `Build`
-themselves.
+The orchestrator never starts the new session: the user runs `clam` and
+picks `Build` themselves.
 
 ## What you must not do
 

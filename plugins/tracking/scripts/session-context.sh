@@ -160,7 +160,8 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
   (only when no actionable work remains in this session's scope).
 
 Never park on \`Blocked\`/\`Waiting For Decision\` when no user action is
-required — a false summons trains the user to ignore real ones. On the
+required; summon only when the user must act, so that every summons is
+actionable. On the
 transition into a summoning state, run \`notify <worktree-basename>\` if that
 helper is installed (\`command -v notify\`; skip silently otherwise).
 

@@ -1,7 +1,7 @@
 {
   "name": "worktrees",
   "description": "Git worktree workflow on top of the git-helpers utilities (newtree, rmtree, copyenv, cloneBareRepo), including a worktree-per-worker pattern for parallel agents.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

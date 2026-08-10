@@ -42,13 +42,13 @@ system never sees. Blocks are recursive; compositions are themselves blocks
 - Realm restriction is mechanical: test-writers touch only the test-file family
   (*.spec.*, *.test.*, *_test.*, *_spec.*, test_*, __tests__/); implementers may
   never touch it. Verify every wave with scripts/realm-check.sh.
-- Types are not contracts: every stub carries a contract docblock (Behavior,
-  Inputs, Outputs, Errors, Invariants, Edge cases). Tests verify contract
-  clauses, never internals.
+- Every stub carries a contract docblock (Behavior, Inputs, Outputs, Errors,
+  Invariants, Edge cases); a type signature alone does not specify behavior.
+  Tests verify contract clauses, never internals.
 - The engineer may claim any block (Owner: engineer). Same contract, same tests,
-  same acceptance gate; sibling blocks proceed against stubs meanwhile. This is
-  how design authorship stays with the engineer: hands-on in the blocks that
-  matter to them, never a detached reviewer of code they did not shape.
+  same acceptance gate; sibling blocks proceed against stubs meanwhile. This
+  keeps design authorship with the engineer: they implement the blocks that
+  matter to them, under the same gates as any worker.
 - Every work unit (one block by default) is dispatched in a dedicated worktree
   forked from the integration branch; workers see only their own unit's tests
   and contract.
@@ -56,8 +56,8 @@ system never sees. Blocks are recursive; compositions are themselves blocks
   `main-prs` delivery mode, PR groups are raised as PRs targeting master/main
   only (never another branch), each containing only complete blocks (contract
   + tests + implementation).
-- Keep `.local/blocks.md` current in real time. It is the engineer's mental model
-  of the system; a stale map is a defect.
+- Keep `.local/blocks.md` current in real time. The engineer reads it to know
+  the current state of every block, so update it the moment a block changes.
 - Repo specifics (verify commands, model tiers) come ONLY from the layered
   config: committed `.claude/lego.json` merged with an optional gitignored
   `.local/config.json` override (see the plugin's docs/config-schema.md).

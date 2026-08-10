@@ -311,7 +311,7 @@ assert_contains_re_i "PreCompact bullet: the trailing 'any SUBAGENT-LOG-*.md' cl
 # 0.8.0 -> 0.9.0 bump, in lockstep with workgraph-docs.test.sh and
 # workgraph-live-view.test.sh.
 b07_plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.9.0" "$b07_plugin_version" "0.9.0"
+check "plugin.json version is exactly 0.9.1" "$b07_plugin_version" "0.9.1"
 
 EXPECTED_B07_DESCRIPTION='Tracking-document workflow: .local/TODO.md as session state of record, 13-state lifecycle with Stop-hook enforcement, a built-in task-tools deny, absorbed stall-recovery (capture hook + /make-progress skill), resume-after-/clear via SessionStart injection, and a work graph (.local/WORKGRAPH.md) for recursive problem decomposition.'
 b07_plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)

@@ -7,8 +7,8 @@ description: Land finished work onto the repo's main branch by following the lan
 
 One verb for "get finished work onto the main branch", identical across
 repos. The mechanism comes from the repo's committed profile
-(`.claude/clam-profile.jsonc`), never from guesswork: plugins ship
-mechanism, repos declare policy.
+(`.claude/clam-profile.jsonc`), never from guesswork: the plugin supplies
+the mechanism, and each repo's committed profile declares the policy.
 
 ## Step 0 — read the policy
 
@@ -63,7 +63,7 @@ Stop (and say why) unless ALL hold:
 
 If `merge.verify` is set, run it from the repo root. Any non-zero exit:
 stop, keep tracking state `In Progress`, and fix before retrying. Never
-land red — a failing gate is not a judgment call.
+land while the gate fails; fix the failure first.
 
 ## Step 3 — dispatch on strategy
 

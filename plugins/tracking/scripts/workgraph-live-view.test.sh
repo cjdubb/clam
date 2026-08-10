@@ -578,7 +578,7 @@ done
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "B09 version: tracking plugin.json is exactly 0.9.0" "$plugin_version" "0.9.0"
+check "B09 version: tracking plugin.json is exactly 0.9.1" "$plugin_version" "0.9.1"
 
 tracking_row=$(LC_ALL=C grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "B09 version: the root README.md tracking row exists in the Plugins table" \

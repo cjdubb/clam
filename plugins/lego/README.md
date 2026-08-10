@@ -89,10 +89,14 @@ dependencies, an owner — agent or engineer — and a unit/PR-group
 assignment) top-down until every leaf is one agent's worth of work, sizes
 each block in changed lines against the PR budget (splitting anything over
 it) and settles a landing strategy per PR group — branch name, PR title,
-and commit sequence — and stops for your approval. `/lego:scaffold` then
-turns the approved design into runtime-present stubs carrying full contract
-docblocks and proves the design composes with the strongest available check
-(typecheck > build > lint > the test wave's own red run).
+and commit sequence. Every block also gets an **interface draft** — its
+signature plus a drafted line or two of all six contract clauses — recorded
+in the plan document's Interface drafts section, and the skill stops for
+your approval of those drafts. `/lego:scaffold` then materializes the
+approved interface drafts into runtime-present stubs carrying full contract
+docblocks, transcribing that design rather than inventing a new one, and
+proves the design composes with the strongest available check (typecheck >
+build > lint > the test wave's own red run).
 
 ### Dispatch, verify, and merge a work unit
 

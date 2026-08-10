@@ -327,8 +327,8 @@ check "plugin.json description is unchanged by the B07 version bump" \
 tracking_row=$(grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "root README.md: the tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "root README.md: tracking row's version cell is v0.9.0" "$tracking_row" \
-    '✅ *v0\.9\.0'
+assert_contains_re_i "root README.md: tracking row's version cell is v0.9.1" "$tracking_row" \
+    '✅ *v0\.9\.1'
 
 # ===========================================================================
 # Clause: `bash scripts/readme-lint.sh` (repo root) still passes for

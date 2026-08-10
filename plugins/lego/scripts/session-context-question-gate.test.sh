@@ -119,8 +119,8 @@ check "Owner: engineer rule found in the standing rules" \
   "$([[ -n "$OWNER_BULLET" ]] && echo yes || echo no)" "yes"
 check "Owner: engineer rule names design authorship" \
   "$(has_re "$OWNER_BULLET" '\bauthorship\b')" "yes"
-check "Owner: engineer rule names the detached-reviewer failure mode" \
-  "$(has_re "$OWNER_BULLET" '\bdetached\b')" "yes"
+check "Owner: engineer rule states the engineer works under the same gates" \
+  "$(has_re "$OWNER_BULLET" 'same gates as any worker')" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

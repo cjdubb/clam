@@ -175,10 +175,10 @@ check "leaf test part 3: one worker run" \
   "$(has_re "$STEP3_BODY" "$ONE_WORKER_RUN")" "yes"
 check "the three leaf-test parts are stated together as one test" \
   "$(near_all 8 "$STEP3_BODY" "$ONE_CONCERN" "$ONE_CONTRACT" "$ONE_WORKER_RUN")" "yes"
-# The one-concern part is the "and" test: an "and" doing load-bearing work
-# in the name or summary means two concerns.
-check "one-concern part tests for a load-bearing \"and\"" \
-  "$(has_re "$STEP3_BODY" "[Ll]oad-bearing")" "yes"
+# The one-concern part is the "and" test: an "and" joining two separable
+# concerns in the name or summary means two concerns.
+check "one-concern part tests for an \"and\" joining separable concerns" \
+  "$(has_re "$STEP3_BODY" "separable concerns")" "yes"
 # The one-worker-run part: one agent session implements it against its tests
 # with no mid-flight re-briefing. "re-brief" matches re-brief/re-briefing.
 check "one-worker-run part names mid-flight re-briefing as the failure" \

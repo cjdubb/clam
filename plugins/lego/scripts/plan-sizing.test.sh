@@ -189,18 +189,28 @@ check "one-worker-run part names mid-flight re-briefing as the failure" \
 check "the leaf test gates leaf status (pass it to stay a leaf)" \
   "$(has_re "$STEP3_BODY" "stays? a leaf")" "yes"
 
-# --- 2. Behavior 2: the one-line contract summary has a content bar --------
-check "content bar: the summary names the behavior" \
+# --- 2. Behavior 2: Step 3's per-block content bar ------------------------
+# Superseded by Contract: B01 — the bar is no longer a one-line summary but
+# an INTERFACE DRAFT (a sketched signature plus all six contract clauses).
+# The three elements below are what B01 keeps from the old bar, now carried
+# by the signature; the draft-specific clauses (six clauses, prose-block
+# outline, Step 4's Interface drafts section, draft-is-draft labeling,
+# unchanged block-map entry) are owned by plan-interface-drafts.test.sh.
+check "content bar: the draft names the behavior" \
   "$(has_re "$STEP3_BODY" "[Bb]ehavior")" "yes"
 # Several spellings of the input/output element are equally correct.
-check "content bar: the summary names the input->output shape" \
+check "content bar: the draft names typed inputs/outputs" \
   "$(has_re "$STEP3_BODY" "[Ii]nputs?.{0,12}[Oo]utputs?")" "yes"
-check "content bar: the summary names the primary error mode" \
+check "content bar: the draft names the primary error mode" \
   "$(has_re "$STEP3_BODY" "[Ee]rror mode")" "yes"
+check "content bar: the bar is an interface draft" \
+  "$(has_re "$STEP3_BODY" "[Ii]nterface draft")" "yes"
+check "content bar: the draft sketches a signature" \
+  "$(has_re "$STEP3_BODY" "[Ss]ignature")" "yes"
 check "content bar elements are stated together as one bar" \
-  "$(near_all 6 "$STEP3_BODY" "[Ee]rror mode" "[Bb]ehavior")" "yes"
-# A summary missing any of the three is not plan-complete.
-check "a summary missing an element is not plan-complete" \
+  "$(near_all 8 "$STEP3_BODY" "[Ee]rror mode" "[Bb]ehavior" "[Ss]ignature")" "yes"
+# A block presented without a draft is not plan-complete.
+check "a block without a draft is not plan-complete" \
   "$(has_re "$STEP3_BODY" "[Pp]lan-complete")" "yes"
 # Invariant: the full contract still lives at scaffold, not here.
 check "invariant: the full contract is still written at scaffold" \

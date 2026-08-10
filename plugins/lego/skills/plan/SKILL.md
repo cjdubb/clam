@@ -205,10 +205,22 @@ a leaf; split it further here in Step 3.
 
 For every block, agree with the engineer on:
 
-- Name and one-line contract summary. The summary clears a content bar: it
-  names the **behavior**, the **input/output shape**, and the **primary
-  error mode**. A summary missing any of the three is not plan-complete; the
-  full contract docblock is still written at scaffold.
+- **Name and interface draft.** The draft is the content bar every block
+  clears: a **signature** sketched in the repo's language — its name, its
+  **typed** inputs and outputs, and its **primary error mode**, stated
+  together as one bar — plus all six contract clauses drafted a line or two
+  each: Behavior, Inputs, Outputs, Errors, Invariants, Edge cases. Sketch
+  from what Step 2's discovery recorded — the existing interfaces the block
+  sits against are the raw material, not a from-scratch invention. A prose
+  or documentation block carries a heading/anchor outline in place of a
+  signature; the outline is the only substitution, and the same six clauses
+  are drafted under it. Engineer-owned blocks clear the same bar — ownership
+  is no exemption. A block presented with no draft, or a prose block with no
+  outline, is not plan-complete: a plan defect that blocks Step 5 approval.
+  The draft stays a draft — the full contract docblock is still
+  written at scaffold, and that docblock, never this sketch, is the
+  authoritative contract. A block re-planned mid-dispatch updates its draft and re-passes
+  this bar before it is re-scaffolded.
 - Dependencies (which other blocks it consumes)
 - Kind: leaf or composition
 - **Owner: agent or engineer.** Ask which blocks the engineer wants to build
@@ -337,10 +349,17 @@ a PR.
 1. **Plan document** at `.local/plans/NNN-<slug>.md` (NNN = next free number):
    goal, constraints, the block design (table of blocks with contract
    summaries, deps, owner, kind, unit, PR group), the dependency graph / wave
-   order derived from `Deps:` (which work units dispatch in parallel), a
-   **Landing strategy** section, risks and open questions, and a Changelog
-   section. Every contract change after approval is appended to the
-   Changelog.
+   order derived from `Deps:` (which work units dispatch in parallel), an
+   **Interface drafts** section, a **Landing strategy** section, risks and
+   open questions, and a Changelog section. Every contract change after
+   approval is appended to the Changelog.
+
+   The **Interface drafts** section carries Step 3's drafts to disk: one
+   subsection per block, headed by the block's id and name, holding that
+   block's sketched signature (or heading/anchor outline, for a prose block)
+   and its six drafted clauses verbatim as agreed. It is where the scaffold
+   reads the design from; a block with no subsection here is not
+   plan-complete.
 
    Every artifact the plan document references — the decision files it
    cites, the protocols it relies on, sibling plan documents — is carried
@@ -383,6 +402,13 @@ a PR.
    - Contract: <one-line summary; authoritative contract is the docblock at Code>
    - Plan: plans/NNN-<slug>.md
    ```
+
+   The entry format is unchanged by the interface drafts: no draft,
+   signature, or outline field is added here. The one-line `Contract:`
+   summary stays exactly as it is and serves as an index — it points a
+   reader at the block's subsection in the plan document's Interface drafts
+   section and at the authoritative docblock at `Code:`, and it is never
+   asked to carry the draft itself.
 
    `Est:` carries the block's estimated changed lines from Step 3a; the same
    field is added to the example entry in `templates/blocks.md` so a fresh

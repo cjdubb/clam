@@ -300,5 +300,23 @@ for ref in "${FOREIGN_REFS[@]}"; do
     "$(has_f "$TEMPLATE_RAW" "$ref")" "no"
 done
 
+# ===========================================================================
+# Contract: B03 handoff wiring + docs + version
+# ===========================================================================
+# B03 composes the same document family (README, the two skills either side
+# of the plan->scaffold seam, and plugin.json), so its checks belong to this
+# gate. They live in their own file because B03's contract fixes an exact
+# version literal, which B09's contract forbids inside THIS file. Running it
+# from here keeps one command for the whole doc gate.
+B03_SUITE="$SCRIPT_DIR/b03-handoff-docs.test.sh"
+if [[ ! -f "$B03_SUITE" ]]; then
+  echo "FAIL  B03 suite not found at $B03_SUITE"
+  FAILED=1
+else
+  echo "---- B03 handoff wiring + docs + version ----"
+  bash "$B03_SUITE" || FAILED=1
+  echo "---- end B03 ----"
+fi
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

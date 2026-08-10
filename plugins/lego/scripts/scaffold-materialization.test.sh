@@ -173,6 +173,7 @@ check "invariant: rung 0 sizing lint still opens the gate" \
 S1_L=$(first_line_in "$STRIPPED" '## Step 1')
 S2_L=$(first_line_in "$STRIPPED" '## Step 2: Run the scaffold gate')
 RUNG0_L=$(first_line_in "$STRIPPED" 'blocks-lint.sh')
+# shellcheck disable=SC2016  # literal anchor text, not an expansion
 RUNG1_L=$(first_line_in "$STRIPPED" '1. `typecheck`')
 S2A_L=$(first_line_in "$STRIPPED" '### Step 2a: Blocks with no red/green cycle')
 S3_L=$(first_line_in "$STRIPPED" '## Step 3: Update state and checkpoint')

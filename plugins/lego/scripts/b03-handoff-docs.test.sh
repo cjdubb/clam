@@ -44,8 +44,8 @@ PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 
 # Contract: "version bumps 0.16.x so installed users receive the change
 # (exact bump per the PR group landing it)". This unit lands in PR group G02
-# per the plan's landing strategy, which assigns 0.16.1.
-EXPECTED_VERSION='0.16.1'
+# per the plan's landing strategy, which assigns 0.16.2.
+EXPECTED_VERSION='0.16.2'
 
 FAILED=0
 

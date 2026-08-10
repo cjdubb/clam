@@ -5,10 +5,13 @@ description: Scaffold an approved lego plan into runtime-present, deliberately u
 
 # Lego Scaffolding
 
-The scaffold turns the approved block design into code-level interfaces the
-whole flow hangs off: test-writers test against it, implementers fill it in,
-and the compiler (where one exists) proves the design composes. Scaffolding is
-orchestrator work; do not delegate it.
+The scaffold **materializes** interfaces the engineer has already approved.
+The design happened at plan time: the plan document's Interface drafts
+section carries one draft per block, and scaffolding turns those drafts into
+the code-level interfaces the whole flow hangs off — test-writers test
+against them, implementers fill them in, and the compiler (where one exists)
+proves the design composes. Scaffolding is orchestrator work; do not delegate
+it.
 
 Scaffolding happens on the **integration branch** — the branch lego was
 started on. Every work unit's worktree forks from the integration tip, so all
@@ -19,8 +22,33 @@ Precondition: an approved plan in `.local/plans/` with blocks at `Status: Planne
 
 ## Step 1: Write the stubs
 
-For every block, create its public interface in the repo's language, obeying two
-principles:
+For every block, transcribe its approved draft from the plan's **Interface
+drafts** section into its public interface in the repo's language. The draft
+is the source: signature, name, and shape come across as approved, and the
+contract docblock is *finalized* from the approved draft rather than invented
+here. Finalizing adds precision — the units, ordering, nullability, and edge
+cases a draft leaves loose — and nothing else. New design is not written at
+scaffold time; a stub that quietly grows a parameter, a return shape, or a
+behavior the draft never carried has bypassed the engineer's approval.
+
+Scaffolding does find things planning missed. When a discovery genuinely
+invalidates an approved signature — the interface cannot express a correct
+implementation, or two blocks' drafts do not compose — that is a
+return-to-plan event, not a scaffold-time redesign: go back to `/lego:plan`
+with the engineer, revise the draft there, and record the change in the plan
+document's Changelog. The same applies to any smaller deviation from an
+approved draft: it is legitimate only once the Changelog says so. A stub
+docblock that deviates from its approved draft with no matching Changelog
+entry is a **scaffold defect** — the design silently forked from what the
+engineer approved, and nothing downstream will catch it.
+
+If the plan carries no Interface drafts section at all — a plan written
+before drafts existed — fall back to authoring the docblocks fresh here,
+against the plan's block descriptions, and note the fallback in the plan
+Changelog so acceptance knows the contracts were not engineer-approved at
+plan time.
+
+The transcription obeys two principles:
 
 1. **Runtime-present, deliberately unimplemented.** Tests must be able to import
    and CALL the stub and fail for the right reason. Declaration-only stubs
@@ -70,6 +98,11 @@ principles:
    Behavior: ...
    -->
    ```
+
+   A prose block materializes the same way as any other: its approved draft
+   is an outline rather than a signature, and that outline is transcribed as
+   the document's skeleton — headings and section order in place, the prose
+   itself deliberately absent — with the contract comment above it.
 
    The implementation wave deletes the comment; acceptance confirms it is
    gone. Anything the contract asserts that must outlive the block — a

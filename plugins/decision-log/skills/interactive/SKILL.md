@@ -41,7 +41,7 @@ Same as [decision-log:create](../create/SKILL.md) Phase 1: ask what decision nee
 
 ### Phase 2: Explore the Codebase
 
-Same as [decision-log:create](../create/SKILL.md) Phase 2. Exploration MUST complete before Phase 3 begins — the dialogue depends on grounded evidence to challenge claims with. A dialogue built on unverified assumptions is no better than a one-shot draft.
+Same as [decision-log:create](../create/SKILL.md) Phase 2. Exploration MUST complete before Phase 3 begins — the dialogue depends on grounded evidence to challenge claims with.
 
 ### Phase 3: Iterative Section-by-Section Drafting
 

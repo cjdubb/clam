@@ -5,7 +5,7 @@ description: Plan and decompose a deliverable into lego blocks together with the
 
 # Lego Planning
 
-Planning is a conversation with the engineer, not a document you produce alone.
+Plan together with the engineer in conversation; never produce the plan document alone.
 The output is a shared mental model: which blocks exist, what each promises, and
 how they compose into the deliverable. The engineer approves before anything is
 scaffolded.
@@ -38,9 +38,9 @@ own words. Nothing else is a source for it:
 
 - **NEVER infer the goal** from branch or worktree names, directory slugs,
   ticket-looking strings, commit history, TODO comments, or code inspection.
-  A worktree named `fix-missing-zenith-similarity` is a hint someone once
-  encoded, not a spec; investigating the codebase to reverse-engineer what it
-  "probably means" is guessing with extra steps.
+  A worktree named `fix-missing-zenith-similarity` does not state the
+  deliverable; investigating the codebase to reconstruct what it "probably
+  means" is still guessing.
 - If this skill was invoked with no deliverable stated, ask for it and STOP:
   goal, rough scope, constraints, what done looks like. Do not run a single
   exploration command before the engineer answers.
@@ -138,7 +138,7 @@ broad exploration to a subagent) and record the de-facto blocks already there:
 for each, its current interface and observed contract.
 Classify every existing block the work touches as either:
 
-- **Held invariant** — its contract must not change; it is load-bearing context.
+- **Held invariant** — its contract must not change; other blocks' contracts depend on it.
 - **Changing** — its contract will change; this is a design decision the
   engineer must see explicitly.
 
@@ -198,7 +198,7 @@ are integration tests and it is dispatched only after its children are accepted.
 
 A block stays a leaf only if it passes the **leaf test**, three parts read
 together as one test: **one contract** — a single coherent behavioral promise;
-**one concern** — no "and" doing load-bearing work in its name or summary;
+**one concern** — no "and" joining two separable concerns in its name or summary;
 **one worker run** — a single agent session can implement it against its
 tests without mid-flight re-briefing. A block that fails the leaf test is not
 a leaf; split it further here in Step 3.
@@ -285,8 +285,7 @@ strategy behind it. Three things happen here, in order, with the engineer:
    promise the mechanical `pr-size-check.sh` gate at delivery time will later
    hold you to. Test volume typically dominates that total — 2-4x the
    implementation's size is a common multiple for behavioral or anchor-style
-   suites — so weigh estimates accordingly: a block's tests are real size,
-   not a rounding error on its implementation.
+   suites — so weigh estimates accordingly.
 
 2. **Feed the estimates back into decomposition.** Compare each block against
    the budget — `delivery.prSizeBudget` from the effective config, defaulting
@@ -393,8 +392,8 @@ a PR.
 
    Status lifecycle: `Planned → Scaffolded → Tests Written → Tests Verified →
    Implemented → Accepted`, with `Escalated` as a side-state that returns to the
-   phase that resolves it. Update the map in real time at every transition; a
-   stale map is a defect.
+   phase that resolves it. Update the map in real time at every transition so the
+   engineer always reads current state.
 
 ## Step 5: Approval gate
 

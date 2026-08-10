@@ -1,14 +1,14 @@
 ---
 name: build
 description: >-
-  Lifecycle front door — detect companion plugins and in-flight work state,
+  Detect companion plugins and in-flight work state,
   then route the session to resume in-progress work or start new work via the
   appropriate companion skill. Use when starting a session, when the user says
   "build this", or when deciding how to begin work in a repo with the build
   plugin installed.
 ---
 
-This skill is the lifecycle front door. It works out where the session
+This skill is the session's entry point. It works out where the session
 already is — mid-flight on recorded work, or at a standing start — and
 routes accordingly. Run it on demand: the build plugin registers no hooks,
 and nothing here ever fires automatically.
@@ -28,7 +28,7 @@ broken-plugin handling, not this skill.
 
 If there is no plugins/ directory at all, that is simply no companions
 present — not an error. Every companion is optional and this skill
-detect-and-degrades: it works with any subset present, including none.
+degrades gracefully: it works with any subset present, including none.
 
 ## Step 2 — detect in-flight work
 

@@ -47,8 +47,8 @@ directories (the layout the `usage` skill's `newtree`/`rmtree` helpers manage).
    and lands you in it.
 2. **Record the absolute path.** Immediately capture the worktree's ABSOLUTE
    path — e.g. `pwd` right after `newtree`, or compose the two in one call:
-   `cd <root> && newtree <branch> && pwd`. A relative path is only meaningful
-   from wherever you happened to be standing; the worker won't be.
+   `cd <root> && newtree <branch> && pwd`. A relative path only resolves
+   from the directory it was captured in, and the worker starts elsewhere.
 3. **Hand off.** Give the worker both the absolute path and the branch name,
    and require it to work only under that path — never elsewhere in the tree,
    and never inside another worker's worktree.

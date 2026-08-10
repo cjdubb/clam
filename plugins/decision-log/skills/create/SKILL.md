@@ -25,7 +25,7 @@ Per your team's engineering process, a DL is required for:
 - AWS infrastructure changes that could substantially increase cost
 - Introduction of a new technology, library, package, or pattern
 
-**Rule of thumb:** It is better to write a lightweight DL that turns out to be unnecessary than to skip one that was needed.
+When unsure, write the DL: an unnecessary lightweight DL costs a few minutes, while a skipped one loses the decision's reasoning for good.
 
 ## Output Location
 

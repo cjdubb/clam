@@ -87,8 +87,8 @@ check "token: read the brief file first" \
   "$(has_f "$RAW" 'read the brief file first')" "yes"
 check "token: orchestrator-owned" \
   "$(has_f "$RAW" 'orchestrator-owned')" "yes"
-check "token: a stale status file is a defect" \
-  "$(has_f "$RAW" 'a stale status file is a defect')" "yes"
+check "token: update the status file at every transition" \
+  "$(has_f "$RAW" 'update the status file at every transition')" "yes"
 
 # --- Invariants (contract: "Invariants" heading list) ---------------------
 # These headings must survive the edit unchanged.
@@ -144,8 +144,8 @@ check "5: local base checkout is fast-forwarded before deliver" \
 # deliver enforces it mechanically rather than leaving it to diligence.
 check "5b: delivery must match the integration branch on delivered paths" \
   "$(has_f "$SECTION_5B" 'must match the integration branch exactly on the paths it')" "yes"
-check "5b: stated as a gate, not a suggestion" \
-  "$(has_f "$SECTION_5B" 'This is a gate, not a suggestion')" "yes"
+check "5b: stated as a gate that blocks delivery on failure" \
+  "$(has_f "$SECTION_5B" 'This gate blocks delivery on failure')" "yes"
 check "5b: an unverified delivery is not handed over" \
   "$(has_f "$SECTION_5B" 'An unverified delivery is not handed over')" "yes"
 

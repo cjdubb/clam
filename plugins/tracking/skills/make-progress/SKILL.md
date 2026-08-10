@@ -75,7 +75,7 @@ Gather the current work state, skipping sources that don't exist:
 7. Active watch crons: `CronList`, plus the durable file
    `.claude/scheduled_tasks.json` if present
 
-Treat disk absence as an observation, not a conclusion. When a source is
+When a source is
 absent, report "no artifacts found at <path>" — never infer from that
 absence what did or didn't happen. DECISION.md labels should record
 artifact state (what was and wasn't found on disk), not history claims.
@@ -110,8 +110,8 @@ This skill NEVER:
 Record the decision in the capture dir from step 1 BEFORE acting — an act
 phase can run long, compact the context, or fail halfway, and a record
 written afterwards tends to get lost. Write both files even when the
-decision is "no action" or "stop was correct" — the negative examples are
-as valuable as the dispatches.
+decision is "no action" or "stop was correct", so later invocations can see
+what was already ruled out.
 
 - `DECISION.md` — YAML frontmatter, then three parts: the state found (one
   summary line per source read in step 2), the matched decision-table row
@@ -149,5 +149,5 @@ rules apply throughout (plan approval, notify on Blocked, etc.).
 Append a `## Outcome` section to `DECISION.md`: what was actually executed,
 any deviation from the intended action recorded in step 4, and the
 resulting parked state. Mandatory on every invocation, including "no
-action" and "stop was correct" decisions — an intended action with no
-recorded outcome is an unlabeled example.
+action" and "stop was correct" decisions — without the recorded outcome,
+the next invocation cannot tell whether the intended action happened.

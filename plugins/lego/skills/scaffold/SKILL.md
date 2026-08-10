@@ -38,8 +38,9 @@ principles:
    Supporting types, interfaces, and signatures are written in full; only
    behavior is absent.
 
-2. **Types are not contracts.** Every stub carries a contract docblock in the
-   language's doc convention. This docblock is the authoritative contract that
+2. **Every stub carries a contract docblock** in the language's doc
+   convention; a type signature alone does not specify behavior. This
+   docblock is the authoritative contract that
    tests and implementations are verified against:
 
    ```
@@ -53,8 +54,8 @@ principles:
    ```
 
    Write contracts so a test-writer with NO other context can enumerate the
-   clauses and test each one. Ambiguity here becomes escalation traffic later;
-   spend the effort now.
+   clauses and test each one. Ambiguity here surfaces later as worker
+   escalations; spend the effort now.
 
    **Prose blocks are the exception to docblock permanence.** When a block's
    deliverable is a document — a `SKILL.md`, a `README.md`, a template — its
@@ -75,8 +76,8 @@ principles:
    standing editing rule, an invariant with no other home — is moved into the
    document's own prose or a short editing note *before* the contract goes.
 
-Composition blocks are scaffolded too: their stub is the wiring surface (the
-function/module that composes children), and their contract describes the
+Composition blocks are scaffolded too: their stub is the function or module
+that composes the children, and their contract describes the
 composed behavior.
 
 ## Step 2: Run the scaffold gate

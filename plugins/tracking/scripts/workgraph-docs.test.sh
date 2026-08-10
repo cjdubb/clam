@@ -461,7 +461,7 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # a literal retarget only — no assertion added, removed, or weakened, and the
 # frozen PASS count is unchanged.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.9.0" "$plugin_version" "0.9.0"
+check "plugin.json version is exactly 0.9.1" "$plugin_version" "0.9.1"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

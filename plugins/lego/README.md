@@ -43,7 +43,7 @@ plain `claude` instead.
 ## What to expect
 
 Until an engineer runs `/lego:plan`, the plugin is otherwise inert: no
-files are created and no settings are written. Two hooks are active in
+files are created and no settings are written. One hook is active in
 every session from install onward:
 
 - **SessionStart** (`scripts/session-context.sh`) injects the workflow's
@@ -53,17 +53,18 @@ every session from install onward:
   already has `.local/blocks.md`, it also appends the first 16000 bytes of
   the current block map, so a fresh session (or a subagent) picks up the
   live state of an in-flight plan without being told.
-- **PreToolUse** (`scripts/realm-gate.sh`, matcher `Edit|Write|NotebookEdit`)
-  is a no-op for the main session and any non-lego agent. It only activates
-  for sessions running as a `lego-test-writer` or `lego-implementer`
-  subagent — the workers `/lego:dispatch` spawns — where it mechanically
-  denies Edit/Write/NotebookEdit calls outside that role's realm
-  (test-writers may touch only test-family files; implementers may never
-  touch them) and, for both roles, denies any write under a `.local/` path
-  segment, since that tree is orchestrator-owned and read-only for workers.
-  One path is carved out: a worker's own report file under
-  `.local/reports/`, which it writes itself and which the gate allows ahead
-  of every other rule, for both roles.
+
+A second hook exists but never touches the main session: the realm gate
+(`scripts/realm-gate.sh`, matcher `Edit|Write|NotebookEdit`) is registered
+in the frontmatter of the two agent definitions rather than plugin-wide, so
+it runs only inside `lego-test-writer` and `lego-implementer` subagents —
+the workers `/lego:dispatch` spawns. There it mechanically denies
+Edit/Write/NotebookEdit calls outside that role's realm (test-writers may
+touch only test-family files; implementers may never touch them) and, for
+both roles, denies any write under a `.local/` path segment, since that
+tree is orchestrator-owned and read-only for workers. One path is carved
+out: a worker's own report file under `.local/reports/`, which it writes
+itself and which the gate allows ahead of every other rule, for both roles.
 
 Once `/lego:plan` runs, it writes the committed `.claude/lego.json` (with
 your consent) and gitignored session state under `.local/` (block map,
@@ -185,7 +186,9 @@ described under Common workflows above. Notably:
 
 ### Hooks
 
-**PreToolUse — `scripts/realm-gate.sh`** (matcher `Edit|Write|NotebookEdit`):
+**PreToolUse — `scripts/realm-gate.sh`** (matcher `Edit|Write|NotebookEdit`,
+registered per-agent in `agents/lego-test-writer.md` and
+`agents/lego-implementer.md` frontmatter, not in `hooks/hooks.json`):
 see "What to expect." Denies file writes outside a lego worker's realm and
 any write under `.local/` other than the worker's own report file under
 `.local/reports/`; falls back to `sed`-based field extraction

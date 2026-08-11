@@ -5,6 +5,10 @@ description: Plan and decompose a deliverable into lego blocks together with the
 
 # Lego Planning
 
+At invocation, before anything else, read `../../docs/standing-rules.md`
+(relative to this skill's base directory): it carries the workflow overview
+and the standing rules that govern every lego phase, including this one.
+
 Plan together with the engineer in conversation; never produce the plan document alone.
 The output is a shared mental model: which blocks exist, what each promises, and
 how they compose into the deliverable. The engineer approves before anything is

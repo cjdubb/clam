@@ -42,19 +42,17 @@ plain `claude` instead.
 
 ## What to expect
 
-Until an engineer runs `/lego:plan`, the plugin is otherwise inert: no
-files are created and no settings are written. One hook is active in
-every session from install onward:
+Until an engineer runs a lego skill, the plugin is inert: no files are
+created, no settings are written, and no plugin-wide hooks run. The
+workflow's standing rules — clarify over guess, workers never design, realm
+restriction is mechanical, contract docblocks are the spec tests are
+checked against, and so on — live in `docs/standing-rules.md`, which every
+skill (`plan`, `scaffold`, `dispatch`) reads at invocation; the skills
+likewise pick up the live block map from `.local/blocks.md` themselves.
+Nothing lego-related enters a session's context until a lego skill is
+activated.
 
-- **SessionStart** (`scripts/session-context.sh`) injects the workflow's
-  standing rules — clarify over guess, workers never design, realm
-  restriction is mechanical, contract docblocks are the spec tests are
-  checked against, and so on — into every session's context. When the repo
-  already has `.local/blocks.md`, it also appends the first 16000 bytes of
-  the current block map, so a fresh session (or a subagent) picks up the
-  live state of an in-flight plan without being told.
-
-A second hook exists but never touches the main session: the realm gate
+The one hook the plugin ships never touches the main session: the realm gate
 (`scripts/realm-gate.sh`, matcher `Edit|Write|NotebookEdit`) is registered
 in the frontmatter of the two agent definitions rather than plugin-wide, so
 it runs only inside `lego-test-writer` and `lego-implementer` subagents —
@@ -188,16 +186,12 @@ described under Common workflows above. Notably:
 
 **PreToolUse — `scripts/realm-gate.sh`** (matcher `Edit|Write|NotebookEdit`,
 registered per-agent in `agents/lego-test-writer.md` and
-`agents/lego-implementer.md` frontmatter, not in `hooks/hooks.json`):
-see "What to expect." Denies file writes outside a lego worker's realm and
-any write under `.local/` other than the worker's own report file under
-`.local/reports/`; falls back to `sed`-based field extraction
-without `jq`; always exits 0, communicating a denial through the hook's
-JSON output rather than a nonzero exit.
-
-**SessionStart — `scripts/session-context.sh`** (no matcher): see "What to
-expect." Injects the standing rules plus, when present, the current
-`.local/blocks.md`.
+`agents/lego-implementer.md` frontmatter — the plugin has no plugin-wide
+`hooks/hooks.json`): see "What to expect." Denies file writes outside a
+lego worker's realm and any write under `.local/` other than the worker's
+own report file under `.local/reports/`; falls back to `sed`-based field
+extraction without `jq`; always exits 0, communicating a denial through the
+hook's JSON output rather than a nonzero exit.
 
 ### Scripts
 
@@ -358,13 +352,13 @@ bash plugins/lego/scripts/worktree.test.sh
 ```
 .claude-plugin/   plugin manifest
 skills/           plan, scaffold, dispatch
-agents/           lego-test-writer, lego-implementer (sonnet by default)
-hooks/            PreToolUse realm gate, SessionStart context injection
+agents/           lego-test-writer, lego-implementer (sonnet by default);
+                  frontmatter registers the PreToolUse realm gate
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
-                  realm-gate.sh, session-context.sh, worktree.sh (unit
-                  worktree lifecycle + delivery)
+                  realm-gate.sh, worktree.sh (unit worktree lifecycle +
+                  delivery)
 templates/        starter .claude/lego.json (lego.json) and blocks.md
-docs/             config schema / repo-interface spec
+docs/             config schema / repo-interface spec, standing-rules.md
 ```
 
 History: ported from the clam-v2 repo at v0.3.0; skills renamed from

@@ -1,13 +1,7 @@
-#!/usr/bin/env bash
-# session-context.sh — SessionStart hook: inject the lego workflow standing
-# rules and, when present, the host repo's current block map. Plain stdout
-# becomes session context.
-set -euo pipefail
-
-root="${CLAUDE_PROJECT_DIR:-$PWD}"
-
-cat <<'EOF'
 # Lego Workflow (clam plugin)
+
+Read this document at the start of every lego skill invocation; its rules
+govern the whole engagement, not just the invoking skill's phase.
 
 This repo uses the clam lego workflow. Software is composed of lego blocks: units
 with a public interface, a behavioral contract, and internals the rest of the
@@ -69,11 +63,3 @@ system never sees. Blocks are recursive; compositions are themselves blocks
   engineer. A question the engineer explicitly declines or skips counts as
   answered; a bare "go" accepting the recommended defaults counts as
   answering all open questions.
-EOF
-
-if [ -f "$root/.local/blocks.md" ]; then
-  echo
-  echo "## Current block map (.local/blocks.md)"
-  echo
-  head -c 16000 "$root/.local/blocks.md"
-fi

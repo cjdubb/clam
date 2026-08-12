@@ -5,6 +5,10 @@ description: Run the per-unit worktree pipeline over scaffolded lego blocks — 
 
 # Lego Dispatch
 
+At invocation, before anything else, read `../../docs/standing-rules.md`
+(relative to this skill's base directory): it carries the workflow overview
+and the standing rules that govern every lego phase, including this one.
+
 The orchestrator runs each work unit through its own pipeline in a dedicated
 git worktree: no shared tree, no global phase that gates every block on every
 other block. A unit progresses from worktree creation through a test wave,

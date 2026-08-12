@@ -5,6 +5,10 @@ description: Scaffold an approved lego plan into runtime-present, deliberately u
 
 # Lego Scaffolding
 
+At invocation, before anything else, read `../../docs/standing-rules.md`
+(relative to this skill's base directory): it carries the workflow overview
+and the standing rules that govern every lego phase, including this one.
+
 The scaffold **materializes** interfaces the engineer has already approved.
 The design happened at plan time: the plan document's Interface drafts
 section carries one draft per block, and scaffolding turns those drafts into

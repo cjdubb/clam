@@ -487,7 +487,7 @@ run_lint_no_shellcheck() { # <cwd> [args...]
 }
 
 tree_hash() { # <repo> -- content hash of the working tree, .git excluded
-  ( cd "$1" && find . -path './.git' -prune -o -type f -exec sha256sum {} + ) | sort
+  ( cd "$1" && find . -path './.git' -prune -o -type f -exec cksum {} + ) | sort
 }
 
 # assert_summary_count <summary line> <count> <keyword> <label> -- tolerant of

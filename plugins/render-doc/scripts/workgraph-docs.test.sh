@@ -58,7 +58,7 @@ assert_not_contains_f() { # <haystack> <needle> <label>
 # .test.sh's own source is itself a reference and gets flagged, so the
 # names below are runtime values from `find`, never spelled out in source.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 

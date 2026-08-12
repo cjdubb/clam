@@ -240,7 +240,7 @@ in_order() { # text needle... -> yes if every needle is present and each
 #                          name itself stays exact-case)
 #   4. filesystem path  — plugins/<name>/         (e.g. "plugins/tracking/")
 # ---------------------------------------------------------------------------
-mapfile -t PLUGIN_NAMES < <(find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+mapfile -t PLUGIN_NAMES < <(find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 
 first_plugin_named() { # text -> plugin name found (via one of the four
                         # reference forms above), or empty
@@ -252,7 +252,11 @@ first_plugin_named() { # text -> plugin name found (via one of the four
     if printf '%s' "$text" | grep -qF -- "${name}@clam"; then
       printf '%s' "$name"; return
     fi
-    if printf '%s' "$text" | grep -qP -- "\\b${name}\\b[[:space:]]+(?i:plugin's|plugins|plugin)\\b"; then
+    # Portable ERE (no PCRE): explicit non-word-character boundaries stand in
+    # for \b, and an inline [Pp] class for the PCRE's (?i:...) group — BSD grep
+    # has no -P and exits 2 on it, which would silently pass this check.
+    if printf '%s' "$text" \
+      | grep -qE -- "(^|[^[:alnum:]_])${name}[[:space:]]+[Pp]lugin('s|s)?([^[:alnum:]_]|$)"; then
       printf '%s' "$name"; return
     fi
     if printf '%s' "$text" | grep -qF -- "plugins/${name}/"; then

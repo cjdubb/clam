@@ -64,9 +64,21 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# Real claude/gh locations, so "absent" can strip exactly those dirs from
-# PATH while leaving git/bash/jq/coreutils reachable — never falls back to
-# an ambient PATH that could reach the real claude/gh CLIs.
+# "absent" claude/gh: per-BINARY hiding, not per-directory. `claude` and
+# `gh` must be unresolvable (ci.sh gates on `command -v`, so a failing shim
+# would not do — the binary NAME must not resolve at all), while every
+# other tool the fixtures need (jq, shellcheck, bash, timeout, git,
+# coreutils...) resolves exactly as on the caller's PATH.
+#
+# Dropping the directories that contain claude/gh is not portable: on
+# Homebrew macOS `gh` lives in /opt/homebrew/bin alongside jq, shellcheck,
+# bash and timeout, so dropping it hides the fixtures' whole toolchain and
+# `== validate ==` never runs. Instead, drop those directories and then
+# re-expose everything in them EXCEPT `claude`/`gh` through a rescue
+# directory of symlinks, prepended to the trimmed PATH. Net effect: exactly
+# two names disappear. Safe when claude/gh are not installed at all (no
+# directories to trim, empty rescue dir). Fixtures that supply their own
+# claude/gh shims prepend those dirs ahead of all of this, so they win.
 # ---------------------------------------------------------------------------
 REAL_CLAUDE_BIN="$(command -v claude 2>/dev/null || true)"
 REAL_GH_BIN="$(command -v gh 2>/dev/null || true)"
@@ -85,16 +97,41 @@ path_without() { # dir... -> PATH with those dirs removed
   printf '%s' "$p"
 }
 
-BASE_PATH="$(path_without "$REAL_CLAUDE_DIR" "$REAL_GH_DIR")"
+# Symlink every entry of the given dirs into one rescue dir, skipping the
+# names to hide; first occurrence wins, so PATH precedence is preserved.
+path_rescue_dir() { # <hide-csv> <dir>... -> rescue dir path
+  local hide=",$1," d entry name r
+  shift
+  r="$(mktemp -d)"
+  track_tmp "$r"
+  for d in "$@"; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    for entry in "$d"/*; do
+      [ -e "$entry" ] || continue
+      name="${entry##*/}"
+      case "$hide" in *",$name,"*) continue ;; esac
+      [ -e "$r/$name" ] && continue
+      ln -s "$entry" "$r/$name" 2>/dev/null || true
+    done
+  done
+  printf '%s' "$r"
+}
+
+BASE_PATH="$(path_rescue_dir "claude,gh" "$REAL_CLAUDE_DIR" "$REAL_GH_DIR"):$(path_without "$REAL_CLAUDE_DIR" "$REAL_GH_DIR")"
 
 # ---------------------------------------------------------------------------
 # Fixture repo builder: git-inits, one commit, GitHub origin remote,
 # scripts/ plugins/ .claude-plugin/ dirs pre-created.
 # ---------------------------------------------------------------------------
-new_repo() { # -> prints repo root path
+new_repo() { # -> prints repo root path (physical, symlinks resolved)
   local d
   d="$(mktemp -d)"
   track_tmp "$d"
+  # macOS mktemp returns /var/folders/... which is a symlink to
+  # /private/var/folders/...; ci.sh resolves the repo root physically, so
+  # stub cwd comparisons must be against the physical path too. No-op on
+  # Linux, where the temp dir is already physical.
+  d="$(cd "$d" && pwd -P)"
   (
     cd "$d" || exit 1
     git init -q 2>/dev/null
@@ -233,7 +270,7 @@ log_count() { # log_file needle -> count of matching lines
 
 tree_snapshot() { # root -> sorted "relpath  sha256" lines
   local root="$1"
-  ( cd "$root" && find . -type f -exec sha256sum {} + ) | sort
+  ( cd "$root" && find . -type f -exec cksum {} + ) | sort
 }
 
 # ---------------------------------------------------------------------------

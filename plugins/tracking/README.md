@@ -306,7 +306,10 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
     human-handoff states (`Awaiting Reviewer Assignment`, `Awaiting Human
     Review`, `Awaiting Merge Queue`, `Complete`) when the branch has an
     open PR with no `.local/INDEPENDENT-REVIEW-PR-<N>.md` report — needs
-    the independent-review skill.
+    the independent-review skill. The block message tells the agent to ask
+    the engineer once per session whether they want independent reviews;
+    a decline is recorded as a one-line opt-out report, which satisfies
+    the check.
 
   A `Waiting For Decision` park without a `.local/decisions/` file
   reference and an open (`Status: Open`) decision file is blocked once per

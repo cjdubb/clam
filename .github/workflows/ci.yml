@@ -12,8 +12,10 @@
 #             secrets, no inputs of any other kind. Reads nothing from
 #             `.claude/` or `.local/`.
 #
-# Outputs:    Three check contexts: `lint`, `test`, and `ci`. The `ci` context
-#             is green if and only if BOTH `lint` and `test` succeeded.
+# Outputs:    Check contexts `lint`, `test`, and `ci` (plus sibling stage
+#             jobs added by later blocks below, e.g. B08 and B19). The `ci`
+#             context is green if and only if `lint`, `test`, and every
+#             sibling stage job succeeded.
 #             Neither stage's console output, ordering, or exit code changes;
 #             `scripts/ci.sh` is not modified by this block and still owns
 #             everything the stages print.
@@ -84,9 +86,9 @@
 #             variables, no secrets. Reads nothing from `.claude/` or
 #             `.local/`.
 #
-# Outputs:    A fourth check context alongside `lint`, `test` and `ci`. The
-#             `ci` context is green if and only if ALL THREE stage jobs
-#             succeeded.
+# Outputs:    A fourth check context alongside `lint`, `test` and `ci` (and,
+#             per B08 below, `test_macos`). The `ci` context is green if and
+#             only if all stage jobs succeeded.
 #
 # Errors:     A failing or timing-out bash-3 stage fails its own job and,
 #             through the aggregator, `ci`.
@@ -165,6 +167,23 @@ jobs:
         env:
           LC_ALL: en_US.UTF-8
 
+  test_macos:
+    # Plan 001-macos-test-portability: macOS runners are free for public
+    # repos. Runs the test stage under macOS's native BSD-flavored userland
+    # (date/sed/grep/find etc.) on a macos-latest runner, alongside `lint`
+    # and `test`. macOS runners ship `en_US.UTF-8` already, so no locale-gen
+    # step is needed (locale-gen does not exist on macOS).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test
+        run: bash scripts/ci.sh --test
+        env:
+          LC_ALL: en_US.UTF-8
+
   bash3_gate:
     runs-on: ubuntu-latest
     steps:
@@ -196,12 +215,12 @@ jobs:
         run: bash scripts/bash3-gate.sh --bash "${{ runner.temp }}/bash-3.2.57/bash"
 
   ci:
-    needs: [lint, test, bash3_gate]
+    needs: [lint, test, test_macos, bash3_gate]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Check lint, test and bash3_gate results
+      - name: Check lint, test, test_macos and bash3_gate results
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.bash3_gate.result }}" != "success" ]; then
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.test_macos.result }}" != "success" ] || [ "${{ needs.bash3_gate.result }}" != "success" ]; then
             exit 1
           fi

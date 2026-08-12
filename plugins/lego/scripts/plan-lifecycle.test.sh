@@ -226,7 +226,7 @@ done
 check "always-blocks Inputs token: Step 2a did not close" \
   "$(has_f "$STEP3A_SECTION" "Step 2a did not close")" "yes"
 
-# Outputs: >=1 block presented at Step 5, trivial blocks marked not omitted.
+# Outputs: >=1 block presented at the approval gate (Step 7), trivial blocks marked not omitted.
 for tok in ">= 1 block" "Owner: engineer" "rather than omitted"; do
   check "always-blocks Outputs token: $tok" "$(has_f "$STEP3A_SECTION" "$tok")" "yes"
 done
@@ -322,7 +322,7 @@ check_before "links rule precedes the block-map item" \
 # Step 4, where the plan document's contents are specified." Step 4 is
 # covered by the token checks above; every other top-level section must be
 # free of it, so the rule cannot end up restated at the point of use.
-for h in '## Step 0a' '## Step 0:' '## Step 1:' '## Step 2:' '## Step 3:' '## Step 5:'; do
+for h in '## Step 0a' '## Step 0:' '## Step 1:' '## Step 2:' '## Step 3:' '## Step 5:' '## Step 6:' '## Step 7:' '## Step 8:'; do
   check "links rule is not restated in $h" \
     "$(has_f "$(section_text "$h" <<<"$STRIPPED")" "relative markdown link")" "no"
 done
@@ -343,7 +343,7 @@ for h in "## Step 0: Establish the deliverable — a hard gate" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \
-         "## Step 5: Approval gate"; do
+         "## Step 7: Approval gate"; do
   check "original heading survives: $h" "$(has_f "$RAW" "$h")" "yes"
 done
 

@@ -46,9 +46,9 @@ Until an engineer runs a lego skill, the plugin is inert: no files are
 created, no settings are written, and no plugin-wide hooks run. The
 workflow's standing rules — clarify over guess, workers never design, realm
 restriction is mechanical, contract docblocks are the spec tests are
-checked against, and so on — live in `docs/standing-rules.md`, which every
-skill (`plan`, `scaffold`, `dispatch`) reads at invocation; the skills
-likewise pick up the live block map from `.local/blocks.md` themselves.
+checked against, and so on — are stated inside each skill itself, so a
+skill carries everything it needs at invocation; the skills likewise pick
+up the live block map from `.local/blocks.md` themselves.
 Nothing lego-related enters a session's context until a lego skill is
 activated.
 
@@ -90,12 +90,16 @@ each block in changed lines against the PR budget (splitting anything over
 it) and settles a landing strategy per PR group — branch name, PR title,
 and commit sequence. Every block also gets an **interface draft** — its
 signature plus a drafted line or two of all six contract clauses — recorded
-in the plan document's Interface drafts section, and the skill stops for
-your approval of those drafts. `/lego:scaffold` then materializes the
-approved interface drafts into runtime-present stubs carrying full contract
+in the plan document's Interface drafts section, agreed with you in
+conversation as they are drafted. The same skill then materializes those
+agreed interface drafts into runtime-present stubs carrying full contract
 docblocks, transcribing that design rather than inventing a new one, and
 proves the design composes with the strongest available check (typecheck >
-build > lint > the test wave's own red run).
+build > lint > the test wave's own red run). Only then does it stop for
+your approval: one decision, on a design already proven to compose. Stubs
+written before approval stay uncommitted, so a rejected design is discarded
+by dropping them; the approved scaffold is committed as the phase boundary
+every unit worktree forks from.
 
 ### Dispatch, verify, and merge a work unit
 
@@ -147,17 +151,16 @@ Sizes each block in changed lines against `delivery.prSizeBudget` (effective
 config, default 500), splitting anything over budget, and records the
 resulting landing strategy — branch name, PR title, member units, and
 commit sequence per PR group — in the plan document. Writes the plan
-document and block map, and stops for engineer approval before any
-scaffolding begins.
-
-**`/lego:scaffold`** (model-invocable) — Orchestrator-only; never
-delegated. Turns an approved plan's blocks into stubs — runtime-present,
-deliberately unimplemented (e.g. `throw new Error("NotImplemented: B<NN>")`
-in TypeScript) — each carrying a full contract docblock (Behavior, Inputs,
-Outputs, Errors, Invariants, Edge cases), then proves the design composes
-using the strongest available check from the effective config: `typecheck`
-> `build` > `lint` > none (defers to the test wave's red run). Commits the
-scaffold as the phase boundary every unit worktree forks from.
+document and block map, then materializes the agreed interface drafts as
+stubs — runtime-present, deliberately unimplemented (e.g. `throw new
+Error("NotImplemented: B<NN>")` in TypeScript) — each carrying a full
+contract docblock (Behavior, Inputs, Outputs, Errors, Invariants, Edge
+cases). Materialization is orchestrator-only, never delegated. It proves
+the design composes using the strongest available check from the effective
+config (`typecheck` > `build` > `lint` > none, deferring to the test wave's
+red run), stops for engineer approval of the verified design, and commits
+the approved scaffold as the phase boundary every unit worktree forks
+from.
 
 **`/lego:dispatch`** (model-invocable) — Runs the per-unit pipeline
 described under Common workflows above. Notably:
@@ -278,7 +281,7 @@ plan-time sizing lint: every block entry needs a bare-integer `Est:`, and
 every entry whose `Est` exceeds the **per-block ceiling** — derived, never
 configured, as `prSizeBudget / 2` — needs a non-empty `Justification:`.
 Run once at plan time and again as rung 0 of the scaffold gate (see
-`skills/scaffold/SKILL.md`), so a plan that shrank a budget after sizing its
+`skills/plan/SKILL.md`), so a plan that shrank a budget after sizing its
 blocks can't slip an unjustified oversized block through to dispatch. Exit
 0 clean, 1 on findings, 2 on a usage or environment error.
 
@@ -351,14 +354,14 @@ bash plugins/lego/scripts/worktree.test.sh
 
 ```
 .claude-plugin/   plugin manifest
-skills/           plan, scaffold, dispatch
+skills/           plan, dispatch
 agents/           lego-test-writer, lego-implementer (sonnet by default);
                   frontmatter registers the PreToolUse realm gate
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
                   realm-gate.sh, worktree.sh (unit worktree lifecycle +
                   delivery)
 templates/        starter .claude/lego.json (lego.json) and blocks.md
-docs/             config schema / repo-interface spec, standing-rules.md
+docs/             config schema / repo-interface spec
 ```
 
 History: ported from the clam-v2 repo at v0.3.0; skills renamed from

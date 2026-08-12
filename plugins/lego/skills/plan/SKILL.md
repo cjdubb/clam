@@ -1,18 +1,44 @@
 ---
 name: plan
-description: Plan and decompose a deliverable into lego blocks together with the engineer. Use at the start of any feature, fix, or refactor in a repo using the clam workflow. Produces an approved plan document and block-map entries; scaffolding must not begin before the engineer approves.
+description: Plan and decompose a deliverable into lego blocks together with the engineer, materialize the agreed interface drafts as runtime-present stubs carrying full behavioral contracts, run the scaffold gate, and obtain the engineer's approval of the verified design. Use at the start of any feature, fix, or refactor in a repo using the clam workflow. Stub-writing is orchestrator-authored, never delegated; dispatch must not begin before the engineer approves.
 ---
 
 # Lego Planning
 
-At invocation, before anything else, read `../../docs/standing-rules.md`
-(relative to this skill's base directory): it carries the workflow overview
-and the standing rules that govern every lego phase, including this one.
-
 Plan together with the engineer in conversation; never produce the plan document alone.
 The output is a shared mental model: which blocks exist, what each promises, and
-how they compose into the deliverable. The engineer approves before anything is
-scaffolded.
+how they compose into the deliverable — carried all the way to materialized,
+gate-passing stubs the engineer approves in one pass. Dispatch begins only
+after that approval.
+
+## Standing rules
+
+These rules govern the whole lego engagement — this skill and `/lego:dispatch`
+alike:
+
+- **Clarify and verify; never guess.** This is the workflow's central rule.
+  The deliverable is what the engineer states in conversation — NEVER inferred
+  from branch/worktree names, directory slugs, commit history, or code
+  archaeology. Ambiguity at any level (goal, contract, test, tooling) becomes a
+  question to the engineer or an escalation to the orchestrator, not an
+  assumption. When evidence contradicts what you were told, surface the
+  contradiction before acting on either version.
+- The orchestrator designs and verifies; it does not implement block internals.
+  Workers NEVER design: any ambiguity, mis-sized block, or wrong-seeming test
+  is escalated back to the orchestrator, and contract changes go through the
+  engineer.
+- The engineer may claim any block (Owner: engineer). Same contract, same tests,
+  same acceptance gate; sibling blocks proceed against stubs meanwhile. This
+  keeps design authorship with the engineer: they implement the blocks that
+  matter to them, under the same gates as any worker.
+- **Every question must be explicitly answered before proceeding.** When the
+  orchestrator poses a question to the engineer, no background agents,
+  exploration, or next-step progression may proceed until every question
+  receives an explicit answer — partial responses do not count as
+  sufficient, and any question left unanswered must be restated to the
+  engineer. A question the engineer explicitly declines or skips counts as
+  answered; a bare "go" accepting the recommended defaults counts as
+  answering all open questions.
 
 ## Step 0a: Record plan entry
 
@@ -220,9 +246,9 @@ For every block, agree with the engineer on:
   signature; the outline is the only substitution, and the same six clauses
   are drafted under it. Engineer-owned blocks clear the same bar — ownership
   is no exemption. A block presented with no draft, or a prose block with no
-  outline, is not plan-complete: a plan defect that blocks Step 5 approval.
+  outline, is not plan-complete: a plan defect that blocks Step 7 approval.
   The draft stays a draft — the full contract docblock is still
-  written at scaffold, and that docblock, never this sketch, is the
+  written when the stubs are materialized (Step 5), and that docblock, never this sketch, is the
   authoritative contract. A block re-planned mid-dispatch updates its draft and re-passes
   this bar before it is re-scaffolded.
 - Dependencies (which other blocks it consumes)
@@ -252,12 +278,12 @@ too small to warrant dispatching a worker is still a block: the engineer
 claims it (`Owner: engineer`), builds it directly, and it carries the same
 contract, the same tests, and the same acceptance gate as any other block.
 That direct-change path lives INSIDE the workflow, not as an exit from it —
-planning has exactly two terminal states: an approved block design (Step 5),
+planning has exactly two terminal states: an approved block design (Step 7),
 or the factual closure of Step 2a when the deliverable does not exist.
 
 This step is reached with a confirmed deliverable from Step 0 that Step 2a did not close.
 Decomposition here always yields a block design containing >= 1 block,
-presented at the Step 5 approval gate. Where a block is trivial or better
+presented at the Step 7 approval gate. Where a block is trivial or better
 done by hand, mark it `Owner: engineer` rather than omitted — it still needs
 a name, a contract, and a place in the block map.
 
@@ -278,7 +304,7 @@ Keep these invariants in view while decomposing:
 Edge cases worth naming explicitly:
 
 - **Single-file, single-line changes:** one block, often `Owner: engineer`.
-- **Documentation-only deliverables: still blocks** — see the scaffold skill
+- **Documentation-only deliverables: still blocks** — see Step 6a
   for the acceptance gate when a block has no red/green cycle.
 - Deliverable partly already done: decompose the remainder only.
 
@@ -326,7 +352,7 @@ strategy behind it. Three things happen here, in order, with the engineer:
    block; a genuinely indivisible one instead carries a written
    `Justification:` field, recorded in its block-map entry (Step 4). An
    over-ceiling block with no `Justification:` field is a plan defect that
-   blocks Step 5 approval. A block re-planned mid-dispatch re-passes the
+   blocks Step 7 approval. A block re-planned mid-dispatch re-passes the
    leaf test and the ceiling before it is re-scaffolded.
 3. **Form PR groups** whose combined estimate fits the budget — default one
    unit per group, small related units sharing one. For each group, fix its
@@ -425,10 +451,219 @@ a PR.
    phase that resolves it. Update the map in real time at every transition so the
    engineer always reads current state.
 
-## Step 5: Approval gate
+## Materialization
 
-Present the plan to the engineer and stop. Scaffolding begins only after
-explicit approval. If the engineer annotates or objects, revise and re-present.
-Record the approval (date + summary) in the plan's Changelog.
+The scaffold **materializes** the interfaces agreed with the engineer in
+Step 3. The design already happened there: the plan document's
+Interface drafts section carries one draft per block, and scaffolding turns those
+drafts into the code-level interfaces the whole flow hangs off —
+test-writers test against them, implementers fill them in, and the compiler
+(where one exists) proves the design composes. Materializing before the
+Step 7 approval gate is what makes that approval strong: the engineer
+approves interfaces already proven to compose, not sketches. Scaffolding is
+orchestrator work; do not delegate it.
 
-Then proceed to `/lego:scaffold`.
+Scaffolding happens on the **integration branch** — the branch lego was
+started on. Every work unit's worktree forks from the integration tip, so all
+stubs must land there first: each work unit then sees every sibling block's
+*stub* but never a sibling's *tests* or *implementation*.
+
+Materialization begins once Step 4's artifacts are written and every block
+sits at `Status: Planned`. Stubs stay **uncommitted** until Step 8's
+phase-boundary commit: a design the engineer rejects at Step 7 is revised or
+discarded from the working tree, never committed.
+
+## Step 5: Write the stubs
+
+For every block, transcribe its agreed draft from the plan's **Interface
+drafts** section into its public interface in the repo's language. The draft
+is the source: signature, name, and shape come across as agreed, and the
+contract docblock is *finalized* from the agreed draft rather than invented
+here. Finalizing adds precision — the units, ordering, nullability, and edge
+cases a draft leaves loose — and nothing else. New design is not written at
+scaffold time; a stub that quietly grows a parameter, a return shape, or a
+behavior the draft never carried has bypassed the design agreed with the engineer.
+
+Scaffolding does find things planning missed. When a discovery genuinely
+invalidates an agreed signature — the interface cannot express a correct
+implementation, or two blocks' drafts do not compose — that is a
+return-to-design event, not a scaffold-time redesign: go back to Step 3
+with the engineer, revise the draft there, and record the change in the plan
+document's Changelog. The same applies to any smaller deviation from an
+agreed draft: it is legitimate only once the Changelog says so. A stub
+docblock that deviates from its agreed draft with no matching Changelog
+entry is a **scaffold defect** — the design silently forked from what was
+agreed with the engineer, and Step 7's approval is then uninformed.
+
+If the plan carries no Interface drafts section at all — a plan written
+before drafts existed — fall back to authoring the docblocks fresh here,
+against the plan's block descriptions, and note the fallback in the plan
+Changelog so acceptance knows the contracts were not agreed with the engineer at
+plan time.
+
+The transcription obeys two principles:
+
+1. **Runtime-present, deliberately unimplemented.** Tests must be able to import
+   and CALL the stub and fail for the right reason. Declaration-only stubs
+   (`declare function`, header-only) cannot produce a right-reason red run, so
+   bodies exist and fail loudly:
+
+   | Language | Stub body |
+   |---|---|
+   | TypeScript/JS | `throw new Error("NotImplemented: B<NN>")` |
+   | Python | `raise NotImplementedError("B<NN>")` |
+   | Go | `panic("NotImplemented: B<NN>")` |
+   | Rust | `unimplemented!("B<NN>")` |
+   | Ruby/JVM/other | the idiomatic equivalent |
+
+   Supporting types, interfaces, and signatures are written in full; only
+   behavior is absent.
+
+2. **Every stub carries a contract docblock** in the language's doc
+   convention; a type signature alone does not specify behavior. This
+   docblock is the authoritative contract that
+   tests and implementations are verified against:
+
+   ```
+   Contract: B<NN> <name>
+   Behavior:   what it does, stated operationally
+   Inputs:     domains, units, preconditions
+   Outputs:    exact semantics (ordering, stability, nullability, units)
+   Errors:     every failure mode and how it manifests
+   Invariants: what always holds (purity, no mutation, idempotency, ...)
+   Edge cases: empty, boundary, duplicate, oversized, concurrent, ...
+   ```
+
+   Write contracts so a test-writer with NO other context can enumerate the
+   clauses and test each one. Ambiguity here surfaces later as worker
+   escalations; spend the effort now.
+
+   **Prose blocks are the exception to docblock permanence.** When a block's
+   deliverable is a document — a `SKILL.md`, a `README.md`, a template — its
+   "doc convention" is an HTML comment, and the prose written below it *is*
+   the implementation. A contract left in place there ships as a duplicate of
+   the text beneath it, and an HTML comment is invisible only to the markdown
+   renderer: every reader that loads the file, Claude included, still pays for
+   it. So mark these for removal when you write them:
+
+   ```
+   <!-- Contract: B<NN> <name> (remove at acceptance)
+   Behavior: ...
+   -->
+   ```
+
+   A prose block materializes the same way as any other: its agreed draft
+   is an outline rather than a signature, and that outline is transcribed as
+   the document's skeleton — headings and section order in place, the prose
+   itself deliberately absent — with the contract comment above it.
+
+   The implementation wave deletes the comment; acceptance confirms it is
+   gone. Anything the contract asserts that must outlive the block — a
+   standing editing rule, an invariant with no other home — is moved into the
+   document's own prose or a short editing note *before* the contract goes.
+
+Composition blocks are scaffolded too: their stub is the function or module
+that composes the children, and their contract describes the
+composed behavior.
+
+## Step 6: Run the scaffold gate
+
+**Rung 0: the sizing lint.** Before the composition rungs below run,
+re-check the plan's own sizing discipline rather than trusting it from
+planning time: run `scripts/blocks-lint.sh` against `.local/blocks.md`
+(this presupposes an approved plan's block map already exists — a fresh
+repo with no `.local/blocks.md` yet has nothing to scaffold, so the rung
+never runs). Exit 0 proceeds to the rungs below. Exit 1 means findings — an
+oversized entry with no `Justification:`, a malformed `Est:`, or similar —
+and the plan goes back to Step 3, with the engineer, as a sizing defect; it is never
+patched silently here, at scaffold time. Exit 2 is an environment or usage
+error (a missing block map, a bad `--budget`, e.g.): fix it and re-run, it
+says nothing about the plan itself. If `scripts/blocks-lint.sh` is absent —
+an older checkout mid an upgrade — rung 0 is skipped with an explicit
+warning naming the script, visible in the transcript, never silent. A block
+whose `Est:` already carries a `Justification:` for exceeding the
+per-block ceiling passes the lint as written; nothing about it is
+re-argued here.
+
+Prove the design composes using the **strongest available check**, from the
+effective config's commands (`.claude/lego.json` merged with any
+`.local/config.json` override — see `docs/config-schema.md`), in this order:
+
+1. `typecheck` — best: interfaces are proven to compose.
+2. `build` / compile — good: everything at least resolves and compiles.
+3. `lint` or an import/syntax check — weak: files parse and resolve.
+4. None available — the gate defers to the test wave's red run (tests importing
+   and calling every stub is the first mechanical composition proof).
+
+Record which rung ran in the plan document. Fix scaffold errors here; a scaffold
+that fails its gate must not be dispatched.
+
+### Step 6a: Blocks with no red/green cycle
+
+Some blocks carry no executable behavior to verify: prose whose quality is the
+deliverable (a README section, guidance text), or configuration whose only
+assertion is its own literal content. Planning always produces some of these,
+so decide their gate now, at scaffold time, rather than leaving dispatch to
+improvise one.
+
+**Decide by clause, not by convenience.** Walk every clause in the block's
+contract docblock and ask whether it can be expressed as an executable
+assertion. Structural and anchor assertions count as executable — a token,
+heading, or ordering check over a prose file is a real test — so a prose
+file with anchors is not review-gated; it takes the normal test wave like
+any other block.
+
+Reserve review-gated status for blocks where no clause is executably assertable —
+never merely because tests would be inconvenient, low-value, or awkward to
+write. Content with no assertable structure — README body text carrying no
+anchors a script could check, for instance — is review-gated. A block with a
+mix of assertable and non-assertable clauses is not review-gated either:
+partial testability means the normal wave runs and covers what it can, and
+the reviewer covers the remainder at acceptance.
+
+Review-gating is decided at scaffold time, by the orchestrator, and
+recorded on the block; it is never a dispatch-time improvisation. The
+moment you mark a block review-gated, note it — with the reason — on its
+`.local/blocks.md` entry.
+
+A review-gated block's test wave is skipped, and a skipped test wave is
+always recorded with its reason; the skip is never silent. Its acceptance
+gate replaces the normal one: orchestrator verification of the artifact
+against every contract clause, plus explicit engineer acceptance —
+orchestrator verification alone does not accept a review-gated block;
+both are required. Everything else about the block — realm rules, the
+contract docblock, the block-map lifecycle — is unchanged.
+
+This applies identically to engineer-owned blocks. An engineer-owned
+review-gated block takes the same gate as any other — the engineer
+cannot accept their own block unilaterally, and the orchestrator still
+verifies it against every clause before the block can move to `Accepted`.
+
+## Step 7: Approval gate
+
+Present the verified design to the engineer and stop: the plan document, the
+block map, the stub docblocks, and which gate rung ran. This is the single
+approval of the whole design — annotations and objections route back to
+Step 3 for design changes or Step 5 for materialization defects, the gate
+re-runs, and the design is re-presented. A rejected design's stubs are
+revised or discarded; nothing has been committed. Record the approval
+(date + summary) in the plan's Changelog. Dispatch begins only after
+explicit approval.
+
+## Step 8: Update state and checkpoint
+
+- Set every scaffolded block to `Status: Scaffolded` and fill in its `Code:`
+  field in `.local/blocks.md` with each block's **actual** path(s), verified
+  pairwise disjoint across work units. A violation goes back to Step 3
+  as a decomposition defect rather than being resolved silently here.
+  Before committing, verify that any questions raised during scaffolding —
+  contract ambiguities, path-disjointness concerns — have been resolved with
+  the engineer.
+
+- Commit the scaffold (with the engineer's consent) as a phase boundary. Clean
+  phase-boundary commits are what make realm verification precise in dispatch:
+  each wave's diff can then be checked in isolation. This commit is what every
+  work unit's worktree forks from — dispatch runs `worktree.sh add` against
+  this commit's branch tip.
+
+Then proceed to `/lego:dispatch`.

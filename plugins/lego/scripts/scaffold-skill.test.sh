@@ -1,5 +1,5 @@
 #!/bin/bash
-# Structural/anchor test for skills/scaffold/SKILL.md against Contract:
+# Structural/anchor test for the materialization half of skills/plan/SKILL.md against Contract:
 # 001-B03 untestable-block-gate. Unlike other lego contracts, this one has
 # no separate .local/contracts file — its docblock is embedded inline in
 # SKILL.md itself, as an HTML comment directly under the "### Step 2a"
@@ -31,7 +31,7 @@
 # Run: bash plugins/lego/scripts/scaffold-skill.test.sh   (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL="$SCRIPT_DIR/../skills/scaffold/SKILL.md"
+SKILL="$SCRIPT_DIR/../skills/plan/SKILL.md"
 
 FAILED=0
 
@@ -76,10 +76,10 @@ first_line_in() { # content literal
 # that span is pinned by the ordering checks, not by this boundary.
 step2_body_of() { # content
   awk '
-    index($0, "## Step 2: Run the scaffold gate") == 1 && !seen {
+    index($0, "## Step 6: Run the scaffold gate") == 1 && !seen {
       seen=1; capture=1; print; next
     }
-    capture && (index($0, "### Step 2a") == 1 || index($0, "## ") == 1) { exit }
+    capture && (index($0, "### Step 6a") == 1 || index($0, "## ") == 1) { exit }
     capture { print }
   ' <<<"$1"
 }
@@ -119,15 +119,15 @@ RAW=$(cat "$SKILL")
 
 # --- Clause 1: heading exists, ordered inside Step 2 ----------------------
 # (after "## Step 2:", before "## Step 3:")
-check "heading exists: ### Step 2a: Blocks with no red/green cycle" \
-  "$(has_f "$RAW" '### Step 2a: Blocks with no red/green cycle')" "yes"
+check "heading exists: ### Step 6a: Blocks with no red/green cycle" \
+  "$(has_f "$RAW" '### Step 6a: Blocks with no red/green cycle')" "yes"
 
-STEP2_LINE=$(first_heading_line "## Step 2: Run the scaffold gate")
-STEP2A_LINE=$(first_heading_line "### Step 2a: Blocks with no red/green cycle")
-STEP3_LINE=$(first_heading_line "## Step 3: Update state and checkpoint")
+STEP2_LINE=$(first_heading_line "## Step 6: Run the scaffold gate")
+STEP2A_LINE=$(first_heading_line "### Step 6a: Blocks with no red/green cycle")
+STEP3_LINE=$(first_heading_line "## Step 8: Update state and checkpoint")
 
-check_after "Step 2a follows Step 2" "$STEP2A_LINE" "$STEP2_LINE"
-check_before "Step 2a precedes Step 3" "$STEP2A_LINE" "$STEP3_LINE"
+check_after "Step 6a follows Step 6" "$STEP2A_LINE" "$STEP2_LINE"
+check_before "Step 6a precedes Step 8" "$STEP2A_LINE" "$STEP3_LINE"
 
 # --- Section scoping --------------------------------------------------------
 # Strip HTML comments from the whole file first (removing the contract
@@ -136,7 +136,7 @@ check_before "Step 2a precedes Step 3" "$STEP2A_LINE" "$STEP3_LINE"
 # but not including, the next top-level "## " heading.
 STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 SECTION_2A=$(awk '
-  index($0, "### Step 2a: Blocks with no red/green cycle") == 1 { capture=1; print; next }
+  index($0, "### Step 6a: Blocks with no red/green cycle") == 1 { capture=1; print; next }
   capture && index($0, "## ") == 1 { exit }
   capture { print }
 ' <<<"$STRIPPED")
@@ -218,7 +218,7 @@ STEP2_BODY=$(step2_body_of "$STRIPPED")
 check "step2: blocks-lint.sh is named in the Step 2 gate prose" \
   "$(has_f "$STEP2_BODY" 'blocks-lint.sh')" "yes"
 
-STEP2_L=$(first_line_in "$STRIPPED" '## Step 2: Run the scaffold gate')
+STEP2_L=$(first_line_in "$STRIPPED" '## Step 6: Run the scaffold gate')
 LINT_L=$(first_line_in "$STRIPPED" 'blocks-lint.sh')
 RUNG1_L=$(first_line_in "$STRIPPED" '1. `typecheck`')
 
@@ -235,8 +235,8 @@ check "step2: the lint runs against .local/blocks.md" \
 # --- Behavior: the three exit codes and what each one means ----------------
 check "step2: exit 1 (findings) is named" \
   "$(has_any_i "$STEP2_BODY" 'exit 1' 'exits 1' 'exit code 1')" "yes"
-check "step2: exit-1 findings send the plan back to /lego:plan" \
-  "$(has_f "$STEP2_BODY" '/lego:plan')" "yes"
+check "step2: exit-1 findings send the plan back to Step 3" \
+  "$(has_f "$STEP2_BODY" 'back to Step 3')" "yes"
 check "step2: findings are never patched silently at scaffold time" \
   "$(has_any_i "$STEP2_BODY" 'silently' 'silent')" "yes"
 check "step2: exit 2 (environment/usage) is named" \

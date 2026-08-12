@@ -212,9 +212,9 @@ check "content bar elements are stated together as one bar" \
 # A block presented without a draft is not plan-complete.
 check "a block without a draft is not plan-complete" \
   "$(has_re "$STEP3_BODY" "[Pp]lan-complete")" "yes"
-# Invariant: the full contract still lives at scaffold, not here.
-check "invariant: the full contract is still written at scaffold" \
-  "$(has_f "$STEP3_BODY" "at scaffold")" "yes"
+# Invariant: the full contract still lives at materialization, not here.
+check "invariant: the full contract is still written at materialization" \
+  "$(has_f "$STEP3_BODY" "materialized")" "yes"
 
 # --- 3. Behavior 3: Step 3a's per-block ceiling is DERIVED from the budget -
 check "Step 3a derives the ceiling from prSizeBudget (literal division)" \
@@ -235,12 +235,12 @@ check "the derivation and the default ceiling are stated together" \
 check "Step 3a records the justification as a Justification: field" \
   "$(has_f "$STEP3A_SECTION" "Justification:")" "yes"
 # An over-ceiling block with no justification is a plan defect that blocks
-# approval. "defect" alone is pre-existing here; "Step 5" is what pins the
+# approval. "defect" alone is pre-existing here; "Step 7" is what pins the
 # consequence.
-check "Step 3a: an unjustified over-ceiling block blocks Step 5 approval" \
-  "$(has_f "$STEP3A_SECTION" "Step 5")" "yes"
-check "Step 3a: the defect framing reaches the Step 5 gate" \
-  "$(near_all 6 "$STEP3A_SECTION" "Step 5" "[Dd]efect")" "yes"
+check "Step 3a: an unjustified over-ceiling block blocks Step 7 approval" \
+  "$(has_f "$STEP3A_SECTION" "Step 7")" "yes"
+check "Step 3a: the defect framing reaches the Step 7 gate" \
+  "$(near_all 6 "$STEP3A_SECTION" "Step 7" "[Dd]efect")" "yes"
 
 # --- 5. Behavior 3, cont.: invariant — the group-level budget rules stay
 # alongside the new per-block ceiling (both numbers present, both named) ---

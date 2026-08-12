@@ -9,7 +9,7 @@
 #      (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOC="$SCRIPT_DIR/../docs/standing-rules.md"
+DOC="$SCRIPT_DIR/../skills/plan/SKILL.md"
 
 FAILED=0
 

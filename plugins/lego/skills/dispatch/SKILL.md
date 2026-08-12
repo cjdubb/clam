@@ -1,13 +1,9 @@
 ---
 name: dispatch
-description: Run the per-unit worktree pipeline over scaffolded lego blocks — worktree, test wave, verification, implementation wave, acceptance, local merge, and (per delivery mode) PR delivery — dependency-ordered and parallel where independent, with orchestrator verification checklists, mechanical realm checks, and the escalation loop. Use after /lego:scaffold's gate passes.
+description: Run the per-unit worktree pipeline over scaffolded lego blocks — worktree, test wave, verification, implementation wave, acceptance, local merge, and (per delivery mode) PR delivery — dependency-ordered and parallel where independent, with orchestrator verification checklists, mechanical realm checks, and the escalation loop. Use after /lego:plan's approval gate passes.
 ---
 
 # Lego Dispatch
-
-At invocation, before anything else, read `../../docs/standing-rules.md`
-(relative to this skill's base directory): it carries the workflow overview
-and the standing rules that govern every lego phase, including this one.
 
 The orchestrator runs each work unit through its own pipeline in a dedicated
 git worktree: no shared tree, no global phase that gates every block on every

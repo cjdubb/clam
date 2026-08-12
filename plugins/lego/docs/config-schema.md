@@ -134,7 +134,7 @@ segment. `testPatterns` extends this per repo; nothing can shrink it.
 
 ## Scaffold-gate ladder
 
-`/lego:scaffold` runs the strongest configured rung: `typecheck` >
+`/lego:plan`'s scaffold gate runs the strongest configured rung: `typecheck` >
 `build` > `lint` > none (gate defers to the test wave's red run). The rung used
 is recorded in the plan document, so the strength of the composition proof is
 always explicit.

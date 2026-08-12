@@ -50,7 +50,10 @@ done < <(grep -oP '\$\{CLAUDE_PLUGIN_ROOT\}/\K[^ `"'"'"']+' "$SKILL_MD" | sort -
 # --- Clause 2: no stale ~/.claude/skills/render-doc refs ----------------------
 # Strip HTML comments before checking — contract docblocks quote the very
 # string being checked for, but those are metadata, not live references.
-stale_refs="$(cd "$REPO_ROOT" && git ls-files -z | xargs -0 -I{} sh -c 'sed "/<!--/,/-->/d" "$1" | grep -q "~/.claude/skills/render-doc" && echo "$1"' _ {} 2>/dev/null | grep -v 'MIGRATION.md' | grep -v '\.test\.sh$' || true)"
+stale_refs="$(
+  cd "$REPO_ROOT" || exit 0
+  git ls-files -z | xargs -0 -I{} sh -c 'sed "/<!--/,/-->/d" "$1" | grep -q "~/.claude/skills/render-doc" && echo "$1"' _ {} 2>/dev/null | grep -v 'MIGRATION.md' | grep -v '\.test\.sh$' || true
+)"
 if [ -z "$stale_refs" ]; then
   pass "no stale ~/.claude/skills/render-doc refs outside MIGRATION.md and test files"
 else

@@ -235,9 +235,9 @@ reset_openers() {
   : > "$OPEN_LOG"
 }
 
-opened_tools() { cut -f1 "${1:-$OPEN_LOG}" 2> /dev/null | tr '\n' ' ' | sed 's/ *$//'; }
+opened_tools() { cut -f1 "$OPEN_LOG" 2> /dev/null | tr '\n' ' ' | sed 's/ *$//'; }
 opened_url() { cut -f2 "${1:-$OPEN_LOG}" 2> /dev/null | head -1; }
-opened_count() { wc -l < "${1:-$OPEN_LOG}" 2> /dev/null | tr -d ' '; }
+opened_count() { wc -l < "$OPEN_LOG" 2> /dev/null | tr -d ' '; }
 
 # --- Running render.sh --open ------------------------------------------------
 RUN_RC=0

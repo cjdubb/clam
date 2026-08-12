@@ -284,9 +284,9 @@ if [ "$OPEN" -eq 1 ]; then
           # Outdated server (e.g. after a master pull): kill it, wait for the
           # port to clear, then respawn the current code below.
           SERVER_PID="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('pid',''))" 2> /dev/null || true)"
-          [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2> /dev/null || true
+          if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2> /dev/null || true; fi
           PIDFILE="/tmp/render-doc-serve-$PORT.pid"
-          [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2> /dev/null)" 2> /dev/null || true
+          if [ -f "$PIDFILE" ]; then kill "$(cat "$PIDFILE" 2> /dev/null)" 2> /dev/null || true; fi
           DEAD=0
           for _ in 1 2 3 4; do
             sleep 0.25
@@ -419,9 +419,9 @@ if [ "$SERVE_MODE" -eq 1 ]; then
       # Outdated server: kill it, wait for the port to clear, then respawn
       # the current code below.
       SERVER_PID="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('pid',''))" 2> /dev/null || true)"
-      [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2> /dev/null || true
+      if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2> /dev/null || true; fi
       PIDFILE="/tmp/render-doc-serve-$PORT.pid"
-      [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2> /dev/null)" 2> /dev/null || true
+      if [ -f "$PIDFILE" ]; then kill "$(cat "$PIDFILE" 2> /dev/null)" 2> /dev/null || true; fi
       DEAD=0
       for _ in 1 2 3 4; do
         sleep 0.25

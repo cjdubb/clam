@@ -401,9 +401,9 @@ check "Semantics states removal is always explicit" \
   "$(grep -qiE 'always explicit|explicit(ly)?.{0,40}(removal|remove|deletion|delete)|(removal|removing|deletion).{0,40}explicit' <<< "$semantics_flat" && echo yes || echo no)" "yes"
 check "Semantics names both removal routes: a setup's remove subcommand and prune-stamp.sh" \
   "$(grep -qF 'prune-stamp.sh' <<< "$semantics_flat" \
-     && grep -qiE 'remove.{0,300}prune-stamp|prune-stamp.{0,300}remove' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+     && grep -qiE 'remove.{0,250}prune-stamp|prune-stamp.{0,250}remove' <<< "$semantics_flat" && echo yes || echo no)" "yes"
 check "Semantics gives prune-stamp.sh as the route for a target a setup cannot resolve" \
-  "$(grep -qiE 'prune-stamp.{0,300}(cannot|can.t|unable|no longer)|(cannot|can.t|unable|no longer).{0,300}prune-stamp' <<< "$semantics_flat" && echo yes || echo no)" "yes"
+  "$(grep -qiE 'prune-stamp.{0,250}(cannot|can.t|unable|no longer)|(cannot|can.t|unable|no longer).{0,250}prune-stamp' <<< "$semantics_flat" && echo yes || echo no)" "yes"
 # The surprise that produced issue #239: a record whose target has gone away
 # stays put. Two conjuncts, since "does not self-clear" has many faithful
 # phrasings and only the negation is load-bearing.

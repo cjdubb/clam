@@ -33,6 +33,10 @@ if [ ! -f "$SCRIPT" ]; then
   exit 1
 fi
 
+# shellcheck source=lib/test-portability.sh
+# shellcheck disable=SC1091  # resolved at runtime via $SCRIPT_DIR
+. "$SCRIPT_DIR/lib/test-portability.sh"
+
 FAILED=0
 check() { # label got expected
   if [[ "$2" == "$3" ]]; then
@@ -59,20 +63,23 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# `jq`-missing PATH shim: allowlist every /usr/bin entry except jq, symlinked
-# into a fresh dir (git and bash -- both needed to invoke the script under
-# test -- live in /usr/bin here, so both stay reachable; only jq disappears).
+# `jq`-missing PATH shim: allowlist every executable on the caller's real
+# PATH except jq, symlinked into a fresh dir (git and bash -- both needed to
+# invoke the script under test -- stay reachable; only jq disappears).
 # A blocklist that merely strips jq's own directory from PATH is not enough
 # on usrmerge systems, where /bin is a symlink to /usr/bin and stays on
-# PATH -- /bin/jq would still be reachable there. Mirrors build_path_without
-# in scripts/version-bump-lint.test.sh.
+# PATH -- /bin/jq would still be reachable there. Farming only /usr/bin is
+# equally wrong the other way on macOS, where /bin/bash is NOT under
+# /usr/bin and the shim would yield exit 127 instead of the contract's
+# exit 2; tp_shim_path walks the whole real PATH, so both platforms keep a
+# usable bash/git. Mirrors build_path_without in
+# scripts/version-bump-lint.test.sh.
 # ---------------------------------------------------------------------------
 build_path_without() { # cmd -> prints new PATH dir
   local cmd="$1" out
   out="$(mktemp -d)"
   track_tmp "$out"
-  ln -s /usr/bin/* "$out/" 2>/dev/null
-  rm -f "$out/$cmd"
+  tp_shim_path "$out" --remove "$cmd" >/dev/null || return 1
   printf '%s' "$out"
 }
 
@@ -390,6 +397,13 @@ else
     echo "FATAL: jq still reachable under the constructed NOJQ_PATH -- PATH shim is broken" >&2
     exit 1
   fi
+  # Second half of the same self-guard: the shim must hide ONLY jq. If bash
+  # itself is missing from the farm the script under test cannot even start
+  # and exits 127, which would read as a contract failure rather than as
+  # the broken fixture it is. Assert bash is reachable so a regression in
+  # the farm's coverage fails here, loudly, instead of downstream.
+  check "10. jq-missing shim self-guard: bash still reachable under NOJQ_PATH" \
+    "$(PATH="$NOJQ_PATH" command -v bash >/dev/null 2>&1 && echo yes || echo no)" "yes"
   f="$(new_clam_repo)"
   before="$(config_snapshot "$f")"
   run_setup "$f" "$NOJQ_PATH"

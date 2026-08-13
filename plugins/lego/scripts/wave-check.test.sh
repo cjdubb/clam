@@ -682,58 +682,292 @@ test_realm_check_missing_beside_script() {
 
 # ===========================================================================
 # Test-command resolution
-# (Inputs: --test-cmd; layered-config fallback; object variants; Errors:
-# unresolvable command, jq unavailable when config resolution is required)
+#
+# Contract: B04 wave-check-unit-md-fallback (plan 001-lego-config-redesign)
+#
+#   Behavior:   --test-cmd stays primary; when absent, the test command is
+#               resolved from the unit worktree's .local/unit.md block
+#               sections' `- Test:` field (the copy worktree.sh add seeds).
+#               Layered-config resolution and $LEGO_CONFIG are deleted.
+#   Errors:     exit 2 when neither --test-cmd nor a unit.md Test: resolves,
+#               message naming both paths tried; exit 2 when blocks sharing
+#               the unit disagree on Test:.
+#   Edge case:  run outside a unit worktree (no unit.md) with no flag ->
+#               exit 2, not a crash.
+#
+# The tests below replace this file's former layered-config-fallback tests
+# (base-string / object-default-variant / override-wins / $LEGO_CONFIG
+# redirect / jq-required-for-config-resolution): every one of them pinned the
+# resolution path B04 deletes, so each is rewritten to pin the new contract —
+# config files present and demonstrably NOT consulted.
 # ===========================================================================
 
-# No --test-cmd and nothing in config to resolve: unresolvable, exit 2.
-test_unresolvable_test_command_exit_2() {
+# unit_md_section <block-id> <block-name> <test-value-or-empty> -- one
+# "## B<NN> — ..." section in the shape worktree.sh add seeds: the heading,
+# then the block's "- Field: value" lines, then a blank line. An empty
+# <test-value> omits the "- Test:" line entirely.
+unit_md_section() {
+  local id="$1" name="$2" test_value="$3"
+  printf '## %s — %s\n' "$id" "$name"
+  printf -- '- Status: Scaffolded\n'
+  printf -- '- Owner: agent\n'
+  printf -- '- Kind: leaf\n'
+  if [ -n "$test_value" ]; then
+    printf -- '- Test: %s\n' "$test_value"
+  fi
+  printf -- '- Code: src/thing.sh\n'
+  printf '\n'
+}
+
+# write_unit_md <repo> <section>... -- seeds .local/unit.md exactly as
+# worktree.sh add does: "# Unit <id>", a blank line, then the sections. Kept
+# under .local/, which the fixture repo gitignores, so seeding it never
+# changes realm-check's verdict.
+write_unit_md() {
+  local repo="$1"
+  shift
+  mkdir -p "$repo/.local"
+  {
+    printf '# Unit U01\n\n'
+    local s
+    for s in "$@"; do
+      printf '%s' "$s"
+    done
+  } > "$repo/.local/unit.md"
+}
+
+# The fallback: no --test-cmd, and the unit worktree's unit.md carries the
+# block's "- Test:" field. The field's value is a shell command string (the
+# real seeded shape is "bash plugins/lego/scripts/<x>.test.sh"), so both a
+# bare path and a multi-token command must resolve.
+test_unit_md_test_field_resolves_the_command() {
+  local repo marker cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "unit-md")"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$cmd")"
+
+  run_wave "$repo" test
+  assert_eq 0 "$RUN_EXIT" "unit.md Test: fallback: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "unit.md Test: fallback: red run"
+  assert_eq "unit-md" "$(cat "$marker")" "unit.md Test: fallback: that command is what ran"
+
+  # The multi-token form: the whole field value is the command.
+  local repo2 marker2 cmd2
+  repo2="$(new_git_repo)"
+  marker2="$(mktemp)"
+  track_tmp "$marker2"
+  cmd2="$(make_test_cmd 1 "1 test failed" "" "$marker2" "unit-md-multi-token")"
+  write_unit_md "$repo2" "$(unit_md_section "B04" "a-block" "bash $cmd2")"
+
+  run_wave "$repo2" test
+  assert_eq 0 "$RUN_EXIT" "multi-token unit.md Test: value: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "multi-token unit.md Test: value: red run"
+  assert_eq "unit-md-multi-token" "$(cat "$marker2")" "multi-token unit.md Test: value: the whole string is the command"
+}
+
+# "--test-cmd stays primary": with both available, the flag wins outright and
+# the unit.md command never runs.
+test_test_cmd_flag_wins_over_unit_md() {
+  local repo marker flag_cmd md_cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  md_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-unit-md")"
+  flag_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-flag")"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$md_cmd")"
+
+  run_wave "$repo" test --test-cmd "$flag_cmd"
+  assert_eq 0 "$RUN_EXIT" "--test-cmd alongside a unit.md Test: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "--test-cmd alongside a unit.md Test: red run"
+  assert_eq "from-flag" "$(cat "$marker")" "--test-cmd is primary: only the flag's command ran"
+}
+
+# EC (B01, mirrored here): "multiple blocks in a unit with identical fields ->
+# command used once". Agreement is not disagreement, and the command runs a
+# single time.
+test_unit_md_multiple_blocks_agreeing_resolve_once() {
+  local repo marker cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "agreed")"
+  write_unit_md "$repo" \
+    "$(unit_md_section "B04" "first-block" "$cmd")" \
+    "$(unit_md_section "B05" "second-block" "$cmd")"
+
+  run_wave "$repo" test
+  assert_eq 0 "$RUN_EXIT" "two blocks agreeing on Test: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "two blocks agreeing on Test: red run"
+  assert_eq "agreed" "$(cat "$marker")" "two blocks agreeing on Test: the command ran exactly once"
+}
+
+# Errors: "exit 2 when blocks sharing the unit disagree on Test:". Ambiguity is
+# an error, never a silent pick of the first or last section.
+test_unit_md_blocks_disagreeing_is_exit_2() {
+  local repo marker cmd_a cmd_b cfg_cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  cmd_a="$(make_test_cmd 1 "1 test failed" "" "$marker" "block-a")"
+  cmd_b="$(make_test_cmd 1 "1 test failed" "" "$marker" "block-b")"
+  # A valid config alongside it: ambiguity in unit.md is an error in its own
+  # right and is never papered over by a config file, which is not consulted.
+  cfg_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-config")"
+  write_base_config "$repo" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
+  write_unit_md "$repo" \
+    "$(unit_md_section "B04" "first-block" "$cmd_a")" \
+    "$(unit_md_section "B05" "second-block" "$cmd_b")"
+
+  run_wave "$repo" test
+  assert_eq 2 "$RUN_EXIT" "blocks in the unit disagree on Test: exit code"
+  [ -n "$RUN_ERR" ] || record_fail "disagreeing Test: fields: expected a diagnostic on stderr"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "disagreeing Test: fields: expected no stdout, got: $RUN_OUT"
+  assert_eq "" "$(cat "$marker")" "disagreeing Test: fields: no command was run at all"
+}
+
+# Errors: "exit 2 when neither --test-cmd nor a unit.md Test: resolves,
+# message naming both paths tried" — and the edge case "run outside a unit
+# worktree (no unit.md) with no flag -> exit 2, not a crash".
+test_unresolvable_names_both_paths_tried() {
   local repo
   repo="$(new_git_repo)"
-  run_wave "$repo" test
-  assert_eq 2 "$RUN_EXIT" "no --test-cmd and no config file at all: exit code"
-  [ -n "$RUN_ERR" ] || record_fail "no --test-cmd, no config: expected a diagnostic on stderr"
 
-  # A config that exists but has no commands.test.
+  run_wave "$repo" test
+  assert_eq 2 "$RUN_EXIT" "no --test-cmd and no unit.md at all: exit code"
+  [ -n "$RUN_ERR" ] || record_fail "no --test-cmd, no unit.md: expected a diagnostic on stderr"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "no --test-cmd, no unit.md: expected no stdout, got: $RUN_OUT"
+  assert_contains "$RUN_ERR" "--test-cmd" "unresolvable: the diagnostic names the flag path tried"
+  assert_contains "$RUN_ERR" "unit.md" "unresolvable: the diagnostic names the unit.md path tried"
+
+  # A unit.md that exists but carries no "- Test:" field anywhere is equally
+  # unresolvable, and names both paths just the same.
   local repo2
   repo2="$(new_git_repo)"
-  write_base_config "$repo2" '{"commands":{"lint":"true"}}'
+  write_unit_md "$repo2" "$(unit_md_section "B04" "a-block" "")"
+
   run_wave "$repo2" test
-  assert_eq 2 "$RUN_EXIT" "config present but commands.test absent: exit code"
+  assert_eq 2 "$RUN_EXIT" "unit.md present with no Test: field: exit code"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "unit.md with no Test: expected no stdout, got: $RUN_OUT"
+  assert_contains "$RUN_ERR" "--test-cmd" "unit.md with no Test: the diagnostic names the flag path tried"
+  assert_contains "$RUN_ERR" "unit.md" "unit.md with no Test: the diagnostic names the unit.md path tried"
 
-  # An object-valued commands.test with no "default" key is a config error
-  # (config-schema.md: default is required for the variants form).
-  local repo3
-  repo3="$(new_git_repo)"
-  write_base_config "$repo3" '{"commands":{"test":{"unit":"true"}}}'
-  run_wave "$repo3" test
-  assert_eq 2 "$RUN_EXIT" "object commands.test with no default variant: exit code"
-
-  # A "default" naming a variant that does not exist.
-  local repo4
-  repo4="$(new_git_repo)"
-  write_base_config "$repo4" '{"commands":{"test":{"unit":"true","default":"missing"}}}'
-  run_wave "$repo4" test
-  assert_eq 2 "$RUN_EXIT" "default naming an absent variant: exit code"
+  # impl mode resolves the command the same way, so it fails the same way.
+  run_wave "$repo" impl
+  assert_eq 2 "$RUN_EXIT" "impl mode, nothing to resolve: exit code"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "impl mode, nothing to resolve: expected no stdout, got: $RUN_OUT"
 }
 
-# jq is required only when the command must come from config.
-test_jq_required_when_config_resolution_needed() {
-  local repo cmd
+# "Layered-config resolution ... deleted": a repo carrying a perfectly valid
+# commands.test in either layer, in either form, resolves NOTHING. Rewritten
+# from the former base-string / object-default-variant / override-wins tests,
+# which pinned exactly the behaviour this clause removes.
+test_config_files_are_never_consulted() {
+  local repo marker cfg_cmd
   repo="$(new_git_repo)"
-  cmd="$(red_cmd)"
-  write_base_config "$repo" "{\"commands\":{\"test\":\"$cmd\"}}"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  cfg_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-config")"
+
+  # commands.test as a plain string in the committed base layer.
+  write_base_config "$repo" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
+  run_wave "$repo" test
+  assert_eq 2 "$RUN_EXIT" "commands.test string in .claude/lego.json: no longer resolvable"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "base-config string: expected no stdout, got: $RUN_OUT"
+
+  # ...and in the override layer, which used to win over the base.
+  local over_cmd
+  over_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-override")"
+  write_override_config "$repo" "{\"commands\":{\"test\":\"$over_cmd\"}}"
+  run_wave "$repo" test
+  assert_eq 2 "$RUN_EXIT" "commands.test in .local/config.json: no longer resolvable"
+
+  # ...and in the object/variants form with a valid default.
+  local repo2 var_cmd
+  repo2="$(new_git_repo)"
+  var_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-variant")"
+  write_base_config "$repo2" "{\"commands\":{\"test\":{\"unit\":\"$var_cmd\",\"default\":\"unit\"}}}"
+  run_wave "$repo2" test
+  assert_eq 2 "$RUN_EXIT" "object commands.test with a default variant: no longer resolvable"
+
+  assert_eq "" "$(cat "$marker")" "no config-sourced command was ever run"
+}
+
+# The config is not merely unresolvable — it never wins over, nor interferes
+# with, the unit.md fallback, including when its JSON is malformed (a file the
+# deleted resolver would have rejected with exit 2).
+test_config_files_do_not_disturb_the_unit_md_fallback() {
+  local repo marker md_cmd cfg_cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  md_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-unit-md")"
+  cfg_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-config")"
+  write_base_config "$repo" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
+  write_override_config "$repo" "{ this is not json at all"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$md_cmd")"
+
+  run_wave "$repo" test
+  assert_eq 0 "$RUN_EXIT" "config present (one layer malformed) alongside unit.md: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "config present alongside unit.md: red run"
+  assert_eq "from-unit-md" "$(cat "$marker")" "unit.md resolves the command; the config files are not read at all"
+}
+
+# "$LEGO_CONFIG ... deleted": the env var no longer redirects anything. It
+# neither supplies a command on its own nor displaces the unit.md fallback.
+# Rewritten from the former $LEGO_CONFIG-redirect test.
+test_lego_config_env_is_ignored() {
+  local repo marker custom_cmd md_cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  custom_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-lego-config")"
+  write_json_at "$repo" ".local/custom/myconfig.json" "{\"commands\":{\"test\":\"$custom_cmd\"}}"
+
+  run_wave_env "$repo" "" ".local/custom/myconfig.json" "" test
+  assert_eq 2 "$RUN_EXIT" "\$LEGO_CONFIG naming a config with commands.test: still unresolvable"
+  [ "$RUN_OUT_LINES" -eq 0 ] || record_fail "\$LEGO_CONFIG with no unit.md: expected no stdout, got: $RUN_OUT"
+  assert_eq "" "$(cat "$marker")" "\$LEGO_CONFIG's command was never run"
+
+  # With a unit.md present, unit.md is what resolves — $LEGO_CONFIG is inert.
+  md_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "from-unit-md")"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$md_cmd")"
+  run_wave_env "$repo" "" ".local/custom/myconfig.json" "" test
+  assert_eq 0 "$RUN_EXIT" "\$LEGO_CONFIG set alongside unit.md: exit code (stderr: $RUN_ERR)"
+  assert_eq "from-unit-md" "$(cat "$marker")" "\$LEGO_CONFIG is inert: unit.md resolved the command"
+}
+
+# jq was required only by the deleted config resolver, so no resolution path
+# needs it any more: the unit.md fallback works with JQ naming nothing at all,
+# even with config files sitting right there. Rewritten from the former
+# "jq required when config resolution is needed" test.
+test_no_jq_needed_on_any_resolution_path() {
+  local repo marker md_cmd cfg_cmd
+  repo="$(new_git_repo)"
+  marker="$(mktemp)"
+  track_tmp "$marker"
+  md_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "unit-md-no-jq")"
+  cfg_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "config-no-jq")"
+  write_base_config "$repo" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$md_cmd")"
 
   JQ=/nonexistent run_wave_env "$repo" "" "" "" test
-  assert_eq 2 "$RUN_EXIT" "config-sourced test command with jq absent: exit code"
-  case "$RUN_ERR" in
-    *jq*|*JQ*) : ;;
-    *) record_fail "jq absent: diagnostic does not mention jq (stderr: $RUN_ERR)" ;;
-  esac
+  assert_eq 0 "$RUN_EXIT" "unit.md fallback with jq absent: exit code (stderr: $RUN_ERR)"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "unit.md fallback with jq absent: red run"
+  assert_eq "unit-md-no-jq" "$(cat "$marker")" "unit.md fallback with jq absent: the unit.md command ran"
+
+  # And the unresolvable path is a plain unresolvable-command error, never a
+  # jq-availability error, since no resolver consults jq any more.
+  local repo2
+  repo2="$(new_git_repo)"
+  write_base_config "$repo2" "{\"commands\":{\"test\":\"$cfg_cmd\"}}"
+  JQ=/nonexistent run_wave_env "$repo2" "" "" "" test
+  assert_eq 2 "$RUN_EXIT" "config-only repo with jq absent: exit code"
+  assert_contains "$RUN_ERR" "unit.md" "config-only repo with jq absent: the diagnostic is about the unit.md path, not jq"
 }
 
-# ...and NOT required when --test-cmd is given: the config is never consulted
-# on that path, so a repo with a config file but no jq still works.
+# ...and --test-cmd still needs neither jq nor any file on disk.
 test_no_jq_needed_when_test_cmd_given() {
   local repo cmd marker cfg_cmd
   repo="$(new_git_repo)"
@@ -749,69 +983,84 @@ test_no_jq_needed_when_test_cmd_given() {
   assert_eq "from-flag" "$(cat "$marker")" "--test-cmd wins: only the flag's command ran, config never read"
 }
 
-# commands.test as a plain string in the committed base config.
-test_config_test_cmd_string_from_base() {
-  local repo marker cmd
+# Invariants: "RED-RUN/GREEN-RUN/REALM/CONTRACT-DIFF semantics
+# byte-compatible". Where the command came from changes nothing downstream:
+# the same command resolved through unit.md and through --test-cmd produces
+# byte-identical stdout and the same exit code, in both modes and on a
+# collection-classified red.
+test_unit_md_resolution_leaves_check_semantics_byte_compatible() {
+  local repo cmd out_flag out_md ec_flag ec_md
   repo="$(new_git_repo)"
-  marker="$(mktemp)"
-  track_tmp "$marker"
-  cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "base-string")"
-  write_base_config "$repo" "{\"commands\":{\"test\":\"$cmd\"}}"
+  cmd="$(red_cmd)"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$cmd")"
 
+  run_wave "$repo" test --test-cmd "$cmd"
+  out_flag="$RUN_OUT"; ec_flag="$RUN_EXIT"
+  assert_shape "RED-RUN" "byte-compatibility fixture: the --test-cmd run must really have run"
   run_wave "$repo" test
-  assert_eq 0 "$RUN_EXIT" "commands.test string from base config: exit code (stderr: $RUN_ERR)"
-  assert_check "$RUN_OUT" "RED-RUN" "PASS" "commands.test string from base config: red run"
-  assert_eq "base-string" "$(cat "$marker")" "commands.test string from base config: that command is what ran"
+  out_md="$RUN_OUT"; ec_md="$RUN_EXIT"
+  assert_shape "RED-RUN" "unit.md-resolved test-mode run: output shape"
+  assert_eq "$out_flag" "$out_md" "test mode: unit.md-resolved stdout is identical to --test-cmd-resolved stdout"
+  assert_eq "$ec_flag" "$ec_md" "test mode: unit.md-resolved exit code is identical to --test-cmd-resolved"
+
+  # impl mode, green suite: GREEN-RUN/REALM/CONTRACT-DIFF unchanged.
+  local repo2 green
+  repo2="$(new_git_repo)"
+  green="$(green_cmd)"
+  write_unit_md "$repo2" "$(unit_md_section "B04" "a-block" "$green")"
+
+  run_wave "$repo2" impl --test-cmd "$green"
+  out_flag="$RUN_OUT"; ec_flag="$RUN_EXIT"
+  run_wave "$repo2" impl
+  out_md="$RUN_OUT"; ec_md="$RUN_EXIT"
+  assert_shape "GREEN-RUN" "unit.md-resolved impl-mode run: output shape"
+  assert_check "$RUN_OUT" "GREEN-RUN" "PASS" "unit.md-resolved impl-mode run: green run"
+  assert_check "$RUN_OUT" "REALM" "PASS" "unit.md-resolved impl-mode run: realm"
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "SKIPPED" "unit.md-resolved impl-mode run: contract diff"
+  assert_eq "$out_flag" "$out_md" "impl mode: unit.md-resolved stdout is identical to --test-cmd-resolved stdout"
+  assert_eq "$ec_flag" "$ec_md" "impl mode: unit.md-resolved exit code is identical to --test-cmd-resolved"
+
+  # A wrong-reason red resolved through unit.md is classified exactly as it is
+  # through the flag.
+  local repo3 collection_cmd
+  repo3="$(new_git_repo)"
+  collection_cmd="$(make_test_cmd 1 "ImportError: No module named widgets" "" "" "")"
+  write_unit_md "$repo3" "$(unit_md_section "B04" "a-block" "$collection_cmd")"
+
+  run_wave "$repo3" test
+  assert_check "$RUN_OUT" "RED-RUN" "FAIL" "unit.md-resolved wrong-reason red is still classified"
+  assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "unit.md-resolved collection error: labeled COLLECTION"
+  assert_eq 1 "$RUN_EXIT" "unit.md-resolved collection error: exit code"
+
+  # ...and REALM still delegates, including the trailing diff-range, with the
+  # command coming from unit.md.
+  local repo4 red
+  repo4="$(new_git_repo)"
+  red="$(red_cmd)"
+  write_unit_md "$repo4" "$(unit_md_section "B04" "a-block" "$red")"
+  commit_file "$repo4" "src/widget.js" "function widget() {}" "add an impl file"
+
+  run_wave "$repo4" test "HEAD~1..HEAD"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "unit.md-resolved run with a diff-range: red run"
+  assert_check "$RUN_OUT" "REALM" "FAIL" "unit.md-resolved run: the diff-range still reaches realm-check"
+  assert_contains "$(check_line "$RUN_OUT" "REALM")" "src/widget.js" "unit.md-resolved run: realm detail names the offending file"
+  assert_eq 1 "$RUN_EXIT" "unit.md-resolved run with a realm violation: exit code"
 }
 
-# An object-valued commands.test uses its "default" variant, not the first
-# key and not the "default" string itself.
-test_config_test_cmd_object_uses_default_variant() {
-  local repo marker unit_cmd e2e_cmd
+# Invariant "read-only with respect to the repository", on the new path: the
+# fallback reads unit.md and never rewrites it.
+test_unit_md_is_not_modified_by_resolution() {
+  local repo cmd before after
   repo="$(new_git_repo)"
-  marker="$(mktemp)"
-  track_tmp "$marker"
-  unit_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "unit-variant")"
-  e2e_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "e2e-variant")"
-  write_base_config "$repo" "{\"commands\":{\"test\":{\"e2e\":\"$e2e_cmd\",\"unit\":\"$unit_cmd\",\"default\":\"unit\"}}}"
+  cmd="$(red_cmd)"
+  write_unit_md "$repo" "$(unit_md_section "B04" "a-block" "$cmd")"
+  before="$(cat "$repo/.local/unit.md")"
 
   run_wave "$repo" test
-  assert_eq 0 "$RUN_EXIT" "object commands.test: exit code (stderr: $RUN_ERR)"
-  assert_eq "unit-variant" "$(cat "$marker")" "object commands.test: the 'default' variant (unit) ran, not another key"
-}
-
-# The override layer deep-merges over the base, override winning per key.
-test_config_override_wins_over_base() {
-  local repo marker base_cmd over_cmd
-  repo="$(new_git_repo)"
-  marker="$(mktemp)"
-  track_tmp "$marker"
-  base_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "base")"
-  over_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "override")"
-  write_base_config "$repo" "{\"commands\":{\"test\":\"$base_cmd\"}}"
-  write_override_config "$repo" "{\"commands\":{\"test\":\"$over_cmd\"}}"
-
-  run_wave "$repo" test
-  assert_eq 0 "$RUN_EXIT" "layered config: exit code (stderr: $RUN_ERR)"
-  assert_eq "override" "$(cat "$marker")" "layered config: .local/config.json wins over .claude/lego.json"
-}
-
-# $LEGO_CONFIG redirects the override file's path, exactly as in realm.sh:
-# a real .local/config.json is present and must be ignored once the env var
-# points elsewhere.
-test_lego_config_env_redirects_override_path() {
-  local repo marker default_cmd custom_cmd
-  repo="$(new_git_repo)"
-  marker="$(mktemp)"
-  track_tmp "$marker"
-  default_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "default-override-path")"
-  custom_cmd="$(make_test_cmd 1 "1 test failed" "" "$marker" "redirected-override-path")"
-  write_override_config "$repo" "{\"commands\":{\"test\":\"$default_cmd\"}}"
-  write_json_at "$repo" ".local/custom/myconfig.json" "{\"commands\":{\"test\":\"$custom_cmd\"}}"
-
-  run_wave_env "$repo" "" ".local/custom/myconfig.json" "" test
-  assert_eq 0 "$RUN_EXIT" "\$LEGO_CONFIG redirect: exit code (stderr: $RUN_ERR)"
-  assert_eq "redirected-override-path" "$(cat "$marker")" "\$LEGO_CONFIG points at .local/custom/myconfig.json, not the default .local/config.json"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "unit.md read-only fixture: the run must really have run"
+  run_wave "$repo" test --test-cmd "$cmd"
+  after="$(cat "$repo/.local/unit.md")"
+  assert_eq "$before" "$after" "resolution never writes back to .local/unit.md"
 }
 
 # ===========================================================================
@@ -1793,13 +2042,18 @@ run_test "usage: flag missing its value -> exit 2" test_usage_flag_missing_its_v
 run_test "env: not inside a git worktree -> exit 2" test_not_inside_a_git_repository
 run_test "env: realm-check.sh not beside the script -> exit 2" test_realm_check_missing_beside_script
 
-run_test "test command: unresolvable -> exit 2" test_unresolvable_test_command_exit_2
-run_test "test command: jq required for config resolution -> exit 2" test_jq_required_when_config_resolution_needed
+run_test "B04: unit.md Test: field resolves the command" test_unit_md_test_field_resolves_the_command
+run_test "B04: --test-cmd stays primary over unit.md" test_test_cmd_flag_wins_over_unit_md
+run_test "B04: blocks agreeing on Test: resolve once" test_unit_md_multiple_blocks_agreeing_resolve_once
+run_test "B04: blocks disagreeing on Test: -> exit 2" test_unit_md_blocks_disagreeing_is_exit_2
+run_test "B04: unresolvable -> exit 2 naming both paths tried" test_unresolvable_names_both_paths_tried
+run_test "B04: config files are never consulted" test_config_files_are_never_consulted
+run_test "B04: config files do not disturb the unit.md fallback" test_config_files_do_not_disturb_the_unit_md_fallback
+run_test "B04: \$LEGO_CONFIG is ignored" test_lego_config_env_is_ignored
+run_test "B04: no jq needed on any resolution path" test_no_jq_needed_on_any_resolution_path
 run_test "test command: --test-cmd needs no jq and no config" test_no_jq_needed_when_test_cmd_given
-run_test "test command: commands.test string from base config" test_config_test_cmd_string_from_base
-run_test "test command: object commands.test uses its default variant" test_config_test_cmd_object_uses_default_variant
-run_test "test command: override config wins over base" test_config_override_wins_over_base
-run_test "test command: \$LEGO_CONFIG redirects the override path" test_lego_config_env_redirects_override_path
+run_test "B04: check semantics byte-compatible under unit.md resolution" test_unit_md_resolution_leaves_check_semantics_byte_compatible
+run_test "B04: resolution never writes back to unit.md" test_unit_md_is_not_modified_by_resolution
 
 run_test "RED-RUN: honest red -> PASS" test_red_run_pass_on_honest_red
 run_test "RED-RUN: command exits 0 -> FAIL" test_red_run_fail_when_test_command_exits_zero

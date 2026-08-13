@@ -33,6 +33,13 @@ A follow-up captured mid-effort gets its node at capture, not once it is
 acted on; mirror the follow-up's disposition onto that node as it
 resolves.
 
+The graph is a tree with ordering edges, not a flat list: exactly one
+node is a root per deliverable, and every other node carries a `Parent:`
+edge to the node it decomposes. A graph created late — after work has
+already started — is still authored this way, top-down with per-phase
+nodes and Parent edges, never transcribed as a flat summary of a unit
+table.
+
 The `- Status: open` line above is a machine-read marker, matched
 literally, modulo trailing whitespace. Reword it and a consumer stops
 seeing the node as open.

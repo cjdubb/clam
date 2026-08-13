@@ -203,7 +203,7 @@ cat <<EOF
 5. \`.local/SUBAGENT-LOG-{descriptiveName}.md\` — persist any subagent return summaries received since last flush.
 6. \`.local/decisions/*.md\` — verify any open decision file (\`Status: Open\`) has its evidence, recommendation, and if-deferred path complete before compaction discards the supporting context.
 7. \`.local/FOLLOWUPS.md\` — capture any follow-up mentioned in conversation but not yet recorded, and verify every open entry is still genuinely open (disposition any resolved in-conversation).
-8. \`.local/WORKGRAPH.md\` — add any subproblem surfaced but not yet recorded as a node, verify the \`Focus:\` pointer names the node actually being worked, and disposition any node resolved in-conversation (done / dropped (<reason>)).
+8. \`.local/WORKGRAPH.md\` — if the file does not exist but the session has decomposed its problem (a plan, block/unit table, or task breakdown enumerating two or more work items exists), create it now from the tracking template and populate it; then add any subproblem surfaced but not yet recorded as a node, verify the \`Focus:\` pointer names the node actually being worked, and disposition any node resolved in-conversation (done / dropped (<reason>)).
 
 If every doc above is already current, proceed with the user's request. Do not rewrite files that are already accurate.
 EOF

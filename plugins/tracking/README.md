@@ -85,10 +85,13 @@ Concretely, once enabled:
   currently being worked. It is created from `templates/WORKGRAPH.md` the
   moment a problem genuinely decomposes — never ahead of need, and never
   by a hook. Every open node and the Focus node are surfaced at every
-  SessionStart, and a Stop-hook close-out gate blocks parking `State:
-  Complete` while any node is still open — once per session epoch, same
-  marker scheme as the other nudges; see [Commands](#commands) for the
-  mechanics and the `CLAM_WORKGRAPH_GATE` escape hatch. The file is
+  SessionStart, and two Stop-hook gates police the file — a creation gate
+  blocks the first park after a decomposition artifact (`.local/PLAN.md`,
+  `blocks.md`, `IMPLEMENTATION-PLAN.md`, or `plans/*.md`) exists while
+  `WORKGRAPH.md` does not, and a close-out gate blocks parking `State:
+  Complete` while any node is still open — each once per session epoch,
+  same marker scheme as the other nudges; see [Commands](#commands) for the
+  mechanics and the shared `CLAM_WORKGRAPH_GATE` escape hatch. The file is
   carried through the flush nudge, the pre-compact snapshot, and
   post-compaction recovery alongside the other tracking docs. The moment
   the file is created, agents check the skill catalog for a skill that can
@@ -286,14 +289,22 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
   off `Complete` if the work genuinely isn't done. Escape hatch:
   `CLAM_FOLLOWUPS_GATE=disabled` (default `enabled`).
 
-  `CLAM_WORKGRAPH_GATE=disabled` (default `enabled`) turns off a
-  work-graph close-out gate that runs second within `State: Complete`,
-  after follow-ups and ahead of the two backstops below: once per session
-  epoch (marker `.local/.workgraph-nudge-fired`, cleared at SessionStart),
-  it blocks parking `Complete` while `.local/WORKGRAPH.md` still has open
-  nodes, listing each by title and instructing that it be dispositioned
-  (`done` / `dropped (<reason>)`) — or the State moved off `Complete` if
-  the work genuinely isn't done.
+  `CLAM_WORKGRAPH_GATE=disabled` (default `enabled`) turns off both
+  work-graph gates. The creation gate runs for every state that permits
+  ending the turn, right after the freshness gate: once per session epoch
+  (marker `.local/.workgraph-create-nudge-fired`, cleared at SessionStart),
+  it blocks parking while a decomposition artifact (`.local/PLAN.md`,
+  `blocks.md`, `IMPLEMENTATION-PLAN.md`, or `plans/*.md`) exists but
+  `.local/WORKGRAPH.md` does not, listing the evidence and instructing that
+  the graph be created from the template — one root, a `Parent:` edge on
+  every other node, one node per phase per actor. The close-out gate runs
+  second within `State: Complete`, after follow-ups and ahead of the two
+  backstops below: once per session epoch (marker
+  `.local/.workgraph-nudge-fired`, cleared at SessionStart), it blocks
+  parking `Complete` while `.local/WORKGRAPH.md` still has open nodes,
+  listing each by title and instructing that it be dispositioned (`done` /
+  `dropped (<reason>)`) — or the State moved off `Complete` if the work
+  genuinely isn't done.
 
   Two further backstops compose on top of the state check:
   - `CLAM_PR_CRONS=enabled` (default `disabled`) blocks parking on

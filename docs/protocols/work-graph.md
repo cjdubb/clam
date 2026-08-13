@@ -58,7 +58,7 @@ decomposition genuinely begins.
 
 ## Authoring defaults
 
-Three defaults govern how nodes are written. A graph that ignores them
+Four defaults govern how nodes are written. A graph that ignores them
 still parses; it just stops answering the questions this document exists
 to answer.
 
@@ -87,6 +87,15 @@ done, `dropped (<reason>)` when it is dropped or handed to another
 effort. A follow-up with no node is invisible to every reader of the
 graph, and a node whose disposition was never mirrored back reports work
 as live long after it stopped being so.
+
+**The graph is a tree with ordering edges, not a flat list.** Exactly one
+node is a root per deliverable; every other node carries a `Parent:` edge
+to the node it decomposes, so the decomposition reads from the edges
+rather than from node ordering. A graph created late — after work has
+already started — is still authored this way, top-down with per-phase
+nodes and Parent edges, never transcribed as a flat summary of a unit
+table: a backfilled flat list records only what a plan table already
+said, and answers none of the questions this document exists to answer.
 
 ## Real-time discipline
 

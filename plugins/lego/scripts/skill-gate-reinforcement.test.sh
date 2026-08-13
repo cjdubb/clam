@@ -138,7 +138,7 @@ dispatch_name=$(printf '%s\n' "$dispatch_frontmatter" | grep '^name:' | sed -E '
 check "dispatch frontmatter name is 'dispatch'" "$dispatch_name" "dispatch"
 
 for h in "## Step 0: Establish the deliverable — a hard gate" \
-         "## Step 1: Ensure the repo interface exists" \
+         "## Step 1: Discover and prove the repo's commands" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \

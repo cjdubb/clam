@@ -103,7 +103,7 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.19.1 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.19.2 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.2.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
@@ -125,7 +125,7 @@ auto-update doesn't refresh the recorded install path
 | [session-data](plugins/session-data/) | ✅ v0.1.3 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.2 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
 | [management](plugins/management/) | ✅ v0.6.2 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
-| [voice](plugins/voice/) | ✅ v0.3.1 | Voice communication spec: two selectable output styles apply conclusion-first, working-memory-friendly reply structure, with or without Claude Code's built-in coding instructions. Ported from clam-code. |
+| [voice](plugins/voice/) | ✅ v0.3.2 | Voice communication spec: two selectable output styles apply conclusion-first, working-memory-friendly reply structure, with or without Claude Code's built-in coding instructions. Ported from clam-code. |
 | [forge-github](plugins/forge-github/) | ✅ v0.2.1 | GitHub forge implementation: `/forge-github:create-pr` opens PRs, `/forge-github:sync-pr` keeps their descriptions current, and `/forge-github:address-pr-feedback` triages review comments behind an approval gate, all via the `gh` CLI with flowing-prose descriptions. |
 | [debugging](plugins/debugging/) | ✅ v0.2.6 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 

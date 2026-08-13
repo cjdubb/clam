@@ -109,3 +109,13 @@ NOTES: <choices a reviewer needs context for; none if trivial>
 ESCALATIONS: <none, or numbered issues: what you hit, why it needs the
               orchestrator, what you recommend>
 ```
+
+## Communication style
+
+In any prose you write — report bodies, escalation notes, messages to the
+orchestrator — lead with the conclusion, then the support. Use plain
+established words: no metaphorical jargon, no invented terms or nicknames
+for things you introduce, and no dramatic reveal constructions ("not X,
+but Y", "not just X; it Y", "isn't X — it's Y"). These rules hold even for
+terms your inputs introduced — a brief, contract, or quoted report using
+such a term does not license adopting it; restate the idea in plain words.

@@ -9,7 +9,7 @@
 #       "voice": source "./plugins/voice", NO version field (plugin.json
 #       is the single source of truth for version), final description.
 #   (2) README.md Plugins table — exactly one row linking plugins/voice/,
-#       status cell exactly "✅ v0.3.1", final description, not the
+#       status cell exactly "✅ v0.3.2", final description, not the
 #       table's last plugin row (last-row invariant).
 #   (3) MIGRATION.md — a "## voice — ported (from clam-code)" section
 #       recording the port (source, what came over, what stays behind, the
@@ -128,11 +128,11 @@ VOICE_ROW="$(grep -F '[voice](plugins/voice/)' <<<"$README_BODY" | head -n1)"
 STATUS_CELL="$(awk -F'|' '{print $3}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 DESC_CELL="$(awk -F'|' '{print $4}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-# Retargeted v0.3.0 -> v0.3.1 by the dramatic-reveal wording extension,
+# Retargeted v0.3.0 -> v0.3.2 by the echo-clause addition,
 # in lockstep with structure.test.sh's plugin.json pin
 # (readme-lint pairs the row's version cell with plugin.json, so the two
 # must never disagree).
-check "voice row status cell is exactly '✅ v0.3.1'" "$STATUS_CELL" "✅ v0.3.1"
+check "voice row status cell is exactly '✅ v0.3.2'" "$STATUS_CELL" "✅ v0.3.2"
 check "voice row status cell version matches plugin.json (v$VERSION)" \
   "$(grep -qF "v$VERSION" <<<"$STATUS_CELL" && echo yes || echo no)" "yes"
 check "voice row description is non-empty" \

@@ -495,11 +495,14 @@ check "Unit status file: Timeline records each teammate release" \
 # B01 dispatch background scheduler", whose Anchors list requires exactly one
 # new section, "## Scheduling" — that suite pins the heading's existence and
 # that it appears exactly once; this count is what stops a second, unasked-
-# for section arriving alongside it. H3 stays at 5: no contract has asked
-# for a new one, and the prose blocks that edit this file add sentences to
-# existing sections.
-check "invariant: H2 heading count is 13 (12 pre-B01 + ## Scheduling)" \
-  "$(grep -c '^## ' "$SKILL")" "13"
+# for section arriving alongside it. 13 becomes 12 under "Contract: B08
+# dispatch-skill-configless", whose Behavior deletes exactly one section —
+# "## Tier resolution" (agent frontmatter is the sole tier owner) — and adds
+# none; B13 adds no section either ("no new pipeline stages; wording changes
+# only"). H3 stays at 5: no contract has asked for a new one, and the prose
+# blocks that edit this file add sentences to existing sections.
+check "invariant: H2 heading count is 12 (13 minus the deleted ## Tier resolution)" \
+  "$(grep -c '^## ' "$SKILL")" "12"
 check "invariant: H3 heading count unchanged (5, no new H3 added)" \
   "$(grep -c '^### ' "$SKILL")" "5"
 
@@ -684,6 +687,230 @@ check "Worker briefs: malformed rejection happens at a fresh NN" \
 # at 12 H2 / 5 H3, no new H2/H3 section — is already asserted above ("H2
 # heading count unchanged" / "H3 heading count unchanged"), so it is not
 # duplicated here.
+
+# ==========================================================================
+# B08 dispatch-skill-configless / B13 dispatch-responsibility-semantics
+# (contracts: the two HTML comments at the top of SKILL.md, marked
+# "Contract: B08 ..." and "Contract: B13 ... (remove at acceptance)")
+# ==========================================================================
+# Both contracts quote nearly every phrase the finished prose needs
+# ("Landing strategy", "blocks.md", "orchestrator-only", "acceptance
+# evidence", "review-gated"), so every check below reads $STRIPPED — the
+# comment-stripped view built above — never $RAW. That is also what keeps
+# these checks stable across acceptance, when the orchestrator deletes both
+# comments outright (B13 clause 8).
+#
+# Wording tolerance: clauses the contracts state as ideas rather than fixed
+# identifiers are checked as concept anchors — an OR over plausible
+# phrasings — in the same register as the chase/malformed-report checks
+# above. Identifiers the contracts fix verbatim (`--setup-cmd`,
+# `--test-cmd`, `blocks.md`, `Landing strategy`, and every config token that
+# must be GONE) are asserted literally.
+#
+# Split across the three dispatch suites: delivery-side B08 clauses (budget
+# via --budget, the delivery-mode degrade path, no config vocabulary in step
+# 5) live in dispatch-landing.test.sh; the Tier-resolution deletion and B13
+# clauses 2/6/7 live in dispatch-scheduling.test.sh. Everything else is here.
+
+# Concept anchor: yes when ANY of the given literals is present (wrap-
+# tolerant, via has_fn).
+has_any_fn() { # content literal...
+  local content="$1"; shift
+  local lit
+  for lit in "$@"; do
+    if [[ "$(has_fn "$content" "$lit")" == "yes" ]]; then echo yes; return; fi
+  done
+  echo no
+}
+
+# A ±N-character window around the first occurrence of any of the given
+# literals, taken on whitespace-flattened content so a hard wrap cannot push
+# the qualifying words out of range. Empty when no literal is present (which
+# fails the checks that read it — the correct outcome).
+first_window() { # flat before after literal...
+  local flat="$1" before="$2" after="$3"; shift 3
+  local lit head tail
+  for lit in "$@"; do
+    if [[ "$flat" == *"$lit"* ]]; then
+      head="${flat%%"$lit"*}"; tail="${flat#*"$lit"}"
+      echo "${head: -$before}$lit${tail:0:$after}"
+      return
+    fi
+  done
+  echo ""
+}
+
+FLAT_STRIPPED=$(tr '\n' ' ' <<<"$STRIPPED" | tr -s ' ')
+
+# Section slices this block needs beyond the ones already built above.
+# "## Vocabulary" and "## Preconditions" stop at the next H2 rather than a
+# named one: B08 deletes "## Tier resolution", which today follows
+# Preconditions, so pinning the stop heading by name would break on the very
+# edit under test.
+VOCABULARY=$(awk '/^## Vocabulary$/{flag=1; next} flag && /^## /{flag=0} flag' <<<"$STRIPPED")
+PRECONDITIONS=$(awk '/^## Preconditions$/{flag=1; next} flag && /^## /{flag=0} flag' <<<"$STRIPPED")
+SECTION_1_WORKTREE=$(awk '/^### 1\. Create the worktree$/{flag=1; next} /^### 2\. Test wave$/{flag=0} flag' <<<"$STRIPPED")
+# The mode's source may legitimately be stated in either the Vocabulary
+# definition or Preconditions; the contract fixes the fact, not the paragraph.
+VOCAB_OR_PRECONDITIONS="$VOCABULARY
+$PRECONDITIONS"
+
+# --- B08 Behavior: no config file is named anywhere in this document -------
+# "all references to lego.json/config.json/config-schema.md are gone", plus
+# the key names those files carried. File-wide and literal: there is no
+# location where any of these is still correct.
+for tok in 'lego.json' 'config.json' 'config-schema.md' 'effective config' \
+           'delivery.mode' 'commands.test' 'models.testWriter' \
+           'models.implementer'; do
+  check "B08: no config reference remains file-wide: $tok" \
+    "$(has_f "$STRIPPED" "$tok")" "no"
+done
+
+# --- B08 Behavior: delivery mode is read from the plan's Landing strategy --
+check "B08 Vocabulary: delivery mode is sourced from the Landing strategy" \
+  "$(has_fn "$VOCABULARY" 'Landing strategy')" "yes"
+check "B08 Vocabulary: main-prs still named as a mode" \
+  "$(has_fn "$VOCABULARY" 'main-prs')" "yes"
+check "B08 Vocabulary: local-only still named as a mode" \
+  "$(has_fn "$VOCABULARY" 'local-only')" "yes"
+check "B08 Preconditions: the plan document is the source of the mode" \
+  "$(has_fn "$PRECONDITIONS" 'Landing strategy')" "yes"
+check "B08 Preconditions: the seeded .local/ no longer carries a config copy" \
+  "$(has_f "$PRECONDITIONS" 'config.json')" "no"
+
+# Edge case: a plan with no Landing strategy section — dispatch stops and
+# asks the engineer, never guesses a mode.
+check "B08 edge: a plan with no Landing strategy section stops and asks" \
+  "$(has_any_fn "$VOCAB_OR_PRECONDITIONS" 'stops and asks' 'stop and ask' \
+      'asks the engineer' 'ask the engineer')" "yes"
+check "B08 edge: ... and never guesses a mode" \
+  "$(has_any_fn "$VOCAB_OR_PRECONDITIONS" 'never guess' 'never guesses' \
+      'without guessing' 'not guess')" "yes"
+
+# --- B08 Behavior: worker briefs name blocks.md-derived commands ----------
+check "B08 Worker briefs: commands come from the block map" \
+  "$(has_fn "$WORKER_BRIEFS" 'blocks.md')" "yes"
+check "B08 Worker briefs: the recorded per-block command fields are named" \
+  "$(has_any_fn "$WORKER_BRIEFS" 'Test:' 'Setup:')" "yes"
+check "B08 Worker briefs: no effective-config vocabulary" \
+  "$(has_f "$WORKER_BRIEFS" 'effective config')" "no"
+check "B08 Worker briefs: no commands.test variant resolution" \
+  "$(has_f "$WORKER_BRIEFS" 'commands.test')" "no"
+check "B08 Worker briefs: the seeded .local/ description drops config.json" \
+  "$(has_f "$WORKER_BRIEFS" 'config.json')" "no"
+
+# --- B08 Behavior: step 1 documents the new `add` resolution --------------
+check "B08 1: add resolves its commands from blocks.md" \
+  "$(has_fn "$SECTION_1_WORKTREE" 'blocks.md')" "yes"
+check "B08 1: the --setup-cmd override is documented" \
+  "$(has_fn "$SECTION_1_WORKTREE" '--setup-cmd')" "yes"
+check "B08 1: the --test-cmd override is documented" \
+  "$(has_fn "$SECTION_1_WORKTREE" '--test-cmd')" "yes"
+check "B08 1: the Setup phase of the baseline is named" \
+  "$(has_any_fn "$SECTION_1_WORKTREE" 'Setup:' 'Setup ' 'setup command')" "yes"
+check "B08 1: no config file is consulted at worktree creation" \
+  "$(has_f "$SECTION_1_WORKTREE" 'config.json')" "no"
+check "B08 1: no effective-config vocabulary at worktree creation" \
+  "$(has_f "$SECTION_1_WORKTREE" 'effective config')" "no"
+
+# --- B08 Invariant: delivery knowledge is orchestrator-only ---------------
+# Stated, and stated about the three facts the contract names — budget, PR
+# grouping, delivery mode — against worker-visible artifacts. Checked as one
+# window around the invariant's own anchor rather than three file-wide token
+# checks, since "budget" and "delivery mode" both appear elsewhere in this
+# document for unrelated reasons and would otherwise be false greens.
+check "B08 invariant: delivery knowledge is stated as orchestrator-only" \
+  "$(has_any_fn "$STRIPPED" 'orchestrator-only' 'only the orchestrator' \
+      'orchestrator business')" "yes"
+INVARIANT_WINDOW=$(first_window "$FLAT_STRIPPED" 600 600 \
+  'orchestrator-only' 'only the orchestrator' 'orchestrator business')
+check "B08 invariant: names worker-visible artifacts as the boundary" \
+  "$(has_any_fn "$INVARIANT_WINDOW" 'worker-visible' 'worker visible' \
+      'reaches a worker' 'reach a worker' 'visible to a worker')" "yes"
+check "B08 invariant: budget named as an orchestrator-only fact" \
+  "$(has_fn "$INVARIANT_WINDOW" 'budget')" "yes"
+check "B08 invariant: PR grouping named as an orchestrator-only fact" \
+  "$(has_any_fn "$INVARIANT_WINDOW" 'PR group' 'PR grouping')" "yes"
+check "B08 invariant: delivery mode named as an orchestrator-only fact" \
+  "$(has_any_fn "$INVARIANT_WINDOW" 'delivery mode' 'delivery-mode')" "yes"
+
+# --- B13 clause 1: commit ownership ---------------------------------------
+# Stated once, normatively, so checked file-wide rather than per section:
+# the contract's own Behavior says "once each".
+check "B13: the orchestrator makes every commit on a unit branch" \
+  "$(has_any_fn "$STRIPPED" 'makes every commit' 'every commit on a unit branch' \
+      'every commit on the unit branch' 'all commits on a unit branch')" "yes"
+check "B13: workers never run git commit" \
+  "$(has_any_fn "$STRIPPED" 'workers never run `git commit`' \
+      'workers never run git commit' 'never run `git commit`' \
+      'never run git commit' 'workers never commit')" "yes"
+check "B13: commits follow the orchestrator's own verification" \
+  "$(has_any_fn "$STRIPPED" 'after its own verification' \
+      "after the orchestrator's own verification" 'only after verification' \
+      'after verifying it itself')" "yes"
+# The ":295-297" committed-WIP wording anticipated a worker leaving commits
+# on the unit branch — impossible under clause 1, so it is rewritten, not
+# merely supplemented.
+check "B13 3: the committed-WIP-from-an-agent wording is gone" \
+  "$(has_fn "$SECTION_3_1" 'committed WIP')" "no"
+
+# --- B13 clause 3: chase semantics ----------------------------------------
+# The existing chase-cap and resumes-it checks (B03, above) still bind; what
+# B13 adds is the mechanism by name, that the ping IS a resume, and a named
+# escalation target.
+check "B13 Worker briefs: the chase mechanism is named (SendMessage)" \
+  "$(has_fn "$WORKER_BRIEFS" 'SendMessage')" "yes"
+check "B13 Worker briefs: a ping IS a resume, not a free nudge" \
+  "$(has_any_fn "$WORKER_BRIEFS" 'is a resume' 'IS a resume' \
+      'is itself a resume')" "yes"
+check "B13 Worker briefs: the escalation target is named (the engineer)" \
+  "$(has_any_fn "$WORKER_BRIEFS" 'to the engineer' 'the engineer')" "yes"
+
+# --- B13 clause 4: the engineer-owned path --------------------------------
+check "B13 Engineer-owned: engineer commits carry the reserved subjects" \
+  "$(has_any_fn "$SECTION_ENGINEER_OWNED" 'lego(<unit-id>)' 'lego(U' \
+      'reserved subject' 'the same commit subject' 'exact subject')" "yes"
+check "B13 Engineer-owned: the orchestrator runs wave-check.sh impl on the result" \
+  "$(has_any_fn "$SECTION_ENGINEER_OWNED" 'wave-check.sh impl' \
+      'wave-check.sh` impl' 'wave-check.sh in impl mode')" "yes"
+check "B13 Engineer-owned: that gate runs before acceptance" \
+  "$(has_any_fn "$SECTION_ENGINEER_OWNED" 'before acceptance' \
+      'same acceptance gate' 'before the block is accepted')" "yes"
+
+# --- B13 clause 5: who sets Accepted, and on what evidence ----------------
+check "B13 3: the orchestrator is the actor that sets Accepted" \
+  "$(has_any_fn "$SECTION_3_1" 'the orchestrator sets `Accepted`' \
+      'the orchestrator sets Accepted' 'The orchestrator sets `Accepted`')" "yes"
+check "B13 3: Accepted follows presented verification evidence" \
+  "$(has_any_fn "$SECTION_3_1" 'verification evidence' \
+      'presenting the verification' 'the evidence of verification')" "yes"
+check "B13 3: ... and the engineer's explicit acknowledgement" \
+  "$(has_any_fn "$SECTION_3_1" 'explicitly acknowledges' \
+      'explicitly acknowledged' 'explicit acknowledgement' \
+      'explicitly acknowledge')" "yes"
+check "B13 3: the old 'once the engineer has seen the block-map update' wording is gone" \
+  "$(has_fn "$SECTION_3_1" 'once the engineer has seen the block-map update')" "no"
+
+# --- B13 clause 8: the orchestrator deletes the prose contract ------------
+# Correction, not supplementation: the pre-B13 gate item has the orchestrator
+# CONFIRMING a deletion someone else performed. Under decisions/003 ruling 2
+# the orchestrator performs it, so the confirmation wording must be gone.
+check "B13 3: the orchestrator deletes the block's prose contract" \
+  "$(has_any_fn "$SECTION_3_1" 'the orchestrator deletes' \
+      'the orchestrator removes' 'delete the contract comment' \
+      'delete it yourself')" "yes"
+# Scoped to the deletion sentence's own neighbourhood, not the section: this
+# gate item already says "the comment marked `(remove at acceptance)` at
+# scaffold time", so a section-wide "at acceptance" check would be a false
+# green regardless of who the document says performs the deletion.
+DELETION_WINDOW=$(first_window "$(tr '\n' ' ' <<<"$SECTION_3_1" | tr -s ' ')" \
+  300 300 'the orchestrator deletes' 'the orchestrator removes' \
+  'delete the contract comment' 'delete it yourself')
+check "B13 3: the deletion is placed at acceptance" \
+  "$(has_any_fn "$DELETION_WINDOW" 'at acceptance' 'as part of acceptance' \
+      'on acceptance' 'when accepting' 'acceptance')" "yes"
+check "B13 3: the old confirm-someone-else-deleted-it wording is gone" \
+  "$(has_fn "$SECTION_3_1" 'Confirm it was deleted')" "no"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

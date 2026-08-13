@@ -1,10 +1,12 @@
 # voice
 
-Installing this plugin adds the Voice communication spec to every session's
-context: a compact set of rules that steers replies toward conclusion-first,
-working-memory-friendly structure. Nothing else changes. The spec text was
-tuned through three blind A/B review rounds and is ported verbatim from its
-source repo, clam-code.
+This plugin ships the Voice communication spec — a compact set of rules that
+steers replies toward conclusion-first, working-memory-friendly structure —
+as two selectable Claude Code output styles. The spec text was tuned through
+three blind A/B review rounds and is ported verbatim from its source repo,
+clam-code. The two styles carry the identical spec text and differ only in
+the `keep-coding-instructions` frontmatter setting, so their effect can be
+compared directly across conversations.
 
 ## Getting started
 
@@ -13,13 +15,25 @@ source repo, clam-code.
 /plugin install voice@clam
 ```
 
-No configuration required. The plugin is hooks-only and activates
-immediately on install — there is no setup command and no prerequisites.
+Then pick a style: run `/config`, select **Output style**, and choose one of
+the two Voice styles. The selection is saved to `.claude/settings.local.json`
+and takes effect after `/clear` or the next session. Installing alone changes
+nothing — a style must be selected before it applies.
 
 ## What to expect
 
-The SessionStart hook fires in every session where the plugin is
-installed, injecting the block below verbatim into the session's context:
+Two output styles appear in the `/config` picker:
+
+- **Voice** — the spec below with `keep-coding-instructions: true`: Claude
+  Code's built-in software engineering instructions (task scoping, comment
+  style, security guidance, git safety) stay in the system prompt, with the
+  Voice rules layered on top.
+- **Voice (no coding instructions)** — the identical spec with
+  `keep-coding-instructions: false`: the built-in "Doing tasks" and
+  "Executing actions with care" sections are omitted from the system prompt,
+  leaving the Voice rules to carry more of the weight.
+
+Whichever style is selected adds this block, verbatim, to the system prompt:
 
 > # Voice (voice plugin)
 >
@@ -39,48 +53,60 @@ installed, injecting the block below verbatim into the session's context:
 > - Report failures mechanism-first: cause, fix, next step, in a few sentences.
 > - Narrate actions in plain first person ("I'll check X."), never subject-less gerund fragments ("Checking X now.").
 
-No files are created or read, and no settings are written. The hook
-script is dependency-free (no external commands) and deterministic — the
-same block, byte-for-byte, every time.
+No files are created or read at session time, and the plugin writes no
+settings itself — the only setting involved is the `outputStyle` value
+Claude Code writes when a style is picked in `/config`. Output styles apply
+to the main conversation only; subagents run their own system prompts.
 
 ## Common workflows
 
-### Confirming the Voice is active in a session
+### A/B testing the two styles
 
-Ask Claude to restate its reply-formatting rules, or check the session's
-injected context for the "Voice (voice plugin)" heading. If the plugin is
-installed, the block above is present in every session automatically —
-there is nothing to trigger.
+Switch styles between conversations via `/config` → **Output style** (or by
+editing the `outputStyle` field in `.claude/settings.local.json`), then
+compare replies to similar prompts. The styles differ only in whether Claude
+Code's built-in coding instructions remain in the system prompt, so any
+behavioral difference is attributable to that setting.
+
+### Confirming a Voice style is active
+
+Run `/config` and check which style is selected under **Output style**, or
+ask Claude to restate its reply-formatting rules. A style change takes
+effect after `/clear` or a new session, not mid-conversation.
 
 ### Turning the Voice off
 
-Uninstall or disable the plugin:
+Select the **Default** output style in `/config`, or uninstall the plugin:
 
 ```
 /plugin uninstall voice@clam
 ```
 
-New sessions stop receiving the injected block immediately; there is no
-per-session or per-repo opt-out short of uninstalling.
+Unlike the plugin's earlier SessionStart-hook delivery, the styles are
+opt-in per selection — deselecting is a complete opt-out without
+uninstalling.
 
 ## Commands
 
-### Hooks
+### Output styles
 
-**voice-context.sh** (SessionStart, no matcher)
+**Voice** (`output-styles/voice.md`, `keep-coding-instructions: true`)
 
-Emits the Voice block (above) to stdout, which becomes injected session
-context. Never reads stdin, never touches the filesystem, and always
-exits 0 — a SessionStart hook must never block session start.
+The canonical Voice block layered on top of Claude Code's built-in software
+engineering instructions.
 
-There are no skills, no configuration surfaces, and no gating environment
-variables. The plugin is unconditional while installed: uninstalling (or
-disabling) it is the only opt-out.
+**Voice (no coding instructions)** (`output-styles/voice-no-coding.md`,
+`keep-coding-instructions: false`)
+
+The identical canonical Voice block with the built-in software engineering
+instructions omitted from the system prompt.
+
+There are no skills, hooks, or gating environment variables. The two style
+bodies are byte-identical; only the frontmatter differs.
 
 ## Tests
 
 ```bash
-bash plugins/voice/scripts/voice-context.test.sh
 bash plugins/voice/scripts/structure.test.sh
 bash plugins/voice/scripts/registration.test.sh
 bash plugins/voice/scripts/readme.test.sh
@@ -96,12 +122,9 @@ claude plugin update voice@clam
 Both commands are needed: refreshing the catalog never touches an installed
 plugin, and updating one is CLI-only — there is no `/plugin update`.
 Afterwards run `/reload-plugins` to pick the new version up in the current
-session, or restart the session if this plugin ships hooks or agents.
+session, or restart the session.
 
-Auto-update is off by default for third-party marketplaces. Even with it
-enabled, a plugin that ships hooks stays pinned to the last explicitly
-installed version until you run the update command yourself
-(anthropics/claude-code#52218).
+Auto-update is off by default for third-party marketplaces.
 
 ## Relationships to other plugins
 
@@ -113,5 +136,7 @@ None required. This plugin is fully standalone.
 /plugin uninstall voice@clam
 ```
 
-Uninstalling is complete. The plugin creates no files, writes no
-settings, and leaves no state behind.
+Uninstalling removes both styles from the picker. If one of them was the
+selected `outputStyle`, Claude Code falls back to the Default style; the
+stale `outputStyle` value in `.claude/settings.local.json` is the only
+trace left behind.

@@ -9,7 +9,7 @@
 #       "voice": source "./plugins/voice", NO version field (plugin.json
 #       is the single source of truth for version), final description.
 #   (2) README.md Plugins table — exactly one row linking plugins/voice/,
-#       status cell exactly "✅ v0.2.0", final description, not the
+#       status cell exactly "✅ v0.3.0", final description, not the
 #       table's last plugin row (last-row invariant).
 #   (3) MIGRATION.md — a "## voice — ported (from clam-code)" section
 #       recording the port (source, what came over, what stays behind, the
@@ -22,7 +22,7 @@
 # Also asserts the B02 contract comment itself is gone from the raw
 # README.md (it is marked remove-at-acceptance).
 #
-# The plugin-local surfaces (plugin.json, hooks/hooks.json) are covered by
+# The plugin-local surfaces (plugin.json, output-styles/) are covered by
 # structure.test.sh, not here.
 #
 # The contract docblock quotes the exact README row, MIGRATION.md section,
@@ -106,8 +106,8 @@ check "voice entry description is non-empty" \
   "$([ -n "$MP_DESC" ] && echo yes || echo no)" "yes"
 check "voice entry description names the Voice spec" \
   "$(grep -qi 'voice' <<<"$MP_DESC" && echo yes || echo no)" "yes"
-check "voice entry description names SessionStart" \
-  "$(grep -qF 'SessionStart' <<<"$MP_DESC" && echo yes || echo no)" "yes"
+check "voice entry description names output styles" \
+  "$(grep -qi 'output style' <<<"$MP_DESC" && echo yes || echo no)" "yes"
 check "voice entry description is not a STUB/TODO/NotImplemented placeholder" \
   "$(grep -qiE 'TODO|NotImplemented|\bstub\b' <<<"$MP_DESC" && echo placeholder || echo ok)" "ok"
 
@@ -128,10 +128,11 @@ VOICE_ROW="$(grep -F '[voice](plugins/voice/)' <<<"$README_BODY" | head -n1)"
 STATUS_CELL="$(awk -F'|' '{print $3}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 DESC_CELL="$(awk -F'|' '{print $4}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-# Retargeted v0.1.2 -> v0.2.0 by the aphorisms-and-coinage bullet, in
-# lockstep with structure.test.sh's plugin.json pin (readme-lint pairs the
-# row's version cell with plugin.json, so the two must never disagree).
-check "voice row status cell is exactly '✅ v0.2.0'" "$STATUS_CELL" "✅ v0.2.0"
+# Retargeted v0.2.0 -> v0.3.0 by the SessionStart-hook -> output-styles
+# conversion, in lockstep with structure.test.sh's plugin.json pin
+# (readme-lint pairs the row's version cell with plugin.json, so the two
+# must never disagree).
+check "voice row status cell is exactly '✅ v0.3.0'" "$STATUS_CELL" "✅ v0.3.0"
 check "voice row status cell version matches plugin.json (v$VERSION)" \
   "$(grep -qF "v$VERSION" <<<"$STATUS_CELL" && echo yes || echo no)" "yes"
 check "voice row description is non-empty" \

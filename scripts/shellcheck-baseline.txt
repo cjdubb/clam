@@ -87,7 +87,6 @@ plugins/statusline/lib/burn-theme.test.sh	SC1090
 plugins/statusline/lib/burn-theme.test.sh	SC2016
 plugins/statusline/scripts/ccost.sh	SC1091
 plugins/statusline/scripts/ccost.test.sh	SC1091
-plugins/statusline/scripts/context.sh	SC1003
 plugins/statusline/scripts/context.sh	SC1090
 plugins/statusline/scripts/context.sh	SC1091
 plugins/statusline/scripts/context.test.sh	SC1090

@@ -3,8 +3,8 @@
 Cam's statusline for Claude Code, in two lines: **where you are** — path, git
 branch, PR-status and git-sync badges, the clam session mode and the session
 State — and **how fast you are burning** — model and reasoning effort, your
-weekly and 5-hour plan limits paced against the hours you are actually awake,
-and context-window occupancy. Claude Code has no plugin field for
+weekly and 5-hour plan limits paced against the hours you actually work, and
+context-window occupancy. Claude Code has no plugin field for
 statuslines, so installing this plugin changes nothing by itself; you opt in
 explicitly with `/statusline:setup`.
 
@@ -36,7 +36,7 @@ as two lines:
 
 ```
 ~/github/clam (burnrate) wip #231 ↑2  Build  In Progress
-Fable 5 high │ wk 32% 100%t 23%/d ▼-25 │ ctx 10% +503/-16 │ 5h 1% (4h54m)
+Fable 5 high │ ctx 10% │ 5h 1% ▼-1 (4h54m) │ wk 32% ▼-28 (2d23h)
 ```
 
 **Line 1 — where you are.** In the order shown: the current directory (`~`
@@ -59,69 +59,50 @@ no data vanishes together with its separator, so the line never shows a
 dangling `│` or a label with no number beside it; when every group is empty
 the line is not printed at all.
 
-- **Model** — the model's display name in a slowly drifting rainbow, and the
-  reasoning-effort tier coloured cool-to-hot.
-- **Weekly limit** — `wk used%` of your 7-day allowance, followed by the
-  three pacing figures explained below: `%t`, `%/d` and a trend arrow.
+- **Model** — the model's display name coloured by family (blue deepening
+  with capability, purple for Fable), and the reasoning-effort tier coloured
+  cool-to-hot.
 - **Context** — `ctx used%`, occupied tokens against the auto-compaction
   budget, coloured by occupancy alone: green below 20%, yellow from 20%,
   orange from 40%, and red from 60% and above. The idle-aware tier survives
   as the `level` field published to `.local/.ctx-status.json` — still
-  staleness, not fullness — alongside `+added/-removed` once the session
-  has actually edited something.
-- **5-hour limit** — `5h used%` of the rolling 5-hour allowance and the
+  staleness, not fullness.
+- **5-hour limit** — `5h used%` of the rolling 5-hour allowance, the trend
+  arrow against plain wall-clock pacing across that window, and the
   parenthesised countdown to its reset (`(4h54m)`, or `(12m)` under the
   hour).
+- **Weekly limit** — `wk used%` of your 7-day allowance, the same trend
+  arrow — paced across your working week rather than the raw clock — and the
+  countdown to the weekly reset (`(2d23h)`).
 
 ### Reading the burnrate figures
 
-The weekly group's three derived figures all answer *"am I going to run out
-before the reset?"*, from different angles.
+Both limit groups carry the same three figures — used percentage, trend
+arrow, reset countdown — in the same order, so the reading you learn on the
+5-hour meter is the one the weekly meter wants too. Together they answer
+*"am I going to run out before the reset?"*.
 
-- **`%t` — how much of today's share is still unspent.** Your weekly
-  allowance is spread evenly over the days between the last reset and the
-  next; `%t` is the part of *today's* slice you have left, as a percentage of
-  that slice. `100%t` means the whole of today is still ahead of you, `0%t`
-  means you have landed exactly on tonight's checkpoint. It goes **negative**
-  when you have spent past that checkpoint and are eating into tomorrow's
-  slice — a perfectly ordinary thing to do on a heavy day, and a signal to
-  ease off tomorrow rather than a fault.
-- **`%/d` — the sustainable pace.** How many percentage points of the weekly
-  limit you can spend per day, from right now until the reset, without
-  running out. About `14%/d` is the even-burn baseline over a full week: a
-  higher number means you have built up slack, a lower one means the rest of
-  the week is tight and you should spend it deliberately.
-- **The trend arrow** — where you sit against that even-burn line, with the
-  gap beside it in weekly percentage points. `▲` means you are above the line
-  (you have used more of the week than the clock says you should have by now,
-  so you will hit the cap before the reset if nothing changes); `▼` means you
-  are below it, on course to leave part of the subscription unused. Within 3
-  points of the line it colours green, reading as on track; the warm colours
-  above it — yellow, orange, red — mark how far ahead you are running. Below
-  the line it colours grey instead of a warning shade — running behind just
-  means unused allowance, not a hazard.
+- **The trend arrow** — where you sit against the even-burn line for that
+  window, with the gap beside it in percentage points of the window. `▲`
+  means you are above the line: you have used more of the window than the
+  time elapsed in it says you should have, so you will hit the cap before
+  the reset if nothing changes. `▼` means you are below it, on course to
+  leave part of the allowance unused. The 5-hour group measures elapsed time
+  as plain wall clock, since a five-hour window is too short for a schedule
+  to apply; the weekly group counts only the hours you work, so a weekend
+  never drags its trend down on its own.
+- **The countdown** — how long until that window's allowance resets, dimmed
+  in parentheses (`(4h54m)`, `(2d23h)`, or `(12m)` under the hour).
 
-The `+added/-removed` pair beside the context meter takes the diffstat
-convention every reader already knows: `+added` colours green and
-`-removed` colours red.
+Within 3 points of the line the arrow colours green, reading as on track;
+the warm colours above it — yellow, orange, red — mark how far ahead you are
+running. Below the line it colours grey rather than a warning shade: running
+behind just means unused allowance, not a hazard.
 
-**The pacing counts awake hours only.** A day here starts at
-`CLAM_STATUSLINE_DAY_START` (default `2`, so 02:00 local), and the first
-`CLAM_STATUSLINE_SLEEP_HOURS` (default `6`) after that count for nothing at
-all. The budget is therefore spread across the hours you are actually
-working, not all 24 — without that, the trend would drift `▼` further behind
-every night while you slept and snap back every morning, which is the single
-most misleading thing a naive pacing model does. If your day starts at 07:00
-and you sleep eight hours, set both knobs to match: see
-[Common workflows](#common-workflows).
-
-The two plan meters come straight from Claude Code's own payload and are
-never cached — a stale quota figure is worse than none. The server reports
-weekly usage in whole percentage points, so between ticks `%t` is interpolated
-from this session's own spend to keep it moving smoothly instead of jumping;
-it re-anchors on every real tick, and it deliberately errs toward showing
-slightly *more* headroom than you have, since parallel sessions, other
-machines and claude.ai usage are invisible to it.
+Both used percentages come straight from Claude Code's own payload and are
+never cached — a stale quota figure is worse than none. They are the
+server's view of your account, so parallel sessions, other machines and
+claude.ai usage all count against them without being visible here.
 
 ### Caching and staleness
 
@@ -139,10 +120,6 @@ amount of staleness in exchange:
   on every render, never served from that bundle — along with the
   `.local/.ctx-status.json` publish. Only the bundled segments above are
   throttled.
-- Two small state files sit beside the bundle in the same cache directory:
-  the animation frame counter and the interpolator's anchor. Both are
-  best-effort — an unwritable path freezes the animation, it does not break
-  the render.
 - Cache failures (unwritable cache dir, corrupt cache file, etc.) degrade to
   a full, freshly computed render — you get a slightly slower statusline,
   never a broken or blank one.
@@ -151,20 +128,36 @@ amount of staleness in exchange:
 
 ### Match the pacing to the hours you actually work
 
-The defaults assume a day that flips at 02:00 and six hours of sleep after
-it. If that isn't you, set both knobs in the `env` block of the settings file
-at whichever scope you installed the plugin:
+The weekly trend paces your 7-day allowance across the hours you work, so
+the days you are away from the keyboard never read as burnable time. Three
+knobs describe that week, and the defaults assume Monday to Friday, 08:00 to
+18:00. If that isn't you, set them in the `env` block of the settings file at
+whichever scope you installed the plugin:
 
 ```jsonc
 "env": {
-  "CLAM_STATUSLINE_DAY_START": "7",     // your day flips at 07:00 local
-  "CLAM_STATUSLINE_SLEEP_HOURS": "8"    // 07:00-15:00 counted as sleep
+  "CLAM_STATUSLINE_WORK_DAYS": "1-5",   // ISO weekdays, 1=Mon .. 7=Sun
+  "CLAM_STATUSLINE_DAY_START": "7",     // your working day starts at 07:00
+  "CLAM_STATUSLINE_DAY_END": "16"       // and finishes at 16:00
 }
 ```
 
-Both take whole hours in `0..23`; anything else falls back to the default
-rather than erroring. `%t`, `%/d` and the trend arrow all shift with them —
-the raw `wk used%` does not, since that number is the server's.
+`CLAM_STATUSLINE_WORK_DAYS` takes ISO weekday numbers with commas and ranges
+(`1-5`, `1,3,5`, `1-4,6`). The two hour knobs take whole hours — `0..23` for
+the start, `1..24` for the end — and each unusable value falls back to its
+own default rather than erroring, except an end at or before the start,
+which falls back to the default pair. Every figure on the line is computed
+in machine local time; there is deliberately no timezone knob, so a machine
+whose clock is set away from the zone you work in shifts every working
+window by that offset. The trend arrow shifts with these knobs — the raw
+`wk used%` does not, since that number is the server's, and neither does the
+5-hour group, which paces on wall clock alone.
+
+**Upgrading.** `CLAM_STATUSLINE_DAY_START` keeps its name and changes both
+its meaning and its default: it named the hour a pacing day flipped over,
+defaulting to `2`, and it now names the hour your working day begins,
+defaulting to `8`. If you already set it, re-read it against the working
+week above and set `CLAM_STATUSLINE_DAY_END` beside it.
 
 ### Align the context meter with your compaction window
 
@@ -266,11 +259,10 @@ vocabulary specified in `docs/protocols/session-states.md`, so keep them in
 lockstep with it; the colour beside each name is this renderer's own
 mapping, which the protocol deliberately leaves private.
 
-The burnrate line lives in three more libraries `context.sh` sources:
-`lib/burn-math.sh` (the awake-hours pacing model), `lib/burn-tick.sh` (the
-sub-tick interpolator behind `%t`) and `lib/burn-theme.sh` (colour scales and
-countdowns). Any of the three being absent drops only the groups that need
-it, rather than failing the render.
+The burnrate line lives in two more libraries `context.sh` sources:
+`lib/burn-math.sh` (the working-week pacing model behind the trend arrows)
+and `lib/burn-theme.sh` (colour scales and countdowns). Either being absent
+drops only the groups that need it, rather than failing the render.
 
 | Env var | Default | Effect |
 |---------|---------|--------|
@@ -279,10 +271,11 @@ it, rather than failing the render.
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where `ccost.sh` looks for transcript JSONL files. |
 | `CCOST_CACHE_DIR` | `~/.claude/.ccost-cache` | Where `ccost.sh` caches period sums and locks. |
 | `CCOST_SESSION_TTL_SECONDS` | `30` | How long `ccost.sh session` serves its cached figure without touching the transcript. `<= 0` disables the window. |
-| `CLAM_STATUSLINE_CACHE_DIR` | `~/.claude/.statusline-cache` | Where `context.sh` caches the per-session branch/badges/State/mode bundle, the animation frame and the interpolator anchor. |
+| `CLAM_STATUSLINE_CACHE_DIR` | `~/.claude/.statusline-cache` | Where `context.sh` caches the per-session branch/badges/State/mode bundle. |
 | `CLAM_STATUSLINE_SEGMENT_TTL_SECONDS` | `5` | How long that cached bundle is served before `context.sh` rebuilds it. `<= 0` disables the cache. |
-| `CLAM_STATUSLINE_DAY_START` | `2` | Hour (`0..23`, local) the pacing day flips. Out-of-range or non-integer values fall back to the default. |
-| `CLAM_STATUSLINE_SLEEP_HOURS` | `6` | Hours after the day start counted as sleep and excluded from the pacing budget. Same fallback rule. |
+| `CLAM_STATUSLINE_WORK_DAYS` | `1-5` | ISO weekdays (1=Mon .. 7=Sun) you work, with commas and ranges. Unparseable values fall back to the default. |
+| `CLAM_STATUSLINE_DAY_START` | `8` | Hour (`0..23`, local) your working day begins. Out-of-range or non-integer values fall back to the default. |
+| `CLAM_STATUSLINE_DAY_END` | `18` | Hour (`1..24`, local) your working day ends. Same fallback rule; an end at or before the start falls back to the default pair. |
 
 ## Tests
 
@@ -292,7 +285,6 @@ bash plugins/statusline/scripts/ccost.test.sh
 bash plugins/statusline/scripts/render-budget.test.sh
 bash plugins/statusline/scripts/readme.test.sh
 bash plugins/statusline/lib/burn-math.test.sh
-bash plugins/statusline/lib/burn-tick.test.sh
 bash plugins/statusline/lib/burn-theme.test.sh
 ```
 
@@ -300,14 +292,15 @@ bash plugins/statusline/lib/burn-theme.test.sh
 
 The burnrate line is ported from
 [claude-statusline-burnrate](https://github.com/Gui-Gou/claude-statusline-burnrate)
-by Gui-Gou, MIT licensed. The awake-hours pacing model and the sub-tick
-interpolator that keeps `%t` moving between server ticks are all that
-project's ideas; `lib/burn-math.sh`, `lib/burn-tick.sh` and
+by Gui-Gou, MIT licensed. The even-burn trend — a plan limit read against
+the share of its window already elapsed, signed so the arrow says which side
+of the line you are on — is that project's idea; `lib/burn-math.sh` and
 `lib/burn-theme.sh` each carry the upstream copyright notice in full. This
 port differs from the upstream in a few deliberate places — 256-colour
-output throughout, and the context meter's colour bands now match the
+output throughout, a working-week schedule where the upstream paces on its
+own window, and the context meter's colour bands, which match the
 upstream's exactly. The numerator behind that meter and its non-saturating
-division stay this plugin's own; the pacing arithmetic is Gui-Gou's.
+division stay this plugin's own.
 
 ## Update
 

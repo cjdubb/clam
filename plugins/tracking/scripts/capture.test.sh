@@ -24,6 +24,17 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/capture.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# shellcheck disable=SC1091  # sourced at runtime from the repo root
+. "$REPO_ROOT/scripts/lib/test-portability.sh"
+
+# Absolute bash: a shim PATH may not contain the platform's bash directory
+# (bash lives in /bin on macOS), so a bare `bash` there would exit 127.
+BASH_BIN="${BASH:-/bin/bash}"
+
+# Real `date`, resolved BEFORE any PATH override: /usr/bin/date does not
+# exist on macOS (the real one is /bin/date), so nothing may hardcode it.
+REAL_DATE="$(command -v date)"
 
 TMPROOT=$(mktemp -d)
 ROOT="$TMPROOT/captures"
@@ -37,22 +48,23 @@ cat > "$BIN/date" <<EOF
 #!/bin/bash
 case "\$*" in
   *"+%Y%m%dT%H%M%SZ"*) echo "$FIXED_TS" ;;
-  *) exec /usr/bin/date "\$@" ;;
+  *) exec "$REAL_DATE" "\$@" ;;
 esac
 EOF
 chmod +x "$BIN/date"
 export PATH="$BIN:$PATH"
 
 # --- helper: build a PATH dir that has everything EXCEPT one named command --
-# Symlinks every /usr/bin entry except $1, then re-points `date` at our fixed
-# shim so timestamp determinism survives the substitution. Used to simulate
-# "jq not on PATH" and "stat unavailable" without touching real permissions.
+# Farms the whole real PATH (not just /usr/bin — bash lives in /bin on macOS
+# and jq typically under Homebrew), drops $1, then re-points `date` at our
+# fixed shim so timestamp determinism survives the substitution. Used to
+# simulate "jq not on PATH" and "stat unavailable" without touching real
+# permissions.
 build_path_without() { # cmd -> prints new PATH dir
   local cmd="$1"
   local out="$TMPROOT/bin-no-$cmd"
   mkdir -p "$out"
-  ln -s /usr/bin/* "$out/" 2>/dev/null
-  rm -f "$out/$cmd"
+  tp_shim_path "$out" --remove "$cmd" > /dev/null
   ln -sf "$BIN/date" "$out/date"
   echo "$out"
 }
@@ -153,7 +165,7 @@ assert_stdout_empty "non-matching prompt"
 rm -rf "$ROOT"
 json=$(jq -n --arg p "/make-progress" --arg cwd "$WT" --arg s "test-session" \
   '{prompt: $p, cwd: $cwd, session_id: $s}')
-printf '%s' "$json" | PATH="$NOJQBIN" bash "$HOOK" > "$STDOUT" 2>/dev/null
+printf '%s' "$json" | PATH="$NOJQBIN" "$BASH_BIN" "$HOOK" > "$STDOUT" 2>/dev/null
 RC=$?
 check "missing jq exits 0" "$RC" 0
 check "missing jq creates no capture root" "$([[ -e "$ROOT" ]] && echo yes || echo no)" no
@@ -227,7 +239,7 @@ assert_stdout_empty "same-session re-fire"
 # --- the hook does not special-case DECISION.md: a previous capture that
 # already has DECISION.md (e.g. deduped-into by an earlier invocation) still
 # dedupes a same-session re-fire exactly as if DECISION.md were absent.
-printf '---\nrow_matched: none\n---\n' > "$DIR/DECISION.md"
+printf -- '---\nrow_matched: none\n---\n' > "$DIR/DECISION.md"
 run_hook "/make-progress" "$WT" "$TRANSCRIPT"
 check "same-session re-fire still deduped when newest dir has DECISION.md" "$RC" 0
 check "DECISION.md present does not trigger a fresh capture" \
@@ -258,7 +270,7 @@ assert_stdout_empty "expired window"
 # must capture rather than risk losing data.
 printf '%s' "$(jq -n --arg p "/make-progress" --arg cwd "$WT" --arg t "$TRANSCRIPT" \
   '{prompt:$p, cwd:$cwd, session_id:"other-session", transcript_path:$t}')" \
-  | PATH="$NOSTATBIN" bash "$HOOK" > "$STDOUT" 2>/dev/null
+  | PATH="$NOSTATBIN" "$BASH_BIN" "$HOOK" > "$STDOUT" 2>/dev/null
 check "stat-unavailable re-fire exits 0" "$?" 0
 check "stat-unavailable re-fire captures anyway (-4 suffix)" "$([[ -d "$DIR-4" ]] && echo yes)" yes
 assert_stdout_empty "stat unavailable"
@@ -379,7 +391,7 @@ grep -q "branch: main" "$DIR/git-state.txt"; check "--fallback captures git stat
 
 # --- --fallback mode does not require jq (jq is a hook-mode-only input) --------
 rm -rf "$ROOT"
-(cd "$WT" && PATH="$NOJQBIN" bash "$HOOK" --fallback > "$STDOUT" 2>/dev/null)
+(cd "$WT" && PATH="$NOJQBIN" "$BASH_BIN" "$HOOK" --fallback > "$STDOUT" 2>/dev/null)
 check "--fallback without jq exits 0" "$?" 0
 check "--fallback without jq still captures" "$([[ -d "$DIR" ]] && echo yes)" yes
 assert_stdout_empty "--fallback without jq"

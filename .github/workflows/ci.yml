@@ -186,7 +186,7 @@ jobs:
         run: brew list bash > /dev/null 2>&1 || brew install bash
 
       - name: Test
-        run: "$(brew --prefix)/bin/bash" scripts/ci.sh --test
+        run: '"$(brew --prefix)/bin/bash" scripts/ci.sh --test'
         env:
           LC_ALL: en_US.UTF-8
 

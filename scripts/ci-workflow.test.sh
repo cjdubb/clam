@@ -700,7 +700,7 @@ check "preservation: the aggregator runs no ci.sh stage of its own" \
 # ("$(brew --prefix)/bin/bash"), so a bash path ending in /bash, optionally
 # quoted, is accepted alongside the bare `bash` the Linux stages use.
 check "preservation: every scripts/ci.sh invocation is exactly a stage command under a bash interpreter" \
-  "$(grep -F 'scripts/ci.sh' "$YAML" | grep -cvE '(^|[[:space:]/])bash\"?[[:space:]]+scripts/ci\.sh[[:space:]]+--(lint|test)[[:space:]]*$' || true)" "0"
+  "$(grep -F 'scripts/ci.sh' "$YAML" | grep -cvE "(^|[[:space:]/])bash\"?[[:space:]]+scripts/ci\.sh[[:space:]]+--(lint|test)['\"]?[[:space:]]*$" || true)" "0"
 
 # ===========================================================================
 # Invariant — scripts/ci.sh is not touched by this block.

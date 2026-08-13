@@ -105,7 +105,7 @@ path_rescue_dir() { # <hide-csv> <dir>... -> rescue dir path
   r="$(mktemp -d)"
   track_tmp "$r"
   for d in "$@"; do
-    [ -n "$d" ] && [ -d "$d" ] || continue
+    [ -d "$d" ] || continue
     for entry in "$d"/*; do
       [ -e "$entry" ] || continue
       name="${entry##*/}"

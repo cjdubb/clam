@@ -252,6 +252,57 @@
 #     behaviour change on upgrade), and plugin.json's mandatory version bump
 #     plus a description that no longer promises the figures B05 removed.
 #
+# --- B09 line1-cache-docs (sections 27-31) ----------------------------------
+# B09 brings this README into agreement with B07 (the project dir at the head
+# of line 1, an OSC 8 file:// hyperlink, the `›` form when the current dir
+# differs) and B08 (the segment bundle keyed on session_id, and a one-day sweep
+# that bounds the cache dir). Its contract is a file rather than a docblock in
+# the README, for the reason section 8 pins: a shipped plugin README may carry
+# no surviving `<!-- Contract:` block. The sections it owns: the line-1
+# description and the example block under `## What to expect`, `### Caching and
+# staleness`, the cache-clutter paragraph under `## Uninstalling`, and the
+# `scripts/context.sh` entry under `### Scripts`.
+#
+# What is DERIVED here, and what each derivation buys:
+#
+#   - THE SEPARATOR. b09_render_line1() renders line 1 from a payload whose
+#     project_dir and current_dir DIFFER, hermetically (a plain temp dir, not a
+#     git repo, so no branch, no badge and no background refresher), strips the
+#     hyperlink and colour framing, and reads the separator off it as the one
+#     non-ASCII run in the result. The README's line-1 prose and its example
+#     block are then required to carry THAT character. A separator changed in
+#     the renderer fails the prose by character rather than leaving the README
+#     quietly describing a form nothing emits. Two guards keep it honest: the
+#     derived separator must be flanked by real path text on both sides, and it
+#     must be the `›` strip_allowed exempts — otherwise the alphabet check in
+#     section 9 would either reject correct prose or hold a hole.
+#   - THE HYPERLINK. The same render is asked, unstripped, whether it really
+#     emits an `OSC 8 file://` sequence around the path. Only then is the prose
+#     required to call the segment clickable. The claim the README makes about
+#     the render is pinned to the render, not to this file's memory of it.
+#
+# Two shapes this file deliberately does NOT reach for:
+#
+#   1. A whole-line comparison of the example's line 1 against a live render,
+#     the way section 12 compares line 2. Line 1's branch, badge files, MODE and
+#     State come from a worktree the example is free to invent, so no hermetic
+#     fixture can produce it. What IS comparable is the vocabulary the render
+#     contributes — the separator — and that is what is compared.
+#   2. A file-wide "the README no longer says transcript" check. `ccost.sh
+#     session` still takes a transcript path and still documents it, so the
+#     absence is scoped to the SENTENCES of the caching section and of the
+#     `scripts/context.sh` entry that make a cache claim. Every absence check in
+#     these sections is paired with a positive one that its target section still
+#     exists and still carries the claim the absence is about — an absence check
+#     aimed at a section someone deleted passes for free.
+#
+# The `## Uninstalling` clause rides on the same sentence scoping. The cache
+# paragraph names BOTH cache dirs, and only one of them gains a sweep: ccost's
+# cache is untouched by this unit and may legitimately still be described as
+# the reader's to delete. So what is asserted is that no sentence naming
+# `.statusline-cache` still claims nothing removes anything there, while the
+# paragraph goes on naming both directories.
+#
 # Run: bash plugins/statusline/scripts/readme.test.sh (non-zero exit on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -592,14 +643,19 @@ sep_count() { # line
   printf '%s' "$1" | grep -o '│' | wc -l | tr -d ' '
 }
 
-# The non-ASCII characters this README may legitimately hold: the five
+# The non-ASCII characters this README may legitimately hold: the six
 # ambiguous-width symbols the render still emits — which the contract requires
 # to STAY — plus ordinary typography. Anything else non-ASCII is an emoji.
 # LC_ALL=C so the byte range means bytes rather than whatever the ambient
 # locale collates into it.
+# The sixth is B09's `›`, the separator B07 puts between the project dir and
+# the current dir on line 1. It is exempt for exactly the reason the other five
+# are — the render emits it, so the prose has to be able to name it — and the
+# exemption is guarded twice in section 28: the prose must really carry it, and
+# the character the RENDERER emits must really be this one.
 strip_allowed() { # text
   local t="$1"
-  t="${t//│/}"; t="${t//▲/}"; t="${t//▼/}"; t="${t//↑/}"; t="${t//↓/}"
+  t="${t//│/}"; t="${t//▲/}"; t="${t//▼/}"; t="${t//↑/}"; t="${t//↓/}"; t="${t//›/}"
   t="${t//—/}"; t="${t//→/}"; t="${t//·/}"
   printf '%s\n' "$t"
 }
@@ -1562,6 +1618,241 @@ check "the root README row paces them against the working week instead" \
 # check for free.
 check "the root README row still names the two plan limits it paces" \
   "$(b17_near "$ROOT_ROW_DESC" '(^|[^A-Za-z])weekly' '5.hour' 80)" "yes"
+
+# ===========================================================================
+# B09 line1-cache-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 27. The line-1 render oracle: the separator and the hyperlink, derived
+# ---------------------------------------------------------------------------
+
+B09_WD="$TMP/b09-wd"; mkdir -p "$B09_WD/sub"
+
+BEL="$(printf '\007')"
+
+# b09_strip_links(): drops OSC 8 hyperlink framing (either terminator — B07
+# moves osc8_link from ST to BEL, and this has to read both) and then SGR
+# colour, leaving the visible text. Order matters: with the BEL already gone
+# there is nothing left to say where a url stops and its text starts.
+b09_strip_links() { # reads stdin
+  sed -E -e "s/${ESC}\]8;;[^${ESC}${BEL}]*(${BEL}|${ESC}\\\\)//g" \
+         -e "s/${ESC}\[[0-9;]*m//g"
+}
+
+# b09_render_line1(): scripts/context.sh's line 1 for a payload whose
+# project_dir and current_dir DIFFER, hermetic the same way b11_render is —
+# a plain temp cwd (not a git repo, no .local, so no branch, no badge, no
+# background refresher), temp cache dirs, caching disabled. Returned RAW so
+# the hyperlink check below can see the sequence; b09_strip_links strips it
+# for the text checks.
+b09_render_line1() {
+  local json
+  json="{\"workspace\":{\"current_dir\":\"$B09_WD/sub\",\"project_dir\":\"$B09_WD\"}"
+  json="$json,\"transcript_path\":\"\",\"session_id\":\"b09-fixture-session\""
+  json="$json,\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"}"
+  json="$json,\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":30000}}"
+  printf '%s' "$json" \
+    | env CLAUDE_PROJECTS_DIR="$TMP/b09-projects" CCOST_CACHE_DIR="$TMP/b09-ccost" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$TMP/b09-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        bash "$CONTEXT_SH" 2>/dev/null \
+    | sed -n '1p'
+}
+
+B09_L1_RAW="$(b09_render_line1)"
+B09_L1="$(printf '%s' "$B09_L1_RAW" | b09_strip_links)"
+check "the fixture render produced a line 1 (oracle is not empty)" \
+  "$([ -n "$B09_L1" ] && echo yes || echo no)" "yes"
+
+# The separator is the one non-ASCII run in a line 1 whose every other token is
+# an ASCII temp path. LC_ALL=C so the run comes back as whole bytes.
+B09_SEP="$(printf '%s' "$B09_L1" | LC_ALL=C grep -oE '[^ -~]+' | head -1)"
+check "the render separates the project dir from the current dir with a character the prose can name" \
+  "$([ -n "$B09_SEP" ] && echo yes || echo no)" "yes"
+# Guards the derivation: a separator with nothing on one side of it would be a
+# render that dropped one of the two directories, and every check below would
+# then be pinning the prose to a broken form.
+B09_SEP_LEFT=""; B09_SEP_RIGHT=""
+if [ -n "$B09_SEP" ]; then
+  B09_SEP_LEFT="$(trim "${B09_L1%%"$B09_SEP"*}")"
+  B09_SEP_RIGHT="$(trim "${B09_L1#*"$B09_SEP"}")"
+fi
+check "the derived separator really sits between two path components" \
+  "$([ -n "$B09_SEP_LEFT" ] && [ -n "$B09_SEP_RIGHT" ] && echo yes || echo no)" "yes"
+# And it is the character section 9's alphabet exempts. Without this the
+# exemption is a hole: a renderer emitting some other symbol would leave the
+# README free to carry a character no check ever looks at.
+check "the separator the renderer emits is the one the alphabet check exempts" \
+  "$B09_SEP" "›"
+
+# A sentinel, so the "the prose names the separator" checks below cannot pass
+# for free on an empty needle (grep -F '' matches every line).
+B09_SEP_PAT="${B09_SEP:-__no-separator-derived__}"
+
+check "the render hyperlinks the path segment as an OSC 8 file:// link" \
+  "$(printf '%s' "$B09_L1_RAW" | grep -qF "${ESC}]8;;file://" && echo yes || echo no)" "yes"
+
+# b09_pos(text ere): the byte offset of the first match of ERE in TEXT
+# flattened to one line, or "" when it does not appear. Offsets are how the
+# order of two claims in one paragraph is compared without asserting the
+# wording between them.
+b09_pos() { # text ere
+  one_line "$1" | grep -boiE "$2" | head -1 | cut -d: -f1
+}
+
+# ---------------------------------------------------------------------------
+# 28. The line-1 prose: the project dir at the head, and the `›` form
+# ---------------------------------------------------------------------------
+# LINE1_P (section 13) is the paragraph under `## What to expect` describing
+# line 1 in the order it renders. B07 puts the project directory at its head,
+# so the paragraph that enumerates that order is where the change lands.
+
+check "the 'Line 1' paragraph is still identifiable (scoping oracle is not empty)" \
+  "$([ -n "$LINE1_P" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph names the project directory the render now leads with" \
+  "$(has_re '(^|[^a-z])project dir(ectory)?' "$LINE1_P")" "yes"
+
+B09_POS_PROJECT="$(b09_pos "$LINE1_P" 'project dir')"
+B09_POS_CURRENT="$(b09_pos "$LINE1_P" 'current dir')"
+B09_POS_BRANCH="$(b09_pos "$LINE1_P" 'git branch')"
+check "the 'Line 1' paragraph still enumerates the branch after the path (order oracle is not empty)" \
+  "$([ -n "$B09_POS_BRANCH" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph puts the project dir before the current dir, as the render does" \
+  "$([ -n "$B09_POS_PROJECT" ] && [ -n "$B09_POS_CURRENT" ] \
+      && [ "$B09_POS_PROJECT" -lt "$B09_POS_CURRENT" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph puts both of them before the branch, as the render does" \
+  "$([ -n "$B09_POS_PROJECT" ] && [ -n "$B09_POS_BRANCH" ] \
+      && [ "$B09_POS_PROJECT" -lt "$B09_POS_BRANCH" ] && echo yes || echo no)" "yes"
+
+check "the 'Line 1' paragraph names the separator the render emits between the two dirs" \
+  "$(has_fixed "$B09_SEP_PAT" "$LINE1_P")" "yes"
+check "the 'Line 1' paragraph says what follows that separator is relative to the project dir" \
+  "$(b17_near "$LINE1_P" "$B09_SEP_PAT" '(^|[^A-Za-z])(relative|inside|under|beneath|within)' 160)" "yes"
+check "the 'Line 1' paragraph describes the same-path case as a single segment" \
+  "$(b17_near "$LINE1_P" '(^|[^A-Za-z])(same|identical|matches|equal)' \
+     '(^|[^A-Za-z])(one|single|just|only)([^A-Za-z]|$)' 120)" "yes"
+check "the 'Line 1' paragraph keeps the ~ collapse for \$HOME" \
+  "$(has_fixed 'HOME' "$LINE1_P")" "yes"
+
+# The hyperlink, scoped to the sentences making a claim about the path segment
+# itself. The paragraph already calls the PR badge clickable, and both a
+# paragraph-wide check and one scoped to "current dir" would be satisfied by
+# that existing sentence alone — the enumeration naming the current directory
+# is the same sentence the badge's `#N` sits in.
+B09_PATH_CLAIM="$(b17_claims "$LINE1_P" '(project dir|path segment)')"
+check "the 'Line 1' paragraph makes a claim about the path segment at all (scoping oracle is not empty)" \
+  "$([ -n "$B09_PATH_CLAIM" ] && echo yes || echo no)" "yes"
+check "that claim says the path segment is a clickable link, which the render makes it" \
+  "$(has_re 'clickable|hyperlink|link' "$B09_PATH_CLAIM")" "yes"
+
+# Non-vacuity for strip_allowed's sixth exemption, the shape sections 9 uses on
+# the other five: the character is exempt because the prose has to carry it.
+check "the $B09_SEP_PAT path separator is kept in the prose" \
+  "$(has_fixed "$B09_SEP_PAT" "$BODY")" "yes"
+
+# ---------------------------------------------------------------------------
+# 29. The example block is regenerated for the new line 1
+# ---------------------------------------------------------------------------
+# Section 12 pins the example's line 2 against a live render and its line 1's
+# alphabet. What line 1 gains here is the form: an example still showing a bare
+# single path documents a render that no longer exists whenever the two dirs
+# differ, which is the case the prose above spends its sentences on.
+
+check "the example's line 1 is still identifiable (scoping oracle is not empty)" \
+  "$([ -n "$EX_L1" ] && echo yes || echo no)" "yes"
+check "the example's line 1 shows the project-dir form with the render's own separator" \
+  "$(has_fixed "$B09_SEP_PAT" "$EX_L1")" "yes"
+check "the example's line 1 still shows the segments past the path (it is a full render)" \
+  "$(b17_near "$EX_L1" "$B09_SEP_PAT" '(^|[^A-Za-z])(Build|In Progress|#[0-9])' 200)" "yes"
+
+# ---------------------------------------------------------------------------
+# 30. "Caching and staleness": the session_id key and the one-day sweep
+# ---------------------------------------------------------------------------
+
+CACHING="$(b17_subsection '### Caching and staleness')"
+check "the 'Caching and staleness' section survives and is identifiable" \
+  "$([ -n "$CACHING" ] && echo yes || echo no)" "yes"
+# Anchors: the section still documents the surface it always did, so every
+# absence check below is aimed at prose that is really there.
+check "the caching section still names the cache directory knob" \
+  "$(has_fixed 'CLAM_STATUSLINE_CACHE_DIR' "$CACHING")" "yes"
+check "the caching section still names the TTL knob" \
+  "$(has_fixed 'CLAM_STATUSLINE_SEGMENT_TTL_SECONDS' "$CACHING")" "yes"
+check "the caching section still says a cache failure degrades to a full render" \
+  "$(has_re 'degrade|freshly computed|never a broken' "$CACHING")" "yes"
+check "the caching section still says the path segment renders live, never from the bundle" \
+  "$(b17_near "$CACHING" '(^|[^A-Za-z])path' '(^|[^A-Za-z])live' 120)" "yes"
+
+# The key itself. B08 keys the bundle on session_id — the field Claude Code
+# documents as stable for a session's lifetime and unique per session.
+check "the caching section names session_id as what the bundle is keyed on" \
+  "$(has_fixed 'session_id' "$CACHING")" "yes"
+check "the caching section ties session_id to the keying, not just to the wording 'per-session'" \
+  "$(b17_near "$CACHING" 'session_id' '(^|[^A-Za-z])(key|keyed|keys|per.session|scope|scoped)' 140)" "yes"
+# The transcript path is no longer the key. Scoped to the SENTENCES of this
+# section, because ccost.sh's transcript argument is documented elsewhere in
+# the file and is untouched by this unit.
+check "no sentence of the caching section still keys the bundle on the transcript path" \
+  "$(one_line "$(b17_claims "$CACHING" '(^|[^A-Za-z])transcript')")" ""
+
+# The sweep. What the reader needs is the age bound and the fact that something
+# is removed at it; the cold-path-only detail is a render-budget invariant, not
+# a documented promise, and is deliberately not required of the prose.
+check "the caching section names the one-day age bound the sweep applies" \
+  "$(has_re '(^|[^A-Za-z])(one day|a day|24 hours|day old|daily)' "$CACHING")" "yes"
+check "the caching section says files older than that are removed" \
+  "$(b17_near "$CACHING" '(^|[^A-Za-z])(day|24 hours)' \
+     'remov|delet|sweep|swept|prun|clean|tidie|tidy|discard|age[sd]? out' 180)" "yes"
+# The caveat the sweep now handles belongs to nobody once the sweep exists —
+# section 31 pins its removal where it is actually written.
+check "the caching section does not tell the reader to delete the cache by hand" \
+  "$(has_fixed 'safe to delete by hand' "$CACHING")" "no"
+
+# The `scripts/context.sh` entry under `### Scripts` says the same things in
+# miniature, and has to agree with the section it cross-references.
+CTX_ENTRY="$(paragraph_in "$COMMANDS" '**`scripts/context.sh`**')"
+check "the scripts/context.sh entry is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$CTX_ENTRY" ] && echo yes || echo no)" "yes"
+check "the scripts/context.sh entry still cross-references the caching section" \
+  "$(has_fixed 'Caching and staleness' "$CTX_ENTRY")" "yes"
+check "the scripts/context.sh entry still says the bundle is cached per session" \
+  "$(has_re '(^|[^A-Za-z])per.session|session' "$CTX_ENTRY")" "yes"
+check "no cache claim in the scripts/context.sh entry names the transcript path" \
+  "$(one_line "$(b17_claims "$CTX_ENTRY" '(^|[^A-Za-z])transcript' | grep -iE 'cach|bundle|key')")" ""
+
+# ---------------------------------------------------------------------------
+# 31. "Uninstalling": the cache-clutter paragraph the sweep makes false
+# ---------------------------------------------------------------------------
+# The paragraph currently tells the reader NEITHER cache is removed
+# automatically and both are safe to delete by hand. B08's sweep makes the
+# first half false for the statusline cache. ccost's cache is untouched by this
+# unit, so the assertions are scoped to the sentences naming the statusline one
+# and the paragraph is required to go on naming both.
+
+UNINSTALL="$(section '## Uninstalling')"
+check "the 'Uninstalling' section is non-empty" \
+  "$([ -n "$UNINSTALL" ] && echo yes || echo no)" "yes"
+CLUTTER_P="$(paragraph_in "$UNINSTALL" '.statusline-cache')"
+check "the cache-clutter paragraph is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$CLUTTER_P" ] && echo yes || echo no)" "yes"
+check "the cache-clutter paragraph still names the statusline cache directory" \
+  "$(has_fixed '.statusline-cache' "$CLUTTER_P")" "yes"
+check "the cache-clutter paragraph still names the ccost cache directory this unit does not touch" \
+  "$(has_fixed '.ccost-cache' "$CLUTTER_P")" "yes"
+
+B09_CLUTTER_CLAIM="$(b17_claims "$CLUTTER_P" 'statusline-cache')"
+check "the paragraph makes a claim about the statusline cache (scoping oracle is not empty)" \
+  "$([ -n "$B09_CLUTTER_CLAIM" ] && echo yes || echo no)" "yes"
+check "that claim no longer says nothing removes anything from the statusline cache" \
+  "$(has_re '(^|[^A-Za-z])(neither|not removed|never removed|nothing removes)' "$B09_CLUTTER_CLAIM")" "no"
+check "nor calls the statusline cache safe to delete by hand, which the sweep now handles" \
+  "$(has_fixed 'safe to delete by hand' "$B09_CLUTTER_CLAIM")" "no"
+# The positive half: an absence check on a paragraph gutted of its subject
+# passes for free, so the claim has to say what DOES happen to that cache now.
+check "that claim says the statusline cache bounds itself instead" \
+  "$(has_re 'sweep|swept|prun|tidie|tidy|bound|older than|one day|a day|itself' \
+     "$B09_CLUTTER_CLAIM")" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

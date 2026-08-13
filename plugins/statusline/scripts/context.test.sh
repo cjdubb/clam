@@ -41,6 +41,26 @@
 # and 24b's paren case (the parens are still outside the METER's colour and are
 # now inside the countdown's own). Section 26 carries what B16 adds outright.
 #
+# Under B07/B08 (plan 001-statusline-glance-uplift) line 1 gains the project
+# directory beside the working directory, wrapped in an OSC 8 file:// hyperlink
+# whose terminator moves from ST to BEL, and the expensive-segment cache moves
+# off transcript_path onto session_id with a cold-path sweep bounding the cache
+# directory. Both blocks are SCAFFOLDED but not wired at the time sections 28
+# and 29 were written, so each clause is stated in whichever of the two shapes
+# says it honestly: a direct call on the new helper, or a full render whose old
+# path still runs. Neither block retires a FIGURE, so nothing earlier in this
+# file is deleted; but B07 does move two bytes earlier sections had pinned, and
+# three of them are retargeted onto the same clause rather than weakened:
+# section 27b/27c's field count (project_dir is APPENDED LAST to the one jq, so
+# the round trip is thirteen fields and twelve delimiters, and the twelve before
+# it do not move), 25b's one OSC-8 literal (ST -> BEL; the clause is "the
+# hyperlink wraps the number alone", not "the terminator is ST"), and the two
+# strippers -- render() and osc8_strip now share ONE expression that accepts
+# EITHER terminator, so both keep reading the text a terminal DISPLAYS, which
+# is what sections 7/7b and the badge runs assert and what B07's Errors clause
+# promises. Those retargets go red before B07 is wired and green after it, in
+# the same way sections 28 and 29 do; render_raw() still strips nothing.
+#
 # Covers: the burnrate line's four groups, their vanishing separators and their
 # degradation (section 23); the removal of the per-turn "Turn:" row; the
 # ~-for-$HOME path shortening; clean block termination (no trailing decorative
@@ -52,7 +72,9 @@
 # line 1's text PR tags and glyph-free State segment (section 25); the
 # fully-coloured line B16 wires up, byte for byte (section 26); and the payload
 # delimiter B18 moves off bash 3.2's quoting sentinel, asserted at each end of
-# the round trip independently (section 27).
+# the round trip independently (section 27); the project-dir/current-dir head of
+# line 1 and its OSC 8 hyperlink (section 28); and the session-keyed segment
+# cache with its cold-path sweep (section 29).
 # Renders context.sh against synthetic statusLine JSON payloads (hermetic: temp
 # cwd with no git/.local, temp ccost dirs) and asserts on the output (ANSI
 # stripped for text, raw for colour-code checks).
@@ -72,7 +94,7 @@
 # Outputs: unchanged — one PASS line per assertion, then "ALL PASS".
 #
 # Invariants:
-#   - Exactly 419 PASS lines and a zero exit. A changed count is a defect,
+#   - Exactly 515 PASS lines and a zero exit. A changed count is a defect,
 #     whichever direction it moves. (Was 86 when this contract was written;
 #     the burnrate uplift raised it to 277, B09/B10's sections 24 and 25
 #     raised it to 381, B16's section 26 raised it to 459, B18's section 27
@@ -80,7 +102,9 @@
 #     001-statusline-glance-uplift -- moved it again when it replaced sections
 #     23/24 with one section and retired the figures section 26 coloured; the
 #     relocation of lib/burn-tick.test.sh's two retirement assertions into
-#     section 26j, plus their non-vacuity guard, raised it by three to 419. The
+#     section 26j, plus their non-vacuity guard, raised it by three to 419;
+#     B07 line1-paths and B08 cache-session-key -- same plan -- then added
+#     sections 28 and 29 outright, 96 assertions between them, for 515. The
 #     rule is the frozen count, not the number, so the number moves when a
 #     deliberate change to the suite lands and stays frozen in between.
 #     Count it as `grep -cE '^(PASS|FAIL)  '` over a full run: this file ends
@@ -140,7 +164,16 @@ unset CLAUDE_EFFORT CLAM_STATUSLINE_WORK_DAYS CLAM_STATUSLINE_DAY_START \
       CLAM_STATUSLINE_DAY_END CLAM_STATUSLINE_SLEEP_HOURS
 
 ESC=$(printf '\033')
+BEL=$(printf '\a')
 FAILED=0
+
+# ONE OSC-8 stripping expression, shared by render() below and by osc8_strip in
+# section 25, so the two cannot drift apart. It matches an OSC 8 introducer, its
+# URL, and EITHER terminator -- the ST (ESC \) that osc8_link emitted before B07
+# and the BEL that it emits after -- because what every caller wants is "the
+# text a terminal DISPLAYS", which is the same text either way. Section 28's
+# b07_visible states the same expression against B07's own path segment.
+OSC8_RE="s/${ESC}\\]8;;[^${ESC}${BEL}]*(${ESC}\\\\|${BEL})//g"
 
 check() { # label got expected
   if [[ "$2" == "$3" ]]; then
@@ -158,12 +191,23 @@ LEGACY_CACHE_DIR="$TMPROOT/legacy-cache"
 
 # Render context.sh for a JSON payload, ANSI stripped. ccost dirs are pointed
 # at empty temp dirs so the cost line is deterministic and inert.
+#
+# "ANSI stripped" is BOTH families: the CSI colour sequences, and the OSC 8
+# hyperlink framing (either terminator, via OSC8_RE above). What is left is the
+# text a terminal DISPLAYS, which is exactly what every caller of render()
+# asserts on -- including the whole-line `grep -qxF` matches in sections 7 and
+# 7b, which under B07 have hyperlink bytes on either side of line 1's path.
+# B07's own Errors clause is that a terminal ignoring OSC 8 shows the visible
+# text unchanged, so reading through the framing keeps those assertions saying
+# precisely what they said before it. render_raw() below deliberately strips
+# NEITHER family.
 render() { # json
   printf '%s' "$1" \
     | CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
         CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
         CLAM_STATUSLINE_CACHE_DIR="$LEGACY_CACHE_DIR" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
         bash "$CONTEXT" 2>/dev/null \
+    | sed -E "$OSC8_RE" \
     | sed -E "s/${ESC}\\[[0-9;]*m//g"
 }
 
@@ -892,25 +936,25 @@ out=$(render_cached "$badjson" "$BAD_DIR" "not-a-number")
 check "non-integer TTL falls back to 5s: a 5s-old bundle is stale ('Debug' reflected)" \
   "$(mode_cached_value "$out" 'Debug')" "yes"
 
-# === 14. Cache key derivation (transcript_path, fallback: cwd) =============
+# === 14. Cache key derivation (session_id, fallback: cwd) ==================
 
-# 14a. Same cwd, different transcript_path -> independent bundles (a session
-#      is never handed another session's cached segments just because they
+# 14a. Same cwd, different session_id -> independent bundles (a session is
+#      never handed another session's cached segments just because they
 #      share a worktree).
 KEY_WD="$TMPROOT/key-wd"; mk_wt "$KEY_WD"
 KEY_DIR="$TMPROOT/key-cache"
 KEY_TR_A="$TMPROOT/key-a.jsonl"; echo '{}' > "$KEY_TR_A"
 KEY_TR_B="$TMPROOT/key-b.jsonl"; echo '{}' > "$KEY_TR_B"
 printf 'Build\n' > "$KEY_WD/.local/MODE"
-keyA="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$KEY_WD\"},$ctx,\"transcript_path\":\"$KEY_TR_A\"}"
-keyB="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$KEY_WD\"},$ctx,\"transcript_path\":\"$KEY_TR_B\"}"
+keyA="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$KEY_WD\"},$ctx,\"transcript_path\":\"$KEY_TR_A\",\"session_id\":\"key-sess-a\"}"
+keyB="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$KEY_WD\"},$ctx,\"transcript_path\":\"$KEY_TR_B\",\"session_id\":\"key-sess-b\"}"
 render_cached "$keyA" "$KEY_DIR" 5 >/dev/null
 printf 'Debug\n' > "$KEY_WD/.local/MODE"
 outA=$(render_cached "$keyA" "$KEY_DIR" 5)
 outB=$(render_cached "$keyB" "$KEY_DIR" 5)
-check "same cwd, different transcript_path: session A stays warm on its own bundle ('Build')" \
+check "same cwd, different session_id: session A stays warm on its own bundle ('Build')" \
   "$(mode_cached_value "$outA" 'Build')" "yes"
-check "same cwd, different transcript_path: session B gets its own (cold) bundle, not A's ('Debug')" \
+check "same cwd, different session_id: session B gets its own (cold) bundle, not A's ('Debug')" \
   "$(mode_cached_value "$outB" 'Debug')" "yes"
 
 # 14b. Missing transcript_path falls back to cwd as the key: two DIFFERENT
@@ -935,20 +979,19 @@ check "empty transcript_path falls back to cwd as key: worktree A independently 
 check "empty transcript_path falls back to cwd as key: worktree B independently warm ('Bravo')" \
   "$(mode_cached_value "$outB" 'Bravo')" "yes"
 
-# 14c. transcript_path (when present) is the WHOLE key -- cwd is not also
-#      mixed in. Same transcript_path, two different cwds (different git
-#      branches) share one cached bundle: the branch segment stays pinned to
-#      whichever cwd was rendered first, even once the render moves to the
-#      second cwd.
+# 14c. session_id (when present) is the WHOLE key -- cwd is not also mixed
+#      in. Same session_id, two different cwds (different git branches)
+#      share one cached bundle: the branch segment stays pinned to whichever
+#      cwd was rendered first, even once the render moves to the second cwd.
 CWDLIVE_DIR="$TMPROOT/cwdlive-cache"
 CWDLIVE_TR="$TMPROOT/cwdlive-tr.jsonl"; echo '{}' > "$CWDLIVE_TR"
 CWDLIVE_1="$TMPROOT/cwdlive-1"; mk_wt "$CWDLIVE_1"; git -C "$CWDLIVE_1" checkout -q -b feature-one >/dev/null 2>&1
 CWDLIVE_2="$TMPROOT/cwdlive-2"; mk_wt "$CWDLIVE_2"; git -C "$CWDLIVE_2" checkout -q -b feature-two >/dev/null 2>&1
-cwd1json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$CWDLIVE_1\"},$ctx,\"transcript_path\":\"$CWDLIVE_TR\"}"
-cwd2json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$CWDLIVE_2\"},$ctx,\"transcript_path\":\"$CWDLIVE_TR\"}"
+cwd1json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$CWDLIVE_1\"},$ctx,\"transcript_path\":\"$CWDLIVE_TR\",\"session_id\":\"cwdlive-sess\"}"
+cwd2json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$CWDLIVE_2\"},$ctx,\"transcript_path\":\"$CWDLIVE_TR\",\"session_id\":\"cwdlive-sess\"}"
 render_cached "$cwd1json" "$CWDLIVE_DIR" 5 >/dev/null
 out=$(render_cached "$cwd2json" "$CWDLIVE_DIR" 5)
-check "cache key is transcript_path alone: same transcript across cwds shares one bundle (branch pinned to 'feature-one')" \
+check "cache key is the session alone: same session_id across cwds shares one bundle (branch pinned to 'feature-one')" \
   "$(printf '%s\n' "$out" | grep -qF '(feature-one)' && echo yes || echo no)" "yes"
 check "cwd path segment stays LIVE even when the bundle is shared: path line reflects the NEW cwd" \
   "$(printf '%s\n' "$out" | sed -n '1p' | grep -qF "$CWDLIVE_2" && echo yes || echo no)" "yes"
@@ -2139,12 +2182,15 @@ check "25a: an empty comments field is read as zero, not an error" \
 PRWD="$TMPROOT/pr-wd"; mk_wt "$PRWD"
 git -C "$PRWD" checkout -q -b b10-pr >/dev/null 2>&1
 pr_json="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$PRWD\"},$ctx,\"transcript_path\":\"\"}"
-# render()'s ANSI strip only removes CSI colour sequences; the badge numbers
-# are wrapped in an OSC 8 hyperlink, whose opening sequence sits BETWEEN the
-# tag and the "#123" it labels. Strip those too, so the badge run can be read
-# as the plain text a terminal displays.
+# The badge numbers are wrapped in an OSC 8 hyperlink, whose opening sequence
+# sits BETWEEN the tag and the "#123" it labels. Strip those, so the badge run
+# can be read as the plain text a terminal displays. EITHER terminator, via the
+# shared OSC8_RE near the top of this file: the clause these badge assertions
+# state is "the hyperlink wraps the number alone", never "the terminator is
+# ST", so B07 moving osc8_link from ST to BEL must not be able to make this
+# helper silently strip nothing.
 osc8_strip() { # text
-  printf '%s' "$1" | sed -E "s/${ESC}\\]8;;[^${ESC}]*${ESC}\\\\//g"
+  printf '%s' "$1" | sed -E "$OSC8_RE"
 }
 # pr_line1(prs_json_array): write the PR-status file and return the BADGE RUN
 # of a cold render -- line 1 with the path/branch prefix removed, ANSI and
@@ -2194,12 +2240,13 @@ check "25b: the badges carry no emoji (the six glyphs they replaced are gone)" \
 # before "#101" and closes immediately after it. Read on the RAW line, since
 # pr_line1 strips exactly the sequences under test here.
 b10_act_raw=$(pr_line1_raw "$b10_actionable")
-# The \\ below is printf's escape for one literal backslash -- the ST
-# terminator of an OSC-8 hyperlink under test -- not an unescaped quote.
-# shellcheck disable=SC1003
+# The \a below is the BEL terminator B07 moves osc8_link onto, replacing the ST
+# (ESC backslash) this literal carried before it. Same clause, same shape: the
+# sequence opens immediately before "#101" and closes immediately after it, with
+# nothing else inside the link.
 check "25b: the OSC-8 hyperlink still wraps the number alone" \
   "$(printf '%s' "$b10_act_raw" \
-     | grep -qaF "$(printf '\033]8;;https://x.test/101\033\\#101\033]8;;\033\\')" \
+     | grep -qaF "$(printf '\033]8;;https://x.test/101\a#101\033]8;;\a')" \
      && echo yes || echo no)" "yes"
 check "25b: the tag itself is outside the hyperlink" \
   "$(printf '%s' "$b10_act_raw" | grep -qaF "$(printf 'todo \033]8;;')" && echo yes || echo no)" "yes"
@@ -2960,26 +3007,32 @@ B18_RUN="$TMPROOT/b18-run"; mkdir -p "$B18_RUN"
 # sourcing context.sh performs is as hermetic as every other helper's here.
 B18_JSON="{\"workspace\":{\"current_dir\":\"$B18_WD\"},\"transcript_path\":\"\",$ctx}"
 
-# The twelve variables sl_parse_input's `read` names, in contract order. B05
-# line2-groups retires lines_added and lines_removed from both ends of the round
+# The thirteen variables sl_parse_input's `read` names, in contract order. B05
+# line2-groups retired lines_added and lines_removed from both ends of the round
 # trip -- the jq filter no longer emits them and the read no longer names them --
-# so this list is twelve where it was fourteen. Nothing else about the function
-# moves: same byte, same order, same empties-preserved rule.
-B18_SHOW='printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" \
+# taking the list from fourteen to twelve; B07 line1-paths then ADDS
+# workspace.project_dir to the same single jq, APPENDED LAST, taking it to
+# thirteen. Last is the position the field order settles on here: a thirteenth
+# field with only twelve names would not merely go unread, it would be swallowed
+# by the LAST name (`read` gives the final variable the whole remainder), so
+# session_id would come back as "sess-abc<1f>/pd". Nothing else about the
+# function moves: same byte, same order for the first twelve, same
+# empties-preserved rule.
+B18_SHOW='printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" \
   "$window_size" "$total_input" "$transcript_path" "$cwd" "$model_name" "$effort" \
   "$r5" "$r5_reset" "$r7" "$r7_reset" \
-  "$total_cost_usd" "$session_id"'
+  "$total_cost_usd" "$session_id" "$project_dir"'
 B18_UNSET='unset window_size total_input transcript_path cwd model_name effort \
-  r5 r5_reset r7 r7_reset total_cost_usd session_id'
+  r5 r5_reset r7 r7_reset total_cost_usd session_id project_dir'
 # "s" per name still ASSIGNED after the read. Paired with B18_UNSET above it is
-# the difference between "twelve empty fields" and "eleven unset variables":
+# the difference between "thirteen empty fields" and "twelve unset variables":
 # `read` assigns every name it is given, so a name dropped from the read list
 # stays unset here rather than merely reading empty.
-B18_SETCHK='printf "%s%s%s%s%s%s%s%s%s%s%s%s" \
+B18_SETCHK='printf "%s%s%s%s%s%s%s%s%s%s%s%s%s" \
   "${window_size+s}" "${total_input+s}" "${transcript_path+s}" "${cwd+s}" \
   "${model_name+s}" "${effort+s}" "${r5+s}" "${r5_reset+s}" "${r7+s}" \
   "${r7_reset+s}" \
-  "${total_cost_usd+s}" "${session_id+s}"'
+  "${total_cost_usd+s}" "${session_id+s}" "${project_dir+s}"'
 
 B18_JQ_LOG="$TMPROOT/b18-jq-calls"
 
@@ -3102,41 +3155,42 @@ check "27a: three 0x1f-separated fields do not all collapse into window_size" \
   "$(b18_visible "$(b18_read "$b18_head" 'printf "%s/%s/%s" "$window_size" "$total_input" "$transcript_path"')")" \
   "A/B/C"
 
-# --- 27b. The READ end: twelve fields, in order, empties preserved ----------
-# Field ORDER gets its own assertion because a twelve-name positional read is
+# --- 27b. The READ end: thirteen fields, in order, empties preserved --------
+# Field ORDER gets its own assertion because a thirteen-name positional read is
 # exactly the kind of thing a careless edit reorders, and every value here is
 # distinct so a transposition cannot hide. Twelve, not fourteen, since B05
 # retires the two line-count fields from both ends of the round trip; the two
-# columns are removed, not blanked, so every field after them moves up.
+# columns are removed, not blanked, so every field after them moves up. Thirteen
+# since B07 appends project_dir LAST -- appended, so none of the twelve move.
 b18_ordered="f01"
-for _i in 02 03 04 05 06 07 08 09 10 11 12; do
+for _i in 02 03 04 05 06 07 08 09 10 11 12 13; do
   b18_ordered="$b18_ordered${B18_US}f$_i"
 done
 unset _i
-check "27b: twelve 0x1f-separated fields land one per variable, in contract order" \
+check "27b: thirteen 0x1f-separated fields land one per variable, in contract order" \
   "$(b18_visible "$(b18_read "$b18_ordered" "$B18_SHOW")")" \
-  "f01|f02|f03|f04|f05|f06|f07|f08|f09|f10|f11|f12"
-check "27b: and the read still assigns all twelve names (none dropped from its list)" \
-  "$(b18_read "$b18_ordered" "$B18_SETCHK")" "ssssssssssss"
+  "f01|f02|f03|f04|f05|f06|f07|f08|f09|f10|f11|f12|f13"
+check "27b: and the read still assigns all thirteen names (none dropped from its list)" \
+  "$(b18_read "$b18_ordered" "$B18_SETCHK")" "sssssssssssss"
 
 # The invariant \x01 was chosen over @tsv's tab for, restated on the new byte:
 # an absent transcript_path (field 3) must parse EMPTY and shift nothing after
 # it. With a whitespace delimiter the run of two collapses and every later field
 # moves up one column.
-b18_gap="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}42${B18_US}1700000000${B18_US}17${B18_US}1700500000${B18_US}12.34${B18_US}sess-gap"
+b18_gap="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}42${B18_US}1700000000${B18_US}17${B18_US}1700500000${B18_US}12.34${B18_US}sess-gap${B18_US}/pdir"
 check "27b: an empty middle field parses empty and shifts nothing after it" \
   "$(b18_visible "$(b18_read "$b18_gap" "$B18_SHOW")")" \
-  "1000000|145230||/cwd|Opus|high|42|1700000000|17|1700500000|12.34|sess-gap"
+  "1000000|145230||/cwd|Opus|high|42|1700000000|17|1700500000|12.34|sess-gap|/pdir"
 
-# Edge case: every optional field absent. jq joins twelve empty strings, so
-# what reaches the read is eleven delimiters and nothing else. Twelve empty
-# fields -- not one field holding eleven bytes and eleven empties, which is
+# Edge case: every optional field absent. jq joins thirteen empty strings, so
+# what reaches the read is twelve delimiters and nothing else. Thirteen empty
+# fields -- not one field holding twelve bytes and twelve empties, which is
 # what today's read makes of it.
 b18_allempty=""
-for _i in 1 2 3 4 5 6 7 8 9 10 11; do b18_allempty="$b18_allempty$B18_US"; done
+for _i in 1 2 3 4 5 6 7 8 9 10 11 12; do b18_allempty="$b18_allempty$B18_US"; done
 unset _i
-check "27b: a payload with every field absent parses as twelve empty fields" \
-  "$(b18_visible "$(b18_read "$b18_allempty" "$B18_SHOW")")" "|||||||||||"
+check "27b: a payload with every field absent parses as thirteen empty fields" \
+  "$(b18_visible "$(b18_read "$b18_allempty" "$B18_SHOW")")" "||||||||||||"
 
 # The `effort` fallback to CLAUDE_EFFORT is "same fallbacks" in the Behavior
 # clause: it applies AFTER the split, so it must neither stop firing nor start
@@ -3175,24 +3229,27 @@ check "27c: control -- the captured filter really is sl_parse_input's own (not a
   "$( { [ -s "$B18_FILTER" ] && grep -q 'context_window_size' "$B18_FILTER" \
         && grep -q 'join(' "$B18_FILTER"; } && echo yes || echo no)" "yes"
 
-# Twelve distinguishable values, field 1 a known seven characters wide so the
+# Thirteen distinguishable values, field 1 a known seven characters wide so the
 # separator is the byte at offset 7 -- read positionally rather than by scanning
 # for "the non-printable one", so a delimiter that IS printable is caught too.
-b18_pay="{\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"/tp\",\"workspace\":{\"current_dir\":\"/cw\"},\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"session_id\":\"sess-abc\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":1700000000},\"seven_day\":{\"used_percentage\":17,\"resets_at\":1700500000}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
+b18_pay="{\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"/tp\",\"workspace\":{\"current_dir\":\"/cw\",\"project_dir\":\"/pd\"},\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"session_id\":\"sess-abc\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":1700000000},\"seven_day\":{\"used_percentage\":17,\"resets_at\":1700500000}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
 b18_joined=$(printf '%s' "$b18_pay" | jq -r "$(<"$B18_FILTER")")
 check "27c: the filter's own output separates the fields with 0x1f" \
   "$(b18_visible "${b18_joined:7:1}")" "<1f>"
-check "27c: eleven of them -- one per gap between the twelve fields" \
-  "$(b18_count_byte "$b18_joined" "$B18_US")" "11"
+check "27c: twelve of them -- one per gap between the thirteen fields" \
+  "$(b18_count_byte "$b18_joined" "$B18_US")" "12"
 check "27c: and not one 0x01 byte survives in what jq emits" \
   "$(b18_count_byte "$b18_joined" "$B18_SOH")" "0"
 # Order and count at the JQ end, independently of the read end: the same
-# twelve fields, the same order, on the new byte -- and the payload still
+# thirteen fields, the same order, on the new byte -- and the payload still
 # CARRIES the two retired line counts, so this is where a filter that kept
-# emitting them shows up.
-check "27c: the twelve fields come out in the contract's order, on the new byte" \
+# emitting them shows up. project_dir is LAST, which is the position the field
+# order settles on: B07 ADDS it to this one filter (its Invariants clause is
+# that it buys no second jq), and appending leaves all twelve fields before it
+# exactly where they were.
+check "27c: the thirteen fields come out in the contract's order, on the new byte" \
   "$(b18_visible "$b18_joined")" \
-  "1000000<1f>145230<1f>/tp<1f>/cw<1f>Opus<1f>high<1f>42<1f>1700000000<1f>17<1f>1700500000<1f>12.34<1f>sess-abc"
+  "1000000<1f>145230<1f>/tp<1f>/cw<1f>Opus<1f>high<1f>42<1f>1700000000<1f>17<1f>1700500000<1f>12.34<1f>sess-abc<1f>/pd"
 # "Same single jq invocation." Section 22i owns the per-RENDER budget through
 # the PATH-shim harness; this is the narrower statement the delimiter clause
 # needs -- one jq inside sl_parse_input itself -- counted by the same function
@@ -3374,8 +3431,609 @@ check "27i: while a 0x01 inside one is now harmless, where today it splits the f
 # optional field absent. Green either side of the change by construction -- both
 # bytes split correctly on bash 5 -- and there to catch a fix that dropped or
 # reordered a field while it was in the neighbourhood.
-check "27i: a fully-absent payload still round-trips through real jq as twelve empty fields" \
-  "$(b18_visible "$(b18_parse '{}' "$B18_SHOW")")" "|||||||||||"
+check "27i: a fully-absent payload still round-trips through real jq as thirteen empty fields" \
+  "$(b18_visible "$(b18_parse '{}' "$B18_SHOW")")" "||||||||||||"
+
+# === 28. B07 line1-paths ====================================================
+# Contract: the `Contract: B07 line1-paths (plan 001-statusline-glance-uplift)`
+# docblock above sl_render_path_segment. Glance-items 3 and 4 -- the project
+# directory the orchestrator started in, and the directory the agent works in
+# now -- become the head of line 1, wrapped in an OSC 8 file:// hyperlink whose
+# terminator moves from ST to BEL.
+#
+# The block is SCAFFOLDED, not wired: sl_render_path_segment exists and returns
+# non-zero, and line 1 still prints the bare cwd. So the cases below come in two
+# shapes, and both are honest statements of the same contract:
+#   - direct calls on the helper, which today hit the stub;
+#   - full renders, which today run the old path.
+# Nothing here re-tests what line 1's LATER segments do -- sections 12 and 25
+# own those -- except the one clause B07 adds about them: that they do not move.
+
+B07_BEL=$(printf '\a')
+B07_ST="${ESC}\\"
+
+# A real directory tree, not synthetic strings: nothing in the contract says the
+# helper may not stat what it is given, and a test that assumed otherwise would
+# be pinning an implementation choice rather than a clause.
+B07_HOME="$TMPROOT/b07-home"
+B07_PROJ="$B07_HOME/proj"
+B07_SUB="$B07_PROJ/sub/dir"
+B07_OUT="$TMPROOT/b07-elsewhere"
+mkdir -p "$B07_SUB" "$B07_OUT"
+
+# The process cwd for every sourced probe, and the payload each pipes in at
+# source time: sourcing context.sh performs a whole render, so both are pinned
+# somewhere inert for the reason section 27 gives.
+B0708_RUN="$TMPROOT/b0708-run"; mkdir -p "$B0708_RUN"
+B0708_SRC_CACHE="$TMPROOT/b0708-src-cache"
+B0708_JSON="{\"workspace\":{\"current_dir\":\"$B0708_RUN\"},\"transcript_path\":\"\",$ctx}"
+
+# b0708_run(bash_code, [NAME=VALUE...]): source context.sh and run BASH_CODE in
+# the same shell, with the extra NAME=VALUE pairs in its environment. The
+# helpers under test in both blocks are FUNCTIONS with no rendered output of
+# their own, so calling them directly is the only way to state their Inputs and
+# Outputs clauses at all; the render-level cases further down state the clauses
+# about what the render does with them.
+b0708_run() { # bash_code [NAME=VALUE...]
+  local code="$1"; shift
+  ( cd "$B0708_RUN" || return 1
+    printf '%s' "$B0708_JSON" \
+      | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+          CLAM_STATUSLINE_CACHE_DIR="$B0708_SRC_CACHE" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+          "$@" \
+          bash -c '. "$1" >/dev/null 2>&1; eval "$2"' _ "$CONTEXT" "$code" )
+}
+
+# b07_seg(project_dir, current_dir, [NAME=VALUE...]): the RAW bytes
+# sl_render_path_segment echoes for that pair. HOME is passed explicitly by
+# every caller so the "~" clause is never at the mercy of the developer's own.
+b07_seg() { # project_dir current_dir [NAME=VALUE...]
+  local p="$1" c="$2"; shift 2
+  b0708_run 'sl_render_path_segment "$B07_P" "$B07_C"' "B07_P=$p" "B07_C=$c" "$@"
+}
+
+# The text a terminal DISPLAYS: colour sequences and OSC 8 framing removed,
+# under either terminator, so the visible-text clause can be read the same way
+# before and after the ST->BEL change.
+b07_visible() { # raw
+  printf '%s' "$1" \
+    | sed -E "s/${ESC}\\]8;;[^${ESC}${B07_BEL}]*(${ESC}\\\\|${B07_BEL})//g" \
+    | sed -E "s/${ESC}\\[[0-9;]*m//g"
+}
+
+# The URL of the FIRST OSC 8 sequence in a raw segment: everything between the
+# opener and whichever terminator arrives first, so a segment still framed with
+# ST yields its URL here too rather than the whole string.
+b07_url() { # raw
+  local u="$1"
+  u="${u#*"$ESC"]8;;}"
+  u="${u%%"$B07_BEL"*}"
+  u="${u%%"$ESC"*}"
+  printf '%s' "$u"
+}
+
+b07_has() { # haystack needle
+  case "$1" in *"$2"*) printf 'yes' ;; *) printf 'no' ;; esac
+}
+
+# --- 28a. The two dirs, and what the segment shows ---------------------------
+# The Behavior clause's three shapes, read as the visible text: same path ->
+# one segment; different -> project dir, "›", the current dir RELATIVE to it;
+# not underneath -> the absolute current dir after the "›". Deliberately no
+# assertion on the SPACING around the "›": the contract names the separator and
+# the order, not the padding, and inventing padding here would be inventing
+# contract.
+b07_same=$(b07_seg "$B07_PROJ" "$B07_PROJ" "HOME=$B07_HOME")
+check "28a: identical project and current dir render ONE segment, \$HOME collapsed to ~" \
+  "$(b07_visible "$b07_same")" "~/proj"
+check "28a: and no '›' at all, since there is no second dir to introduce" \
+  "$(b07_has "$(b07_visible "$b07_same")" '›')" "no"
+
+b07_under=$(b07_seg "$B07_PROJ" "$B07_SUB" "HOME=$B07_HOME")
+b07_under_vis=$(b07_visible "$b07_under")
+check "28a: a current dir under the project dir keeps the project dir as the head" \
+  "$(b07_has "$b07_under_vis" '~/proj')" "yes"
+check "28a: separated from what follows by the '›'" \
+  "$(b07_has "$b07_under_vis" '›')" "yes"
+check "28a: and what follows is the current dir RELATIVE to the project dir" \
+  "$(b07_has "$b07_under_vis" 'sub/dir')" "yes"
+check "28a: relative, not absolute -- the project prefix is not repeated after the '›'" \
+  "$(b07_has "$b07_under_vis" '~/proj/sub')" "no"
+check "28a: nor is the absolute current dir printed in full" \
+  "$(b07_has "$b07_under_vis" "$B07_SUB")" "no"
+
+b07_outside=$(b07_seg "$B07_PROJ" "$B07_OUT" "HOME=$B07_HOME")
+b07_outside_vis=$(b07_visible "$b07_outside")
+check "28a: a current dir NOT underneath the project dir still gets its '›'" \
+  "$(b07_has "$b07_outside_vis" '›')" "yes"
+check "28a: and falls back to the ABSOLUTE current dir after it" \
+  "$(b07_has "$b07_outside_vis" "$B07_OUT")" "yes"
+check "28a: the project dir still leads, so the fallback replaces only the tail" \
+  "$(b07_has "$b07_outside_vis" '~/proj')" "yes"
+
+# --- 28b. Absent PROJECT_DIR, and the "~" collapse ---------------------------
+# The Errors clause ("an absent PROJECT_DIR falls back to rendering the current
+# dir alone, exactly as today") and the two Edge cases about $HOME.
+b07_noproj=$(b07_seg "" "$B07_SUB" "HOME=$B07_HOME")
+check "28b: an absent project dir renders the current dir alone, exactly as today" \
+  "$(b07_visible "$b07_noproj")" "~/proj/sub/dir"
+check "28b: with no '›', since there is only one dir to show" \
+  "$(b07_has "$(b07_visible "$b07_noproj")" '›')" "no"
+check "28b: an empty \$HOME collapses nothing -- the absolute path shows unchanged" \
+  "$(b07_visible "$(b07_seg "$B07_PROJ" "$B07_PROJ" "HOME=")")" "$B07_PROJ"
+check "28b: nor does a path OUTSIDE \$HOME collapse" \
+  "$(b07_visible "$(b07_seg "$B07_OUT" "$B07_OUT" "HOME=$B07_HOME")")" "$B07_OUT"
+check "28b: and a path outside \$HOME carries no stray ~" \
+  "$(b07_has "$(b07_visible "$(b07_seg "$B07_OUT" "$B07_OUT" "HOME=$B07_HOME")")" '~')" "no"
+
+# --- 28c. The OSC 8 wrapper, and the ST -> BEL terminator --------------------
+# "The whole segment is wrapped in an OSC 8 file:// hyperlink" -- the WHOLE
+# segment, so the sequence opens before the first visible byte and closes after
+# the last. The terminator is BEL, which is the half of this clause osc8_link
+# carries and every other hyperlink in the render moves with.
+check "28c: the segment opens with an OSC 8 hyperlink" \
+  "$(case "$b07_same" in "$ESC"']8;;'*) echo yes ;; *) echo no ;; esac)" "yes"
+check "28c: whose URL is a file:// URL" \
+  "$(case "$(b07_url "$b07_same")" in 'file://'*) echo yes ;; *) echo no ;; esac)" "yes"
+check "28c: and it closes with the empty-URL closer, BEL-terminated" \
+  "$(case "$b07_same" in *"$ESC"']8;;'"$B07_BEL") echo yes ;; *) echo no ;; esac)" "yes"
+check "28c: exactly two BEL bytes in the whole segment -- the two terminators, no more" \
+  "$(b18_count_byte "$b07_same" "$B07_BEL")" "2"
+check "28c: and no ST terminator survives anywhere in it" \
+  "$(b18_count_byte "$b07_same" "$B07_ST")" "0"
+# osc8_link itself, called directly: the terminator change is stated here as an
+# equality so a half-done change (opener moved, closer not) is named rather than
+# merely failing somewhere downstream.
+check "28c: osc8_link frames its text with BEL terminators at both ends" \
+  "$(b0708_run 'osc8_link "file:///tmp/x" "T"')" \
+  "$(printf '\033]8;;file:///tmp/x\aT\033]8;;\a')"
+check "28c: osc8_link with no url still falls through to the bare text (unchanged)" \
+  "$(b0708_run 'osc8_link "" "T"')" "T"
+
+# --- 28d. The encoding invariant --------------------------------------------
+# "The URL is percent-encoded enough that a path containing a space or '#' does
+# not break the sequence", and the Edge case behind it: the sequence's framing
+# must never be decidable by its content. Asserted on the BYTES -- a path whose
+# characters can terminate or truncate the sequence must not be able to.
+B07_ODD="$TMPROOT/b07 odd#dir"
+mkdir -p "$B07_ODD"
+b07_odd=$(b07_seg "$B07_ODD" "$B07_ODD" "HOME=$B07_HOME")
+b07_odd_url=$(b07_url "$b07_odd")
+check "28d: a path containing a space still produces a well-formed sequence (two BEL)" \
+  "$(b18_count_byte "$b07_odd" "$B07_BEL")" "2"
+check "28d: the URL carries no raw space" \
+  "$(b07_has "$b07_odd_url" ' ')" "no"
+check "28d: it percent-encodes the space instead" \
+  "$(b07_has "$b07_odd_url" '%20')" "yes"
+check "28d: the URL carries no raw '#' -- which would truncate it at the fragment" \
+  "$(b07_has "$b07_odd_url" '#')" "no"
+check "28d: it percent-encodes the '#' instead" \
+  "$(b07_has "$b07_odd_url" '%23')" "yes"
+check "28d: while the VISIBLE text still shows the real path, unencoded" \
+  "$(b07_has "$(b07_visible "$b07_odd")" 'b07 odd#dir')" "yes"
+# The terminator byte itself, arriving as data. It cannot come from a real
+# filesystem path, and the contract says the encoding must handle it anyway --
+# because "the framing is decidable by its content" is the property being
+# denied, not "this particular byte is likely".
+B07_BELDIR="$TMPROOT/b07-bel${B07_BEL}dir"
+mkdir -p "$B07_BELDIR" 2>/dev/null
+b07_bel=$(b07_seg "$B07_BELDIR" "$B07_BELDIR" "HOME=$B07_HOME")
+check "28d: a path carrying the terminator byte still yields exactly two BEL -- the framing's own" \
+  "$(b18_count_byte "$b07_bel" "$B07_BEL")" "2"
+check "28d: and the segment is still non-empty, so the render did not simply drop it" \
+  "$([ -n "$b07_bel" ] && echo yes || echo no)" "yes"
+
+# --- 28e. Wired into line 1 --------------------------------------------------
+# The Outputs clause: the segment is the HEAD of line 1. These render end to
+# end, so they also carry the Inputs clause -- workspace.project_dir reaching
+# the renderer at all -- without naming the variable it lands in.
+b07_json() { # project_dir current_dir [session_id] [transcript_path]
+  local p="$1" c="$2" s="$3" t="$4" j
+  j="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$c\""
+  [ -n "$p" ] && j="$j,\"project_dir\":\"$p\""
+  j="$j},$ctx,\"transcript_path\":\"$t\""
+  [ -n "$s" ] && j="$j,\"session_id\":\"$s\""
+  printf '%s}' "$j"
+}
+b07_raw() { # json cache_dir ttl
+  printf '%s' "$1" \
+    | CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 HOME="$B07_HOME" \
+        CLAM_STATUSLINE_CACHE_DIR="$2" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS="$3" \
+        bash "$CONTEXT" 2>/dev/null
+}
+b07_line1_vis() { # json cache_dir ttl
+  b07_visible "$(line_of "$(b07_raw "$1" "$2" "$3")" 1)"
+}
+
+b07_wired_diff=$(b07_line1_vis "$(b07_json "$B07_PROJ" "$B07_SUB")" "$TMPROOT/b07-wired-cache" 0)
+check "28e: a payload whose project_dir and current_dir differ renders both, joined by '›'" \
+  "$(b07_has "$b07_wired_diff" '›')" "yes"
+check "28e: line 1 opens on the project dir, \$HOME collapsed" \
+  "$(case "$b07_wired_diff" in '~/proj'*) echo yes ;; *) echo no ;; esac)" "yes"
+check "28e: and the current dir rides it relative, not absolute" \
+  "$([ "$(b07_has "$b07_wired_diff" 'sub/dir')" = yes ] \
+     && [ "$(b07_has "$b07_wired_diff" "$B07_SUB")" = no ] && echo yes || echo no)" "yes"
+b07_wired_same=$(b07_line1_vis "$(b07_json "$B07_PROJ" "$B07_PROJ")" "$TMPROOT/b07-wired-cache2" 0)
+check "28e: a payload whose two dirs agree renders one segment and no '›'" \
+  "$(b07_has "$b07_wired_same" '›')" "no"
+check "28e: no project_dir in the payload degrades to the current dir alone, exactly as today" \
+  "$(b07_line1_vis "$(b07_json "" "$B07_SUB")" "$TMPROOT/b07-wired-cache3" 0)" "~/proj/sub/dir"
+check "28e: the render still exits 0 with a project_dir carrying a space and a '#'" \
+  "$(printf '%s' "$(b07_json "$B07_ODD" "$B07_ODD")" \
+      | CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 HOME="$B07_HOME" \
+          CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b07-odd-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+          bash "$CONTEXT" >/dev/null 2>/dev/null; echo $?)" "0"
+
+# --- 28f. The path segment stays LIVE ---------------------------------------
+# The Invariant: it is never served from the cache bundle. Cold-render one pair
+# of dirs, then render a DIFFERENT pair inside the TTL: the warm render must
+# show the new pair, not the bundled one.
+#
+# Both renders carry the SAME session_id AND the same transcript_path, so they
+# land on one bundle whichever of the two the key is derived from -- the clause
+# under test is about the path segment, not about B08's key, and a fixture that
+# went cold on the second render would prove neither.
+B07_LIVE_DIR="$TMPROOT/b07-live-cache"
+B07_LIVE_TR="$TMPROOT/b07-live-tr.jsonl"; echo '{}' > "$B07_LIVE_TR"
+b07_raw "$(b07_json "$B07_PROJ" "$B07_PROJ" sess-b07-live "$B07_LIVE_TR")" "$B07_LIVE_DIR" 300 >/dev/null
+b07_live=$(b07_line1_vis "$(b07_json "$B07_PROJ" "$B07_SUB" sess-b07-live "$B07_LIVE_TR")" "$B07_LIVE_DIR" 300)
+check "28f: a WARM render shows the new dir pair -- the path segment is never cached" \
+  "$(b07_has "$b07_live" '›')" "yes"
+check "28f: and the relative tail is the new current dir, not the bundled one" \
+  "$(b07_has "$b07_live" 'sub/dir')" "yes"
+
+# --- 28g. The no-drift clause -----------------------------------------------
+# "followed by the existing branch, PR, git-sync, mode and State segments
+# UNCHANGED -- no segment past the path gains or loses a leading space." Read as
+# an equality between two renders of the same worktree, one carrying a
+# project_dir and one not: everything from the branch segment onward must be
+# byte-identical, escapes included, and must still be there.
+B07_TAIL_WD="$TMPROOT/b07-tail-wd"; mk_wt "$B07_TAIL_WD"
+git -C "$B07_TAIL_WD" checkout -q -b b07-branch >/dev/null 2>&1
+printf 'Build\n' > "$B07_TAIL_WD/.local/MODE"
+printf 'State: In Progress\n' > "$B07_TAIL_WD/.local/TODO.md"
+# The tail begins at the branch segment's own leading space, so a lost or
+# doubled space at that seam moves the tail rather than hiding inside it.
+b07_tail() { # line1
+  local l="$1" sep head
+  sep=" ${ESC}[38;5;245m("
+  head="${l%%"$sep"*}"
+  printf '%s' "${l#"$head"}"
+}
+b07_tail_with=$(b07_tail "$(line_of "$(b07_raw "$(b07_json "$B07_TAIL_WD" "$B07_TAIL_WD")" "$TMPROOT/b07-tail-a" 0)" 1)")
+b07_tail_without=$(b07_tail "$(line_of "$(b07_raw "$(b07_json "" "$B07_TAIL_WD")" "$TMPROOT/b07-tail-b" 0)" 1)")
+check "28g: control -- the tail really carries the branch, mode and State segments" \
+  "$([ "$(b07_has "$b07_tail_without" 'b07-branch')" = yes ] \
+     && [ "$(b07_has "$b07_tail_without" 'Build')" = yes ] \
+     && [ "$(b07_has "$b07_tail_without" 'In Progress')" = yes ] && echo yes || echo no)" "yes"
+check "28g: every segment past the path is byte-identical with and without a project_dir" \
+  "$b07_tail_with" "$b07_tail_without"
+check "28g: and the branch segment still carries exactly one leading space" \
+  "$(case "$b07_tail_with" in "  "*) echo no ;; " ${ESC}["*) echo yes ;; *) echo no ;; esac)" "yes"
+check "28g: the block still ends on the burnrate line, not on the path line" \
+  "$(printf '%s\n' "$(b07_raw "$(b07_json "$B07_PROJ" "$B07_SUB")" "$TMPROOT/b07-tail-c" 0)" \
+     | sed -E "s/${ESC}\\[[0-9;]*m//g" | tail -n1 | grep -qE '^Opus' && echo yes || echo no)" "yes"
+
+# --- 28h. Still exactly ONE jq ----------------------------------------------
+# "project_dir rides the existing invocation; it does not buy a second one."
+# Measured through the PATH-shim harness on a payload that actually carries a
+# project_dir, cold and warm, so a second jq added for the new field shows up
+# on whichever path it was added to.
+B07_JQ_DIR="$TMPROOT/b07-jq-cache"
+B07_JQ_WD="$TMPROOT/b07-jq-wd"; mk_wt "$B07_JQ_WD"
+b07_jq_json=$(b07_json "$B07_JQ_WD" "$B07_JQ_WD")
+render_shim "$b07_jq_json" "$B07_JQ_DIR" 300     # cold
+check "28h: a project_dir-carrying payload still spends exactly one jq on a cold render" \
+  "$(shim_count "$SHIM_LOG" jq)" "1"
+render_shim "$b07_jq_json" "$B07_JQ_DIR" 300     # warm
+check "28h: and exactly one on a warm render" \
+  "$(shim_count "$SHIM_LOG" jq)" "1"
+check "28h: the warm render still sits inside the 12-command budget" \
+  "$([ "$(shim_count "$SHIM_LOG")" -le 12 ] && echo yes || echo no)" "yes"
+
+# === 29. B08 cache-session-key ==============================================
+# Contract: the `Contract: B08 cache-session-key (plan 001-statusline-glance-uplift)`
+# docblock above sl_cache_key. The bundle key moves from transcript_path to
+# session_id -- "stable for the lifetime of a session and unique per session",
+# which is what a cache key needs -- with the cwd as the fallback; a sweep
+# bounds a cache directory that today grows without limit; and
+# sl_bundle_read/sl_bundle_write are rewired onto the new key with their format,
+# their atomic write and their TTL semantics untouched.
+#
+# Sections 13/14/19/20/21 own those unchanged semantics under the OLD key and
+# are not restated here. What is restated is the narrow set of clauses B08
+# makes about them: that they still hold once the key is the session's.
+
+b08_json() { # cwd session_id transcript_path
+  local j="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$1\"},$ctx,\"transcript_path\":\"$3\""
+  [ -n "$2" ] && j="$j,\"session_id\":\"$2\""
+  printf '%s}' "$j"
+}
+
+# --- 29a. sl_cache_key: the stem it derives ---------------------------------
+# The Inputs and Outputs clauses, probed inside ONE sourced shell: sl_cache_key
+# is a pure function of its two arguments, and B06 froze this file's COST as
+# well as its assertions, so nine renders to read nine keys would be eight
+# renders wasted.
+B08_KEYS=$(b0708_run 'printf "%s|%s|%s|%s|%s|%s|%s|%s" \
+  "$(sl_cache_key "sess-abc" "/tmp/b08-one")" \
+  "$(sl_cache_key "sess-abc" "/tmp/b08-two")" \
+  "$(sl_cache_key "sess-xyz" "/tmp/b08-one")" \
+  "$(sl_cache_key "" "/tmp/b08-one")" \
+  "$(sl_cache_key "" "/tmp/b08-two")" \
+  "$(sl_cache_key "" "/tmp/b08-one")" \
+  "$(sl_cache_key "" "")" \
+  "$(sl_cache_key "a/b/c" "/tmp/b08-one")"' 2>/dev/null)
+b08_key() { # n
+  printf '%s' "$B08_KEYS" | cut -d'|' -f"$1"
+}
+B08_K_A1=$(b08_key 1); B08_K_A2=$(b08_key 2); B08_K_X=$(b08_key 3)
+B08_K_C1=$(b08_key 4); B08_K_C2=$(b08_key 5); B08_K_C1B=$(b08_key 6)
+B08_K_NONE=$(b08_key 7); B08_K_SLASH=$(b08_key 8)
+check "29a: a session_id yields a non-empty stem" \
+  "$([ -n "$B08_K_A1" ] && echo yes || echo no)" "yes"
+check "29a: with no slash in it -- one filename component, not a path" \
+  "$(b07_has "$B08_K_A1" '/')" "no"
+check "29a: the same session in a different cwd gets the SAME stem (session_id is the key)" \
+  "$([ "$B08_K_A1" = "$B08_K_A2" ] && echo yes || echo no)" "yes"
+check "29a: a different session in the same cwd gets a DIFFERENT one -- two sessions never share a bundle" \
+  "$([ "$B08_K_A1" != "$B08_K_X" ] && echo yes || echo no)" "yes"
+check "29a: an empty session_id falls back to the cwd -- non-empty stem, still no slash" \
+  "$([ -n "$B08_K_C1" ] && [ "$(b07_has "$B08_K_C1" '/')" = no ] && echo yes || echo no)" "yes"
+check "29a: and two different cwds fall back to two different stems" \
+  "$([ "$B08_K_C1" != "$B08_K_C2" ] && echo yes || echo no)" "yes"
+check "29a: the fallback is deterministic -- the same cwd twice yields the same stem" \
+  "$([ "$B08_K_C1" = "$B08_K_C1B" ] && echo yes || echo no)" "yes"
+check "29a: never empty, even when both inputs are" \
+  "$([ -n "$B08_K_NONE" ] && echo yes || echo no)" "yes"
+check "29a: path separators are flattened -- a session_id carrying slashes still yields one component" \
+  "$([ -n "$B08_K_SLASH" ] && [ "$(b07_has "$B08_K_SLASH" '/')" = no ] && echo yes || echo no)" "yes"
+
+# --- 29b. sl_cache_sweep: what it removes, and what it leaves ---------------
+# The Behavior clause ("removes bundle and tick files whose mtime is older than
+# MAX_AGE_SECONDS") stated at the boundary, plus the Outputs clause (it echoes
+# nothing) and the Errors clause (a sweep failure is SILENT).
+B08_SWEEP="$TMPROOT/b08-sweep"; mkdir -p "$B08_SWEEP"
+: > "$B08_SWEEP/old.bundle";        set_mtime_ago "$B08_SWEEP/old.bundle" 172800
+: > "$B08_SWEEP/old.tick";          set_mtime_ago "$B08_SWEEP/old.tick" 172800
+: > "$B08_SWEEP/just-old.bundle";   set_mtime_ago "$B08_SWEEP/just-old.bundle" 86460
+: > "$B08_SWEEP/just-fresh.bundle"; set_mtime_ago "$B08_SWEEP/just-fresh.bundle" 86340
+: > "$B08_SWEEP/fresh.bundle"
+: > "$B08_SWEEP/fresh.tick"
+: > "$B08_SWEEP/old-foreign.txt";   set_mtime_ago "$B08_SWEEP/old-foreign.txt" 172800
+B08_SWEEP_OUT=$(b0708_run 'sl_cache_sweep "$B08_DIR" 86400' "B08_DIR=$B08_SWEEP" 2>&1)
+b08_gone() { # file
+  [ -e "$B08_SWEEP/$1" ] && printf 'present' || printf 'gone'
+}
+check "29b: a two-day-old bundle is swept" "$(b08_gone old.bundle)" "gone"
+check "29b: a two-day-old tick file is swept too" "$(b08_gone old.tick)" "gone"
+check "29b: a bundle just past MAX_AGE_SECONDS is swept" "$(b08_gone just-old.bundle)" "gone"
+check "29b: a bundle just inside it is kept -- the age is a boundary, not 'anything not mine'" \
+  "$(b08_gone just-fresh.bundle)" "present"
+check "29b: a fresh bundle is kept" "$(b08_gone fresh.bundle)" "present"
+check "29b: a fresh tick file is kept" "$(b08_gone fresh.tick)" "present"
+check "29b: an old file that is neither a bundle nor a tick is left alone" \
+  "$(b08_gone old-foreign.txt)" "present"
+check "29b: the sweep echoes nothing at all, on stdout or stderr" "$B08_SWEEP_OUT" ""
+check "29b: a sweep of a directory that does not exist is silent too -- it never fails the render" \
+  "$(b0708_run 'sl_cache_sweep "$B08_DIR" 86400' "B08_DIR=$TMPROOT/b08-no-such-dir" 2>&1)" ""
+
+# --- 29c. Session isolation, end to end -------------------------------------
+# The Invariant "two different sessions never share a bundle", stated where it
+# bites: the SAME worktree, the same (absent) transcript_path, two session_ids.
+# Detected the way sections 13/14 detect warm-vs-cold -- a MODE change is a
+# CACHED segment, so a render still showing the old value was served warm.
+B08_ISO_DIR="$TMPROOT/b08-iso-cache"
+B08_ISO_WD="$TMPROOT/b08-iso-wd"; mk_wt "$B08_ISO_WD"
+printf 'Build\n' > "$B08_ISO_WD/.local/MODE"
+b08_iso_a=$(b08_json "$B08_ISO_WD" "sess-iso-a" "")
+b08_iso_b=$(b08_json "$B08_ISO_WD" "sess-iso-b" "")
+render_cached "$b08_iso_a" "$B08_ISO_DIR" 300 >/dev/null
+printf 'Debug\n' > "$B08_ISO_WD/.local/MODE"
+b08_iso_out_a=$(render_cached "$b08_iso_a" "$B08_ISO_DIR" 300)
+b08_iso_out_b=$(render_cached "$b08_iso_b" "$B08_ISO_DIR" 300)
+check "29c: session A stays warm on its own bundle ('Build' kept)" \
+  "$(mode_cached_value "$b08_iso_out_a" 'Build')" "yes"
+check "29c: session B in the SAME worktree gets its own cold bundle, never A's ('Debug')" \
+  "$(mode_cached_value "$b08_iso_out_b" 'Debug')" "yes"
+
+# --- 29d. transcript_path no longer keys anything ---------------------------
+# The other half of "keys on session_id ... instead of transcript_path": one
+# session whose transcript_path differs between renders is still ONE session and
+# still one bundle. Read off the branch, which is a cached segment, across two
+# worktrees on different branches.
+B08_TR_DIR="$TMPROOT/b08-tr-cache"
+B08_TR_1="$TMPROOT/b08-tr-1"; mk_wt "$B08_TR_1"; git -C "$B08_TR_1" checkout -q -b b08-one >/dev/null 2>&1
+B08_TR_2="$TMPROOT/b08-tr-2"; mk_wt "$B08_TR_2"; git -C "$B08_TR_2" checkout -q -b b08-two >/dev/null 2>&1
+B08_TRA="$TMPROOT/b08-tr-a.jsonl"; echo '{}' > "$B08_TRA"
+B08_TRB="$TMPROOT/b08-tr-b.jsonl"; echo '{}' > "$B08_TRB"
+render_cached "$(b08_json "$B08_TR_1" "sess-same" "$B08_TRA")" "$B08_TR_DIR" 300 >/dev/null
+b08_tr_out=$(render_cached "$(b08_json "$B08_TR_2" "sess-same" "$B08_TRB")" "$B08_TR_DIR" 300)
+check "29d: one session with two transcript_paths still shares ONE bundle (branch pinned to 'b08-one')" \
+  "$(printf '%s\n' "$b08_tr_out" | grep -qF '(b08-one)' && echo yes || echo no)" "yes"
+check "29d: the cwd path segment stays LIVE across that shared bundle" \
+  "$(printf '%s\n' "$b08_tr_out" | sed -n '1p' | grep -qF "$B08_TR_2" && echo yes || echo no)" "yes"
+
+# --- 29e. The fallback: an absent session_id still CACHES --------------------
+# The Edge case: "falls back to the cwd key, and the bundle is still cached
+# rather than disabled". Both worktrees deliberately share ONE transcript_path,
+# which is exactly the pair the old key could not tell apart.
+B08_FB_DIR="$TMPROOT/b08-fb-cache"
+B08_FB_A="$TMPROOT/b08-fb-a"; mk_wt "$B08_FB_A"
+B08_FB_B="$TMPROOT/b08-fb-b"; mk_wt "$B08_FB_B"
+B08_FB_TR="$TMPROOT/b08-fb-tr.jsonl"; echo '{}' > "$B08_FB_TR"
+printf 'Alpha\n' > "$B08_FB_A/.local/MODE"
+printf 'Bravo\n' > "$B08_FB_B/.local/MODE"
+b08_fb_a=$(b08_json "$B08_FB_A" "" "$B08_FB_TR")
+b08_fb_b=$(b08_json "$B08_FB_B" "" "$B08_FB_TR")
+render_cached "$b08_fb_a" "$B08_FB_DIR" 300 >/dev/null
+render_cached "$b08_fb_b" "$B08_FB_DIR" 300 >/dev/null
+printf 'ChangedA\n' > "$B08_FB_A/.local/MODE"
+printf 'ChangedB\n' > "$B08_FB_B/.local/MODE"
+check "29e: no session_id, shared transcript_path: worktree A is warm on its OWN cwd-keyed bundle ('Alpha')" \
+  "$(mode_cached_value "$(render_cached "$b08_fb_a" "$B08_FB_DIR" 300)" 'Alpha')" "yes"
+check "29e: and worktree B on its own ('Bravo') -- the fallback is per-cwd, not one shared bucket" \
+  "$(mode_cached_value "$(render_cached "$b08_fb_b" "$B08_FB_DIR" 300)" 'Bravo')" "yes"
+check "29e: caching is not DISABLED by the missing session_id -- a bundle was written" \
+  "$([ "$(find "$B08_FB_DIR" -name '*.bundle' -type f 2>/dev/null | wc -l | tr -d ' ')" -ge 2 ] && echo yes || echo no)" "yes"
+
+# --- 29f. sl_bundle_read/write really are rewired onto sl_cache_key ---------
+# The third Behavior clause. The bundle a cold render leaves behind is named by
+# the stem sl_cache_key derives for that payload -- which is the only externally
+# observable statement of "rewired", and the one a half-done rewiring (key
+# function present, callers still deriving their own) fails.
+B08_WIRE_DIR="$TMPROOT/b08-wire-cache"
+B08_WIRE_WD="$TMPROOT/b08-wire-wd"; mk_wt "$B08_WIRE_WD"
+render_cached "$(b08_json "$B08_WIRE_WD" "sess-wired" "$B08_TRA")" "$B08_WIRE_DIR" 300 >/dev/null
+B08_WIRE_KEY=$(b0708_run 'sl_cache_key "sess-wired" "$B08_WD"' "B08_WD=$B08_WIRE_WD" 2>/dev/null)
+check "29f: the cold render's bundle is named by sl_cache_key's stem" \
+  "$([ -n "$B08_WIRE_KEY" ] && [ -f "$B08_WIRE_DIR/$B08_WIRE_KEY.bundle" ] && echo yes || echo no)" "yes"
+check "29f: and it is the ONLY bundle that render wrote" \
+  "$(find "$B08_WIRE_DIR" -name '*.bundle' -type f 2>/dev/null | wc -l | tr -d ' ')" "1"
+check "29f: its FORMAT is unchanged -- the same five keys" \
+  "$(for k in branch pr_badge git_sync state_seg clam_mode; do \
+       grep -qE "^${k}=" "$B08_WIRE_DIR/$B08_WIRE_KEY.bundle" 2>/dev/null || { echo no; exit; }; done; echo yes)" "yes"
+check "29f: and no sixth" \
+  "$(grep -cE '^cost_line=' "$B08_WIRE_DIR/$B08_WIRE_KEY.bundle" 2>/dev/null | tr -d ' ')" "0"
+
+# --- 29g. The sweep runs on the COLD path only ------------------------------
+# The Invariant, and with it the Edge case about bundles left behind under the
+# old transcript_path key: aged out by the same sweep rather than migrated. The
+# planted files are named the way today's key names them, so the "not migrated"
+# half is a statement about a file the renderer could have adopted and did not.
+B08_SWP_DIR="$TMPROOT/b08-cold-sweep"; mkdir -p "$B08_SWP_DIR"
+B08_SWP_WD="$TMPROOT/b08-cold-sweep-wd"; mk_wt "$B08_SWP_WD"
+git -C "$B08_SWP_WD" checkout -q -b b08-sweep >/dev/null 2>&1
+B08_LEGACY_KEY=$(printf '%s' "$B08_SWP_WD" | sed 's#/#_#g')
+{ printf 'branch=legacy-sentinel\n'; printf 'pr_badge=\n'; printf 'git_sync=\n'
+  printf 'state_seg=\n'; printf 'clam_mode=\n'; } > "$B08_SWP_DIR/$B08_LEGACY_KEY.bundle"
+set_mtime_ago "$B08_SWP_DIR/$B08_LEGACY_KEY.bundle" 172800
+: > "$B08_SWP_DIR/half-day.bundle"; set_mtime_ago "$B08_SWP_DIR/half-day.bundle" 43200
+b08_swp_out=$(render_cached "$(b08_json "$B08_SWP_WD" "sess-sweep" "")" "$B08_SWP_DIR" 300)
+check "29g: the stale old-key bundle is not adopted -- its sentinel branch never renders" \
+  "$(printf '%s\n' "$b08_swp_out" | grep -qF 'legacy-sentinel' && echo present || echo absent)" "absent"
+check "29g: a COLD render sweeps it away rather than migrating it" \
+  "$([ -e "$B08_SWP_DIR/$B08_LEGACY_KEY.bundle" ] && echo present || echo gone)" "gone"
+check "29g: while a half-day-old bundle survives -- the call site's MAX_AGE_SECONDS is one day, not 'everything else'" \
+  "$([ -e "$B08_SWP_DIR/half-day.bundle" ] && echo present || echo gone)" "present"
+# The warm half. A file planted AFTER the cold render is still there once a warm
+# render has run, because the warm path never sweeps.
+: > "$B08_SWP_DIR/planted-old.bundle"; set_mtime_ago "$B08_SWP_DIR/planted-old.bundle" 172800
+render_cached "$(b08_json "$B08_SWP_WD" "sess-sweep" "")" "$B08_SWP_DIR" 300 >/dev/null
+check "29g: a WARM render does not sweep -- an ancient bundle planted after the cold render survives it" \
+  "$([ -e "$B08_SWP_DIR/planted-old.bundle" ] && echo present || echo gone)" "present"
+
+# --- 29h. The warm render still opens nothing it did not open before --------
+# The other half of "cold path only", measured rather than reasoned: the
+# PATH-shim harness sees no file-removal or directory-walk process on the warm
+# path, and the warm budget does not move.
+B08_BUD_DIR="$TMPROOT/b08-budget-cache"
+B08_BUD_WD="$TMPROOT/b08-budget-wd"; mk_wt "$B08_BUD_WD"
+printf 'Build\n' > "$B08_BUD_WD/.local/MODE"
+b08_bud_json=$(b08_json "$B08_BUD_WD" "sess-budget" "")
+render_shim "$b08_bud_json" "$B08_BUD_DIR" 300     # cold: seeds the bundle and sweeps
+render_shim "$b08_bud_json" "$B08_BUD_DIR" 300     # warm
+check "29h: the warm render still invokes at most 12 external commands in total" \
+  "$([ "$(shim_count "$SHIM_LOG")" -le 12 ] && echo yes || echo no)" "yes"
+check "29h: it spawns no rm -- the sweep is not on this path" \
+  "$(shim_count "$SHIM_LOG" rm)" "0"
+check "29h: nor find" "$(shim_count "$SHIM_LOG" find)" "0"
+check "29h: still exactly one jq" "$(shim_count "$SHIM_LOG" jq)" "1"
+check "29h: still no git" "$(shim_count "$SHIM_LOG" git)" "0"
+check "29h: and the sentinel CLAUDE_PROJECTS_DIR is still untouched" \
+  "$(find "$SENTINEL_PROJECTS_DIR" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')" "0"
+
+# --- 29i. Everything else about the cache is unchanged ----------------------
+# The clauses B08 explicitly does NOT move, re-pinned under the new key: the TTL
+# boundary and its <=0 disable, the corrupt bundle, the future-dated bundle, the
+# uncreatable cache dir, and the atomic write under concurrency. Each is stated
+# once, on a session-keyed payload; sections 13/19/20/21 keep the fuller
+# treatment under the old key.
+B08_TTL_DIR="$TMPROOT/b08-ttl-cache"
+B08_TTL_WD="$TMPROOT/b08-ttl-wd"; mk_wt "$B08_TTL_WD"
+printf 'Build\n' > "$B08_TTL_WD/.local/MODE"
+b08_ttl_json=$(b08_json "$B08_TTL_WD" "sess-ttl" "")
+render_cached "$b08_ttl_json" "$B08_TTL_DIR" 2 >/dev/null
+printf 'Debug\n' > "$B08_TTL_WD/.local/MODE"
+backdate_all "$B08_TTL_DIR" 1
+check "29i: TTL semantics unchanged under the new key -- a 1s-old bundle at TTL 2 is warm ('Build')" \
+  "$(mode_cached_value "$(render_cached "$b08_ttl_json" "$B08_TTL_DIR" 2)" 'Build')" "yes"
+backdate_all "$B08_TTL_DIR" 2
+check "29i: and a 2s-old one is stale ('Debug')" \
+  "$(mode_cached_value "$(render_cached "$b08_ttl_json" "$B08_TTL_DIR" 2)" 'Debug')" "yes"
+check "29i: TTL <= 0 still disables cache serving outright" \
+  "$(printf 'Rebuilt\n' > "$B08_TTL_WD/.local/MODE"; \
+     mode_cached_value "$(render_cached "$b08_ttl_json" "$B08_TTL_DIR" 0)" 'Rebuilt')" "yes"
+backdate_all "$B08_TTL_DIR" -600
+printf 'Future\n' > "$B08_TTL_WD/.local/MODE"
+b08_future_out=$(render_cached "$b08_ttl_json" "$B08_TTL_DIR" 300)
+check "29i: a future-dated bundle still reads as fresh -- the bundled value is kept ('Rebuilt')" \
+  "$(mode_cached_value "$b08_future_out" 'Rebuilt')" "yes"
+check "29i: so the newer on-disk MODE is deliberately NOT picked up" \
+  "$(mode_cached_value "$b08_future_out" 'Future')" "no"
+B08_CORRUPT_DIR="$TMPROOT/b08-corrupt-cache"
+B08_CORRUPT_WD="$TMPROOT/b08-corrupt-wd"; mk_wt "$B08_CORRUPT_WD"
+b08_corrupt_json=$(b08_json "$B08_CORRUPT_WD" "sess-corrupt" "")
+render_cached "$b08_corrupt_json" "$B08_CORRUPT_DIR" 300 >/dev/null
+find "$B08_CORRUPT_DIR" -type f -exec sh -c 'printf "not-a-bundle{{{" > "$1"' _ {} \; 2>/dev/null
+check "29i: a corrupt bundle under the new key is still treated as absent, not a crash" \
+  "$(burn_of "$(render_cached "$b08_corrupt_json" "$B08_CORRUPT_DIR" 300)" | grep -qE 'ctx [0-9]+%' && echo yes || echo no)" "yes"
+B08_BLOCKED_PARENT="$TMPROOT/b08-blocked"; mkdir -p "$B08_BLOCKED_PARENT"
+B08_BLOCKED="$B08_BLOCKED_PARENT/cache"; : > "$B08_BLOCKED"
+b08_blocked_json=$(b08_json "$WD" "sess-blocked" "")
+check "29i: an uncreatable cache dir still renders (cold every time), sweep failure and all" \
+  "$(burn_of "$(render_cached "$b08_blocked_json" "$B08_BLOCKED" 300)" | grep -qE 'ctx [0-9]+%' && echo yes || echo no)" "yes"
+check "29i: and leaks no cache or sweep error onto stdout" \
+  "$(render_cached "$b08_blocked_json" "$B08_BLOCKED" 300 | grep -qiE 'cache|sweep|no such file|cannot create|error' && echo present || echo absent)" "absent"
+check "29i: exiting 0" \
+  "$(printf '%s' "$b08_blocked_json" \
+      | CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+          CLAM_STATUSLINE_CACHE_DIR="$B08_BLOCKED" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=300 \
+          bash "$CONTEXT" >/dev/null 2>/dev/null; echo $?)" "0"
+# The atomic temp-plus-rename write, under the same maximum contention section
+# 21 uses: every concurrent render at one session key still produces a complete
+# line, so no reader ever sees a partial bundle.
+B08_SMOKE_DIR="$TMPROOT/b08-smoke-cache"
+B08_SMOKE_WD="$TMPROOT/b08-smoke-wd"; mk_wt "$B08_SMOKE_WD"
+printf 'Build\n' > "$B08_SMOKE_WD/.local/MODE"
+b08_smoke_json=$(b08_json "$B08_SMOKE_WD" "sess-smoke" "")
+B08_SMOKE_OUT="$TMPROOT/b08-smoke-out"; mkdir -p "$B08_SMOKE_OUT"
+for i in $(seq 1 8); do
+  ( render_cached "$b08_smoke_json" "$B08_SMOKE_DIR" 0 > "$B08_SMOKE_OUT/$i" 2>&1 ) &
+done
+wait
+b08_bad=0
+for f in "$B08_SMOKE_OUT"/*; do
+  sed -n '2p' "$f" | grep -qE '^Opus .*ctx [0-9]+%' || b08_bad=$((b08_bad+1))
+done
+check "29i: concurrency at one session key (ttl=0, max write contention): every render still complete" \
+  "$b08_bad" "0"
+
+# --- 29j. The cache file's name changes; nothing the user sees does ---------
+# The Outputs clause. Two renders of the same worktree, one carrying a
+# session_id and one not, must be byte-identical on the line the bundle feeds --
+# escapes included.
+B08_TXT_WD="$TMPROOT/b08-text-wd"; mk_wt "$B08_TXT_WD"
+git -C "$B08_TXT_WD" checkout -q -b b08-text >/dev/null 2>&1
+printf 'Build\n' > "$B08_TXT_WD/.local/MODE"
+b08_raw_line1() { # json cache_dir
+  printf '%s' "$1" \
+    | CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$2" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        bash "$CONTEXT" 2>/dev/null | sed -n '1p'
+}
+b08_with=$(b08_raw_line1 "$(b08_json "$B08_TXT_WD" "sess-text" "")" "$TMPROOT/b08-text-a")
+b08_without=$(b08_raw_line1 "$(b08_json "$B08_TXT_WD" "" "")" "$TMPROOT/b08-text-b")
+check "29j: control -- the compared line really carries the cached segments" \
+  "$([ "$(b07_has "$b08_without" 'b08-text')" = yes ] \
+     && [ "$(b07_has "$b08_without" 'Build')" = yes ] && echo yes || echo no)" "yes"
+check "29j: a session_id in the payload changes nothing the user sees on line 1" \
+  "$b08_with" "$b08_without"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

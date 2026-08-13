@@ -157,12 +157,16 @@ shim_count() { # log_file [tool]
 }
 # ------------------------------------------------------------------------
 
-# sl_json(cwd, transcript_path): a statusLine JSON payload with model+effort
-# set (so the mode/model/effort line renders) and a real context-window pair
-# (so the Ctx line renders).
-sl_json() { # cwd transcript
-  printf '{"model":{"display_name":"Opus"},"effort":{"level":"high"},"workspace":{"current_dir":"%s"},"context_window":{"context_window_size":1000000,"total_input_tokens":145230},"transcript_path":"%s"}' \
+# sl_json(cwd, transcript_path[, session_id]): a statusLine JSON payload with
+# model+effort set (so the mode/model/effort line renders) and a real
+# context-window pair (so the Ctx line renders). session_id is optional and
+# omitted from the payload when empty, which is what every caller that does
+# not care about the bundle cache key passes.
+sl_json() { # cwd transcript [session_id]
+  printf '{"model":{"display_name":"Opus"},"effort":{"level":"high"},"workspace":{"current_dir":"%s"},"context_window":{"context_window_size":1000000,"total_input_tokens":145230},"transcript_path":"%s"' \
     "$1" "$2"
+  if [ -n "${3:-}" ]; then printf ',"session_id":"%s"' "$3"; fi
+  printf '}'
 }
 
 # mk_wt(dir): a git worktree with .local, so context.sh's toplevel walk
@@ -329,8 +333,8 @@ check "clause5: README documents the 300s day/week TTL figure outside the contra
 
 # ============================================================================
 # Clause 7 -- per-session bundle KEYING: two renders sharing a cwd (and cache
-# dir) but with different transcript_paths must still land in two distinct
-# bundle cache entries, i.e. the cache key is session-scoped rather than just
+# dir) but with different session_ids must still land in two distinct bundle
+# cache entries, i.e. the cache key is session_id-scoped rather than just
 # cwd-scoped, even though nothing in the bundle's own payload is session-
 # derived. What this clause does NOT assert, post-B04: payload divergence
 # between those two entries. Session cost used to be the observable that
@@ -352,8 +356,8 @@ ISO_TRANSCRIPT_A="$TMPROOT/iso-transcript-a.jsonl"
 ISO_TRANSCRIPT_B="$TMPROOT/iso-transcript-b.jsonl"
 mk_transcript "$ISO_TRANSCRIPT_A" 1000000 claude-opus-4-8   # distinct transcript_path from B (dollar figure no longer observable)
 mk_transcript "$ISO_TRANSCRIPT_B" 2000000 claude-opus-4-8   # distinct transcript_path from A (dollar figure no longer observable)
-iso_json_a="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_A")"
-iso_json_b="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_B")"
+iso_json_a="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_A" "iso-sess-a")"
+iso_json_b="$(sl_json "$ISO_WD" "$ISO_TRANSCRIPT_B" "iso-sess-b")"
 
 render_shim "$iso_json_a" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJECTS_DIR"   # cold: seeds session A's bundle
 render_shim "$iso_json_b" "$ISO_BUNDLE_DIR" 600 "$ISO_CCOST_DIR" 600 "$ISO_PROJECTS_DIR"   # cold: seeds session B's bundle (same cwd, same cache dir)

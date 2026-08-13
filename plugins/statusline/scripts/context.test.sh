@@ -21,7 +21,7 @@
 # that named the old glyph now names the label or the absence that replaced it,
 # never deleted.
 #
-# Under B18 (plan 003-statusline-meter-colour) the fourteen payload fields are
+# Under B18 (plan 003-statusline-meter-colour) the payload fields are
 # joined and split on \x1f instead of \x01, because bash 3.2 reserves \x01 as its
 # quoting sentinel and its `read` cannot split on it at all -- so on macOS, whose
 # /bin/bash is 3.2.57, every field lands in window_size and the statusline
@@ -72,14 +72,29 @@
 # Outputs: unchanged — one PASS line per assertion, then "ALL PASS".
 #
 # Invariants:
-#   - Exactly 497 PASS lines and a zero exit. A changed count is a defect,
+#   - Exactly 419 PASS lines and a zero exit. A changed count is a defect,
 #     whichever direction it moves. (Was 86 when this contract was written;
 #     the burnrate uplift raised it to 277, B09/B10's sections 24 and 25
-#     raised it to 381, B16's section 26 raised it to 459, and B18's section 27
-#     raised it again. The rule is the frozen count, not the number, so the
-#     number moves when a deliberate change to the suite lands and stays frozen
-#     in between.)
-#   - No assertion may be weakened, skipped, merged, or deleted.
+#     raised it to 381, B16's section 26 raised it to 459, B18's section 27
+#     raised it to 497, and B05 line2-groups -- plan
+#     001-statusline-glance-uplift -- moved it again when it replaced sections
+#     23/24 with one section and retired the figures section 26 coloured; the
+#     relocation of lib/burn-tick.test.sh's two retirement assertions into
+#     section 26j, plus their non-vacuity guard, raised it by three to 419. The
+#     rule is the frozen count, not the number, so the number moves when a
+#     deliberate change to the suite lands and stays frozen in between.
+#     Count it as `grep -cE '^(PASS|FAIL)  '` over a full run: this file ends
+#     with a bare "FAILURES" epilogue on a red run, and a `grep -c '^FAIL'`
+#     that catches that line reports one assertion too many. Both of B05's test
+#     waves derived the number that way and landed on 420; the measured total
+#     is 419.)
+#   - No assertion may be weakened, skipped, merged, or deleted. B05 is the
+#     kind of deliberate change the clause above allows for: it DELETES the
+#     assertions for figures its contract retires -- the +added/-removed
+#     segment, %t, %/d -- because a test for a figure that no longer renders
+#     cannot be kept honestly. Every clause those assertions covered that
+#     SURVIVES B05 is re-pinned in the new section 23, and nothing surviving
+#     was weakened or merged to make room.
 #   - Hermeticity is NOT negotiable for speed: the temp cwd with no
 #     git/.local and the temp ccost dirs stay. B03 runs this file
 #     concurrently with 112 others, so any leak into a shared path becomes a
@@ -116,11 +131,13 @@ trap 'rm -rf "$TMPROOT"' EXIT
 # segments) and no .local (no cache-refresh fork), so the render is hermetic.
 WD="$TMPROOT/wd"; mkdir -p "$WD"
 
-# Never inherit the harness's own effort or day-shape knobs; each case sets
-# them explicitly. CLAM_STATUSLINE_DAY_START/CLAM_STATUSLINE_SLEEP_HOURS steer B01's awake-hours model
-# via B05, so a value leaking in from the developer's shell would move every
-# derived pacing figure.
-unset CLAUDE_EFFORT CLAM_STATUSLINE_DAY_START CLAM_STATUSLINE_SLEEP_HOURS
+# Never inherit the harness's own effort or schedule knobs; each case sets them
+# explicitly. B05's three schedule knobs steer B01's working-week model, so a
+# value leaking in from the developer's shell would move every weekly trend.
+# CLAM_STATUSLINE_SLEEP_HOURS is unset too although B05 retires it: a stale
+# value in a developer's shell must not be able to matter either way.
+unset CLAUDE_EFFORT CLAM_STATUSLINE_WORK_DAYS CLAM_STATUSLINE_DAY_START \
+      CLAM_STATUSLINE_DAY_END CLAM_STATUSLINE_SLEEP_HOURS
 
 ESC=$(printf '\033')
 FAILED=0
@@ -391,10 +408,11 @@ ln -s "$SCRIPT_DIR/../lib/states.tsv" "$SHADOW/lib/states.tsv"
 # The burnrate libraries too: context.sh sources each only when the file is
 # present, so a shadow tree missing them would silently render a DEGRADED line
 # and every budget measurement taken through it would be counting a render that
-# never ran B01's or B02's awk. Section 23m builds a separate shadow tree that
+# never ran B02's awk. Section 23l builds a separate shadow tree that
 # deliberately omits them, which is what makes that degradation case meaningful.
+# lib/burn-tick.sh is NOT linked: B05 retires the file outright, so a link to it
+# would break this harness the moment the implementation lands.
 ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$SHADOW/lib/burn-math.sh"
-ln -s "$SCRIPT_DIR/../lib/burn-tick.sh" "$SHADOW/lib/burn-tick.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$SHADOW/lib/burn-theme.sh"
 cat > "$SHADOW/scripts/ccost.sh" <<'EOF'
 #!/bin/bash
@@ -1155,14 +1173,21 @@ done
 check "concurrency smoke: every concurrent render (ttl=0, max write contention) still produced valid output" "$bad" "0"
 
 # === 22. B04 payload-parse ==================================================
-# Contract: sl_parse_input additionally parses eight burnrate fields (r5,
-# r5_reset, r7, r7_reset, lines_added, lines_removed, total_cost_usd,
-# session_id) from the SAME single jq invocation, the cached bundle drops its
-# cost_line key (six keys -> five, mask 63 -> 31), and context.sh stops
-# invoking ccost.sh entirely. The renderer that consumes these fields (B05)
-# is still an unimplemented stub in this unit, so every case here observes
-# the variables directly by sourcing context.sh rather than reading them out
-# of the rendered text.
+# Contract: sl_parse_input parses the burnrate fields from the SAME single jq
+# invocation, the cached bundle drops its cost_line key (six keys -> five, mask
+# 63 -> 31), and context.sh stops invoking ccost.sh entirely. Every case here
+# observes the variables directly by sourcing context.sh rather than reading
+# them out of the rendered text.
+#
+# B05 line2-groups (plan 001-statusline-glance-uplift) narrows the field list
+# from eight to SIX: it retires the +added/-removed segment, so lines_added and
+# lines_removed are removed from the jq filter and from the `read` that
+# consumes it. The cases that pinned their VALUES are retargeted rather than
+# deleted -- they now pin that the two names are not assigned at all, which is
+# the sharper statement and the one a half-done retirement fails. The clause
+# they were really carrying, "a gap in the middle does not swallow the fields
+# after it", is kept by asserting it on total_cost_usd and session_id, which
+# are exactly the fields that used to sit behind the two now-missing columns.
 
 B04_CACHE_DIR="$TMPROOT/b04-cache"
 
@@ -1182,7 +1207,11 @@ parse_vars() { # json
     export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000
     export CLAM_STATUSLINE_CACHE_DIR="$B04_CACHE_DIR" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0
     . "$CONTEXT" >/dev/null 2>&1
-    declare -p r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id 2>/dev/null
+    declare -p r5 r5_reset r7 r7_reset total_cost_usd session_id 2>/dev/null
+    # Reported separately, and deliberately NOT through declare -p: an unset
+    # name prints nothing there, which is indistinguishable from a name the
+    # eval simply did not carry. This makes the absence assertable.
+    printf 'B05_RETIRED_FIELDS=%s%s\n' "${lines_added+set}" "${lines_removed+set}"
   )
 }
 
@@ -1196,8 +1225,10 @@ check "full payload: r5 (five_hour used_percentage)" "$r5" "42"
 check "full payload: r5_reset (five_hour resets_at)" "$r5_reset" "1700000000"
 check "full payload: r7 (seven_day used_percentage)" "$r7" "17"
 check "full payload: r7_reset (seven_day resets_at)" "$r7_reset" "1700500000"
-check "full payload: lines_added" "$lines_added" "503"
-check "full payload: lines_removed" "$lines_removed" "16"
+check "full payload: lines_added is not parsed at all (B05 retires the field)" \
+  "$B05_RETIRED_FIELDS" ""
+check "full payload: nor lines_removed, though the payload carries both" \
+  "$(printf '%s' "$b04_full" | grep -qF 'total_lines_added' && echo carried || echo missing)" "carried"
 check "full payload: total_cost_usd" "$total_cost_usd" "12.34"
 check "full payload: session_id" "$session_id" "sess-abc123"
 
@@ -1221,7 +1252,7 @@ check "rate_limits absent: r5 empty" "$r5" ""
 check "rate_limits absent: r5_reset empty" "$r5_reset" ""
 check "rate_limits absent: r7 empty" "$r7" ""
 check "rate_limits absent: r7_reset empty" "$r7_reset" ""
-check "rate_limits absent: cost/session_id still parse (lines_added)" "$lines_added" "9"
+check "rate_limits absent: cost/session_id still parse (total_cost_usd)" "$total_cost_usd" "1.5"
 check "rate_limits absent: cost/session_id still parse (session_id)" "$session_id" "sess-xyz"
 
 # 22c. Gap in the middle: five_hour present, seven_day ABSENT, cost present.
@@ -1235,8 +1266,8 @@ check "gap in middle (seven_day absent): r5 present" "$r5" "55"
 check "gap in middle (seven_day absent): r5_reset present" "$r5_reset" "1700111111"
 check "gap in middle (seven_day absent): r7 empty" "$r7" ""
 check "gap in middle (seven_day absent): r7_reset empty" "$r7_reset" ""
-check "gap in middle (seven_day absent): lines_added still lands correctly" "$lines_added" "7"
-check "gap in middle (seven_day absent): lines_removed still lands correctly" "$lines_removed" "3"
+check "gap in middle (seven_day absent): the retired line-count names stay unset" \
+  "$B05_RETIRED_FIELDS" ""
 check "gap in middle (seven_day absent): total_cost_usd still lands correctly" "$total_cost_usd" "0.42"
 check "gap in middle (seven_day absent): session_id still lands correctly" "$session_id" "sess-gap1"
 
@@ -1247,8 +1278,8 @@ check "gap in middle (five_hour absent): r5 empty" "$r5" ""
 check "gap in middle (five_hour absent): r5_reset empty" "$r5_reset" ""
 check "gap in middle (five_hour absent): r7 present" "$r7" "88"
 check "gap in middle (five_hour absent): r7_reset present" "$r7_reset" "1700222222"
-check "gap in middle (five_hour absent): lines_added still lands correctly" "$lines_added" "11"
-check "gap in middle (five_hour absent): lines_removed still lands correctly" "$lines_removed" "4"
+check "gap in middle (five_hour absent): the retired line-count names stay unset" \
+  "$B05_RETIRED_FIELDS" ""
 check "gap in middle (five_hour absent): total_cost_usd still lands correctly" "$total_cost_usd" "2.75"
 check "gap in middle (five_hour absent): session_id still lands correctly" "$session_id" "sess-gap2"
 
@@ -1266,17 +1297,15 @@ b04_zero="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":
 eval "$(parse_vars "$b04_zero")"
 check "genuine zero used_percentage parses to \"0\", not empty" "$r5" "0"
 check "genuine zero resets_at parses to \"0\", not empty" "$r5_reset" "0"
-check "genuine zero total_lines_added parses to \"0\", not empty" "$lines_added" "0"
-check "genuine zero total_lines_removed parses to \"0\", not empty" "$lines_removed" "0"
+check "a genuine zero line count is not parsed either -- the field is gone, not zeroed" \
+  "$B05_RETIRED_FIELDS" ""
 check "genuine zero total_cost_usd parses to \"0\", not empty" "$total_cost_usd" "0"
 
-# 22g. cost object entirely absent: lines_added/lines_removed/total_cost_usd
-#      all empty -- distinguishable from the genuine-zero case above. Also
-#      confirms session_id is empty, not just skipped, when absent.
+# 22g. cost object entirely absent: total_cost_usd empty -- distinguishable
+#      from the genuine-zero case above. Also confirms session_id is empty, not
+#      just skipped, when absent.
 b04_nocost="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$WD\"},$ctx,\"transcript_path\":\"\"}"
 eval "$(parse_vars "$b04_nocost")"
-check "cost object absent: lines_added empty" "$lines_added" ""
-check "cost object absent: lines_removed empty" "$lines_removed" ""
 check "cost object absent: total_cost_usd empty" "$total_cost_usd" ""
 check "cost object absent: session_id empty" "$session_id" ""
 
@@ -1373,49 +1402,65 @@ check "B04 payload, warm render: exactly one jq" \
 check "B04 payload, warm render: ccost.sh never invoked" \
   "$([ "${b04_warm_ccost:-1}" -eq 0 ] && echo yes || echo no)" "yes"
 
-# === 23. B05 burnrate line, as amended by B09 ===============================
-# Contract: sl_render_burn_line assembles the entire line and echoes it as one
-# string with no trailing newline -- FOUR groups joined by a dim │ separator:
-#   1 model    the model name in its drifting rainbow, and the effort tier in
-#              its own colour. No mascot prefix (B09).
-#   2 weekly   wk used%, today's remaining share (%t), sustainable pace (%/d),
-#              and the trend arrow vs the awake even-burn line
-#   3 session  ctx context occupancy, and lines added/removed this session
-#   4 5-hour   5h used%, and the countdown to its reset IN PARENS (B09)
-# -- composing B01 (burn_metrics), B02 (burn_tick_frac) and B03 (all
-# presentation) over B04's parsed fields, performing no arithmetic and no
-# colour selection of its own.
+# === 23. B05 line2-groups ===================================================
+# Contract: the `Contract: B05 line2-groups (plan 001-statusline-glance-uplift)`
+# docblock above sl_render_burn_line. It SUPERSEDES the previous B05 burnrate-
+# line contract (plan 001-statusline-burnrate-uplift, amended by plans 002 and
+# 003) entirely, so this section is a replacement for the old sections 23 and
+# 24 rather than an amendment to them.
 #
-# B05's fifth group, the pet, is deleted by B09 along with the stress scan that
-# fed it. Every case below that was expressed through the pet has been
-# retargeted at the clause it was really testing rather than dropped: the
-# stress-maximum cases become 23h's absence cases (a group that must vanish for
-# every meter combination that used to produce a mood), and the "last group"
-# extractions now land on the 5-hour group.
+# Line 2 is now FOUR groups joined by the existing dim separator:
 #
-# Sections 1-12 above already re-pin the clauses that predate B05 and survive
-# it in a new form (the $CLAUDE_EFFORT fallback and its precedence, the
-# absent-data omission rule, the idle-aware context colour, the clam-mode
-# segment). This section covers what is new: group assembly, the vanishing
-# separator, the derived pacing figures, degradation, and the two env knobs.
-# Section 24 covers what B09 adds on top: the labels' colour placement, the
-# parenthesised countdown, and the line's emoji-freeness as an alphabet.
+#   Fable 5 high | ctx 10% | 5h 1% v-1 (4h54m) | wk 32% v-25 (2d4h)
 #
-# Expected values are DERIVED by calling the real B01/B03 functions rather than
-# hard-coded. Every pacing figure depends on the wall-clock instant the suite
-# runs at, so a literal would be right today and wrong tomorrow.
+#   1 model    the model name in B03's FLAT per-model colour, and the effort
+#              tier in its own colour.                    Glance-items 1 and 2.
+#   2 context  `ctx` occupancy.                                 Glance-item 5.
+#   3 5-hour   `5h` used%, trend, countdown.                    Glance-item 6.
+#   4 weekly   `wk` used%, trend, countdown.                    Glance-item 7.
+#
+# The two limit groups carry the SAME three figures in the same order, which is
+# why several cases below assert them as a pair: "the reader learns one reading
+# rather than two" is a property of the line, not of either group.
+#
+# What this block RETIRES is asserted as sharply as what it renders, because a
+# retirement that half-happens is the failure mode: the +added/-removed
+# segment, the %t figure, the %/d figure, and the lines_added/lines_removed jq
+# fields all go. Section 22 covers the parse end of that; 23d covers the render
+# end. The library-level retirements (burn_metrics, burn_awake_seconds,
+# burn_day_start_epoch, burn_rainbow, burn_model_style, burn_frame_advance,
+# burn_diff_color, and the whole of lib/burn-tick.sh) are asserted in
+# lib/burn-math.test.sh and lib/burn-theme.test.sh, which pin each file's
+# surviving function roster as an exact equality.
+#
+# Expected values are DERIVED by calling the real B01/B02/B03/B04 functions
+# rather than hard-coded. Every trend and countdown depends on the wall-clock
+# instant the suite runs at, so a literal would be right today and wrong
+# tomorrow. Where a figure varies continuously with `now` it is bracketed over
+# [t0, t1] -- a `date` either side of the render -- rather than pinned at a
+# single instant, which would be a rounding-boundary coin flip.
 
-# The render's own "now" and its local time-of-day. B05 derives the day-start
-# anchor from exactly these two quantities, so an anchor derived here is the
-# anchor the render builds a fraction of a second later.
+# The render's own "now", its local seconds-into-day, and its local ISO
+# weekday. The contract's Inputs clause names exactly these: ONE plain `date`
+# yielding seconds-into-day AND ISO weekday together, from which B01's anchor
+# pair (midnight epoch, weekday) is derived. Derived here the same way, so an
+# anchor computed here is the anchor the render builds a fraction of a second
+# later.
 B5_NOW=$(date +%s)
-read -r _b5h _b5m _b5s <<< "$(date +'%H %M %S')"
+read -r _b5h _b5m _b5s _b5u <<< "$(date +'%H %M %S %u')"
 B5_SECS=$(( 10#$_b5h * 3600 + 10#$_b5m * 60 + 10#$_b5s ))
+B5_MIDNIGHT=$(( B5_NOW - B5_SECS ))
+B5_WDAY=$_b5u
 B5_R5_RESET=$(( B5_NOW + 17670 ))       # 4h54m30s out: 30s clear of a minute flip
 B5_R7_RESET=$(( B5_NOW + 3 * 86400 ))
 
 B5_WD="$TMPROOT/b5-wd"; mkdir -p "$B5_WD"
 B5_CACHE="$TMPROOT/b5-cache"
+
+# The default schedule, normalized by B01 itself rather than restated here:
+# "1-5" 8 18, which the contract names as the default for each of the three
+# knobs.
+read -r B5_MASK B5_SS B5_ES <<< "$(burn_work_parse "1-5" 8 18)"
 
 # burn_json(cwd tokens model effort r5 r5_reset r7 r7_reset added removed):
 # a statusLine payload in which every field is independently PRESENT or ABSENT.
@@ -1423,13 +1468,10 @@ B5_CACHE="$TMPROOT/b5-cache"
 # distinction is the whole of the "empty is not zero" clause, so the fixture
 # builder has to be able to express both.
 #
-# cost.total_cost_usd and session_id are deliberately never emitted. Without a
-# cost figure B02's burn_tick_frac returns 0 on every path it can take (anchor,
-# session switch, and the read path where the delta is zero or negative all
-# floor at 0), so the sub-tick fraction folded into %t is a known 0 and the
-# figures derived below are reproducible without this suite having to know
-# where the implementation keeps B02's state file. Case 23l uses a payload that
-# does carry cost, where the interpolator is genuinely exercised.
+# The two line-count arguments are KEPT even though B05 retires the figures
+# they fed: a payload that carries them is exactly the payload on which "the
+# counts no longer render" has to be asserted (23d). Claude Code still sends
+# them; what changes is that this plugin stops reading them.
 burn_json() { # cwd tokens model effort r5 r5_reset r7 r7_reset added removed
   local cwd="$1" tokens="$2" model="$3" effort="$4" r5="$5" r5r="$6" r7="$7" r7r="$8" la="$9" lr="${10}"
   local j rl="" cost=""
@@ -1460,7 +1502,7 @@ burn_json() { # cwd tokens model effort r5 r5_reset r7 r7_reset added removed
 
 # burn_render(json, [NAME=VALUE ...]): a hermetic always-cold render (TTL 0)
 # with the ANSI stripped. Extra env pairs go straight to `env`, so a case can
-# set CLAM_STATUSLINE_DAY_START / CLAM_STATUSLINE_SLEEP_HOURS without leaking the value into any other.
+# set one schedule knob without leaking the value into any other.
 burn_render() { # json [env...]
   local json="$1"; shift
   printf '%s' "$json" \
@@ -1495,127 +1537,142 @@ last_group() { # line
   printf '%s' "$g"
 }
 
-# burn_expect_today(used reset day_start_hour sleep_hours): B01's %t figure for
-# those inputs. This is the one derived figure the suite pins EXACTLY: unlike
-# pace and trend it does not depend on `now` at all -- it reads off the current
-# day's slice of the ideal line, fixed by the day-start anchor and the reset --
-# so a value computed here cannot drift from the value the render computes an
-# instant later.
-burn_expect_today() { # used reset day_start_hour sleep_hours
-  local ds
-  ds=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" "$3") || return 1
-  burn_metrics "$1" 0 "$B5_NOW" "$2" "$ds" "$(( $4 * 3600 ))" | awk '{print $1}'
+# b5_trend_token(trend): the rendered form of a trend value -- the arrow chosen
+# by SIGN, then B02's own signed number, with no space between them. Negative
+# reads "▼-25", exactly as the contract's example line shows; positive takes
+# the up arrow and B02's unsigned digits. Empty in, empty out, so a group
+# builder can concatenate it unconditionally.
+b5_trend_token() { # trend
+  [ -n "$1" ] || return 0
+  case "$1" in
+    -*) printf '▼%s' "$1" ;;
+    *)  printf '▲%s' "$1" ;;
+  esac
 }
 
-# burn_metric_candidates(field used reset ds slp t0 t1): B01's FIELD (1=%t,
-# 2=pace, 3=trend) at each whole second in [t0,t1] -- the interval the render's
-# own clock provably fell inside, bracketed by a `date` either side of the
-# render. Pace and trend both vary continuously with `now` and are then rounded
-# for display, so pinning them to a single instant would be a rounding-boundary
-# coin flip; bracketing keeps the assertion exact without the flake.
-burn_metric_candidates() { # field used reset ds slp t0 t1
-  local n
-  for (( n = $6; n <= $7; n++ )); do
-    burn_metrics "$2" 0 "$n" "$3" "$4" "$5" 2>/dev/null | awk -v f="$1" '{print $f}'
+# b5_five_group(used reset now) / b5_week_group(used reset now days start end):
+# the ANSI-stripped text of a limit group as the contract composes it --
+# label + integer used% , then the trend if its window can be computed, then
+# B04's countdown in parens. Both are built from the REAL B02/B04 functions at
+# a given `now`, which is what lets the assertions bracket the clock instead of
+# guessing at it. Either figure failing drops that figure alone, never the
+# group and never the used%.
+b5_five_group() { # used reset now
+  local g t cd
+  g="5h ${1%%.*}%"
+  t=$(burn_linear_trend "$1" "$3" "$2" 18000 2>/dev/null) && g="$g $(b5_trend_token "$t")"
+  cd=$(burn_reset_str "$2" "$3" 2>/dev/null) && g="$g ($cd)"
+  printf '%s' "$g"
+}
+b5_week_group() { # used reset now [days start end]
+  local g t cd m s e
+  read -r m s e <<< "$(burn_work_parse "${4:-1-5}" "${5:-8}" "${6:-18}")"
+  g="wk ${1%%.*}%"
+  t=$(burn_week_trend "$1" "$3" "$2" "$B5_MIDNIGHT" "$B5_WDAY" "$m" "$s" "$e" 2>/dev/null) \
+    && g="$g $(b5_trend_token "$t")"
+  cd=$(burn_reset_str "$2" "$3" 2>/dev/null) && g="$g ($cd)"
+  printf '%s' "$g"
+}
+
+# b5_join(group...): assemble groups exactly as the contract's Outputs clause
+# describes -- an empty group contributes NOTHING AT ALL, and the separator
+# goes only BETWEEN present groups, one space either side. Expected lines are
+# built with this rather than written out, so a case states which GROUPS it
+# expects and the vanishing-separator rule is applied once, in one place.
+b5_join() { # group...
+  local acc="" g
+  for g in "$@"; do
+    [ -z "$g" ] && continue
+    [ -n "$acc" ] && acc="$acc │ "
+    acc="$acc$g"
   done
+  printf '%s' "$acc"
 }
 
-# The NN%t token's number, or empty when the sub-segment is not rendered.
-today_token() { # line
-  printf '%s' "$1" | grep -oE '\-?[0-9]+%t' | head -n1 | sed 's/%t$//'
-}
-
-# --- 23a. The whole line: four groups, in order ------------------------------
+# --- 23a. The whole line: four groups, in contract order ---------------------
+# An EQUALITY over the whole ANSI-stripped line, bracketed over the interval
+# the render's own clock provably fell inside. A grep for one group cannot tell
+# a correct line from one that also gained a stray separator, lost a space, or
+# put the groups in the wrong order; this can.
 b5_full=$(burn_json "$B5_WD" 145230 "Opus" "max" 1 "$B5_R5_RESET" 62 "$B5_R7_RESET" 503 16)
 b5_t0=$(date +%s)
 b5_out=$(burn_render "$b5_full")
 b5_t1=$(date +%s)
 b5_line=$(burn_of "$b5_out")
 
+b5_full_ok=no
+for (( _n = b5_t0; _n <= b5_t1; _n++ )); do
+  [ "$b5_line" = "$(b5_join "Opus max" "ctx 48%" \
+      "$(b5_five_group 1 "$B5_R5_RESET" "$_n")" \
+      "$(b5_week_group 62 "$B5_R7_RESET" "$_n")")" ] && b5_full_ok=yes
+done
+check "23a: the whole line is exactly model │ ctx │ 5h │ wk, every figure derived" \
+  "$b5_full_ok" "yes"
 check "23a: four groups joined by exactly three │ separators" \
   "$(printf '%s' "$b5_line" | grep -o '│' | wc -l | tr -d ' ')" "3"
-check "23a: group 1 (model) leads with the model name and effort tier, no mascot prefix" \
+check "23a: group 1 leads the line with the model name and effort tier" \
   "$(printf '%s' "$b5_line" | grep -qE '^Opus max │' && echo yes || echo no)" "yes"
-check "23a: group 2 (weekly) carries the wk used percentage" \
-  "$(printf '%s' "$b5_line" | grep -qE '│ wk 62%' && echo yes || echo no)" "yes"
-check "23a: group 3 (session) carries the ctx occupancy (145,230/300,000 = 48%)" \
-  "$(printf '%s' "$b5_line" | grep -qE '│ ctx 48%' && echo yes || echo no)" "yes"
-check "23a: group 3 carries the +added/-removed counts" \
-  "$(printf '%s' "$b5_line" | grep -qF '+503/-16' && echo yes || echo no)" "yes"
-check "23a: group 4 (5-hour) carries the 5h used percentage" \
+check "23a: group 2 is the ctx occupancy (145,230/300,000 = 48%)" \
+  "$(printf '%s' "$b5_line" | grep -qE '│ ctx 48% │' && echo yes || echo no)" "yes"
+check "23a: group 3 is the 5-hour limit, not the weekly one" \
   "$(printf '%s' "$b5_line" | grep -qE '│ 5h 1%' && echo yes || echo no)" "yes"
-# The countdown is bracketed the same way the pacing figures are: burn_reset_str
-# rolls a minute at a time, and the render's clock is somewhere in [t0,t1]. B09
-# wraps it in parens, so the parens are matched WITH it -- a bare countdown and
-# a parenthesised one are different renders and only one of them is the clause.
-b5_countdown_ok=no
-for (( _n = b5_t0; _n <= b5_t1; _n++ )); do
-  printf '%s' "$b5_line" | grep -qF "($(burn_reset_str "$B5_R5_RESET" "$_n"))" && b5_countdown_ok=yes
-done
-check "23a: group 4 carries B03's countdown to the 5-hour reset, in parens" "$b5_countdown_ok" "yes"
-# B09 deletes the pet, so the 5-hour group is now the last group and the line
-# ends on it. Asserted as an EQUALITY on the final group rather than as an
-# absence of pet glyphs: a pet that survived would fail this, and so would a
-# 5-hour group that lost its countdown or gained a trailing separator, which a
-# "no cat faces" check would both wave through.
-b5_tail_ok=no
-for (( _n = b5_t0; _n <= b5_t1; _n++ )); do
-  [ "$(last_group "$b5_line")" = "5h 1% ($(burn_reset_str "$B5_R5_RESET" "$_n"))" ] && b5_tail_ok=yes
-done
-check "23a: the 5-hour group closes the line (the pet group is gone, not merely empty)" \
-  "$b5_tail_ok" "yes"
-check "23a: the whole line carries no emoji at all" \
-  "$(burn_no_emoji "$b5_line")" "yes"
-check "23a: the render is exactly two lines (path line + burnrate line)" \
+check "23a: group 4 is the weekly limit, and it closes the line" \
+  "$(printf '%s' "$(last_group "$b5_line")" | grep -qE '^wk 62%' && echo yes || echo no)" "yes"
+# The two limit groups carry the SAME three figures in the same order. Asserted
+# as a shape shared between them rather than twice in isolation, because "one
+# reading, not two" is the clause.
+check "23a: both limit groups read used% then trend then parenthesised countdown" \
+  "$(printf '%s' "$b5_line" | grep -cE '(5h|wk) [0-9]+% (▲|▼)-?[0-9]+ \([0-9]+[a-z][0-9]+[a-z]\)')" "1"
+check "23a: the render is exactly two lines (path line + line 2)" \
   "$(printf '%s\n' "$b5_out" | wc -l | tr -d ' ')" "2"
 check "23a: the assembled line is structurally well-formed" \
   "$(burn_wellformed "$b5_line")" "yes"
-check "23a: none of the three retired lines survives (Ctx used: / Cost: / Session: \$)" \
+check "23a: the whole line carries no emoji at all" \
+  "$(burn_no_emoji "$b5_line")" "yes"
+check "23a: none of the retired standalone lines survives (Ctx used: / Cost: / Session: \$)" \
   "$(printf '%s\n' "$b5_out" | grep -qE 'Ctx used:|Cost:|Session: \$' && echo present || echo absent)" "absent"
 
 # --- 23b. The vanishing-separator rule --------------------------------------
-# Each group is omitted ENTIRELY, along with its separator, when its data is
-# unavailable: never a dangling │, never a marker with no number, never a
-# leading or trailing separator.
+# The Outputs clause: a group with no data is omitted WITH ITS SEPARATOR, so
+# the line never shows a dangling │, a label with no number, or a leading or
+# trailing separator. The two payload shapes the contract's Edge cases name by
+# hand get their own cases first.
 
-# 23b-i. No rate_limits at all (an API-key, Bedrock or Vertex session, or a
-#        Claude Code older than 2.1): groups 2 AND 4 vanish together.
-#        Post-B09 that leaves groups 1 and 3 alone -- one separator, and the
-#        session group ENDS the line. Matched as an anchored whole line
-#        (grep -x) rather than a prefix: the pet used to follow, and the
-#        strongest statement of "the pet is gone and took its separator with
-#        it" is that there is nothing after the counts at all.
+# 23b-i. No rate_limits at all -- an API-key, Bedrock or Vertex session, or a
+#        Claude Code older than 2.1. Groups 3 AND 4 vanish together; 1 and 2
+#        render. Anchored as a whole line (grep -x), because the strongest
+#        statement of "they took their separators with them" is that there is
+#        nothing after the ctx figure at all.
 b5_norl=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" 503 16)
 b5_norl_line=$(burn_only "$b5_norl")
-check "23b: no rate_limits → two groups, one separator" \
-  "$(printf '%s' "$b5_norl_line" | grep -o '│' | wc -l | tr -d ' ')" "1"
-check "23b: no rate_limits → no wk weekly group" \
-  "$(printf '%s' "$b5_norl_line" | grep -qE 'wk [0-9]' && echo present || echo absent)" "absent"
-check "23b: no rate_limits → no 5h 5-hour group" \
+check "23b: no rate_limits → exactly the model and ctx groups, one separator, nothing after" \
+  "$b5_norl_line" "$(b5_join "Opus max" "ctx 48%")"
+check "23b: no rate_limits → no 5h group" \
   "$(printf '%s' "$b5_norl_line" | grep -qE '5h [0-9]' && echo present || echo absent)" "absent"
-check "23b: no rate_limits → groups 1 and 3 render, in order, and nothing follows" \
-  "$(printf '%s' "$b5_norl_line" | grep -qxE 'Opus max │ ctx 48% \+503/-16' && echo yes || echo no)" "yes"
+check "23b: no rate_limits → no wk group" \
+  "$(printf '%s' "$b5_norl_line" | grep -qE 'wk [0-9]' && echo present || echo absent)" "absent"
 check "23b: no rate_limits → line stays well-formed" \
   "$(burn_wellformed "$b5_norl_line")" "yes"
 
-# 23b-ii. Weekly present, its reset timestamp absent: wk used% still renders;
-#         %t, %/d and the trend all need the reset and do not.
-b5_wknores=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 62 "" "" "")
-b5_wknores_line=$(burn_only "$b5_wknores")
-check "23b: weekly without its reset → wk 62% still renders" \
-  "$(printf '%s' "$b5_wknores_line" | grep -qE 'wk 62%' && echo yes || echo no)" "yes"
-check "23b: weekly without its reset → no %t sub-segment" \
-  "$(printf '%s' "$b5_wknores_line" | grep -qF '%t' && echo present || echo absent)" "absent"
-check "23b: weekly without its reset → no %/d sub-segment" \
-  "$(printf '%s' "$b5_wknores_line" | grep -qF '%/d' && echo present || echo absent)" "absent"
-check "23b: weekly without its reset → no trend arrow" \
-  "$(printf '%s' "$b5_wknores_line" | grep -qE '▲|▼' && echo present || echo absent)" "absent"
-check "23b: weekly without its reset → line stays well-formed" \
-  "$(burn_wellformed "$b5_wknores_line")" "yes"
+# 23b-ii. used_percentage present, resets_at absent. The contract is explicit
+#         that the used figure renders and the trend AND countdown BOTH drop:
+#         each needs the reset. Asserted on both windows, byte-exact, so a
+#         leftover space or empty paren pair fails.
+b5_5nores_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 20 "" "" "" "" "")")
+check "23b: five_hour without its reset → the used figure alone, no trend, no countdown" \
+  "$b5_5nores_line" "$(b5_join "Opus max" "ctx 48%" "5h 20%")"
+b5_7nores_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 62 "" "" "")")
+check "23b: seven_day without its reset → the used figure alone, no trend, no countdown" \
+  "$b5_7nores_line" "$(b5_join "Opus max" "ctx 48%" "wk 62%")"
+check "23b: a window without its reset leaves no empty paren pair behind" \
+  "$(printf '%s%s' "$b5_5nores_line" "$b5_7nores_line" | grep -qE '[()]' && echo present || echo absent)" "absent"
+check "23b: a window without its reset leaves no trend arrow behind" \
+  "$(printf '%s%s' "$b5_5nores_line" "$b5_7nores_line" | grep -qE '▲|▼' && echo present || echo absent)" "absent"
 
-# 23b-iii/iv. One rate-limit pair present, the other absent, both directions.
-b5_only5=$(burn_json "$B5_WD" 145230 "Opus" "max" 42 "$B5_R5_RESET" "" "" "" "")
-b5_only5_line=$(burn_only "$b5_only5")
+# 23b-iii/iv. One limit present, the other absent, both directions: three
+#             groups, two separators, and the surviving limit keeps all three
+#             of its figures.
+b5_only5_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 42 "$B5_R5_RESET" "" "" "" "")")
 check "23b: five_hour present, seven_day absent → 5h renders, wk vanishes" \
   "$(printf '%s' "$b5_only5_line" | grep -qE '5h 42%' \
      && ! printf '%s' "$b5_only5_line" | grep -qE 'wk [0-9]' && echo yes || echo no)" "yes"
@@ -1624,8 +1681,7 @@ check "23b: five_hour present, seven_day absent → three groups, two separators
 check "23b: five_hour present, seven_day absent → line stays well-formed" \
   "$(burn_wellformed "$b5_only5_line")" "yes"
 
-b5_only7=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 42 "$B5_R7_RESET" "" "")
-b5_only7_line=$(burn_only "$b5_only7")
+b5_only7_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 42 "$B5_R7_RESET" "" "")")
 check "23b: seven_day present, five_hour absent → wk renders, 5h vanishes" \
   "$(printf '%s' "$b5_only7_line" | grep -qE 'wk 42%' \
      && ! printf '%s' "$b5_only7_line" | grep -qE '5h [0-9]' && echo yes || echo no)" "yes"
@@ -1634,823 +1690,374 @@ check "23b: seven_day present, five_hour absent → three groups, two separators
 check "23b: seven_day present, five_hour absent → line stays well-formed" \
   "$(burn_wellformed "$b5_only7_line")" "yes"
 
-# 23b-v. Every group empty (a payload carrying nothing but a cwd): the line is
-#        the empty string and the caller prints NO line at all.
-b5_empty=$(burn_json "$B5_WD" "" "" "" "" "" "" "" "" "")
-b5_empty_out=$(burn_render "$b5_empty")
+# 23b-v. The LEADING separator, which only a vanished FIRST group can produce.
+#        A payload with no model and no effort drops group 1, so the line must
+#        begin at `ctx` with no separator in front of it.
+b5_nomodel_line=$(burn_only "$(burn_json "$B5_WD" 145230 "" "" 42 "$B5_R5_RESET" "" "" "" "")")
+check "23b: the model group vanishing leaves no leading separator" \
+  "$(printf '%s' "$b5_nomodel_line" | grep -qE '^ctx 48% │ 5h 42%' && echo yes || echo no)" "yes"
+check "23b: and that line is well-formed too" "$(burn_wellformed "$b5_nomodel_line")" "yes"
+
+# 23b-vi. The TRAILING separator, which only a vanished LAST group can produce.
+#         Group 4 absent leaves the line ending on the 5-hour countdown.
+check "23b: the weekly group vanishing leaves no trailing separator" \
+  "$(printf '%s' "$b5_only5_line" | grep -qE '│[[:space:]]*$' && echo present || echo absent)" "absent"
+
+# 23b-vii. Every group empty: the function echoes the empty string and the
+#          caller prints no line at all.
+b5_empty_out=$(burn_render "$(burn_json "$B5_WD" "" "" "" "" "" "" "" "" "")")
 check "23b: every group empty → the render is exactly one line (the path line)" \
   "$(printf '%s\n' "$b5_empty_out" | wc -l | tr -d ' ')" "1"
-check "23b: every group empty → no burnrate line at all" \
-  "$(burn_of "$b5_empty_out")" ""
+check "23b: every group empty → no line 2 at all" "$(burn_of "$b5_empty_out")" ""
 
 # --- 23c. "Empty is not zero" -----------------------------------------------
 # B04 sets each rate-limit variable to the empty string when its payload field
 # is absent, never 0, because a 0 would render a real "0%" meter for a session
-# that has no quota data at all. Each pair below fails if the two are ever
-# conflated -- in either direction, since an absent field and a genuine zero
-# have OPPOSITE expected renders rather than merely different ones.
-b5_zero5_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 0 "$B5_R5_RESET" "" "" "" "")")
+# that has no quota data at all. Each pair fails if the two are ever conflated,
+# in either direction: an absent field and a genuine zero have OPPOSITE
+# expected renders rather than merely different ones.
 check "23c: a GENUINE zero five_hour renders a real 5h 0% meter" \
-  "$(printf '%s' "$b5_zero5_line" | grep -qE '5h 0%' && echo yes || echo no)" "yes"
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 0 "$B5_R5_RESET" "" "" "" "")")" \
+     | grep -qE '5h 0%' && echo yes || echo no)" "yes"
 check "23c: an ABSENT five_hour renders no 5h group at all" \
-  "$(printf '%s' "$b5_wknores_line" | grep -qE '5h [0-9]' && echo present || echo absent)" "absent"
-b5_zero7_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 0 "$B5_R7_RESET" "" "")")
+  "$(printf '%s' "$b5_only7_line" | grep -qE '5h [0-9]' && echo present || echo absent)" "absent"
 check "23c: a GENUINE zero seven_day renders a real wk 0% meter" \
-  "$(printf '%s' "$b5_zero7_line" | grep -qE 'wk 0%' && echo yes || echo no)" "yes"
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 0 "$B5_R7_RESET" "" "")")" \
+     | grep -qE 'wk 0%' && echo yes || echo no)" "yes"
 check "23c: an ABSENT seven_day renders no wk group at all" \
   "$(printf '%s' "$b5_only5_line" | grep -qE 'wk [0-9]' && echo present || echo absent)" "absent"
 
-# --- 23d. The +N/-M sub-segment ---------------------------------------------
-# Appears only once at least one of the two counts is above zero: a session
-# that has edited nothing shows no counts rather than "+0/-0". The two-byte
-# sequence "/-" occurs nowhere else on the line (the pace reads "%/d", and B01
-# never emits a negative pace), so its absence is the exact test for "no counts
-# rendered" without having to enumerate what else might be there.
-b5_bothzero_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" 0 0)")
-check "23d: both counts zero → no counts sub-segment" \
-  "$(printf '%s' "$b5_bothzero_line" | grep -qF '/-' && echo present || echo absent)" "absent"
-check "23d: both counts zero → the literal '+0/-0' is nowhere on the line" \
-  "$(printf '%s' "$b5_bothzero_line" | grep -qF '+0/-0' && echo present || echo absent)" "absent"
-b5_nocost_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" "" "")")
-check "23d: both counts absent → no counts sub-segment" \
-  "$(printf '%s' "$b5_nocost_line" | grep -qF '/-' && echo present || echo absent)" "absent"
-check "23d: both counts absent → the ctx group still renders its occupancy" \
-  "$(printf '%s' "$b5_nocost_line" | grep -qE 'ctx 48%' && echo yes || echo no)" "yes"
-b5_addonly_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" 5 0)")
-check "23d: added above zero, removed zero → the sub-segment appears ('+5/-0')" \
-  "$(printf '%s' "$b5_addonly_line" | grep -qF '+5/-0' && echo yes || echo no)" "yes"
-b5_removeonly_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" 0 7)")
-check "23d: removed above zero, added zero → the sub-segment appears ('+0/-7')" \
-  "$(printf '%s' "$b5_removeonly_line" | grep -qF '+0/-7' && echo yes || echo no)" "yes"
+# --- 23d. The retirements, asserted on a payload that still carries them ----
+# The +added/-removed segment, the %t figure and the %/d figure answer none of
+# the seven glance-items and are cut. The fixture below is the one that can see
+# it: a payload carrying real, non-zero line counts and both resets, so every
+# retired figure has the data it used to render from. Absence here is a
+# deletion; absence on an empty payload would prove nothing.
+b5_retire_line="$b5_line"
+check "23d: no +added/-removed segment, though the payload carries 503 and 16" \
+  "$(printf '%s' "$b5_retire_line" | grep -qE '\+[0-9]+/-[0-9]+' && echo present || echo absent)" "absent"
+check "23d: the literal counts from the payload appear nowhere on the line" \
+  "$(printf '%s' "$b5_retire_line" | grep -qE '(\+503|-16)' && echo present || echo absent)" "absent"
+check "23d: no %t figure survives" \
+  "$(printf '%s' "$b5_retire_line" | grep -qF '%t' && echo present || echo absent)" "absent"
+check "23d: no %/d figure survives" \
+  "$(printf '%s' "$b5_retire_line" | grep -qF '%/d' && echo present || echo absent)" "absent"
+# The only `%` signs left are the three the contract's example line shows: one
+# per meter. Counted rather than pattern-matched, so a retired figure that came
+# back in a new spelling still fails.
+check "23d: exactly three % signs on the line -- ctx, 5h and wk, and nothing else" \
+  "$(printf '%s' "$b5_retire_line" | grep -o '%' | wc -l | tr -d ' ')" "3"
+# The counts are gone from the RENDER even on a payload where they are the only
+# thing present besides the model, which is the shape that used to produce a
+# counts-only session group.
+check "23d: a payload with nothing but line counts renders no session-counts group" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "Opus" "" "" "" "" "" 503 16)")" "Opus"
 
 # --- 23e. Context occupancy is not clamped ----------------------------------
-# The whole reason the plugin computes occupancy itself rather than reading the
-# payload's .context_window.used_percentage: that field saturates at 100.
-b5_over_line=$(burn_only "$(burn_json "$B5_WD" 350000 "Opus" "max" "" "" "" "" "" "")")
-check "23e: occupancy over 100% renders above 100 (350,000/300,000 = 116%)" \
-  "$(printf '%s' "$b5_over_line" | grep -qE 'ctx 116%' && echo yes || echo no)" "yes"
-check "23e: occupancy over 100% is not clamped to 100" \
-  "$(printf '%s' "$b5_over_line" | grep -qE 'ctx 100%' && echo present || echo absent)" "absent"
+# The Edge case: over 100% renders above 100 rather than clamping. This is the
+# whole reason the plugin computes occupancy itself instead of reading a
+# clamped figure from the payload.
+check "23e: 350,000 tokens against a 300,000 window renders ctx 116%, not 100%" \
+  "$(burn_only "$(burn_json "$B5_WD" 350000 "" "" "" "" "" "" "" "")")" "ctx 116%"
 
-# --- 23f. The model group ---------------------------------------------------
-# B09 drops the mascot prefix, so every model family now leads its group with
-# the NAME. The per-family case is still worth running across the whole roster
-# rather than once: the mascot was the one thing that differed between families
-# here, so a change that dropped it for the families it recognised and left the
-# fallback in place for the one it did not would pass a single-model check.
-#
-# The mascot glyphs are named as LITERALS rather than read back out of
-# $BURN_MASCOT. B08 stops burn_model_style setting that global at all, so an
-# expectation sourced from it would quietly become "no mascot must not appear",
-# which every render satisfies. The literals are the five B03 ever emitted.
-B5_MASCOTS='🎭|🪶|🦄|🌸|🤖'
-for _m in "Opus" "Sonnet" "Fable 5" "Haiku 4.5" "Gemini 3"; do
-  _line=$(burn_only "$(burn_json "$B5_WD" 145230 "$_m" "high" "" "" "" "" "" "")")
-  check "23f: model '$_m' leads its group with the name, no mascot" \
-    "$(printf '%s' "$_line" | grep -qE "^$_m high( │|\$)" && echo yes || echo no)" "yes"
-  check "23f: model '$_m' renders no mascot glyph anywhere on the line" \
-    "$(printf '%s' "$_line" | grep -qE "$B5_MASCOTS" && echo present || echo absent)" "absent"
-done
-
-burn_model_style "Opus"
-b5_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "" "" "" "")")
-check "23f: the model name is coloured from its family's palette at one consistent frame offset" \
-  "$(rainbow_ok "$b5_raw" "Opus")" "yes"
-check "23f: the effort tier carries burn_effort_color's sequence for its level" \
-  "$(printf '%s' "$b5_raw" | grep -qaF "$(burn_effort_color max)max" && echo yes || echo no)" "yes"
-check "23f: a different tier gets its own colour (low is not max's red)" \
-  "$(printf '%s' "$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "low" "" "" "" "" "" "")")" \
-     | grep -qaF "$(burn_effort_color low)low" && echo yes || echo no)" "yes"
-
-# A model name carrying a parenthesised suffix is trimmed at " (" before
-# colouring, so the line stays short.
-b5_paren_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus 5 (1M context)" "max" "" "" "" "" "" "")")
-check "23f: a parenthesised model suffix is trimmed at ' (' ('Opus 5', not 'Opus 5 (1M context)')" \
-  "$(printf '%s' "$b5_paren_line" | grep -qE '^Opus 5 max( │|$)' && echo yes || echo no)" "yes"
-check "23f: the trimmed suffix appears nowhere on the line" \
-  "$(printf '%s' "$b5_paren_line" | grep -qF '1M context' && echo present || echo absent)" "absent"
+# --- 23f. The model group ----------------------------------------------------
+# Glance-items 1 and 2 in one group: the name and the tier, in that order,
+# separated by a single space and NOT by a separator -- they are one group, not
+# two.
+check "23f: model and effort are one group, space-separated, in that order" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "Fable 5" "high" "" "" "" "" "" "")")" "Fable 5 high"
+check "23f: a model with no effort renders the name alone" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "Opus" "" "" "" "" "" "" "")")" "Opus"
+# The Edge case: a parenthesised suffix is trimmed at " (" BEFORE colouring, so
+# the group carries the short name and no stray parens.
+check "23f: a parenthesised suffix is trimmed at ' (' -- 'Opus 5 (1M context)' → 'Opus 5'" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "Opus 5 (1M context)" "high" "" "" "" "" "" "")")" "Opus 5 high"
+check "23f: no model and no effort → the group vanishes entirely" \
+  "$(burn_only "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" "" "")")" "ctx 48%"
 
 # --- 23g. Clean termination, at the byte level ------------------------------
-# The byte-level twin of section 8's check. `out=$(render ...)` strips ALL
-# trailing newlines, so no assertion made on a captured string can distinguish
-# "ends on a real line" from "ends on a blank one"; these write the render to a
-# FILE and read its last byte, which can. (cjdubb/clam#231.)
+# "echoes it as one string with no trailing newline": the line ends at its last
+# visible byte, with the closing reset and nothing after it. Checked on the RAW
+# render, since a stripped one cannot show a dangling opener.
+b5_raw_full=$(burn_render_raw "$b5_full")
+check "23g: the raw render ends in a reset, not in a colour opener" \
+  "$(printf '%s' "$b5_raw_full" | grep -qa "$(printf '\033')\\[0m$" && echo yes || echo no)" "yes"
+check "23g: every escape on line 2 is a complete SGR sequence (no truncated opener)" \
+  "$(line_of "$b5_raw_full" 2 | sed -E "s/${ESC}\\[[0-9;]*m//g" | grep -c "$ESC" | tr -d ' ')" "0"
+
+# --- 23h. The trends: B02's two functions, one per window -------------------
+# The composition clause: burn_linear_trend for the 5-hour window,
+# burn_week_trend for the weekly one. Both are bracketed over [t0, t1].
 #
-# The assertion is exactly the clause -- the last byte is not a newline -- and
-# nothing more. Pinning the actual byte would pin whether the line happens to
-# end in an SGR reset, which the contract does not say either way.
-#
-# `od -An -c` renders a newline as the two characters \n, any printable byte as
-# itself, and a non-ASCII byte as its octal value; comparing against the
-# literal \n is therefore exact and never ambiguous.
-last_byte_is_newline() { # file
-  [ "$(tail -c1 "$1" | od -An -c | tr -d ' \n')" = '\n' ] && echo newline || echo not-newline
-}
-b5_bytes="$TMPROOT/b5-bytes.out"
-printf '%s' "$b5_full" \
-  | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
-      CLAM_STATUSLINE_CACHE_DIR="$B5_CACHE" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
-      bash "$CONTEXT" > "$b5_bytes" 2>/dev/null
-check "23g: a render ending on the burnrate line emits no trailing newline" \
-  "$(last_byte_is_newline "$b5_bytes")" "not-newline"
-printf '%s' "$b5_empty" \
-  | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
-      CLAM_STATUSLINE_CACHE_DIR="$B5_CACHE" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
-      bash "$CONTEXT" > "$b5_bytes" 2>/dev/null
-check "23g: every group empty → the caller prints no line at all, not a bare newline" \
-  "$(last_byte_is_newline "$b5_bytes")" "not-newline"
-check "23g: every group empty → the render is one newline-free path line" \
-  "$(grep -c '' "$b5_bytes" | tr -d ' ')" "1"
-
-# --- 23h. The pet, and the stress scan that fed it, are GONE ----------------
-# B09 deletes group 5 outright. What was a table of stress tiers is now a table
-# of the same fixtures asserting the group's absence, because each of them used
-# to produce a DIFFERENT mood: a stress scan left half-deleted, or a pet
-# emitted from one branch and not another, shows up as one of these five and
-# not the others. A single "no pet" case against one payload would not.
-#
-# Each case pins two things. The pet's own alphabet must be absent (all four
-# tiers' faces and effects at once, so no frame of any mood can slip through),
-# AND the line must end on the last DATA group with no trailing separator --
-# `_sl_burn_group` drops an absent group's separator, so a pet deleted without
-# its separator would leave a dangling │ that the absence check alone would
-# miss.
-B5_PET_GLYPHS='😾|🙀|😿|😼|🐱|😽|😺|😸|😹|😻|🔥|💢|💥|💦|°|∘|·|‥|…|♪|♫|♬'
-b5_nopet_case() { # label json expected_last_group
-  local line
-  line=$(burn_only "$2")
-  check "23h: $1 → no pet glyph of any tier or frame" \
-    "$(printf '%s' "$line" | grep -qE "$B5_PET_GLYPHS" && echo present || echo absent)" "absent"
-  check "23h: $1 → the line ends on '$3', no dangling separator" \
-    "$(last_group "$line")" "$3"
-  check "23h: $1 → line stays well-formed" "$(burn_wellformed "$line")" "yes"
-}
-# Context 10%, 5-hour 75%, weekly 1%: the max was 75 -> the panic tier. The
-# 5-hour group is last, so the line must end on it.
-b5_nopet_case "worst meter 75 (ctx 10%, 5h 75%, wk 1%)" \
-  "$(burn_json "$B5_WD" 30000 "Opus" "max" 75 "" 1 "" "" "")" \
-  "5h 75%"
-# Context 116%, no rate limits at all: the max was 116, also panic, and the
-# context meter was the only contributor. Here group 3 ends the line.
-b5_nopet_case "worst meter 116, context only (ctx 116%, no rate limits)" \
-  "$(burn_json "$B5_WD" 350000 "Opus" "max" "" "" "" "" "" "")" \
-  "ctx 116%"
-# Context 10%, 5-hour ABSENT, weekly 55%: the max over the meters that existed
-# was 55 -> the nervous tier.
-b5_nopet_case "worst meter 55, one meter absent (ctx 10%, 5h absent, wk 55%)" \
-  "$(burn_json "$B5_WD" 30000 "Opus" "max" "" "" 55 "" "" "")" \
-  "ctx 10%"
-# Context 10%, 5-hour 35%, weekly 1%: the max was 35 -> the alert tier, whose
-# effect characters ('·', '‥', '…') are the ones a bare "no emoji" check would
-# not have caught, since none of them is an emoji.
-b5_nopet_case "worst meter 35 (ctx 10%, 5h 35%, wk 1%)" \
-  "$(burn_json "$B5_WD" 30000 "Opus" "max" 35 "" 1 "" "" "")" \
-  "5h 35%"
-# All three meters low: the max was 10 -> the happy tier.
-b5_nopet_case "all meters low (ctx 10%, 5h 1%, wk 1%)" \
-  "$(burn_json "$B5_WD" 30000 "Opus" "max" 1 "" 1 "" "" "")" \
-  "5h 1%"
-# No meter at all: pre-B09 this was the one payload that rendered no pet, so it
-# is the case that could pass either way. It still pins that the model group
-# renders alone with no separator.
-b5_nometer_line=$(burn_only "$(burn_json "$B5_WD" "" "Opus" "max" "" "" "" "" "" "")")
-check "23h: no meter of any kind → no pet glyph" \
-  "$(printf '%s' "$b5_nometer_line" | grep -qE "$B5_PET_GLYPHS" && echo present || echo absent)" "absent"
-check "23h: no meter of any kind → the model group renders alone, no separator" \
-  "$(printf '%s' "$b5_nometer_line" | grep -qxE 'Opus max' && echo yes || echo no)" "yes"
-
-# --- 23i. The derived weekly figures (%t, %/d, trend) -----------------------
-# used=85 against a reset three days out sits well ahead of the awake even-burn
-# line, so the trend is unambiguously positive and its arrow direction is a
-# real assertion rather than a coin flip on a near-zero value.
-b5_pace_json=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 85 "$B5_R7_RESET" "" "")
-b5_ds2=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" 2)
-b5_t0=$(date +%s)
-b5_pace_line=$(burn_only "$b5_pace_json")
-b5_t1=$(date +%s)
-
-check "23i: today's remaining share renders as B01 computes it (%t)" \
-  "$(today_token "$b5_pace_line")" "$(burn_expect_today 85 "$B5_R7_RESET" 2 6)"
-
-b5_pace_ok=no
-for _p in $(burn_metric_candidates 2 85 "$B5_R7_RESET" "$b5_ds2" 21600 "$b5_t0" "$b5_t1"); do
-  printf '%s' "$b5_pace_line" | grep -qF "${_p}%/d" && b5_pace_ok=yes
+# Which function feeds which window is asserted by DISCRIMINATION, not by
+# matching a number that both might produce: the fixture is checked first for
+# the two functions genuinely disagreeing on it, so a renderer that used the
+# linear trend for both windows -- the plausible simplification -- fails.
+b5_tr_t0=$(date +%s)
+b5_tr_line=$(burn_only "$(burn_json "$B5_WD" "" "" "" 40 "$B5_R5_RESET" 40 "$B5_R7_RESET" "" "")")
+b5_tr_t1=$(date +%s)
+b5_tr_ok=no
+for (( _n = b5_tr_t0; _n <= b5_tr_t1; _n++ )); do
+  [ "$b5_tr_line" = "$(b5_join "$(b5_five_group 40 "$B5_R5_RESET" "$_n")" \
+                               "$(b5_week_group 40 "$B5_R7_RESET" "$_n")")" ] && b5_tr_ok=yes
 done
-check "23i: sustainable pace renders as B01 computes it (%/d)" "$b5_pace_ok" "yes"
+check "23h: both limit groups render their own window's trend, byte for byte" "$b5_tr_ok" "yes"
+check "23h: and the two functions genuinely disagree on this fixture, so that discriminates" \
+  "$([ "$(burn_linear_trend 40 "$b5_tr_t0" "$B5_R7_RESET" 18000 2>/dev/null)" \
+      != "$(burn_week_trend 40 "$b5_tr_t0" "$B5_R7_RESET" "$B5_MIDNIGHT" "$B5_WDAY" \
+            "$B5_MASK" "$B5_SS" "$B5_ES" 2>/dev/null)" ] && echo yes || echo no)" "yes"
+# The arrow is chosen by SIGN and carries B02's own signed number. A trend the
+# helper reports as negative must render with ▼ and keep its minus, exactly as
+# the contract's example line ("▼-25") shows.
+b5_neg=$(burn_week_trend 5 "$B5_NOW" "$B5_R7_RESET" "$B5_MIDNIGHT" "$B5_WDAY" "$B5_MASK" "$B5_SS" "$B5_ES")
+check "23h: the fixture for the sign test really is negative (not vacuous)" \
+  "$(case "$b5_neg" in -*) echo yes ;; *) echo no ;; esac)" "yes"
+check "23h: a negative trend renders as ▼ followed by the signed number" \
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" "" "" 5 "$B5_R7_RESET" "" "")")" \
+     | grep -qF "▼$b5_neg" && echo yes || echo no)" "yes"
+check "23h: and no ▲ appears on that line" \
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" "" "" 5 "$B5_R7_RESET" "" "")")" \
+     | grep -qF '▲' && echo present || echo absent)" "absent"
+# A used% far above the even-burn line takes the up arrow, so the sign test is
+# pinned in both directions rather than only the one the example shows.
+check "23h: a positive trend renders as ▲ followed by B02's unsigned number" \
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" "" "" 99 "$B5_R7_RESET" "" "")")" \
+     | grep -qE '▲[0-9]+' && echo yes || echo no)" "yes"
+# A trend that cannot be computed drops the trend ALONE: the Errors clause is
+# that a component returning non-zero drops that figure, not its group. An
+# unparseable reset is the shape that produces it while leaving the used% and
+# the countdown's own input intact.
+check "23h: an unparseable reset drops trend and countdown, never the used figure" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "" "" 20 '"not-an-epoch"' "" "" "" "")")" "5h 20%"
 
-b5_trend_ok=no
-for _d in $(burn_metric_candidates 3 85 "$B5_R7_RESET" "$b5_ds2" 21600 "$b5_t0" "$b5_t1"); do
-  if [ "${_d#-}" = "$_d" ]; then _arrow='▲'; else _arrow='▼'; fi
-  printf '%s' "$b5_pace_line" | grep -qE "${_arrow}[+-]?${_d#-}([^0-9]|\$)" && b5_trend_ok=yes
+# --- 23i. The countdown ------------------------------------------------------
+# B04's burn_reset_str, wrapped in parens, closing each limit group. Bracketed
+# over [t0, t1] because burn_reset_str rolls a minute at a time.
+b5_cd_t0=$(date +%s)
+b5_cd_line=$(burn_only "$(burn_json "$B5_WD" "" "" "" 20 "$B5_R5_RESET" 30 "$B5_R7_RESET" "" "")")
+b5_cd_t1=$(date +%s)
+b5_cd5=no; b5_cd7=no
+for (( _n = b5_cd_t0; _n <= b5_cd_t1; _n++ )); do
+  printf '%s' "$b5_cd_line" | grep -qF "($(burn_reset_str "$B5_R5_RESET" "$_n"))" && b5_cd5=yes
+  printf '%s' "$b5_cd_line" | grep -qF "($(burn_reset_str "$B5_R7_RESET" "$_n"))" && b5_cd7=yes
 done
-check "23i: the trend renders with B01's magnitude and the arrow its sign implies" \
-  "$b5_trend_ok" "yes"
-check "23i: ahead of the even-burn line points up, never down" \
-  "$(printf '%s' "$b5_pace_line" | grep -qF '▼' && echo present || echo absent)" "absent"
-check "23i: the weekly group carries all four figures at once, in order" \
-  "$(printf '%s' "$b5_pace_line" | grep -qE 'wk 85%.*%t.*%/d.*▲' && echo yes || echo no)" "yes"
+check "23i: the 5-hour group closes with B04's countdown in parens" "$b5_cd5" "yes"
+check "23i: the weekly group closes with B04's countdown in parens" "$b5_cd7" "yes"
+# A weekly reset three days out is exactly the shape B04's day band exists for,
+# and the contract's example line shows it rendering as `2d4h`. Pinned as the
+# band's SHAPE, since the hour part moves with the clock.
+check "23i: a multi-day weekly countdown takes B04's day band (NdNh, no minutes)" \
+  "$(printf '%s' "$b5_cd_line" | grep -qE '\([0-9]+d[0-9]+h\)' && echo yes || echo no)" "yes"
+check "23i: each countdown is parenthesised exactly once, never doubled" \
+  "$(printf '%s' "$b5_cd_line" | grep -o '(' | wc -l | tr -d ' ')" "2"
 
-# --- 23j. B01 returning NA for today's share --------------------------------
-# A degenerate slice: the day starts at the current hour and the next three
-# hours count as sleep, so every second between the day-start and a reset
-# fifteen minutes out is asleep. B01 answers NA for %t while still producing a
-# pace and a trend -- so %t alone drops out and the other two still render.
-b5_na_hour=$(( 10#$_b5h ))
-b5_na_reset=$(( B5_NOW + 900 ))
-b5_na_json=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 32 "$b5_na_reset" "" "")
-b5_na_ds=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" "$b5_na_hour")
-check "23j: the fixture really is degenerate (B01 answers NA for today's share)" \
-  "$(burn_metrics 32 0 "$B5_NOW" "$b5_na_reset" "$b5_na_ds" 10800 | awk '{print $1}')" "NA"
-b5_na_line=$(burn_only "$b5_na_json" "CLAM_STATUSLINE_DAY_START=$b5_na_hour" "CLAM_STATUSLINE_SLEEP_HOURS=3")
-check "23j: NA today's share → the %t sub-segment is omitted" \
-  "$(printf '%s' "$b5_na_line" | grep -qF '%t' && echo present || echo absent)" "absent"
-check "23j: NA today's share → the literal 'NA' is never rendered" \
-  "$(printf '%s' "$b5_na_line" | grep -qF 'NA' && echo present || echo absent)" "absent"
-check "23j: NA today's share → pace still renders" \
-  "$(printf '%s' "$b5_na_line" | grep -qE '[0-9]%/d' && echo yes || echo no)" "yes"
-check "23j: NA today's share → the trend still renders" \
-  "$(printf '%s' "$b5_na_line" | grep -qE '(▲|▼)[+-]?[0-9]+' && echo yes || echo no)" "yes"
-check "23j: NA today's share → wk used% still renders" \
-  "$(printf '%s' "$b5_na_line" | grep -qE 'wk 32%' && echo yes || echo no)" "yes"
-check "23j: NA today's share → line stays well-formed" \
-  "$(burn_wellformed "$b5_na_line")" "yes"
-
-# --- 23k. Rate-limit figures are LIVE, never cached -------------------------
-# Server-side quota state: a stale figure is worse than none, so these never
-# enter the segment bundle. Seeded cold at 10%, then re-rendered WARM (same
-# cache key, well inside the TTL) with the payload now reporting 80%.
+# --- 23j. Rate-limit figures are LIVE, never cached -------------------------
+# The Invariants clause states this outright: they are server-side quota state
+# and a stale one is worse than none. Two renders at the SAME cache key inside
+# the TTL, differing only in their rate-limit figures -- the second must show
+# its OWN numbers, while a segment that IS cached (the clam mode) still shows
+# the first render's value, proving the bundle really was warm.
 B5LIVE_WD="$TMPROOT/b5-live-wd"; mk_wt "$B5LIVE_WD"
-B5LIVE_DIR="$TMPROOT/b5-live-cache"
-b5_live_a=$(burn_json "$B5LIVE_WD" 145230 "Opus" "max" 10 "$B5_R5_RESET" "" "" "" "")
-b5_live_b=$(burn_json "$B5LIVE_WD" 145230 "Opus" "max" 80 "$B5_R5_RESET" "" "" "" "")
-render_cached "$b5_live_a" "$B5LIVE_DIR" 5 >/dev/null      # cold: seeds the bundle
-b5_live_out=$(render_cached "$b5_live_b" "$B5LIVE_DIR" 5)  # warm: same key, within TTL
-check "23k: a warm render shows the payload's NEW 5-hour percentage (80%)" \
-  "$(burn_of "$b5_live_out" | grep -qE '5h 80%' && echo yes || echo no)" "yes"
-check "23k: the superseded 10% figure does not survive into the warm render" \
-  "$(burn_of "$b5_live_out" | grep -qE '5h 10%' && echo present || echo absent)" "absent"
+printf 'Build\n' > "$B5LIVE_WD/.local/MODE"
+B5LIVE_CACHE="$TMPROOT/b5-live-cache"
+b5_live_render() { # json
+  printf '%s' "$1" \
+    | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$B5LIVE_CACHE" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=300 \
+        bash "$CONTEXT" 2>/dev/null | sed -E "s/${ESC}\\[[0-9;]*m//g"
+}
+b5_live_render "$(burn_json "$B5LIVE_WD" 145230 "Opus" "max" 11 "$B5_R5_RESET" 21 "$B5_R7_RESET" "" "")" >/dev/null
+printf 'Ship\n' > "$B5LIVE_WD/.local/MODE"
+b5_live2=$(b5_live_render "$(burn_json "$B5LIVE_WD" 145230 "Opus" "max" 77 "$B5_R5_RESET" 88 "$B5_R7_RESET" "" "")")
+check "23j: the second render really was served warm (the cached mode still reads Build)" \
+  "$(mode_cached_value "$b5_live2" "Build")" "yes"
+check "23j: yet the 5-hour figure is the warm render's OWN, not the cached one" \
+  "$(printf '%s' "$(burn_of "$b5_live2")" | grep -qE '5h 77%' && echo yes || echo no)" "yes"
+check "23j: and so is the weekly figure" \
+  "$(printf '%s' "$(burn_of "$b5_live2")" | grep -qE 'wk 88%' && echo yes || echo no)" "yes"
+check "23j: neither of the first render's figures survives anywhere on the warm line" \
+  "$(printf '%s' "$(burn_of "$b5_live2")" | grep -qE '(5h 11%|wk 21%)' && echo present || echo absent)" "absent"
 
-# --- 23l. Warm-render process budget, with the burnrate line exercised ------
-# The contract's Invariants clause, measured by the PATH-shim harness. This
-# payload carries rate_limits AND a cost figure, so B01's awk and B02's awk are
-# both genuinely on the warm path -- unlike section 16's payload, which has no
-# rate limits and so exercises neither.
+# --- 23k. The warm-render process budget does not move ----------------------
+# The Invariants clause, measured through the PATH-shim harness on a payload
+# that exercises BOTH limit groups -- the only payload on which the budget is
+# meaningful, since a payload with no rate_limits runs neither trend.
 #
-# The cap is 12: the pre-uplift warm render measured 8, and the line adds at
-# most three (B01's awk, B02's awk, and one `date` for the local time-of-day
-# day-start anchor, alongside the existing shared UTC `date`). 12 was fixed in
-# advance and is not a figure to retune to whatever the implementation happens
-# to measure.
-B5INV_DIR="$TMPROOT/b5-inv-cache"
-B5INV_WD="$TMPROOT/b5-inv-wd"; mk_wt "$B5INV_WD"
-b5inv_json="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$B5INV_WD\"},$ctx,\"transcript_path\":\"\",\"session_id\":\"sess-b5\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":$B5_R5_RESET},\"seven_day\":{\"used_percentage\":62,\"resets_at\":$B5_R7_RESET}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
+# Each sub-limit is asserted separately as well as the total: a renderer that
+# spent a spare `date` and saved an `awk` would sit under 12 in total while
+# breaking the clause that names them individually. burn_linear_trend forks
+# NOTHING (B02's own invariant), so the 5-hour trend is not one of the two awk.
+B5BUD_DIR="$TMPROOT/b5-budget-cache"
+B5BUD_WD="$TMPROOT/b5-budget-wd"; mk_wt "$B5BUD_WD"
+printf 'Build\n' > "$B5BUD_WD/.local/MODE"
+b5bud_json=$(burn_json "$B5BUD_WD" 145230 "Opus" "max" 42 "$B5_R5_RESET" 62 "$B5_R7_RESET" 503 16)
+render_shim "$b5bud_json" "$B5BUD_DIR" 300     # cold: seeds the bundle
+render_shim "$b5bud_json" "$B5BUD_DIR" 300     # warm: same key, inside the TTL
+b5bud_total=$(shim_count "$SHIM_LOG")
+check "23k: the warm render still invokes at most 12 external commands in total" \
+  "$([ "${b5bud_total:-99}" -le 12 ] && echo yes || echo no)" "yes"
+check "23k: exactly one jq, over stdin" \
+  "$(shim_count "$SHIM_LOG" jq)" "1"
+check "23k: at most two date" \
+  "$([ "$(shim_count "$SHIM_LOG" date)" -le 2 ] && echo yes || echo no)" "yes"
+check "23k: at most two awk" \
+  "$([ "$(shim_count "$SHIM_LOG" awk)" -le 2 ] && echo yes || echo no)" "yes"
+check "23k: no git" "$(shim_count "$SHIM_LOG" git)" "0"
+check "23k: no ccost.sh -- which is also the only transcript reader, so nothing under CLAUDE_PROJECTS_DIR is opened" \
+  "$(shim_count "$CCOST_LOG_FILE")" "0"
+check "23k: and the sentinel CLAUDE_PROJECTS_DIR is still empty after the warm render" \
+  "$(find "$SENTINEL_PROJECTS_DIR" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')" "0"
+# Non-vacuity: the measurement really observed a render that produced the full
+# four-group line, so a budget met by rendering nothing would not pass.
+check "23k: the budget was measured on a render that really produced all four groups" \
+  "$(printf '%s' "$(burn_only "$b5bud_json")" | grep -o '│' | wc -l | tr -d ' ')" "3"
 
-b5_sentinel_before=$(find "$SENTINEL_PROJECTS_DIR" | sort)
-render_shim "$b5inv_json" "$B5INV_DIR" 5          # cold: seeds bundle + tick anchor
-render_shim "$b5inv_json" "$B5INV_DIR" 5          # warm: same key, within TTL
-b5_warm_total=$(shim_count "$SHIM_LOG")
-b5_warm_jq=$(shim_count "$SHIM_LOG" jq)
-b5_warm_date=$(shim_count "$SHIM_LOG" date)
-b5_warm_awk=$(shim_count "$SHIM_LOG" awk)
-b5_warm_git=$(shim_count "$SHIM_LOG" git)
-b5_warm_ccost=$(shim_count "$CCOST_LOG_FILE")
-b5_sentinel_after=$(find "$SENTINEL_PROJECTS_DIR" | sort)
-
-check "23l: warm render with a full burnrate payload invokes at most 12 external commands" \
-  "$([ "${b5_warm_total:-99}" -le 12 ] && echo yes || echo no)" "yes"
-check "23l: warm render runs exactly one jq (the burnrate fields ride the same stdin parse)" \
-  "$([ "${b5_warm_jq:-99}" -eq 1 ] && echo yes || echo no)" "yes"
-check "23l: warm render runs at most two date (shared UTC + local time-of-day anchor)" \
-  "$([ "${b5_warm_date:-99}" -le 2 ] && echo yes || echo no)" "yes"
-check "23l: warm render runs at most two awk (one in B01, one in B02)" \
-  "$([ "${b5_warm_awk:-99}" -le 2 ] && echo yes || echo no)" "yes"
-check "23l: warm render still does not invoke git" \
-  "$([ "${b5_warm_git:-1}" -eq 0 ] && echo yes || echo no)" "yes"
-check "23l: warm render still does not invoke ccost.sh" \
-  "$([ "${b5_warm_ccost:-1}" -eq 0 ] && echo yes || echo no)" "yes"
-check "23l: warm render still opens nothing under CLAUDE_PROJECTS_DIR" \
-  "$b5_sentinel_after" "$b5_sentinel_before"
-
-# --- 23m. Degradation never fails the render --------------------------------
-# Any component returning non-zero drops that figure or its whole group, and
-# the rest of the line still renders. Nothing but the line itself ever reaches
-# stdout.
-
-# 23m-i. B01 cannot compute: a weekly reset already in the past. burn_metrics
-#        returns non-zero, so %t, %/d and the trend all drop -- and wk used%,
-#        every other group, and the render itself survive.
-b5_pastreset_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 42 "$B5_R5_RESET" 62 "$(( B5_NOW - 3600 ))" "" "")")
-check "23m: weekly reset already past → wk 62% still renders" \
-  "$(printf '%s' "$b5_pastreset_line" | grep -qE 'wk 62%' && echo yes || echo no)" "yes"
-check "23m: weekly reset already past → the three derived figures all drop" \
-  "$(printf '%s' "$b5_pastreset_line" | grep -qE '%t|%/d|▲|▼' && echo present || echo absent)" "absent"
-check "23m: weekly reset already past → every other group still renders" \
-  "$(printf '%s' "$b5_pastreset_line" | grep -qE '^Opus max │' \
-     && printf '%s' "$b5_pastreset_line" | grep -qE 'ctx 48%' \
-     && printf '%s' "$b5_pastreset_line" | grep -qE '5h 42%' && echo yes || echo no)" "yes"
-check "23m: weekly reset already past → line stays well-formed" \
-  "$(burn_wellformed "$b5_pastreset_line")" "yes"
-
-# 23m-ii. Scratch state unwritable. Neither B03's animation frame file nor
-#         B02's tick state file has a contract-fixed location, so this blocks
-#         every location the implementation could reasonably have chosen at
-#         once: a regular FILE occupies the segment-cache path (so mkdir on it
-#         fails), and $HOME points inside a directory that does not exist.
-#         Whichever it picked, the write fails -- and the whole line must still
-#         render, because B03 freezes the animation and burn_tick_frac degrades
-#         to a zero fraction rather than either of them failing.
-B5BLOCK_PARENT="$TMPROOT/b5-blocked-parent"; mkdir -p "$B5BLOCK_PARENT"
-B5BLOCK="$B5BLOCK_PARENT/blocked-cache"; : > "$B5BLOCK"
-b5_blocked_out=$(printf '%s' "$b5_full" \
-  | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 HOME="$TMPROOT/b5-no-such-parent/home" \
-      CLAM_STATUSLINE_CACHE_DIR="$B5BLOCK" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=5 \
-      bash "$CONTEXT" 2>/dev/null \
-  | sed -E "s/${ESC}\\[[0-9;]*m//g")
-b5_blocked_line=$(burn_of "$b5_blocked_out")
-check "23m: unwritable scratch → all four groups still render" \
-  "$(printf '%s' "$b5_blocked_line" | grep -o '│' | wc -l | tr -d ' ')" "3"
-check "23m: unwritable scratch → the data groups keep their figures" \
-  "$(printf '%s' "$b5_blocked_line" | grep -qE '^Opus max │ wk 62%' \
-     && printf '%s' "$b5_blocked_line" | grep -qE 'ctx 48%' \
-     && printf '%s' "$b5_blocked_line" | grep -qE '5h 1%' && echo yes || echo no)" "yes"
-check "23m: unwritable scratch → line stays well-formed" \
-  "$(burn_wellformed "$b5_blocked_line")" "yes"
-check "23m: unwritable scratch → no scratch/error text leaks onto stdout" \
-  "$(printf '%s\n' "$b5_blocked_out" | grep -qiE 'no such file|cannot create|permission|not writable|error' && echo present || echo absent)" "absent"
-
-# 23m-iii. The burnrate libraries are missing entirely. context.sh sources each
-#          of the three only when the file exists, so an install that shipped
-#          without them leaves their functions undefined; the groups needing
-#          them are omitted and the render still succeeds. Same shadow-tree
-#          trick sections 16-20 use, minus the burn-*.sh symlinks.
-B5NOLIB="$TMPROOT/b5-nolib"; mkdir -p "$B5NOLIB/scripts" "$B5NOLIB/lib"
-ln -s "$CONTEXT" "$B5NOLIB/scripts/context.sh"
-ln -s "$SCRIPT_DIR/../lib/platform.sh" "$B5NOLIB/lib/platform.sh"
-ln -s "$SCRIPT_DIR/../lib/states.sh" "$B5NOLIB/lib/states.sh"
-ln -s "$SCRIPT_DIR/../lib/states.tsv" "$B5NOLIB/lib/states.tsv"
-b5_nolib_out="$TMPROOT/b5-nolib.out"
+# --- 23l. Degradation never fails the render --------------------------------
+# The Errors clause and the last Edge case: an install missing a burnrate
+# library renders the groups that do not need it, exits 0, writes nothing to
+# stderr, and leaves no partial escape sequence.
+B5DEG="$TMPROOT/b5-degraded"; mkdir -p "$B5DEG/scripts" "$B5DEG/lib"
+ln -s "$CONTEXT" "$B5DEG/scripts/context.sh"
+for _f in platform.sh states.sh states.tsv; do
+  ln -s "$SCRIPT_DIR/../lib/$_f" "$B5DEG/lib/$_f"
+done
+unset _f
+b5_deg_out="$TMPROOT/b5-deg.out"; b5_deg_err="$TMPROOT/b5-deg.err"
 printf '%s' "$b5_full" \
   | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
       CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
-      CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b5-nolib-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
-      bash "$B5NOLIB/scripts/context.sh" > "$b5_nolib_out" 2>/dev/null
-b5_nolib_ec=$?
-check "23m: burnrate libraries absent → the render still exits 0" "$b5_nolib_ec" "0"
-check "23m: burnrate libraries absent → the path line still renders" \
-  "$(sed -E "s/${ESC}\\[[0-9;]*m//g" "$b5_nolib_out" | sed -n '1p' | grep -qF "$(basename "$B5_WD")" && echo yes || echo no)" "yes"
-check "23m: burnrate libraries absent → no diagnostic text reaches stdout" \
-  "$(grep -qiE 'command not found|NotImplemented|no such file|syntax error|awk:' "$b5_nolib_out" && echo present || echo absent)" "absent"
-
-# 23m-iv. Nothing but the line itself ever reaches stdout, and no component
-#         writes to stderr in normal operation -- this feeds a statusline, so a
-#         stray diagnostic lands in the user's terminal either way.
-b5_ok_out="$TMPROOT/b5-ok.out"
-b5_ok_err="$TMPROOT/b5-ok.err"
-printf '%s' "$b5_full" \
-  | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
-      CLAM_STATUSLINE_CACHE_DIR="$B5_CACHE" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
-      bash "$CONTEXT" > "$b5_ok_out" 2>"$b5_ok_err"
-b5_ok_ec=$?
-check "23m: a normal burnrate render exits 0" "$b5_ok_ec" "0"
-check "23m: a normal burnrate render writes nothing to stderr" \
-  "$(wc -c < "$b5_ok_err" | tr -d ' ')" "0"
-check "23m: a normal burnrate render writes exactly two lines to stdout, nothing else" \
-  "$(sed -E "s/${ESC}\\[[0-9;]*m//g" "$b5_ok_out" | grep -c '' | tr -d ' ')" "2"
-
-# --- 23n. The two environment knobs -----------------------------------------
-# CLAM_STATUSLINE_DAY_START (0..23, default 2) and CLAM_STATUSLINE_SLEEP_HOURS (default 6), both consumed
-# here and passed down to B01. A non-integer or out-of-range value falls back
-# to its default rather than erroring.
-#
-# Pinned through %t -- the one derived figure that does not move with the
-# render's `now`, only with the day-start anchor it shares with this suite --
-# against B01's output for the anchor each knob value SHOULD produce. A
-# fallback case therefore fails both when the bad value is honoured and when a
-# good value is ignored: those two have different expected numbers, not a
-# shared "it didn't crash".
-#
-# That reasoning only holds while the settings land on DIFFERENT figures, and
-# what decides whether they do is the fixture: its reset instant and its used%.
-# The two do quite different jobs, and only one of them is a lever at all.
-#
-#   The RESET'S PHASE is what separates the sleep settings, and nothing else
-#   is. %t reads today's slice off the week [reset-7d, reset) as a ratio of
-#   awake seconds; when that week BEGINS INSIDE A SLEEP WINDOW, B01's awake
-#   walk trims the same remainder-of-the-sleep from the numerator and the
-#   denominator alike, the sleep length cancels out of the ratio, and (2,0),
-#   (2,6) and (2,12) collapse onto one figure. A reset a whole number of days
-#   out from `now` starts the week at the CURRENT time of day, so which
-#   settings collapsed depended on the hour the suite happened to run at --
-#   02:00-08:00 local made (2,6) and (2,12) equal, and four of the ten checks
-#   below vacuous. Anchoring the reset to the DAY-START instead of to `now`
-#   fixes that phase once and for all: 3d17h30m past the default day-start
-#   begins the week 17.5h into a day, past the longest sleep window under test
-#   (12h) and short of the day's end, so every sleep length trims a different
-#   amount at every hour of the clock. Only the whole-day COUNT still moves
-#   with the clock, and that shifts every setting by the same 100 points.
-#
-#   The half hour is not decoration. %t is printed through awk's "%.0f", and a
-#   round 3d18h works out to exactly n+0.5 for the eight-hour sleep setting
-#   23r reuses, at every integer used%. Both this suite and the render derive
-#   the day-start anchor from TWO `date` calls -- an epoch, then a local H:M:S
-#   -- so either can read its midnight a second early and the two anchors can
-#   differ by a second. A second is worth ~0.002 of a point here: invisible,
-#   except exactly on the boundary, where it decides the printed integer and
-#   the check becomes a coin flip. b5_knob_figure asserts that margin rather
-#   than trusting the arithmetic to keep it.
-#
-#   The USED% cannot separate anything. All these settings measure one awake
-#   day out of the same seven, so used% shifts all their figures by the same
-#   amount -- it moves the whole set, never the gaps within it. What it does
-#   decide is whether they land in the band where B01 reports %t faithfully:
-#   above it %t saturates at B01's cap of 100, below it goes negative, and at
-#   either end two settings can agree for a reason that has nothing to do with
-#   the knobs. So it is SCANNED at runtime for the first value putting every
-#   setting this fixture is rendered against -- the four here, plus the two
-#   23r reuses -- strictly inside 1..99, rather than fixed at a literal that
-#   is only in band for part of the day.
-B5_KNOB_RESET=$(( $(burn_day_start_epoch "$B5_NOW" "$B5_SECS" 2) + 3 * 86400 + 63000 ))
-
-# b5_knob_figure(used day_start sleep_hours): B01's %t for that setting, but
-# only when nudging the day-start anchor two seconds either way leaves the
-# printed integer alone -- otherwise the word "unstable", which no candidate
-# below is allowed to carry. Two seconds is more than the one the two clocks
-# can disagree by, so a figure that survives it is one the render cannot
-# disagree with this suite about.
-b5_knob_figure() { # used day_start sleep_hours
-  local ds v0 vlo vhi
-  ds=$(burn_day_start_epoch "$B5_NOW" "$B5_SECS" "$2") || return 1
-  v0=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$ds" "$(( $3 * 3600 ))" | awk '{print $1}')
-  vlo=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$(( ds - 2 ))" "$(( $3 * 3600 ))" | awk '{print $1}')
-  vhi=$(burn_metrics "$1" 0 "$B5_NOW" "$B5_KNOB_RESET" "$(( ds + 2 ))" "$(( $3 * 3600 ))" | awk '{print $1}')
-  if [ "$v0" = "$vlo" ] && [ "$v0" = "$vhi" ]; then printf '%s\n' "$v0"; else printf 'unstable\n'; fi
-}
-# Every (day_start, sleep_hours) setting the knob fixture is rendered against,
-# as that figure for a candidate used%, one per line.
-b5_knob_figures() { # used
-  b5_knob_figure "$1" 2 6      # 23n: both knobs defaulted
-  b5_knob_figure "$1" 14 6     # 23n: day start moved
-  b5_knob_figure "$1" 2 0      # 23n: sleep off
-  b5_knob_figure "$1" 2 12     # 23n: sleep doubled
-  b5_knob_figure "$1" 8 6      # 23r: day start "08"
-  b5_knob_figure "$1" 2 8      # 23r: sleep "08"
-}
-B5_KNOB_USED=""
-for (( _b5u = 45; _b5u <= 75; _b5u++ )); do
-  _b5figs=$(b5_knob_figures "$_b5u")
-  [ "$(printf '%s\n' "$_b5figs" | sort -u | wc -l | tr -d ' ')" = "6" ] || continue
-  printf '%s\n' "$_b5figs" | grep -qvE '^([1-9]|[1-9][0-9])$' && continue
-  B5_KNOB_USED="$_b5u"; break
-done
-check "23n: some used% in 45..75 puts all six settings on a distinct in-band figure" \
-  "$([ -n "$B5_KNOB_USED" ] && echo found || echo none)" "found"
-# Only so the payload below stays well-formed when the scan came up empty: the
-# checks then fail on their own figures rather than on a malformed render.
-B5_KNOB_USED="${B5_KNOB_USED:-60}"
-b5_knob=$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$B5_KNOB_USED" "$B5_KNOB_RESET" "" "")
-check "23n: CLAM_STATUSLINE_DAY_START unset → B01's default 02:00 day start" \
-  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_DAY_START=14 is consumed (the day-start anchor moves with it)" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=14")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 14 6)"
-check "23n: CLAM_STATUSLINE_DAY_START out of range (99) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=99")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_DAY_START negative (-1) falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_DAY_START non-integer ('half-past') falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_SLEEP_HOURS unset → B01's default six sleep hours" \
-  "$(today_token "$(burn_only "$b5_knob")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_SLEEP_HOURS=0 is consumed (degenerates to plain calendar time)" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=0")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 0)"
-check "23n: CLAM_STATUSLINE_SLEEP_HOURS=12 is consumed" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=12")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 12)"
-check "23n: CLAM_STATUSLINE_SLEEP_HOURS negative (-1) falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=-1")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: CLAM_STATUSLINE_SLEEP_HOURS non-integer ('six') falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23n: a rejected knob value never breaks the render" \
-  "$(burn_wellformed "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=half-past" "CLAM_STATUSLINE_SLEEP_HOURS=six")")" "yes"
-# The fixture really does discriminate: if two of the four settings landed on
-# one figure the ten checks above would agree no matter what the knobs did.
-# Re-derived from B5_KNOB_USED -- the value the ten actually rendered against
-# -- by four direct calls rather than through b5_knob_figures, so a scan that
-# tested one thing and published another is caught rather than echoed back.
-b5_knob_four=$(printf '%s\n' \
-  "$(b5_knob_figure "$B5_KNOB_USED" 2 6)" \
-  "$(b5_knob_figure "$B5_KNOB_USED" 14 6)" \
-  "$(b5_knob_figure "$B5_KNOB_USED" 2 0)" \
-  "$(b5_knob_figure "$B5_KNOB_USED" 2 12)")
-check "23n: the knob fixture separates the settings (four distinct %t figures)" \
-  "$(printf '%s\n' "$b5_knob_four" | sort -u | wc -l | tr -d ' ')" "4"
-# Distinctness alone is not enough. At B01's cap, below zero, or on a rounding
-# boundary two settings can agree -- or a figure can differ from the render's
-# -- for a reason that has nothing to do with the knobs, and a fixture drifting
-# towards any of those would lose its teeth one check at a time without the
-# count above ever changing. So each of the four must also be a plain 1..99,
-# which "unstable" and B01's own 100 and negatives are all excluded from.
-check "23n: and all four are in band (1..99) and unmoved by a two-second anchor nudge" \
-  "$(printf '%s\n' "$b5_knob_four" | grep -cE '^([1-9]|[1-9][0-9])$' | tr -d ' ')" "4"
-
-# --- 23o. A 5h group whose reset timestamp is absent -------------------------
-# The Errors clause permits dropping "that figure OR its whole group", and the
-# Edge-cases clause already settles the identical case for the weekly group
-# ("Weekly data present but its reset timestamp absent: wk used% still renders;
-# %t, %/d and the trend do not"), so the five-hour group follows by symmetry:
-# the countdown drops, the used% stays.
-#
-# Worth pinning separately from 23b-ii because of the asymmetry between the two
-# groups: the weekly reset feeds three figures out of four, so reading it as
-# "drop the group" is visibly wrong but only partly so, while the countdown is
-# the ONLY thing the five-hour reset feeds -- there the same misreading silently
-# deletes a live quota meter and leaves a line that still looks plausible.
-b5_5hnores_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" 42 "" "" "" "" "")")
-check "23o: five_hour without its reset → 5h 42% still renders" \
-  "$(printf '%s' "$b5_5hnores_line" | grep -qE '5h 42%' && echo yes || echo no)" "yes"
-# What the group carries is asserted as an EQUALITY on the group's own text
-# (everything from 5h up to the next separator, trailing space trimmed) rather
-# than as an "absent" match on the line. All three wrong outcomes then fail with
-# a distinguishable value: a surviving countdown reads "5h 42% (4h54m)", a
-# dropped group and an unrendered line both read "". An absence check would
-# instead pass vacuously on the two latter.
-#
-# B09 adds a fourth wrong outcome this equality already covers and an absence
-# check never could: parens emitted around a countdown that dropped, leaving
-# "5h 42% ()". The contract forbids that explicitly -- the parens "appear only
-# when a countdown is actually rendered ... never leaving an empty ()" -- so it
-# is also pinned on its own below, against the whole line rather than the group,
-# since an empty pair anywhere is the defect.
-check "23o: five_hour without its reset → the 5h group is the used% and nothing else (no countdown)" \
-  "$(printf '%s' "$b5_5hnores_line" | grep -oE '5h[^│]*' | head -n1 | sed 's/[[:space:]]*$//')" \
-  "5h 42%"
-check "23o: five_hour without its reset → no empty parens are left behind" \
-  "$(printf '%s' "$b5_5hnores_line" | grep -qF '()' && echo present || echo absent)" "absent"
-check "23o: five_hour without its reset → no stray paren of either hand survives" \
-  "$(printf '%s' "$b5_5hnores_line" | grep -qE '[()]' && echo present || echo absent)" "absent"
-check "23o: five_hour without its reset → line stays well-formed" \
-  "$(burn_wellformed "$b5_5hnores_line")" "yes"
-
-# --- 23p. An absent model vs an unrecognised one ----------------------------
-# Pre-B09 this pair was told apart by the mascot: B03 mapped an UNKNOWN model to
-# 🤖 while an ABSENT model rendered none, the same "empty is not zero"
-# distinction B04's contract draws for the rate-limit fields. B09 deletes the
-# mascot, so the distinction now shows in the NAME -- an unrecognised model
-# still renders its name, an absent one renders nothing but the tier -- and the
-# pair keeps its teeth for the same reason it had them before: the absent case
-# alone says nothing about what an unknown name does, and vice versa.
-#
-# Both halves also pin that NEITHER emits a mascot. That is what stops a
-# half-applied B09 -- the prefix dropped on the recognised path and left on the
-# fallback path, or the reverse -- from passing.
-b5_nomodel_line=$(burn_only "$(burn_json "$B5_WD" 145230 "" "high" "" "" "" "" "" "")")
-check "23p: model absent, effort present → group 1 is the bare tier (no mascot of any kind, no leading separator)" \
-  "$(printf '%s' "$b5_nomodel_line" | grep -qE '^high( │|$)' \
-     && ! printf '%s' "$b5_nomodel_line" | grep -qE "$B5_MASCOTS" && echo yes || echo no)" "yes"
-b5_unknownmodel_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Gemini" "high" "" "" "" "" "" "")")
-check "23p: model present but unrecognised → group 1 leads with the NAME, not B03's fallback mascot" \
-  "$(printf '%s' "$b5_unknownmodel_line" | grep -qE '^Gemini high( │|$)' \
-     && ! printf '%s' "$b5_unknownmodel_line" | grep -qE "$B5_MASCOTS" && echo yes || echo no)" "yes"
-
-# --- 23q. The group separator is a DIM │ ------------------------------------
-# "Dim" in the Outputs clause is SGR 2. 23a counts │ glyphs on the ANSI-STRIPPED
-# line, which by construction cannot see the escape around them, so the styling
-# is currently assumed rather than verified; this pins the byte sequence itself
-# against the RAW render.
-#
-# Counted rather than merely found, so a line whose separators are dim in one
-# place and unstyled in another cannot pass. (Pre-B09 the pet's dimmed effect
-# character was the near-miss this had to rule out; B09 deletes the pet, and
-# the sequence pinned here has the │ glyph between the two escapes regardless.)
-b5_sep=$(printf '\033[2m│\033[0m')
-b5_sep_raw=$(burn_render_raw "$b5_full")
-check "23q: all three separators of a four-group line are the exact dim sequence ESC[2m│ESC[0m" \
-  "$(printf '%s' "$b5_sep_raw" | grep -oaF "$b5_sep" | wc -l | tr -d ' ')" "3"
-
-# --- 23r. Zero-padded knob values are DECIMAL, not octal --------------------
-# CLAM_STATUSLINE_DAY_START=08 and CLAM_STATUSLINE_SLEEP_HOURS=08 are values a user has written perfectly
-# correctly -- a zero-padded hour is how clocks are written. Bash arithmetic
-# reads a leading-zero numeric string as OCTAL, in which 08 and 09 are not
-# merely the wrong number but a hard error ("value too great for base"), and an
-# expansion error in a non-interactive shell exits it -- so what vanishes is
-# the whole burnrate line, not just the figures the knob feeds.
-#
-# The range check the knobs already carry is no guard against this: `[ 08 -gt
-# 23 ]` compares decimal 8 and passes straight over exactly the value the
-# arithmetic beneath it cannot evaluate. Only the arithmetic path is affected,
-# which is why the case survives every check in 23n.
-#
-# Pinned through %t on 23n's fixture, and for 23n's reason: it is the one
-# derived figure that does not drift with the render's clock, and it separates
-# one anchor from another rather than merely proving the render survived. Each
-# padded value is pinned BOTH to the figure its anchor should produce and to
-# the unpadded spelling's own render, so "dropped for both" fails the first
-# check even where the two anchors' figures happen to coincide.
-b5_pad_ds_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=08")
-check "23r: CLAM_STATUSLINE_DAY_START=08 anchors the day at 08:00 (decimal 8, not an octal error)" \
-  "$(today_token "$b5_pad_ds_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 8 6)"
-check "23r: CLAM_STATUSLINE_DAY_START=08 renders the same %t as the unpadded 8" \
-  "$(today_token "$b5_pad_ds_line")" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=8")")"
-check "23r: CLAM_STATUSLINE_DAY_START=08 → the weekly group still carries all four figures" \
-  "$(printf '%s' "$b5_pad_ds_line" | grep -qE "wk $B5_KNOB_USED%.*%t.*%/d.*(▲|▼)" && echo yes || echo no)" "yes"
-
-b5_pad_slp_line=$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=08")
-check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 is eight sleep hours (decimal 8, not an octal error)" \
-  "$(today_token "$b5_pad_slp_line")" "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 8)"
-check "23r: CLAM_STATUSLINE_SLEEP_HOURS=08 renders the same %t as the unpadded 8" \
-  "$(today_token "$b5_pad_slp_line")" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=8")")"
-
-# Forcing base 10 must not become forcing the value through: the fallbacks 23n
-# pins still hold, and a padded value that is STILL out of range once read as
-# decimal falls back exactly as its unpadded twin does. CLAM_STATUSLINE_SLEEP_HOURS=99 is
-# the one out-of-range case 23n does not cover, and 099 is the pair of the two.
-check "23r: CLAM_STATUSLINE_SLEEP_HOURS out of range (99) still falls back to 6" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_SLEEP_HOURS=99")")" \
-  "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-check "23r: CLAM_STATUSLINE_DAY_START=099 reads as 99, is still out of range, still falls back to 2" \
-  "$(today_token "$(burn_only "$b5_knob" "CLAM_STATUSLINE_DAY_START=099")")" \
-  "$(burn_expect_today "$B5_KNOB_USED" "$B5_KNOB_RESET" 2 6)"
-
-# === 24. B09 burn-line-labels ===============================================
-# Contract: the B09 amendment to sl_render_burn_line's docblock. Section 23
-# already carries every clause B09 only RESHAPES -- group counts, separators,
-# the vanished pet, the label spellings. This section carries the four it adds
-# outright, the first three of which are invisible on an ANSI-stripped line:
-#   a. each label sits INSIDE its meter's colour sequence, exactly where the
-#      emoji did, so the colour still spans label and figure together;
-#   b. the 5-hour countdown's parens sit OUTSIDE any colour sequence;
-#   c. the line's ALPHABET is emoji-free, while the ambiguous-width non-emoji
-#      symbols (│ ▲ ▼) are deliberately kept;
-#   d. amendment 2 -- the weekly and 5-hour figures print as integers.
-
-# --- 24a. Labels inside the colour, at every meter tier ---------------------
-# Expected sequences are DERIVED from B03's burn_plan_color, per this file's
-# standing rule: the thresholds are burn-theme's own clause with its own suite,
-# and what is under test here is that context.sh still routes the meter through
-# it and now wraps LABEL AND FIGURE TOGETHER in what it returns. A label left
-# outside would render "wk \033[38;5;196m70%" and fail every case below.
-#
-# Run across all four tiers rather than once: the weekly and 5-hour groups take
-# their colour from the same helper but are assembled by separate code, and a
-# label moved outside the sequence in one of them is exactly the half-applied
-# edit this catches.
-b24_meter_case() { # label used expected_group_text
-  local raw
-  raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$2" "" "" "")")
-  check "24a: weekly meter at $2% ($1) wraps '$3' in burn_plan_color's sequence" \
-    "$(printf '%s' "$raw" | grep -qaF "$(burn_plan_color "$2")$3" && echo yes || echo no)" "yes"
-}
-b24_meter_case "red tier"    70 "wk 70%"
-b24_meter_case "orange tier" 50 "wk 50%"
-b24_meter_case "yellow tier" 30 "wk 30%"
-b24_meter_case "green tier"  29 "wk 29%"
-
-b24_5h_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" 88 "" "" "" "" "")")
-check "24a: the 5-hour meter wraps '5h 88%' in burn_plan_color's sequence too" \
-  "$(printf '%s' "$b24_5h_raw" | grep -qaF "$(burn_plan_color 88)5h 88%" && echo yes || echo no)" "yes"
-# The ctx meter's label sits inside its colour on exactly the same terms as the
-# two plan meters above. B16 moves only WHERE that colour comes from — B03's
-# burn_ctx_color rather than burn_ctx_state's COLOR field — so the expectation
-# is derived from the helper the renderer must now call, and the clause (label
-# and figure together inside one sequence) is unchanged.
-check "24a: the ctx label is inside the ctx meter's colour (145,230/300,000 = 48%)" \
-  "$(printf '%s' "$b24_5h_raw" | grep -qaF "$(burn_ctx_color 48)ctx 48%" && echo yes || echo no)" "yes"
-
-# A decimal used% colours off its integer part -- the ${r7%%.*} trim that feeds
-# burn_plan_color is untouched by B09 -- and, per amendment 2 below, PRINTS
-# that same integer, so the figure and the colour can never disagree.
-b24_float_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 62.7 "" "" "")")
-check "24a: a decimal used% colours and prints the same integer part" \
-  "$(printf '%s' "$b24_float_raw" | grep -qaF "$(burn_plan_color 62)wk 62%" && echo yes || echo no)" "yes"
-
-# --- 24b. The countdown's parens are OUTSIDE the METER's colour -------------
-# burn_reset_str returns plain text, so "outside any colour sequence it
-# returns" resolves to: the group's closing reset comes FIRST, then " (", then
-# the countdown, then ")". B16 then dims the whole parenthesised clause with
-# burn_countdown_color, PARENS INCLUDED, so what follows the meter's reset is
-# the countdown's own opener and then "(" -- the parens are still outside the
-# 5-hour meter's colour run, which is what this clause is about and what the
-# second check below rules out the opposite of. Bracketed over [t0,t1] for
-# burn_reset_str's minute roll, exactly as 23a is.
-b24_t0=$(date +%s)
-b24_raw=$(burn_render_raw "$b5_full")
-b24_t1=$(date +%s)
-b24_paren_ok=no
-b24_inside_ok=no
-for (( _n = b24_t0; _n <= b24_t1; _n++ )); do
-  _cd=$(burn_reset_str "$B5_R5_RESET" "$_n")
-  printf '%s' "$b24_raw" | grep -qaF "$(printf '\033[0m') $(burn_countdown_color)($_cd)" && b24_paren_ok=yes
-  # The failure this rules out is the mirror image: parens emitted INSIDE the
-  # meter's colour run, which reads "<plan colour>5h 1% (4h54m)<reset>".
-  printf '%s' "$b24_raw" | grep -qaF "$(burn_plan_color 1)5h 1% ($_cd)" && b24_inside_ok=yes
-done
-check "24b: the parens sit outside the meter's colour (its reset, then the dimmed '(countdown)')" \
-  "$b24_paren_ok" "yes"
-check "24b: the parens are NOT inside the meter's colour run" "$b24_inside_ok" "no"
-check "24b: exactly one pair of parens on the whole line" \
-  "$(printf '%s' "$b5_line" | grep -o '[()]' | wc -l | tr -d ' ')" "2"
-
-# --- 24c. The line's alphabet -----------------------------------------------
-# "This line emits no emoji" as a property of the whole render rather than of
-# the specific glyphs removed, so a NEW emoji arriving later fails too. Applied
-# to the payloads that between them reach every group and every sub-segment.
-check "24c: the four-group line carries no emoji" "$(burn_no_emoji "$b5_line")" "yes"
-check "24c: a weekly group with all four figures carries no emoji" \
-  "$(burn_no_emoji "$b5_pace_line")" "yes"
-check "24c: a two-group line (no rate limits) carries no emoji" \
-  "$(burn_no_emoji "$b5_norl_line")" "yes"
-check "24c: an effort-only group (absent model) carries no emoji" \
-  "$(burn_no_emoji "$b5_nomodel_line")" "yes"
-check "24c: an unrecognised model carries no emoji (no 🤖 fallback)" \
-  "$(burn_no_emoji "$b5_unknownmodel_line")" "yes"
-# The helper is not vacuous: the three symbols it exempts are the three the
-# contract DELIBERATELY keeps, and they are still on the line. Without this a
-# render that had dropped │ and the arrows along with the emoji would sail
-# through every check above.
-check "24c: the dim │ separator is deliberately kept" \
-  "$(printf '%s' "$b5_line" | grep -qF '│' && echo yes || echo no)" "yes"
-check "24c: the ▲/▼ trend arrows are deliberately kept" \
-  "$(printf '%s' "$b5_pace_line" | grep -qE '▲|▼' && echo yes || echo no)" "yes"
-
-# --- 24d. The weekly and 5-hour figures render as INTEGERS ------------------
-# B09 amendment 2. The payload delivers IEEE-754 noise and the render showed it
-# verbatim -- `5h 14.000000000000002%` is an observed render, not a
-# hypothetical. Both meters now print the INTEGER PART, which is the value
-# burn_plan_color already thresholds on, so figure and colour cannot disagree.
-#
-# Asserted on the extracted GROUP rather than on the whole line, because the
-# line legitimately carries decimals elsewhere: B01's sustainable pace renders
-# as e.g. "5.0%/d", and a model name may carry one ("Haiku 4.5"). A blanket
-# "no dot on the line" check would be wrong, not merely blunt.
-b24_group() { # line label
-  printf '%s' "$1" | grep -oE "$2 [^│]*" | head -n1 | sed 's/[[:space:]]*$//'
-}
-b24_five() { # r5
-  b24_group "$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "$1" "" "" "" "" "")")" '5h'
-}
-b24_week() { # r7
-  b24_group "$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" "$1" "" "" "")")" 'wk'
-}
-
-# i. The observed defect, exactly as reported.
-check "24d: an IEEE-754-noisy 5-hour figure renders as '5h 14%'" \
-  "$(b24_five 14.000000000000002)" "5h 14%"
-check "24d: the same noise in the weekly figure renders as 'wk 14%'" \
-  "$(b24_week 14.000000000000002)" "wk 14%"
-
-# ii. TRUNCATION, not rounding -- the contract's stated reason being that
-#     rounding 49.7 up to 50 while colouring it as 49 would put the figure in
-#     the wrong colour band. Both halves are asserted: the digits printed, and
-#     the colour they are printed in.
-check "24d: 49.7 truncates to 49, it does not round to 50" "$(b24_five 49.7)" "5h 49%"
-check "24d: 69.9 truncates to 69, it does not round to 70" "$(b24_week 69.9)" "wk 69%"
-b24_trunc_raw=$(burn_render_raw "$(burn_json "$B5_WD" 145230 "Opus" "max" 49.7 "" "" "" "" "")")
-check "24d: 49.7 is printed in burn_plan_color 49's band, not 50's" \
-  "$(printf '%s' "$b24_trunc_raw" | grep -qaF "$(burn_plan_color 49)5h 49%" && echo yes || echo no)" "yes"
-check "24d: the two bands really are different, so that check discriminates" \
-  "$([ "$(burn_plan_color 49)" != "$(burn_plan_color 50)" ] && echo yes || echo no)" "yes"
-
-# iii. A bare fraction must not render an EMPTY figure. `${r5%%.*}` of "0.5" is
-#      the empty string, which would render "5h %" -- the specific way a
-#      one-line truncation gets this wrong.
-check "24d: a bare-fraction 5-hour value renders '5h 0%', never '5h %'" \
-  "$(b24_five 0.5)" "5h 0%"
-check "24d: a bare-fraction weekly value renders 'wk 0%', never 'wk %'" \
-  "$(b24_week 0.5)" "wk 0%"
-
-# iv. An integer payload is unaffected -- no trailing "." and no ".0".
-check "24d: an integer 5-hour value renders unchanged" "$(b24_five 14)" "5h 14%"
-check "24d: an integer weekly value renders unchanged" "$(b24_week 62)" "wk 62%"
-# A genuine integer zero is section 23c's clause and stays there; what is new
-# here is only the BARE-FRACTION zero above, which is a different failure.
-
-# v. The ctx meter is NOT touched, and is deliberately NOT asserted here. Its
-#    pct is `$(( 100 * used_tokens / ctx_budget ))` -- bash integer arithmetic,
-#    which cannot carry a fraction -- so there is no truncation clause to cover,
-#    and a test asserting one would assert something the contract does not say.
-#    That the group still renders its occupancy unchanged is section 23a's
-#    clause and stays there.
-#
-# vi. Presentation ONLY. B01 still receives the value the payload sent, so the
-#     DERIVED figures are computed from the full float and not from the printed
-#     integer. Pinned on %t, the one derived figure this suite can pin exactly
-#     (see burn_expect_today), with a guard proving the two inputs genuinely
-#     produce different answers -- otherwise the assertion would pass whichever
-#     value the render fed B01.
-b24_prec_line=$(burn_only "$(burn_json "$B5_WD" 145230 "Opus" "max" "" "" 62.7 "$B5_R7_RESET" "" "")")
-check "24d: truncation is presentation only -- %t is B01's answer for 62.7" \
-  "$(today_token "$b24_prec_line")" "$(burn_expect_today 62.7 "$B5_R7_RESET" 2 6)"
-check "24d: and B01's answer for 62.7 differs from its answer for 62, so that discriminates" \
-  "$([ "$(burn_expect_today 62.7 "$B5_R7_RESET" 2 6)" != "$(burn_expect_today 62 "$B5_R7_RESET" 2 6)" ] \
+      CLAM_STATUSLINE_CACHE_DIR="$TMPROOT/b5-deg-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+      bash "$B5DEG/scripts/context.sh" > "$b5_deg_out" 2>"$b5_deg_err"
+b5_deg_ec=$?
+b5_deg_line=$(printf '%s' "$(line_of "$(<"$b5_deg_out")" 2)" | sed -E "s/${ESC}\\[[0-9;]*m//g")
+check "23l: no burnrate libraries → the render still exits 0" "$b5_deg_ec" "0"
+check "23l: no burnrate libraries → nothing is written to stderr" \
+  "$(wc -c < "$b5_deg_err" | tr -d ' ')" "0"
+check "23l: no burnrate libraries → no diagnostic text reaches stdout" \
+  "$(grep -qiE 'command not found|no such file|syntax error' "$b5_deg_out" && echo present || echo absent)" "absent"
+check "23l: no burnrate libraries → the groups that need no library still render" \
+  "$(printf '%s' "$b5_deg_line" | grep -qE 'Opus max' && printf '%s' "$b5_deg_line" | grep -qE 'ctx 48%' \
      && echo yes || echo no)" "yes"
-check "24d: the printed figure is still the truncated integer on that same line" \
-  "$(printf '%s' "$b24_prec_line" | grep -qE 'wk 62% ' && echo yes || echo no)" "yes"
-check "24d: and no '62.7' survives in the render" \
-  "$(printf '%s' "$b24_prec_line" | grep -qF '62.7' && echo present || echo absent)" "absent"
+check "23l: no burnrate libraries → the used figures still render (they need no library)" \
+  "$(printf '%s' "$b5_deg_line" | grep -qE '5h 1%' && printf '%s' "$b5_deg_line" | grep -qE 'wk 62%' \
+     && echo yes || echo no)" "yes"
+check "23l: no burnrate libraries → no trend arrow, since B02 is absent" \
+  "$(printf '%s' "$b5_deg_line" | grep -qE '▲|▼' && echo present || echo absent)" "absent"
+check "23l: no burnrate libraries → the countdown drops WITH its parens, leaving no empty pair" \
+  "$(printf '%s' "$b5_deg_line" | grep -qE '[()]' && echo present || echo absent)" "absent"
+check "23l: no burnrate libraries → the line stays well-formed" \
+  "$(burn_wellformed "$b5_deg_line")" "yes"
+check "23l: no burnrate libraries → not one 256-colour sequence survives" \
+  "$(line_of "$(<"$b5_deg_out")" 2 | grep -c '38;5;' | tr -d ' ')" "0"
+
+# --- 23m. The three schedule knobs ------------------------------------------
+# CLAM_STATUSLINE_WORK_DAYS / _DAY_START / _DAY_END, all consumed by the WEEKLY
+# trend and only by it -- the 5-hour window has no working-week notion, which
+# is the contract's own reasoning for burn_linear_trend.
+#
+# Expectations are derived through burn_work_parse, which owns the fallback
+# rules, rather than restated here. What is under test is that the renderer
+# passes the knob's value through to it at all.
+B5_KNOB_USED=55
+b5_knob=$(burn_json "$B5_WD" "" "" "" "" "" "$B5_KNOB_USED" "$B5_R7_RESET" "" "")
+
+# The knobs must MATTER: a 24/7 schedule and the default working week produce
+# different expected trends on this fixture, so every case below discriminates.
+b5_knob_t0=$(date +%s)
+check "23m: the default schedule and a 24/7 one really differ here, so these cases discriminate" \
+  "$([ "$(b5_week_group "$B5_KNOB_USED" "$B5_R7_RESET" "$b5_knob_t0")" \
+      != "$(b5_week_group "$B5_KNOB_USED" "$B5_R7_RESET" "$b5_knob_t0" "1-7" 0 24)" ] \
+     && echo yes || echo no)" "yes"
+
+# b5_knob_case(label, expected_days, expected_start, expected_end, env...):
+# render with the given env and compare the weekly group against the group
+# burn_work_parse's own normalization of the EXPECTED schedule produces,
+# bracketed over the render interval.
+b5_knob_case() { # label days start end env...
+  local label="$1" d="$2" s="$3" e="$4"; shift 4
+  local t0 t1 line ok=no _n
+  t0=$(date +%s)
+  line=$(burn_only "$b5_knob" "$@")
+  t1=$(date +%s)
+  for (( _n = t0; _n <= t1; _n++ )); do
+    [ "$line" = "$(b5_week_group "$B5_KNOB_USED" "$B5_R7_RESET" "$_n" "$d" "$s" "$e")" ] && ok=yes
+  done
+  check "23m: $label" "$ok" "yes"
+}
+
+b5_knob_case "no knobs set → the default 1-5 / 8 / 18 working week" "1-5" 8 18
+b5_knob_case "CLAM_STATUSLINE_WORK_DAYS=1-7 is consumed" "1-7" 8 18 "CLAM_STATUSLINE_WORK_DAYS=1-7"
+b5_knob_case "CLAM_STATUSLINE_DAY_START=6 is consumed" "1-5" 6 18 "CLAM_STATUSLINE_DAY_START=6"
+b5_knob_case "CLAM_STATUSLINE_DAY_END=22 is consumed" "1-5" 8 22 "CLAM_STATUSLINE_DAY_END=22"
+b5_knob_case "all three together are consumed" "1-7" 0 24 \
+  "CLAM_STATUSLINE_WORK_DAYS=1-7" "CLAM_STATUSLINE_DAY_START=0" "CLAM_STATUSLINE_DAY_END=24"
+
+# Each bad value falls back to ITS OWN default, not to a whole default set: the
+# two surviving knobs still take effect alongside the rejected one.
+b5_knob_case "a non-integer DAY_START falls back to 8, and the OTHER knobs still apply" "1-5" 8 22 \
+  "CLAM_STATUSLINE_DAY_START=half-past" "CLAM_STATUSLINE_DAY_END=22"
+b5_knob_case "an out-of-range DAY_START (99) falls back to 8" "1-5" 8 18 \
+  "CLAM_STATUSLINE_DAY_START=99"
+b5_knob_case "an unusable WORK_DAYS ('weekdays') falls back to 1-5" "1-5" 6 18 \
+  "CLAM_STATUSLINE_WORK_DAYS=weekdays" "CLAM_STATUSLINE_DAY_START=6"
+# DAY_END at or below DAY_START falls back to the DEFAULT PAIR rather than
+# yielding a negative window -- the contract names this case specifically, and
+# it is the one fallback that is not per-knob.
+b5_knob_case "DAY_END below DAY_START falls back to the default 8/18 PAIR" "1-5" 8 18 \
+  "CLAM_STATUSLINE_DAY_START=18" "CLAM_STATUSLINE_DAY_END=9"
+b5_knob_case "DAY_END equal to DAY_START falls back to the default 8/18 PAIR" "1-5" 8 18 \
+  "CLAM_STATUSLINE_DAY_START=10" "CLAM_STATUSLINE_DAY_END=10"
+# Zero-padded values are DECIMAL. "08" is a correctly written hour, and the 10#
+# forcing that guarantees it is load-bearing: without it bash reads 08 as an
+# invalid octal literal and the arithmetic fails outright.
+b5_knob_case "a zero-padded DAY_START ('08') is decimal 8, not an octal error" "1-5" 8 18 \
+  "CLAM_STATUSLINE_DAY_START=08"
+b5_knob_case "a zero-padded DAY_END ('09') is decimal 9, not an octal error" "1-5" 8 9 \
+  "CLAM_STATUSLINE_DAY_START=08" "CLAM_STATUSLINE_DAY_END=09"
+# Every knob unusable at once: the line still renders and stays well-formed,
+# which is the Errors clause ("never fails the render") applied to the knobs.
+check "23m: every knob unusable at once still renders a well-formed line" \
+  "$(burn_wellformed "$(burn_only "$b5_knob" "CLAM_STATUSLINE_WORK_DAYS=all" \
+      "CLAM_STATUSLINE_DAY_START=dawn" "CLAM_STATUSLINE_DAY_END=dusk")")" "yes"
+# The 5-hour window is untouched by all three: its trend is plain wall clock.
+b5_5only=$(burn_json "$B5_WD" "" "" "" 42 "$B5_R5_RESET" "" "" "" "")
+check "23m: the schedule knobs do not move the 5-hour group at all" \
+  "$([ "$(burn_only "$b5_5only" "CLAM_STATUSLINE_WORK_DAYS=1-7" "CLAM_STATUSLINE_DAY_START=0" \
+          "CLAM_STATUSLINE_DAY_END=24")" = "$(burn_only "$b5_5only")" ] && echo yes || echo no)" "yes"
+
+# --- 23n. The group separator is a DIM │ ------------------------------------
+# The one escape the contract still allows to be typed in the renderer, and the
+# exact bytes it must be: SGR 2, the box-drawing bar, then a reset.
+b5_sep_raw=$(line_of "$(burn_render_raw "$b5_full")" 2)
+check "23n: the separator is exactly \\033[2m│\\033[0m, three times over" \
+  "$(printf '%s' "$b5_sep_raw" | grep -oaF "$(printf '\033[2m│\033[0m')" | wc -l | tr -d ' ')" "3"
+check "23n: no separator is left undimmed" \
+  "$(printf '%s' "$b5_sep_raw" | grep -oaF '│' | wc -l | tr -d ' ')" "3"
+
+# --- 23o. Integer figures, and the float that must not disagree -------------
+# The Edge case: a float used_percentage prints its INTEGER PART -- the same
+# value the colour threshold reads, so the two can never disagree at a
+# boundary. Truncation, not rounding: 14.9 renders 14 and takes 14's band.
+check "23o: a float five_hour (14.000000000000002) renders as 14%" \
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" 14.000000000000002 "" "" "" "" "")")" \
+     | grep -qE '^5h 14%$' && echo yes || echo no)" "yes"
+check "23o: a float weekly (23.5) renders as 23%, truncated rather than rounded up" \
+  "$(burn_only "$(burn_json "$B5_WD" "" "" "" "" "" 23.5 "" "" "")")" "wk 23%"
+check "23o: no fractional part reaches the line" \
+  "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" 14.9 "" 23.5 "" "" "")")" \
+     | grep -qE '[0-9]\.[0-9]' && echo present || echo absent)" "absent"
+
+# --- 23p. The line's alphabet -----------------------------------------------
+# No emoji anywhere, on any payload shape. The three ambiguous-width symbols
+# the line DOES keep -- the separator and the two trend arrows -- are the only
+# non-ASCII characters left once that holds, which is what makes this a
+# whole-alphabet check rather than a list of the glyphs that were removed.
+for b5_alpha in "$b5_line" "$b5_norl_line" "$b5_only5_line" "$b5_only7_line" "$b5_cd_line"; do
+  check "23p: no emoji on the line '$b5_alpha'" "$(burn_no_emoji "$b5_alpha")" "yes"
+done
+unset b5_alpha
+
 
 # === 25. B10 line1-text-tags ================================================
 # Contract: the classify_pr_emoji docblock, the PR-badge assembly comment and
@@ -2750,7 +2357,6 @@ B10GATE="$TMPROOT/b10-gate"; mkdir -p "$B10GATE/scripts" "$B10GATE/lib"
 ln -s "$CONTEXT" "$B10GATE/scripts/context.sh"
 ln -s "$SCRIPT_DIR/../lib/platform.sh" "$B10GATE/lib/platform.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$B10GATE/lib/burn-math.sh"
-ln -s "$SCRIPT_DIR/../lib/burn-tick.sh" "$B10GATE/lib/burn-tick.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$B10GATE/lib/burn-theme.sh"
 # todo_field and state_color only. Bodies copied in miniature rather than
 # sourced from the real lib, which is the point: state_emoji must be genuinely
@@ -2784,7 +2390,6 @@ B10NOCOLOR="$TMPROOT/b10-nocolor"; mkdir -p "$B10NOCOLOR/scripts" "$B10NOCOLOR/l
 ln -s "$CONTEXT" "$B10NOCOLOR/scripts/context.sh"
 ln -s "$SCRIPT_DIR/../lib/platform.sh" "$B10NOCOLOR/lib/platform.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$B10NOCOLOR/lib/burn-math.sh"
-ln -s "$SCRIPT_DIR/../lib/burn-tick.sh" "$B10NOCOLOR/lib/burn-tick.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$B10NOCOLOR/lib/burn-theme.sh"
 cat > "$B10NOCOLOR/lib/states.sh" <<'EOF'
 #!/bin/bash
@@ -2818,29 +2423,31 @@ check "25h: and keeps its unknown-State fallback" \
   "$(. "$SCRIPT_DIR/../lib/states.sh" 2>/dev/null; state_emoji "Not A Real State")" "•"
 rm -f "$STWD/.local/TODO.md"
 
-# === 26. B16 burn-line-colour-wiring ========================================
-# Contract: the B16 amendment to sl_render_burn_line's docblock, its four
-# numbered bullets and the "last hand-typed escape" consequence beneath them,
-# together with the B16-specific entries the Edge-cases list gained.
+# === 26. Colour wiring: which helper the renderer asks for each value =======
+# Contract: B05's Invariants clause -- "every colour comes from
+# lib/burn-theme.sh; a hand-typed 38;5; sequence in this function is a bug; the
+# two exceptions remain the dim group separator and the closing reset" -- and
+# the ctx-meter clause it inherits verbatim from B16 (plan
+# 003-statusline-meter-colour): the meter keeps this plugin's non-saturating
+# occupancy math and its .ctx-status.json publish unchanged.
 #
-# B16 is a COMPOSITION block: the four colours it wires -- burn_trend_color,
-# burn_ctx_color, burn_diff_color and burn_countdown_color -- are B03's, each
-# with its own accepted suite in lib/burn-theme.test.sh. Nothing here re-tests a
-# threshold. What is tested here is what only a rendered line can show: which
-# helper the renderer ASKS for each value, where the sequence it returns opens
-# and closes, and that the line's shape is otherwise untouched.
+# Nothing here re-tests a threshold: every band is burn-theme.sh's clause, with
+# its own accepted suite. What is tested here is what only a rendered line can
+# show -- which helper the renderer ASKS for each value, where the sequence it
+# returns opens and closes, and that the line's shape is otherwise untouched.
 #
-# That distinction is the whole reason #306's regression test lives in this
-# section and nowhere else. burn_ctx_color maps occupancy to colour correctly in
+# That distinction is why #306's regression test lives in this section and
+# nowhere else. burn_ctx_color maps occupancy to colour correctly in
 # burn-theme.sh and always has; the defect was that the renderer asked
 # burn_ctx_state -- the session-STALENESS tri-state -- for the ctx meter's
-# colour, which is why the meter read green at every occupancy. No assertion
-# inside burn-theme.sh can see that. 26b is the one that can.
+# colour, so the meter read green at every occupancy. No assertion inside
+# burn-theme.sh can see that. 26b is the one that can.
 #
-# Expected values are DERIVED by calling B03's helpers rather than written out
-# as escape codes, per this file's standing rule: the bands are burn-theme's
-# clause, and what is under test is that context.sh routes each value through
-# the right one of them.
+# B05 changes WHICH wirings exist, not the standard they are held to: the
+# +added/-removed pair and burn_diff_color are retired outright (26e is deleted
+# with them), the trend appears in BOTH limit groups rather than only the
+# weekly one, and the countdown likewise. Expected values are still DERIVED by
+# calling B03's helpers rather than written out as escape codes.
 
 B16_RST=$(printf '\033[0m')
 B16_SEP=$(printf '\033[2m│\033[0m')
@@ -2888,27 +2495,25 @@ b16_in_source() { # json bash_code
 # lost a space, coloured the separator, or wrapped the wrong span; this can.
 #
 # The fixture is deliberately free of every quantity that moves with the clock:
-# no model name (so no rainbow, whose palette offset advances one frame per
-# render) and no reset timestamp on either rate limit (so no pacing figures and
-# no countdown). What is left is exactly reproducible. The two groups that do
-# move are pinned byte for byte too, in 26d and 26f, bracketed over the render
-# interval the way section 23 brackets them.
-b16_static_json=$(burn_json "$B5_WD" 145230 "" "max" 1 "" 62 "" 503 16)
+# neither rate limit carries a reset, so there is no trend and no countdown.
+# What is left is exactly reproducible. The two figures that do move are pinned
+# byte for byte too, in 26d and 26f, bracketed over the render interval the way
+# section 23 brackets them.
+#
+# B05 makes the MODEL group part of this equality for the first time: B03's
+# burn_model_color is flat, so a model name no longer moves between renders and
+# no longer has to be excluded from a byte-exact expectation.
+b16_static_json=$(burn_json "$B5_WD" 145230 "Opus" "max" 1 "" 62 "" 503 16)
 b16_static_raw=$(b16_raw_line "$b16_static_json")
 b16_static_expected=$(b16_join \
-  "$(burn_effort_color max)max$B16_RST" \
-  "$(burn_plan_color 62)wk 62%$B16_RST" \
-  "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+503$B16_RST/$(burn_diff_color del)-16$B16_RST" \
-  "$(burn_plan_color 1)5h 1%$B16_RST")
+  "$(burn_model_color Opus)Opus$B16_RST $(burn_effort_color max)max$B16_RST" \
+  "$(burn_ctx_color 48)ctx 48%$B16_RST" \
+  "$(burn_plan_color 1)5h 1%$B16_RST" \
+  "$(burn_plan_color 62)wk 62%$B16_RST")
 check "26a: the whole four-group line is byte-identical to the assembled expectation, SGR included" \
   "$b16_static_raw" "$b16_static_expected"
-
-# The other half of "only SGR changes": the same render with the escapes taken
-# out is the line this plugin already shipped, to the byte. Written as a literal
-# rather than derived, because the point is that nothing about the TEXT is
-# computed from anything B16 touches.
-check "26a: and its ANSI-stripped text is exactly the line that shipped before B16" \
-  "$(burn_of "$(burn_render "$b16_static_json")")" "max │ wk 62% │ ctx 48% +503/-16 │ 5h 1%"
+check "26a: and its ANSI-stripped text is exactly the four groups in contract order" \
+  "$(burn_of "$(burn_render "$b16_static_json")")" "Opus max │ ctx 48% │ 5h 1% │ wk 62%"
 
 # Without this, the equality above would pass just as happily against a renderer
 # that still sourced the ctx colour from the staleness tier -- if the two
@@ -2918,17 +2523,18 @@ check "26a: the occupancy band and the staleness tier genuinely disagree here, s
       != "$(printf '\033[38;5;%sm' "$(burn_ctx_state 145230 300000 0 | awk '{print $2}')")" ] \
      && echo yes || echo no)" "yes"
 
-# A session that has edited nothing: the +N/-M pair does not render, so
-# burn_diff_color is never called and group 3 is `ctx` alone. Byte-exact, which
-# is what makes "never called" assertable -- at a green occupancy
-# burn_diff_color add returns the very sequence the ctx meter itself would, so
-# an absence check on its bytes would be meaningless.
-b16_nocounts_json=$(burn_json "$B5_WD" 145230 "" "max" 1 "" 62 "" 0 0)
-check "26a: a session that has edited nothing renders group 3 as ctx alone, byte for byte" \
-  "$(b16_raw_line "$b16_nocounts_json")" \
-  "$(b16_join "$(burn_effort_color max)max$B16_RST" "$(burn_plan_color 62)wk 62%$B16_RST" \
-      "$(burn_ctx_color 48)ctx 48%$B16_RST" "$(burn_plan_color 1)5h 1%$B16_RST")"
-
+# The model group is TWO colours, not one: B03's flat family colour for the
+# name and burn_effort_color for the tier, each closed before the next opens.
+# Byte-exact on that group alone, since a single sequence spanning both would
+# still produce the right stripped text.
+check "26a: the model name and the effort tier carry their own colours, each closed" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "Fable 5" "high" "" "" "" "" "" "")")" \
+  "$(burn_model_color "Fable 5")Fable 5$B16_RST $(burn_effort_color high)high$B16_RST"
+# And the family colour is asked for with the TRIMMED name: the parenthesised
+# suffix is cut before colouring, not after.
+check "26a: the family colour is chosen from the trimmed name, not the raw display name" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "Opus 5 (1M context)" "" "" "" "" "" "" "")")" \
+  "$(burn_model_color "Opus 5")Opus 5$B16_RST"
 # --- 26b. THE #306 REGRESSION TEST ------------------------------------------
 # The ctx meter warns as the context fills. This is the single case the plan
 # cannot ship without: the defect is not in the mapping (burn-theme.sh has
@@ -3046,120 +2652,55 @@ check "26c: and the same on a freshly-active session (level ok, still no ctx_col
       'printf "level=%s ctx_color=%s\n" "${level-<unset>}" "${ctx_color+<set>}"')" \
   "level=ok ctx_color="
 
-# --- 26d. Group 2's trend: B14's colour, the renderer's arrow ---------------
+# --- 26d. Both limit groups' trends: B14's colour, the renderer's arrow -----
 # The arrow STAYS. B14's +/-3 dead band is expressed as the green tier and the
 # upstream's on-track glyph is deliberately not adopted (26g pins its absence),
-# so `▲`/`▼` are still chosen here, by the same sign test, and only the colour
-# around them is new.
+# so `▲`/`▼` are still chosen here, by the same sign test, and the colour comes
+# from burn_trend_color.
 #
-# The fixtures are SOLVED, not guessed. burn_metrics' trend is `used% minus the
-# ideal line's value at NOW`, and that line's value is
-# 100 * awake(week_start, now) / awake(week_start, reset) -- computable from
-# B01's own shared primitive. A used% set to that value plus TARGET plus a
-# quarter point therefore produces exactly TARGET, with a quarter-point margin
-# on both sides; the line moves about 0.0002 points per second, so the fixture
-# holds for some twenty minutes and cannot flake on the seconds between this
-# arithmetic and the render.
-#
-# Solving also reaches the one magnitude an INTEGER used% cannot: a trend of
-# exactly 0, which the contract names as an edge case (`▲0`, green, inside the
-# dead band). The ideal line sits at a fractional value, so the integers either
-# side of it round to -0 and +1 rather than to 0.
-b16_ws=$(( B5_R7_RESET - 604800 ))
-b16_aw=$(burn_awake_seconds "$b16_ws" "$B5_R7_RESET" "$b5_ds2" 21600)
-b16_ae=$(burn_awake_seconds "$b16_ws" "$B5_NOW" "$b5_ds2" 21600)
-check "26d: the awake-seconds solve resolved (the trend fixtures are computable)" \
-  "$([ "${b16_aw:-0}" -gt 0 ] && [ "${b16_ae:-0}" -gt 0 ] && echo yes || echo no)" "yes"
+# B05 puts a trend in BOTH limit groups, from two different B02 functions, so
+# the wiring is asserted on both -- a renderer that coloured only the weekly one
+# would have passed the pre-B05 version of this case.
+b16_tr_t0=$(date +%s)
+b16_tr_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 40 "$B5_R5_RESET" 40 "$B5_R7_RESET" "" "")")
+b16_tr_t1=$(date +%s)
 
-# b16_trend_used(target): the used% that puts the trend at exactly TARGET.
-b16_trend_used() { # target
-  awk -v ae="$b16_ae" -v aw="$b16_aw" -v t="$1" 'BEGIN{printf "%.4f", ae/aw*100 + t + 0.25}'
+# b16_group_raw(kind used reset now): the raw bytes of a limit group, built from
+# B02/B03/B04 exactly as the contract composes them -- meter colour over label
+# and figure, then burn_trend_color over arrow and number, then the dimmed
+# countdown with its parens INSIDE the dim sequence.
+b16_group_raw() { # kind used reset now
+  local g t cd
+  g="$(burn_plan_color "$2")$1 ${2%%.*}%$B16_RST"
+  if [ "$1" = "5h" ]; then
+    t=$(burn_linear_trend "$2" "$4" "$3" 18000 2>/dev/null)
+  else
+    t=$(burn_week_trend "$2" "$4" "$3" "$B5_MIDNIGHT" "$B5_WDAY" "$B5_MASK" "$B5_SS" "$B5_ES" 2>/dev/null)
+  fi
+  [ -n "$t" ] && g="$g $(burn_trend_color "$t")$(b5_trend_token "$t")$B16_RST"
+  cd=$(burn_reset_str "$3" "$4" 2>/dev/null) && g="$g $(burn_countdown_color)($cd)$B16_RST"
+  printf '%s' "$g"
 }
 
-# b16_trend_case(label, target): render a weekly-only line -- no context tokens,
-# no five-hour limit -- so the trend ENDS the line and its closing reset is the
-# line's last byte. Asserted as a SUFFIX equality rather than a substring match,
-# which is what makes "wrapped in burn_trend_color ... $rst" a real statement:
-# an unclosed sequence, a second reset, or a colour that also swallowed the
-# following separator all fail it.
-b16_trend_case() { # label target
-  local used raw frag arrow got
-  used=$(b16_trend_used "$2")
-  got=$(burn_metrics "$used" 0 "$B5_NOW" "$B5_R7_RESET" "$b5_ds2" 21600 | awk '{print $3}')
-  check "26d: $1 -- the fixture really produces a trend of $2" "$got" "$2"
-  case "$2" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
-  raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$used" "$B5_R7_RESET" "" "")")
-  frag="$(burn_trend_color "$2")$arrow$2$B16_RST"
-  check "26d: $1 -- the line ends on '$arrow$2' wrapped in burn_trend_color's sequence" \
-    "$([ "$raw" != "${raw%"$frag"}" ] && echo yes || echo no)" "yes"
-}
-b16_trend_case "a trend of exactly 0 (the dead band, and the arrow is still up)" 0
-b16_trend_case "a trend of +5 (just past the dead band)"                         5
-b16_trend_case "a trend of +10"                                                  10
-b16_trend_case "a trend of +20 (far ahead of the even-burn line)"                20
-b16_trend_case "a trend of -10 (behind the line, so the tier that says 'nothing to act on')" -10
-
-# Five cases are worth running only if the five tiers are five different
-# sequences; otherwise a renderer that always emitted green would pass most of
-# them.
-check "26d: those five trends really do select five distinct sequences" \
-  "$(printf '%s\n' "$(burn_trend_color 0)" "$(burn_trend_color 5)" "$(burn_trend_color 10)" \
-      "$(burn_trend_color 20)" "$(burn_trend_color -10)" | sort -u | grep -c '' | tr -d ' ')" "5"
-
-# The whole weekly group, byte for byte: four figures, four colours, four
-# resets, and the three spaces between them. %t is pinned exactly (it does not
-# move with the render's clock -- see burn_expect_today); pace is bracketed over
-# the interval the render's own clock provably fell inside, exactly as 23i
-# brackets it. This is also where the trend's colour is pinned as part of a
-# whole group rather than as a suffix, so a colour that leaked backwards over
-# `%/d` fails here even though it would satisfy the suffix check above.
-b16_g2_used=$(b16_trend_used 20)
-b16_g2_today=$(burn_expect_today "$b16_g2_used" "$B5_R7_RESET" 2 6)
-b16_g2_t0=$(date +%s)
-b16_g2_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$b16_g2_used" "$B5_R7_RESET" "" "")")
-b16_g2_t1=$(date +%s)
-b16_g2_ok=no
-for _p in $(burn_metric_candidates 2 "$b16_g2_used" "$B5_R7_RESET" "$b5_ds2" 21600 "$b16_g2_t0" "$b16_g2_t1"); do
-  [ "$b16_g2_raw" = "$(b16_join "$(burn_effort_color max)max$B16_RST" \
-      "$(burn_plan_color "${b16_g2_used%%.*}")wk ${b16_g2_used%%.*}%$B16_RST\
- $(burn_today_color "$b16_g2_today")${b16_g2_today}%t$B16_RST\
- $(burn_pace_color "$_p")${_p}%/d$B16_RST\
- $(burn_trend_color 20)▲20$B16_RST")" ] && b16_g2_ok=yes
+b16_tr_ok=no
+for (( _n = b16_tr_t0; _n <= b16_tr_t1; _n++ )); do
+  [ "$b16_tr_raw" = "$(b16_join "$(b16_group_raw 5h 40 "$B5_R5_RESET" "$_n")" \
+                                "$(b16_group_raw wk 40 "$B5_R7_RESET" "$_n")")" ] && b16_tr_ok=yes
 done
-check "26d: the whole weekly group renders byte for byte -- four figures, four colours, four resets" \
-  "$b16_g2_ok" "yes"
-# The same line with the escapes taken out is the weekly group this plugin
-# already shipped, decimal used% truncated to its integer part and all.
-check "26d: and its stripped text still carries all four figures in order, the used% truncated" \
-  "$(burn_of "$(burn_render "$(burn_json "$B5_WD" "" "" "max" "" "" "$b16_g2_used" "$B5_R7_RESET" "" "")")" \
-     | grep -qE "^max │ wk ${b16_g2_used%%.*}% -?[0-9]+%t [0-9.]+%/d ▲20$" && echo yes || echo no)" "yes"
+check "26d: both limit groups render byte for byte -- meter colour, trend colour, dimmed countdown" \
+  "$b16_tr_ok" "yes"
+# The trend's colour is burn_trend_color's, not the meter's. Asserted on a
+# fixture where the two genuinely differ, so the case cannot pass by accident.
+b16_tr_val=$(burn_linear_trend 40 "$b16_tr_t0" "$B5_R5_RESET" 18000)
+check "26d: the trend fixture really is computable (not vacuous)" \
+  "$([ -n "$b16_tr_val" ] && echo yes || echo no)" "yes"
+check "26d: and the trend's colour differs from its meter's here, so the wiring discriminates" \
+  "$([ "$(burn_trend_color "$b16_tr_val")" != "$(burn_plan_color 40)" ] && echo yes || echo no)" "yes"
 
-# --- 26e. Group 3's counts: two colours, two resets, a bare slash -----------
-# 26a already pins the segment byte for byte. Separated out here is the clause a
-# byte-equality could satisfy for the wrong reason if the two halves shared one
-# sequence: each half is closed with its OWN reset, so neither can bleed into
-# the other, and the `/` between them carries no colour at all.
-check "26e: the added count closes before the slash, and the slash is uncoloured" \
-  "$(printf '%s' "$b16_static_raw" \
-     | grep -qaF "$(burn_diff_color add)+503$B16_RST/$(burn_diff_color del)" && echo yes || echo no)" "yes"
-check "26e: the removed count closes with its own reset" \
-  "$(printf '%s' "$b16_static_raw" \
-     | grep -qaF "$(burn_diff_color del)-16$B16_RST" && echo yes || echo no)" "yes"
-check "26e: add and del are different colours, so neither check above is vacuous" \
-  "$([ "$(burn_diff_color add)" != "$(burn_diff_color del)" ] && echo yes || echo no)" "yes"
-# The pair is gated on at least one count being above zero, never on each half
-# separately: a half at zero still renders, and still carries its colour.
-check "26e: '+5/-0' -- the zero half is rendered and coloured like the other" \
-  "$(b16_raw_line "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" 5 0)")" \
-  "$(b16_join "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+5$B16_RST/$(burn_diff_color del)-0$B16_RST")"
-check "26e: '+0/-7' -- likewise in the other direction" \
-  "$(b16_raw_line "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" 0 7)")" \
-  "$(b16_join "$(burn_ctx_color 48)ctx 48%$B16_RST $(burn_diff_color add)+0$B16_RST/$(burn_diff_color del)-7$B16_RST")"
-
-# --- 26f. Group 4's countdown dims WITH its parens --------------------------
+# --- 26f. The countdown dims WITH its parens --------------------------------
 # `($countdown)` entire, not `(` + dim + `)`: the whole subordinate clause dims
 # together so the eye reaches `5h 20%` first. Bracketed over [t0,t1] for
-# burn_reset_str's minute roll, as 23a and 24b are.
+# burn_reset_str's minute roll, as 23i is.
 b16_cd_t0=$(date +%s)
 b16_cd_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 "$B5_R5_RESET" "" "" "" "")")
 b16_cd_t1=$(date +%s)
@@ -3167,8 +2708,7 @@ b16_cd_ok=no
 b16_cd_openparen=no
 for (( _n = b16_cd_t0; _n <= b16_cd_t1; _n++ )); do
   _cd=$(burn_reset_str "$B5_R5_RESET" "$_n")
-  [ "$b16_cd_raw" = "$(burn_plan_color 20)5h 20%$B16_RST $(burn_countdown_color)($_cd)$B16_RST" ] \
-    && b16_cd_ok=yes
+  [ "$b16_cd_raw" = "$(b16_group_raw 5h 20 "$B5_R5_RESET" "$_n")" ] && b16_cd_ok=yes
   printf '%s' "$b16_cd_raw" | grep -qaF "($(burn_countdown_color)$_cd" && b16_cd_openparen=yes
 done
 check "26f: the five-hour group renders byte for byte, the countdown dimmed WITH its parens" \
@@ -3182,17 +2722,15 @@ check "26f: five_hour without its reset renders the meter alone, no leftover dim
   "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 "" "" "" "" "")")" \
   "$(burn_plan_color 20)5h 20%$B16_RST"
 # An UNPARSEABLE reset (a JSON string where an epoch belongs) takes the same
-# path: burn_reset_str returns non-zero, so countdown, parens and colour drop
-# together.
+# path: trend, countdown, parens and colour all drop together.
 check "26f: an unparseable reset drops the countdown, its parens and its colour alike" \
   "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 '"not-an-epoch"' "" "" "" "")")" \
   "$(burn_plan_color 20)5h 20%$B16_RST"
-
 # --- 26g. No hand-typed 38;5; survives in sl_render_burn_line ---------------
-# The contract states this outright as the consequence of the four wirings: with
-# group 3's colour coming from burn_ctx_color, the last `${esc}[38;5;Nm` typed
-# into this function goes, and any that reappears is a colour decision made in
-# the renderer instead of in burn-theme.sh. It is the cheapest check in this
+# The contract states this outright in its Invariants: every colour comes from
+# lib/burn-theme.sh, the two exceptions being the dim separator and the closing
+# reset. Any `${esc}[38;5;Nm` typed into this function is a colour decision made
+# in the renderer instead of in burn-theme.sh. It is the cheapest check in this
 # section and the one that would catch a future regression soonest.
 #
 # Scanned against BASH'S OWN PARSE of the function rather than the file's text,
@@ -3211,30 +2749,30 @@ check "26g: the same pattern does fire elsewhere in context.sh, so that check is
 # on-track glyph need not be adopted; no new codepoint appears on this line.
 check "26g: the upstream's on-track check mark appears nowhere in the function" \
   "$(printf '%s\n' "$b16_fn_body" | grep -qF '✓' && echo present || echo absent)" "absent"
-check "26g: nor on a rendered line that carries a trend inside the dead band" \
-  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "max" "" "" "$(b16_trend_used 0)" "$B5_R7_RESET" "" "")" \
-     | grep -qF '✓' && echo present || echo absent)" "absent"
-
+# The retired helpers are not called from here either. A call left behind would
+# fail at run time once the function is deleted from burn-theme.sh, and this is
+# the assertion that names the retirement rather than waiting for the crash.
+for b16_retired in burn_rainbow burn_model_style burn_frame_advance burn_diff_color \
+                   burn_metrics burn_awake_seconds burn_day_start_epoch burn_tick_frac; do
+  check "26g: sl_render_burn_line no longer calls $b16_retired" \
+    "$(printf '%s\n' "$b16_fn_body" | grep -qF "$b16_retired" && echo present || echo absent)" "absent"
+done
+unset b16_retired
 # --- 26h. Degradation: lib/burn-theme.sh absent from the install ------------
-# 23m-iii covers an install missing ALL THREE burnrate libraries, which leaves
-# the line with no derived figures at all. B16's degradation clause is narrower
-# and sharper: burn-math and burn-tick present, burn-theme absent, so every
-# FIGURE still computes and only colour is gone. That is the install whose line
-# must come out as today's uncoloured render -- no partial sequence, no colour
-# picked locally as a fallback, nothing broken.
-#
-# It is also the case that pins the DELETED `ctx_color=40` default from the
-# other side. Today that default is what makes the ctx meter the one group still
-# emitting a 256-colour sequence on an install with no theme at all; once the
-# default is gone and the call is guarded, not one survives.
+# 23l covers an install missing ALL the burnrate libraries, which leaves the
+# line with no derived figures at all. This clause is narrower and sharper:
+# burn-math present, burn-theme absent, so every FIGURE still computes and only
+# colour is gone. That is the install whose line must come out as an uncoloured
+# render -- no partial sequence, no colour picked locally as a fallback,
+# nothing broken.
 B16NOTHEME="$TMPROOT/b16-notheme"; mkdir -p "$B16NOTHEME/scripts" "$B16NOTHEME/lib"
 ln -s "$CONTEXT" "$B16NOTHEME/scripts/context.sh"
-for _f in platform.sh states.sh states.tsv burn-math.sh burn-tick.sh; do
+for _f in platform.sh states.sh states.tsv burn-math.sh; do
   ln -s "$SCRIPT_DIR/../lib/$_f" "$B16NOTHEME/lib/$_f"
 done
 unset _f
 
-b16_deg_render() { # json outfile errfile cachedir [cwd_env...]
+b16_deg_render() { # json outfile errfile cachedir
   printf '%s' "$1" \
     | env CLAUDE_PROJECTS_DIR="$TMPROOT/projects" CCOST_CACHE_DIR="$TMPROOT/cache" \
         CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
@@ -3255,7 +2793,7 @@ check "26h: burn-theme absent -> no diagnostic text reaches stdout" \
 check "26h: burn-theme absent -> not one 256-colour sequence survives on the line" \
   "$(printf '%s' "$b16_deg_raw" | grep -c '38;5;' | tr -d ' ')" "0"
 check "26h: burn-theme absent -> the line's TEXT is exactly the coloured render's" \
-  "$(b16_strip "$b16_deg_raw")" "max │ wk 62% │ ctx 48% +503/-16 │ 5h 1%"
+  "$(b16_strip "$b16_deg_raw")" "Opus max │ ctx 48% │ 5h 1% │ wk 62%"
 # "No partial sequence": every ESC on the line opens a complete SGR. Strip the
 # complete ones and no ESC byte may be left standing -- a truncated `\033[38;5;`
 # with no terminator would survive the strip and be caught here.
@@ -3267,22 +2805,23 @@ check "26h: burn-theme absent -> the line carries no emoji" \
   "$(burn_no_emoji "$(b16_strip "$b16_deg_raw")")" "yes"
 
 # The same install with a payload carrying both resets, so the two figures the
-# static fixture omits are in play. The trend is B01's, so it still renders and
-# must render UNCOLOURED. The countdown is not: burn_reset_str lives in the
-# missing file too, so it drops -- and the clause that matters is that it takes
-# its parens with it exactly as an absent reset does, rather than leaving the
-# empty `()` the contract forbids or a dim opener with nothing behind it.
+# static fixture omits are in play. Both trends are B01/B02's, so they still
+# render and must render UNCOLOURED. The countdown is not: burn_reset_str lives
+# in the missing file too, so it drops -- and the clause that matters is that it
+# takes its parens with it exactly as an absent reset does, rather than leaving
+# the empty `()` the contract forbids or a dim opener with nothing behind it.
 b16_deg2_out="$TMPROOT/b16-deg2.out"
-b16_deg_render "$(burn_json "$B5_WD" 145230 "" "max" 1 "$B5_R5_RESET" 62 "$B5_R7_RESET" 503 16)" \
+b16_deg_render "$(burn_json "$B5_WD" 145230 "Opus" "max" 1 "$B5_R5_RESET" 62 "$B5_R7_RESET" 503 16)" \
   "$b16_deg2_out" "$b16_deg_err" "$TMPROOT/b16-deg2-cache"
 b16_deg2_raw=$(line_of "$(<"$b16_deg2_out")" 2)
 b16_deg2_line=$(b16_strip "$b16_deg2_raw")
-check "26h: burn-theme absent -> the trend arrow and magnitude still render" \
-  "$(printf '%s' "$b16_deg2_line" | grep -qE '(▲|▼)-?[0-9]+' && echo yes || echo no)" "yes"
+check "26h: burn-theme absent -> both trend arrows and magnitudes still render" \
+  "$(printf '%s' "$b16_deg2_line" | grep -cE '(▲|▼)-?[0-9]+')" "1"
 check "26h: burn-theme absent -> the countdown drops with its parens, leaving no empty pair" \
   "$(printf '%s' "$b16_deg2_line" | grep -qE '[()]' && echo present || echo absent)" "absent"
-check "26h: burn-theme absent -> and the five-hour meter itself still renders" \
-  "$(printf '%s' "$b16_deg2_line" | grep -qE '5h 1%' && echo yes || echo no)" "yes"
+check "26h: burn-theme absent -> and both meters themselves still render" \
+  "$(printf '%s' "$b16_deg2_line" | grep -qE '5h 1%' \
+     && printf '%s' "$b16_deg2_line" | grep -qE 'wk 62%' && echo yes || echo no)" "yes"
 check "26h: burn-theme absent -> still not one 256-colour sequence on that line" \
   "$(printf '%s' "$b16_deg2_raw" | grep -c '38;5;' | tr -d ' ')" "0"
 check "26h: burn-theme absent -> that line stays well-formed too" \
@@ -3301,16 +2840,15 @@ check "26h: burn-theme absent -> it publishes the safe tier rather than a privat
   "$(jq -r '.level' "$B16DEGWD/.local/.ctx-status.json" 2>/dev/null)" "ok"
 check "26h: burn-theme absent -> and the occupancy it publishes is unaffected" \
   "$(jq -r '.used_percentage' "$B16DEGWD/.local/.ctx-status.json" 2>/dev/null)" "66"
-
 # --- 26i. The shape does not move -------------------------------------------
 # Most of this clause is already pinned, uncoloured, in section 23: the group
-# count and the vanishing separators (23a/23b), the omission rules (23b/23o),
-# the integer truncation of r5 and r7 (24d), the one string with no trailing
-# newline (23g), and the warm-render process budget (23l) -- which B16 cannot
-# move, since every helper it adds is pure bash builtins and forks nothing. What
-# is added here is the same statement made against the COLOURED line, where a
-# sequence wrapped around the wrong span changes the shape without changing a
-# byte of the stripped text.
+# count and the vanishing separators (23a/23b), the omission rules (23b), the
+# integer truncation of r5 and r7 (23o), the one string with no trailing
+# newline (23g), and the warm-render process budget (23k) -- which no colour
+# helper can move, since every one of them is pure bash builtins and forks
+# nothing. What is added here is the same statement made against the COLOURED
+# line, where a sequence wrapped around the wrong span changes the shape
+# without changing a byte of the stripped text.
 check "26i: the fully-coloured line still carries exactly three dim separators" \
   "$(printf '%s' "$b16_static_raw" | grep -oaF "$B16_SEP" | wc -l | tr -d ' ')" "3"
 check "26i: the fully-coloured line carries no emoji" \
@@ -3325,6 +2863,49 @@ check "26i: an overrun (350,000/300,000 = 116%) renders in burn_ctx_color's top 
   "$(burn_ctx_color 116)ctx 116%$B16_RST"
 check "26i: and that is the same band a 60% context takes -- nothing clamps, nothing special-cases" \
   "$([ "$(burn_ctx_color 116)" = "$(burn_ctx_color 60)" ] && echo yes || echo no)" "yes"
+
+# --- 26j. lib/burn-tick.sh is retired outright ------------------------------
+# B05 line2-groups (plan 001-statusline-glance-uplift) RETIRES lib/burn-tick.sh
+# "and its test". The sub-tick interpolator existed to smooth the %t figure
+# between renders; B05 deletes %t, so the interpolator has no consumer and the
+# whole file goes with it. Its own assertions -- the state file, the
+# anchor/calibration/read paths, the clamps, the awk-fork budget -- are not
+# relaxed and not moved: a test for a deleted function cannot be kept honestly.
+# What is left that can still be true or false about that file is its ABSENCE,
+# and these checks live here, beside 26g, which already asserts that
+# sl_render_burn_line no longer calls burn_tick_frac.
+b16_tick_root="$SCRIPT_DIR/.."
+check "26j: lib/burn-tick.sh is retired and no longer present" \
+  "$([ -e "$b16_tick_root/lib/burn-tick.sh" ] && echo present || echo absent)" "absent"
+# The retirement is not a rename: no shipped CODE may source the file or call
+# burn_tick_frac, or deleting it would break the render rather than simplify
+# it. Scoped to the plugin's shell sources, with two exclusions that are about
+# what the check MEANS rather than about making it pass:
+#   - comment lines, for the same reason burn-theme's scans exclude them --
+#     several docblocks NAME the retired file in order to record that it is
+#     gone, and a check that fired on the prose describing a deletion would be
+#     a check on the wrong text;
+#   - *.test.sh, because a test that asserts the retirement has to be able to
+#     spell the retired name (26g enumerates exactly these names to assert the
+#     renderer no longer calls them).
+b16_tick_scanned=0
+b16_tick_refs=""
+for b16_tick_f in "$b16_tick_root"/lib/*.sh "$b16_tick_root"/scripts/*.sh; do
+  case "$b16_tick_f" in *.test.sh) continue ;; esac
+  [ "$b16_tick_f" = "$b16_tick_root/lib/burn-tick.sh" ] && continue
+  [ -f "$b16_tick_f" ] || continue
+  b16_tick_scanned=$((b16_tick_scanned + 1))
+  grep -vE '^[[:space:]]*#' "$b16_tick_f" 2>/dev/null \
+    | grep -qE 'burn-tick\.sh|burn_tick_frac' \
+    && b16_tick_refs="$b16_tick_refs ${b16_tick_f##*/}"
+done
+# An absence check over an empty file list passes for free, so pin that the
+# scan really walked the plugin's shell sources.
+check "26j: the retirement scan really sees the plugin's shell sources (not vacuous)" \
+  "$([ "$b16_tick_scanned" -gt 0 ] && echo yes || echo no)" "yes"
+check "26j: no shipped file in the plugin still sources burn-tick.sh or calls burn_tick_frac" \
+  "${b16_tick_refs# }" ""
+unset b16_tick_root b16_tick_scanned b16_tick_refs b16_tick_f
 
 # === 27. B18 statusline-bash3-payload-delimiter =============================
 # Contract: the `Contract: B18 statusline-bash3-payload-delimiter` docblock
@@ -3346,7 +2927,7 @@ check "26i: and that is the same band a 60% context takes -- nothing clamps, not
 #   - the READ end (27a/27b): shadow `jq` with a shell FUNCTION, so the test
 #     chooses the exact bytes the `read` is handed. Feed it a 0x1f-joined
 #     payload and today's `IFS=$'\x01' read` does not split it -- every field
-#     lands in window_size and the other thirteen come back empty, which is
+#     lands in window_size and the other eleven come back empty, which is
 #     precisely the shape macOS renders, reproduced here on bash 5.
 #   - the JQ end (27c): shadow `jq` with a function that CAPTURES the filter and
 #     delegates to the real binary, then execute that captured filter and look
@@ -3379,27 +2960,31 @@ B18_RUN="$TMPROOT/b18-run"; mkdir -p "$B18_RUN"
 # sourcing context.sh performs is as hermetic as every other helper's here.
 B18_JSON="{\"workspace\":{\"current_dir\":\"$B18_WD\"},\"transcript_path\":\"\",$ctx}"
 
-# The fourteen variables sl_parse_input's `read` names, in contract order.
-B18_SHOW='printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" \
+# The twelve variables sl_parse_input's `read` names, in contract order. B05
+# line2-groups retires lines_added and lines_removed from both ends of the round
+# trip -- the jq filter no longer emits them and the read no longer names them --
+# so this list is twelve where it was fourteen. Nothing else about the function
+# moves: same byte, same order, same empties-preserved rule.
+B18_SHOW='printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" \
   "$window_size" "$total_input" "$transcript_path" "$cwd" "$model_name" "$effort" \
-  "$r5" "$r5_reset" "$r7" "$r7_reset" "$lines_added" "$lines_removed" \
+  "$r5" "$r5_reset" "$r7" "$r7_reset" \
   "$total_cost_usd" "$session_id"'
 B18_UNSET='unset window_size total_input transcript_path cwd model_name effort \
-  r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id'
+  r5 r5_reset r7 r7_reset total_cost_usd session_id'
 # "s" per name still ASSIGNED after the read. Paired with B18_UNSET above it is
-# the difference between "fourteen empty fields" and "thirteen unset variables":
+# the difference between "twelve empty fields" and "eleven unset variables":
 # `read` assigns every name it is given, so a name dropped from the read list
 # stays unset here rather than merely reading empty.
-B18_SETCHK='printf "%s%s%s%s%s%s%s%s%s%s%s%s%s%s" \
+B18_SETCHK='printf "%s%s%s%s%s%s%s%s%s%s%s%s" \
   "${window_size+s}" "${total_input+s}" "${transcript_path+s}" "${cwd+s}" \
   "${model_name+s}" "${effort+s}" "${r5+s}" "${r5_reset+s}" "${r7+s}" \
-  "${r7_reset+s}" "${lines_added+s}" "${lines_removed+s}" \
+  "${r7_reset+s}" \
   "${total_cost_usd+s}" "${session_id+s}"'
 
 B18_JQ_LOG="$TMPROOT/b18-jq-calls"
 
 # b18_read(jq_stdout, bash_code, [NAME=VALUE...]): source context.sh, REPLACE
-# `jq` with a shell function emitting JQ_STDOUT verbatim, unset the fourteen
+# `jq` with a shell function emitting JQ_STDOUT verbatim, unset the twelve
 # names, call sl_parse_input, then run BASH_CODE in the same shell.
 #
 # A function shadows an external command for every unqualified call, so this
@@ -3509,58 +3094,60 @@ check "27a: a 0x1f-joined payload splits -- the new byte is the read's IFS" \
 check "27a: a 0x01-joined payload does NOT -- the retired byte is no longer the read's IFS" \
   "$(b18_delims_have 01)" "no"
 # The macOS failure shape, reproduced on bash 5: hand the read a payload joined
-# on the byte the FIXED jq end emits and, unfixed, all fourteen fields land in
-# window_size with the other thirteen empty. Exit 0, nothing on stderr, a
+# on the byte the FIXED jq end emits and, unfixed, all twelve fields land in
+# window_size with the other eleven empty. Exit 0, nothing on stderr, a
 # statusline with an empty cwd -- exactly what the Why clause describes.
 b18_head="A${B18_US}B${B18_US}C"
 check "27a: three 0x1f-separated fields do not all collapse into window_size" \
   "$(b18_visible "$(b18_read "$b18_head" 'printf "%s/%s/%s" "$window_size" "$total_input" "$transcript_path"')")" \
   "A/B/C"
 
-# --- 27b. The READ end: fourteen fields, in order, empties preserved --------
-# Field ORDER gets its own assertion because a fourteen-name positional read is
+# --- 27b. The READ end: twelve fields, in order, empties preserved ----------
+# Field ORDER gets its own assertion because a twelve-name positional read is
 # exactly the kind of thing a careless edit reorders, and every value here is
-# distinct so a transposition cannot hide.
+# distinct so a transposition cannot hide. Twelve, not fourteen, since B05
+# retires the two line-count fields from both ends of the round trip; the two
+# columns are removed, not blanked, so every field after them moves up.
 b18_ordered="f01"
-for _i in 02 03 04 05 06 07 08 09 10 11 12 13 14; do
+for _i in 02 03 04 05 06 07 08 09 10 11 12; do
   b18_ordered="$b18_ordered${B18_US}f$_i"
 done
 unset _i
-check "27b: fourteen 0x1f-separated fields land one per variable, in contract order" \
+check "27b: twelve 0x1f-separated fields land one per variable, in contract order" \
   "$(b18_visible "$(b18_read "$b18_ordered" "$B18_SHOW")")" \
-  "f01|f02|f03|f04|f05|f06|f07|f08|f09|f10|f11|f12|f13|f14"
-check "27b: and the read still assigns all fourteen names (none dropped from its list)" \
-  "$(b18_read "$b18_ordered" "$B18_SETCHK")" "ssssssssssssss"
+  "f01|f02|f03|f04|f05|f06|f07|f08|f09|f10|f11|f12"
+check "27b: and the read still assigns all twelve names (none dropped from its list)" \
+  "$(b18_read "$b18_ordered" "$B18_SETCHK")" "ssssssssssss"
 
 # The invariant \x01 was chosen over @tsv's tab for, restated on the new byte:
 # an absent transcript_path (field 3) must parse EMPTY and shift nothing after
 # it. With a whitespace delimiter the run of two collapses and every later field
 # moves up one column.
-b18_gap="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}42${B18_US}1700000000${B18_US}17${B18_US}1700500000${B18_US}503${B18_US}16${B18_US}12.34${B18_US}sess-gap"
+b18_gap="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}42${B18_US}1700000000${B18_US}17${B18_US}1700500000${B18_US}12.34${B18_US}sess-gap"
 check "27b: an empty middle field parses empty and shifts nothing after it" \
   "$(b18_visible "$(b18_read "$b18_gap" "$B18_SHOW")")" \
-  "1000000|145230||/cwd|Opus|high|42|1700000000|17|1700500000|503|16|12.34|sess-gap"
+  "1000000|145230||/cwd|Opus|high|42|1700000000|17|1700500000|12.34|sess-gap"
 
-# Edge case: every optional field absent. jq joins fourteen empty strings, so
-# what reaches the read is thirteen delimiters and nothing else. Fourteen empty
-# fields -- not one field holding thirteen bytes and thirteen empties, which is
+# Edge case: every optional field absent. jq joins twelve empty strings, so
+# what reaches the read is eleven delimiters and nothing else. Twelve empty
+# fields -- not one field holding eleven bytes and eleven empties, which is
 # what today's read makes of it.
 b18_allempty=""
-for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do b18_allempty="$b18_allempty$B18_US"; done
+for _i in 1 2 3 4 5 6 7 8 9 10 11; do b18_allempty="$b18_allempty$B18_US"; done
 unset _i
-check "27b: a payload with every field absent parses as fourteen empty fields" \
-  "$(b18_visible "$(b18_read "$b18_allempty" "$B18_SHOW")")" "|||||||||||||"
+check "27b: a payload with every field absent parses as twelve empty fields" \
+  "$(b18_visible "$(b18_read "$b18_allempty" "$B18_SHOW")")" "|||||||||||"
 
 # The `effort` fallback to CLAUDE_EFFORT is "same fallbacks" in the Behavior
 # clause: it applies AFTER the split, so it must neither stop firing nor start
 # overriding. model_name rides both assertions so neither can pass on the
 # unsplit string (where effort is empty and the fallback fires for the wrong
 # reason).
-b18_eff_empty="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
+b18_eff_empty="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
 check "27b: the CLAUDE_EFFORT fallback still fires after the split when the field is empty" \
   "$(b18_visible "$(b18_read "$b18_eff_empty" 'printf "%s/%s" "$model_name" "$effort"' CLAUDE_EFFORT=medium)")" \
   "Opus/medium"
-b18_eff_set="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
+b18_eff_set="1000000${B18_US}145230${B18_US}${B18_US}/cwd${B18_US}Opus${B18_US}high${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}${B18_US}"
 check "27b: and still does not override an effort the payload carried" \
   "$(b18_visible "$(b18_read "$b18_eff_set" 'printf "%s/%s" "$model_name" "$effort"' CLAUDE_EFFORT=medium)")" \
   "Opus/high"
@@ -3588,22 +3175,24 @@ check "27c: control -- the captured filter really is sl_parse_input's own (not a
   "$( { [ -s "$B18_FILTER" ] && grep -q 'context_window_size' "$B18_FILTER" \
         && grep -q 'join(' "$B18_FILTER"; } && echo yes || echo no)" "yes"
 
-# Fourteen distinguishable values, field 1 a known seven characters wide so the
+# Twelve distinguishable values, field 1 a known seven characters wide so the
 # separator is the byte at offset 7 -- read positionally rather than by scanning
 # for "the non-printable one", so a delimiter that IS printable is caught too.
 b18_pay="{\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"/tp\",\"workspace\":{\"current_dir\":\"/cw\"},\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"session_id\":\"sess-abc\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":1700000000},\"seven_day\":{\"used_percentage\":17,\"resets_at\":1700500000}},\"cost\":{\"total_lines_added\":503,\"total_lines_removed\":16,\"total_cost_usd\":12.34}}"
 b18_joined=$(printf '%s' "$b18_pay" | jq -r "$(<"$B18_FILTER")")
 check "27c: the filter's own output separates the fields with 0x1f" \
   "$(b18_visible "${b18_joined:7:1}")" "<1f>"
-check "27c: thirteen of them -- one per gap between the fourteen fields" \
-  "$(b18_count_byte "$b18_joined" "$B18_US")" "13"
+check "27c: eleven of them -- one per gap between the twelve fields" \
+  "$(b18_count_byte "$b18_joined" "$B18_US")" "11"
 check "27c: and not one 0x01 byte survives in what jq emits" \
   "$(b18_count_byte "$b18_joined" "$B18_SOH")" "0"
 # Order and count at the JQ end, independently of the read end: the same
-# fourteen fields, the same order, on the new byte.
-check "27c: the fourteen fields come out in the contract's order, on the new byte" \
+# twelve fields, the same order, on the new byte -- and the payload still
+# CARRIES the two retired line counts, so this is where a filter that kept
+# emitting them shows up.
+check "27c: the twelve fields come out in the contract's order, on the new byte" \
   "$(b18_visible "$b18_joined")" \
-  "1000000<1f>145230<1f>/tp<1f>/cw<1f>Opus<1f>high<1f>42<1f>1700000000<1f>17<1f>1700500000<1f>503<1f>16<1f>12.34<1f>sess-abc"
+  "1000000<1f>145230<1f>/tp<1f>/cw<1f>Opus<1f>high<1f>42<1f>1700000000<1f>17<1f>1700500000<1f>12.34<1f>sess-abc"
 # "Same single jq invocation." Section 22i owns the per-RENDER budget through
 # the PATH-shim harness; this is the narrower statement the delimiter clause
 # needs -- one jq inside sl_parse_input itself -- counted by the same function
@@ -3623,7 +3212,7 @@ b18_shadow() { # name sed_arg...
   local d="$TMPROOT/b18-$name" f
   mkdir -p "$d/scripts" "$d/lib"
   sed "$@" "$CONTEXT" > "$d/scripts/context.sh"
-  for f in platform.sh states.sh states.tsv burn-math.sh burn-tick.sh burn-theme.sh; do
+  for f in platform.sh states.sh states.tsv burn-math.sh burn-theme.sh; do
     ln -s "$SCRIPT_DIR/../lib/$f" "$d/lib/$f"
   done
   printf '%s' "$d/scripts/context.sh"
@@ -3785,8 +3374,8 @@ check "27i: while a 0x01 inside one is now harmless, where today it splits the f
 # optional field absent. Green either side of the change by construction -- both
 # bytes split correctly on bash 5 -- and there to catch a fix that dropped or
 # reordered a field while it was in the neighbourhood.
-check "27i: a fully-absent payload still round-trips through real jq as fourteen empty fields" \
-  "$(b18_visible "$(b18_parse '{}' "$B18_SHOW")")" "|||||||||||||"
+check "27i: a fully-absent payload still round-trips through real jq as twelve empty fields" \
+  "$(b18_visible "$(b18_parse '{}' "$B18_SHOW")")" "|||||||||||"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

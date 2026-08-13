@@ -95,10 +95,12 @@ ln -s "$SCRIPT_DIR/../lib/states.tsv" "$SHADOW/lib/states.tsv"
 # The burnrate libraries too: context.sh sources each only when the file is
 # present, so a shadow tree missing them would render a silently DEGRADED
 # burnrate line, and every budget figure measured through it would be counting
-# a render that never ran B01's or B02's awk -- passing the bound for the wrong
-# reason.
+# a render that never ran B02's awk -- passing the bound for the wrong reason.
+# lib/burn-tick.sh is NOT linked: B05 line2-groups (plan
+# 001-statusline-glance-uplift) retires the file outright along with the %t and
+# %/d figures its sub-tick interpolator fed, so a link to it would break this
+# harness the moment the implementation lands.
 ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$SHADOW/lib/burn-math.sh"
-ln -s "$SCRIPT_DIR/../lib/burn-tick.sh" "$SHADOW/lib/burn-tick.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$SHADOW/lib/burn-theme.sh"
 cat > "$SHADOW/scripts/ccost.sh" <<EOF
 #!/bin/bash
@@ -362,20 +364,34 @@ check "clause7: two sessions sharing a cwd and cache dir produce two distinct bu
 # ============================================================================
 # The LOCAL WALL-CLOCK hour is read as decimal, never octal
 #
-# The day-start anchor derives seconds-into-the-local-day from `date +'%H %M
-# %S'`, which returns zero-PADDED fields: "08" at 8am, "09" at 9am, and the
-# same for any minute or second below ten. Bash arithmetic reads a leading-zero
-# numeric string as octal, in which 08 and 09 are not merely the wrong number
-# but a hard error ("value too great for base"). The anchor is computed inside
-# a command substitution, so the error kills that subshell and the whole
-# weekly group silently loses %t, %/d and the trend -- for EVERY user, between
-# 08:00 and 09:59 local time every day, and for a minute or a second at the
-# top of many other hours.
+# The anchor pair derives seconds-into-the-local-day, and the local ISO
+# weekday, from ONE `date` call -- which returns zero-PADDED fields: "08" at
+# 8am, "09" at 9am, and the same for any minute or second below ten. Bash
+# arithmetic reads a leading-zero numeric string as octal, in which 08 and 09
+# are not merely the wrong number but a hard error ("value too great for
+# base"). The anchor is computed inside a command substitution, so the error
+# kills that subshell and the whole weekly group silently loses its trend --
+# for EVERY user, between 08:00 and 09:59 local time every day, and for a
+# minute or a second at the top of many other hours.
+#
+# B05 line2-groups keeps this clause and widens what depends on it: the same
+# 10# forcing now also guards the three schedule knobs, whose zero-padded
+# values ("08") a user writes deliberately. Its own cases live in
+# context.test.sh §23m; what is pinned HERE is the clock end, where the padding
+# is not a user's choice but what `date` always emits.
 #
 # Every case below runs through the suite's existing PATH-shim harness with one
 # extra wrapper ahead of it, because the input under test is what `date` says.
 # The wrapper answers the render's two date calls and nothing else:
-#   - the local time-of-day call, from $FAKE_LOCAL_HMS, which is the fixture;
+#   - the local call, from $FAKE_LOCAL_HMS and $FAKE_LOCAL_WDAY, which is the
+#     fixture. Deliberately FORMAT-AGNOSTIC: it substitutes each %H/%M/%S/%u
+#     token in whatever format string the renderer asks for, rather than
+#     matching one exact string. The contract names the FIELDS the render needs
+#     (seconds-into-day and ISO weekday, together, from one call) and not their
+#     spelling, so pinning a literal format here would be testing an
+#     implementation detail -- and a wrapper that failed to match would fall
+#     through to the real clock and make every equality below vacuous, which is
+#     what the steering check guards against;
 #   - the shared UTC "now", from a single instant frozen at suite start, so a
 #     padded render and its unpadded twin are compared at the SAME instant.
 #     Without that, %t/%/d/trend all drift with the real clock between the two
@@ -397,10 +413,24 @@ _real_date="$(type -P date)"
 EOF
 cat >> "$CLOCK_BIN/date" <<'EOF'
 echo "date" >> "${SHIM_LOG:-/dev/null}"
-if [ "$1" = "+%H %M %S" ]; then printf '%s\n' "$FAKE_LOCAL_HMS"; exit 0; fi
 if [ "$1" = "-u" ]; then
   case "$2" in "+%s "*) printf '%s %s\n' "$_frozen_now" "$_frozen_iso"; exit 0 ;; esac
 fi
+# Any LOCAL format request mentioning the hour is the anchor call: answer it by
+# substituting the fixture's fields into the format the caller asked for, so
+# this wrapper does not depend on how that format is spelled.
+case "$1" in
+  +*%H*)
+    read -r _fh _fm _fs <<< "$FAKE_LOCAL_HMS"
+    _fmt="${1#+}"
+    _fmt="${_fmt//%H/$_fh}"
+    _fmt="${_fmt//%M/$_fm}"
+    _fmt="${_fmt//%S/$_fs}"
+    _fmt="${_fmt//%u/${FAKE_LOCAL_WDAY:-3}}"
+    printf '%s\n' "$_fmt"
+    exit 0
+    ;;
+esac
 exec "$_real_date" "$@"
 EOF
 chmod +x "$CLOCK_BIN/date"
@@ -409,11 +439,12 @@ OCTAL_WD="$TMPROOT/octal-wd"; mk_wt "$OCTAL_WD"
 OCTAL_BUNDLE_DIR="$TMPROOT/octal-bundle-cache"
 OCTAL_CCOST_DIR="$TMPROOT/octal-ccost-cache"
 OCTAL_PROJECTS_DIR="$TMPROOT/octal-projects"; mkdir -p "$OCTAL_PROJECTS_DIR"
-# A weekly limit with a reset three days past the frozen instant, and no
-# total_cost_usd: that keeps the sub-tick interpolator (and the state file it
-# would carry between the two renders of a pair) out of the comparison, so the
-# only thing separating a pair is how its `date` fields are spelled. TTL 0
-# below likewise keeps every render cold, so no bundle crosses a pair either.
+# A weekly limit with a reset three days past the frozen instant: the weekly
+# trend is the one figure the local clock steers, since B05 gives the 5-hour
+# window a plain wall-clock trend with no working-week notion at all. With the
+# UTC instant frozen, the only thing separating a pair of renders is how its
+# `date` fields are spelled. TTL 0 below keeps every render cold, so no bundle
+# crosses a pair either.
 octal_json="{\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"},\"workspace\":{\"current_dir\":\"$OCTAL_WD\"},\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":145230},\"transcript_path\":\"\",\"session_id\":\"sess-octal\",\"rate_limits\":{\"seven_day\":{\"used_percentage\":60,\"resets_at\":$(( FROZEN_NOW + 3 * 86400 ))}}}"
 
 # The weekly group of a render whose local clock reads HMS: everything from the
@@ -442,8 +473,22 @@ weekly_group_at() { # hms
 # on every machine and at every real time of day; only the fixture moves them.)
 check "octal-clock: the faked clock really steers the render (08:15 and 13:15 differ)" \
   "$([ "$(weekly_group_at '08 15 30')" != "$(weekly_group_at '13 15 30')" ] && echo yes || echo no)" "yes"
-check "octal-clock: at 08:09:07 local the weekly group keeps %t, %/d and the trend" \
-  "$(weekly_group_at '08 09 07' | grep -qE 'wk 60% -?[0-9]+%t [0-9.]+%/d (▲|▼)' && echo yes || echo no)" "yes"
+# The shape B05 renders: used%, trend, parenthesised countdown. A weekly group
+# that lost its anchor to the octal error reads "wk 60%" alone, so this is the
+# assertion the defect fails.
+check "octal-clock: at 08:09:07 local the weekly group keeps its trend and countdown" \
+  "$(weekly_group_at '08 09 07' | grep -qE '^wk 60% (▲|▼)-?[0-9]+ \([0-9]+d[0-9]+h\)$' && echo yes || echo no)" "yes"
+# The ISO weekday is read as decimal for the same reason and from the same
+# call: a schedule is a function of WHICH day it is, so a weekday the anchor
+# could not parse drops the trend exactly as a bad hour does.
+check "octal-clock: every ISO weekday 1-7 keeps the weekly group's trend" \
+  "$(for _d in 1 2 3 4 5 6 7; do
+       render_shim "$octal_json" "$OCTAL_BUNDLE_DIR" 0 "$OCTAL_CCOST_DIR" 0 "$OCTAL_PROJECTS_DIR" \
+         "PATH=$CLOCK_BIN:$SHIM_BIN" "FAKE_LOCAL_HMS=09 08 07" "FAKE_LOCAL_WDAY=$_d" \
+         "CLAM_STATUSLINE_WORK_DAYS=1-7"
+       strip_ansi < "$REND_OUT" | grep -oE 'wk [^│]*' | head -n1 \
+         | grep -qE 'wk 60% (▲|▼)' || { echo "no"; break; }
+     done | head -n1)" ""
 # Each position is pinned on its own: 10# was needed on all three fields, and a
 # fix applied to only some of them is the plausible regression. The unpadded
 # twin of each pair is the same instant expressed the way `date` never spells
@@ -495,8 +540,8 @@ b09_warm_line2=$(strip_ansi < "$REND_OUT" | sed -n '2p')
 # no evidence at all. Four groups means exactly three separators.
 check "B09-budget: the measured render really carries all four groups" \
   "$(printf '%s' "$b09_cold_line2" | grep -o '│' | wc -l | tr -d ' ')" "3"
-check "B09-budget: and its 5-hour group really carries the parenthesised countdown" \
-  "$(printf '%s' "$b09_cold_line2" | grep -qE '5h 1% \([^)]+\)$' && echo yes || echo no)" "yes"
+check "B09-budget: and its 5-hour group really carries its trend and parenthesised countdown" \
+  "$(printf '%s' "$b09_cold_line2" | grep -qE '5h 1% (▲|▼)-?[0-9]+ \([^)]+\)' && echo yes || echo no)" "yes"
 # Same bounds as clauses 6 and 1, applied to the four-group render. Generous
 # for the same reason those are: a measured figure with headroom, not a
 # brittle exact match that a platform's differing coreutils would break.
@@ -509,6 +554,63 @@ check "B09-budget: a warm four-group render stays within the 12-command bound" \
 # statement about the burnrate code at all, not about the bundle.
 check "B09-budget: the warm render rebuilt the same four-group line, not a cached one" \
   "$(printf '%s' "$b09_warm_line2" | grep -o '│' | wc -l | tr -d ' ')" "3"
+
+# ============================================================================
+# B05 line2-groups: the warm-render process budget does NOT move
+# ============================================================================
+# Contract: B05's Invariants clause, stated as a per-tool budget rather than a
+# total -- "exactly one jq over stdin, at most two date, at most two awk, no
+# git, no ccost.sh, nothing opened under CLAUDE_PROJECTS_DIR". The total bound
+# above cannot see a renderer that spent a spare `date` and saved an `awk`, so
+# each tool is counted on its own here.
+#
+# Measured on the four-group payload above, which is the only payload on which
+# the budget means anything: one with no rate_limits runs neither limit group
+# and therefore neither trend. Reusing that scenario's WARM render state
+# deliberately -- the numbers below are counted from a fresh warm render at the
+# same key, so cold-only work (the git branch lookup, the bundle build) is out
+# of scope exactly as the clause intends.
+#
+# Retiring the sub-tick interpolator frees one awk, and the 5-hour trend does
+# not spend it: burn_linear_trend is pure bash and forks nothing (B02's own
+# invariant). So "at most two awk" is the SAME two the pre-B05 render spent,
+# not a raised ceiling.
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW is pinned for this measurement alone. Every
+# other scenario in this suite deliberately leaves it unset so the settings.json
+# fallback jq fires; that fallback is a SECOND jq and it is not the one the
+# clause is about. "Exactly one jq over stdin" is a statement about the payload
+# parse, so the fallback is removed from the measurement rather than the
+# assertion loosened to "at most two" -- which would no longer catch a render
+# that parsed its payload twice.
+render_shim "$b09_json" "$B09_BUNDLE_DIR" 600 "$B09_CCOST_DIR" 600 "$B09_PROJECTS_DIR" \
+  "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000"
+b05_line2=$(strip_ansi < "$REND_OUT" | sed -n '2p')
+b05_total=$(shim_count "$SHIM_LOG")
+b05_jq=$(shim_count "$SHIM_LOG" jq)
+b05_date=$(shim_count "$SHIM_LOG" date)
+b05_awk=$(shim_count "$SHIM_LOG" awk)
+b05_git=$(shim_count "$SHIM_LOG" git)
+b05_ccost=$(shim_count "$CCOST_LOG_FILE")
+
+# Non-vacuity first: a budget met by rendering nothing is not evidence.
+check "B05-budget: the measured warm render really carries all four groups" \
+  "$(printf '%s' "$b05_line2" | grep -o '│' | wc -l | tr -d ' ')" "3"
+check "B05-budget: and both limit groups really carry a trend, so both trend paths ran" \
+  "$(printf '%s' "$b05_line2" | grep -cE '(5h|wk) [0-9]+% (▲|▼)-?[0-9]+')" "1"
+check "B05-budget: exactly one jq, over stdin" "${b05_jq:-99}" "1"
+check "B05-budget: at most two date" \
+  "$([ "${b05_date:-99}" -le 2 ] && echo yes || echo no)" "yes"
+check "B05-budget: at most two awk" \
+  "$([ "${b05_awk:-99}" -le 2 ] && echo yes || echo no)" "yes"
+check "B05-budget: no git" "${b05_git:-99}" "0"
+check "B05-budget: no ccost.sh" "${b05_ccost:-99}" "0"
+check "B05-budget: and the total still sits inside the unchanged 12-command bound" \
+  "$([ "${b05_total:-99}" -le 12 ] && echo yes || echo no)" "yes"
+# "Nothing opened under CLAUDE_PROJECTS_DIR", checked the same independent way
+# clause 2 checks it: ccost.sh is the only reader on this path, and the
+# sentinel directory's listing must be untouched by the render.
+check "B05-budget: nothing appears under the sentinel CLAUDE_PROJECTS_DIR" \
+  "$(find "$B09_PROJECTS_DIR" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')" "0"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

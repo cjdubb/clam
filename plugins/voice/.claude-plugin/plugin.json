@@ -1,7 +1,7 @@
 {
   "name": "voice",
   "description": "Ships the Voice communication spec — conclusion-first, working-memory-friendly reply structure — as two selectable output styles, with and without Claude Code's built-in coding instructions.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

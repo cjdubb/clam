@@ -512,6 +512,73 @@ case "$state" in
         ;;
 esac
 
+# Work-graph creation gate. Once per session epoch, prevent parking while the
+# session has demonstrably decomposed its problem — a decomposition artifact
+# exists under .local/ — but .local/WORKGRAPH.md does not. This is the
+# creation-side sibling of check_workgraph_closeout: closeout polices open
+# nodes at Complete; this polices the graph existing at all, at the first
+# park after decomposition. Evidence for the trigger: an 18h47m session
+# (13 Aug) wrote PLAN.md, a 13-block table, and dispatched 9 units under the
+# prose-only "the moment it first happens" instruction without ever creating
+# the graph — prose without an artifact anchor and a gate demonstrably does
+# not fire, while the artifacts this gate keys on (TODO.md, FOLLOWUPS.md)
+# were created promptly under exactly this once-per-epoch block pattern.
+#
+# Decomposition artifact := any of .local/PLAN.md, .local/blocks.md,
+# .local/IMPLEMENTATION-PLAN.md, or a *.md under .local/plans/. TODO.md task
+# lists deliberately do NOT count: the template ships with placeholder tasks,
+# so every tracked session would trip the gate on its first stop.
+#
+# Fail-open like the sibling gates: unwritable marker or disabled env
+# (CLAM_WORKGRAPH_GATE, shared with closeout) → pass. Marker
+# .local/.workgraph-create-nudge-fired is cleared each SessionStart by
+# session-context.sh.
+check_workgraph_creation() {
+    WORKGRAPH_CREATE_BLOCK_REASON=""
+
+    [[ "${CLAM_WORKGRAPH_GATE:-enabled}" == "enabled" ]] || return 0
+    [[ -f "$cwd/.local/WORKGRAPH.md" ]] && return 0
+
+    local marker="$cwd/.local/.workgraph-create-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+
+    local evidence=""
+    local f
+    for f in PLAN.md blocks.md IMPLEMENTATION-PLAN.md; do
+        [[ -f "$cwd/.local/$f" ]] && evidence="${evidence}  - .local/$f"$'\n'
+    done
+    if [[ -d "$cwd/.local/plans" ]]; then
+        for f in "$cwd/.local/plans"/*.md; do
+            [[ -f "$f" ]] && evidence="${evidence}  - .local/plans/$(basename "$f")"$'\n'
+        done
+    fi
+    [[ -z "$evidence" ]] && return 0
+
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    WORKGRAPH_CREATE_BLOCK_REASON="Stop hook: this session has decomposed its problem — decomposition artifact(s) exist:
+
+${evidence}
+— but .local/WORKGRAPH.md does not. Create it now from the tracking plugin's templates/WORKGRAPH.md, mirroring the decomposition those artifacts describe: one root node for the deliverable, a Parent edge on every other node, one node per actual work item (per phase per actor, not per topic), Deps ordering edges, and the Focus pointer on the node being worked. Then park again.
+
+This nudge fires at most once per session epoch."
+
+    return 1
+}
+
+case "$state" in
+    "Not Started"|"In Progress") : ;;
+    *)
+        if ! check_workgraph_creation; then
+            log_stop "block_workgraph_missing" "$state" "$WORKGRAPH_CREATE_BLOCK_REASON"
+            jq -n --arg r "$WORKGRAPH_CREATE_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        ;;
+esac
+
 # Contract: B03 — followups-closeout-gate
 #
 # Behavior:

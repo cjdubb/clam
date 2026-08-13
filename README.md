@@ -108,7 +108,7 @@ auto-update doesn't refresh the recorded install path
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.2.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
 | [tracking](plugins/tracking/) | ✅ v0.9.3 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
-| [statusline](plugins/statusline/) | ✅ v0.5.5 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to your awake hours, context usage. One explicit global write via `/statusline:setup`. |
+| [statusline](plugins/statusline/) | ✅ v0.7.0 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.3.1 | The landing seam: `/landing:land` lands finished work per the repo's committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.4 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
@@ -127,7 +127,7 @@ auto-update doesn't refresh the recorded install path
 | [management](plugins/management/) | ✅ v0.6.2 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.3.2 | Voice communication spec: two selectable output styles apply conclusion-first, working-memory-friendly reply structure, with or without Claude Code's built-in coding instructions. Ported from clam-code. |
 | [forge-github](plugins/forge-github/) | ✅ v0.2.1 | GitHub forge implementation: `/forge-github:create-pr` opens PRs, `/forge-github:sync-pr` keeps their descriptions current, and `/forge-github:address-pr-feedback` triages review comments behind an approval gate, all via the `gh` CLI with flowing-prose descriptions. |
-| [debugging](plugins/debugging/) | ✅ v0.2.5 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
+| [debugging](plugins/debugging/) | ✅ v0.2.6 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
      has exactly one row here, and its status cell must read "✅ vX.Y.Z" matching

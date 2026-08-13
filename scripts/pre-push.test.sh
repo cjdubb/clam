@@ -56,7 +56,11 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 new_repo() { # -> prints repo root path
   local d
-  d="$(mktemp -d)"
+  # Physical (symlink-resolved) path: on macOS `mktemp -d` returns a
+  # /var/... path that is a symlink to /private/var/..., while the hook's
+  # own cwd/toplevel resolution reports the physical form. Resolving at
+  # creation keeps the CWD assertions comparable on macOS and Linux.
+  d="$(cd "$(mktemp -d)" && pwd -P)"
   track_tmp "$d"
   (
     cd "$d" || exit 1
@@ -136,7 +140,20 @@ log_count() { # log_file -> number of non-empty lines (invocation count proxy vi
 
 tree_snapshot() { # root -> sorted "relpath  sha256" lines
   local root="$1"
-  ( cd "$root" && find . -type f -exec sha256sum {} + ) | sort
+  # `sha256sum` is GNU-only; macOS ships `shasum`. Prefer whichever exists
+  # so the snapshot is a real digest on both platforms (a missing binary
+  # would otherwise make every -exec fail and compare empty-to-empty,
+  # i.e. pass vacuously).
+  local hasher
+  if command -v sha256sum >/dev/null 2>&1; then
+    hasher=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    hasher=(shasum -a 256)
+  else
+    echo "FATAL: no sha256sum/shasum available for tree_snapshot" >&2
+    exit 1
+  fi
+  ( cd "$root" && find . -type f -exec "${hasher[@]}" {} + ) | sort
 }
 
 BLOCK_MSG="pre-push: pseudo-CI failed — push blocked (bypass: git push --no-verify)"

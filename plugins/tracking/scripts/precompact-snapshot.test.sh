@@ -23,6 +23,13 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/precompact-snapshot.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# shellcheck disable=SC1091  # sourced at runtime from the repo root
+. "$REPO_ROOT/scripts/lib/test-portability.sh"
+
+# Absolute bash: a shim PATH may not contain the platform's bash directory
+# (bash lives in /bin on macOS), so a bare `bash` there would exit 127.
+BASH_BIN="${BASH:-/bin/bash}"
 
 TMPROOT=$(mktemp -d)
 # chmod back to writable first: several tests deliberately strip write/read
@@ -42,14 +49,14 @@ check() { # label got expected
 }
 
 # --- helper: build a PATH dir that has everything EXCEPT one named command --
-# Symlinks every /usr/bin entry except $1. Used to simulate "jq not on PATH"
-# without touching real permissions.
+# Farms the whole real PATH (not just /usr/bin — bash lives in /bin on macOS
+# and jq typically under Homebrew) minus $1. Used to simulate "jq not on
+# PATH" without touching real permissions.
 build_path_without() { # cmd -> prints new PATH dir
     local cmd="$1"
     local out="$TMPROOT/bin-no-$cmd"
     mkdir -p "$out"
-    ln -s /usr/bin/* "$out/" 2>/dev/null
-    rm -f "$out/$cmd"
+    tp_shim_path "$out" --remove "$cmd" > /dev/null
     echo "$out"
 }
 NOJQBIN=$(build_path_without jq)
@@ -68,7 +75,7 @@ hook_json_no_cwd() {
 run_hook() { # cwd [extra_path]
     local wd="$1" extra_path="${2:-}"
     if [ -n "$extra_path" ]; then
-        HOOK_STDOUT=$(printf '%s' "$(hook_json "$wd")" | PATH="$extra_path" bash "$HOOK" 2>/dev/null)
+        HOOK_STDOUT=$(printf '%s' "$(hook_json "$wd")" | PATH="$extra_path" "$BASH_BIN" "$HOOK" 2>/dev/null)
     else
         HOOK_STDOUT=$(printf '%s' "$(hook_json "$wd")" | bash "$HOOK" 2>/dev/null)
     fi
@@ -250,7 +257,7 @@ test_only_copies_existing() {
         fail "only copies files that exist (no error on missing)" "no snapshot dir created"
         return
     fi
-    entries=$(find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')
+    entries=$(find "$dir" -mindepth 1 -maxdepth 1 -type f | sed 's#.*/##' | sort | tr '\n' ' ')
     check "only copies files that exist (no error on missing)" "$entries" "PLAN.md TODO.md "
 }
 

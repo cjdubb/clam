@@ -27,6 +27,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/keep-working.sh"
 
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/../../../scripts/lib/test-portability.sh"
+
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 
@@ -84,7 +87,7 @@ write_transcript() { # path ref_epoch count [base_offset=60]
     : > "$path"
     local i ts
     for ((i = 0; i < count; i++)); do
-        ts=$(date -u -d "@$((ref + base + i * 60))" +"%Y-%m-%dT%H:%M:%SZ")
+        ts=$(tp_epoch_fmt "$((ref + base + i * 60))" +"%Y-%m-%dT%H:%M:%SZ")
         printf '{"type":"user","message":{"content":"plain text turn %d"},"timestamp":"%s"}\n' "$i" "$ts" >> "$path"
     done
 }

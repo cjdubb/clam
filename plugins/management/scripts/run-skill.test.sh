@@ -364,7 +364,7 @@ check "each offer carries a real target, never a placeholder command" \
 # passing vacuously is that "stale_targets" must appear at all, which it does
 # not today.
 check "stale_targets of '-': nothing is offered and nothing is said about pruning" \
-  "$(has "$BODY_WS" 'stale_targets.{0,260}((offers?|says?) nothing|nothing (is )?(offered|said)|no (prune )?(offer|command)|nothing to (offer|prune))')" "yes"
+  "$(has "$BODY_WS" 'stale_targets.{0,250}((offers?|says?) nothing|nothing (is )?(offered|said)|no (prune )?(offer|command)|nothing to (offer|prune))')" "yes"
 
 # --- 18g. Edge case: an unstamped row is not a prune candidate ------------
 check "an unstamped row is explicitly NOT a prune candidate" \

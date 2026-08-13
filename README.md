@@ -127,7 +127,7 @@ auto-update doesn't refresh the recorded install path
 | [management](plugins/management/) | ✅ v0.6.2 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.3.1 | Voice communication spec: two selectable output styles apply conclusion-first, working-memory-friendly reply structure, with or without Claude Code's built-in coding instructions. Ported from clam-code. |
 | [forge-github](plugins/forge-github/) | ✅ v0.2.1 | GitHub forge implementation: `/forge-github:create-pr` opens PRs, `/forge-github:sync-pr` keeps their descriptions current, and `/forge-github:address-pr-feedback` triages review comments behind an approval gate, all via the `gh` CLI with flowing-prose descriptions. |
-| [debugging](plugins/debugging/) | ✅ v0.2.5 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
+| [debugging](plugins/debugging/) | ✅ v0.2.6 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
      has exactly one row here, and its status cell must read "✅ vX.Y.Z" matching

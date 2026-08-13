@@ -90,7 +90,7 @@ lacks() { # <haystack> <ERE> <label>
 # reference and get flagged by architecture-lint. Copied from
 # workgraph-docs.test.sh, which explains the reasoning at length.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 

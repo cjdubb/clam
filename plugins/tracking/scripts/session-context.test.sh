@@ -13,6 +13,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/session-context.sh"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/../../../scripts/lib/test-portability.sh"
+
+# Local-time epoch->string (BSD `date -r` first, GNU `date -d @` fallback).
+# tp_epoch_fmt is UTC-pinned by contract; these call sites must stay in the
+# caller's LOCAL zone, because they feed `touch -t` (local by definition) and
+# are compared against session-context.sh's own local-ISO rendering.
+local_epoch_fmt() { # epoch fmt
+    date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null
+}
+
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 
@@ -55,7 +66,7 @@ sanitize_cwd() { printf '%s' "$1" | sed 's#/#-#g'; }
 # touch_epoch <path> <epoch> -> sets path's mtime to the given epoch seconds,
 # via local-time touch -t (mirrors the pattern in ccost.sh).
 touch_epoch() { # path epoch
-    touch -t "$(date -d "@$2" +%Y%m%d%H%M.%S)" "$1"
+    touch -t "$(local_epoch_fmt "$2" +%Y%m%d%H%M.%S)" "$1"
 }
 
 # write_prompt_line <transcript-path> <iso-timestamp> -> appends one
@@ -282,13 +293,13 @@ _b04_one_prompt_fixture() {
     B04_HOME="$TMPROOT/b04-$tag-home"
     mkdir -p "$B04_WD/.local"
     printf 'State: Awaiting Agent\nCurrent Task: reticulate the splines for the frobnicator\n' > "$B04_WD/.local/TODO.md"
-    B04_TODO_EPOCH=$(date -d "2026-01-01 09:00:00" +%s)
+    B04_TODO_EPOCH=$(tp_parse_datetime "2026-01-01 09:00:00")
     touch_epoch "$B04_WD/.local/TODO.md" "$B04_TODO_EPOCH"
     local proj_dir="$B04_HOME/.claude/projects/$(sanitize_cwd "$B04_WD")"
     mkdir -p "$proj_dir"
     B04_TRANSCRIPT="$proj_dir/prior-session.jsonl"
     B04_PROMPT_EPOCH=$((B04_TODO_EPOCH + 3600))
-    write_prompt_line "$B04_TRANSCRIPT" "$(date -u -d "@$B04_PROMPT_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+    write_prompt_line "$B04_TRANSCRIPT" "$(tp_epoch_fmt "$B04_PROMPT_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
     B04_TRANSCRIPT_MTIME_EPOCH=$((B04_TODO_EPOCH + 7200))
     touch_epoch "$B04_TRANSCRIPT" "$B04_TRANSCRIPT_MTIME_EPOCH"
     B04_CURPATH="$TMPROOT/b04-$tag-current.jsonl"
@@ -301,10 +312,10 @@ test_b04_stale_variant() {
     ctx=$(run_hook_ctx "$B04_WD" "$B04_HOME" "$B04_CURPATH")
 
     local ref_date ref_hm newest_date newest_hm
-    ref_date=$(date -d "@$B04_TODO_EPOCH" +%Y-%m-%d)
-    ref_hm=$(date -d "@$B04_TODO_EPOCH" +%H:%M)
-    newest_date=$(date -d "@$B04_TRANSCRIPT_MTIME_EPOCH" +%Y-%m-%d)
-    newest_hm=$(date -d "@$B04_TRANSCRIPT_MTIME_EPOCH" +%H:%M)
+    ref_date=$(local_epoch_fmt "$B04_TODO_EPOCH" +%Y-%m-%d)
+    ref_hm=$(local_epoch_fmt "$B04_TODO_EPOCH" +%H:%M)
+    newest_date=$(local_epoch_fmt "$B04_TRANSCRIPT_MTIME_EPOCH" +%Y-%m-%d)
+    newest_hm=$(local_epoch_fmt "$B04_TRANSCRIPT_MTIME_EPOCH" +%H:%M)
 
     assert_contains_re "B04 stale (a): TODO.md's last-updated time (ISO-8601 local)" "$ctx" "${ref_date}[T ]${ref_hm}"
     assert_contains_re "B04 stale (b): prompt count (~1)" "$ctx" "~?1[^0-9]{0,20}human prompt"
@@ -328,13 +339,13 @@ test_b04_fresh_todo_touched_after_prompts() {
     mkdir -p "$wd/.local"
     printf 'State: In Progress\nCurrent Task: wire up the frobnicator\n' > "$wd/.local/TODO.md"
     local prompt_epoch todo_epoch
-    prompt_epoch=$(date -d "2026-01-01 08:00:00" +%s)
+    prompt_epoch=$(tp_parse_datetime "2026-01-01 08:00:00")
     todo_epoch=$((prompt_epoch + 3600))
     touch_epoch "$wd/.local/TODO.md" "$todo_epoch"
     local proj_dir="$home/.claude/projects/$(sanitize_cwd "$wd")"
     mkdir -p "$proj_dir"
     local transcript="$proj_dir/prior-session.jsonl"
-    write_prompt_line "$transcript" "$(date -u -d "@$prompt_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+    write_prompt_line "$transcript" "$(tp_epoch_fmt "$prompt_epoch" +%Y-%m-%dT%H:%M:%SZ)"
     touch_epoch "$transcript" "$prompt_epoch"
     local ctx
     ctx=$(run_hook_ctx "$wd" "$home" "$TMPROOT/b04-fresh-after-current.jsonl")
@@ -349,12 +360,12 @@ test_b04_fresh_current_session_excluded() {
     mkdir -p "$wd/.local"
     printf 'State: In Progress\nCurrent Task: excludeme\n' > "$wd/.local/TODO.md"
     local todo_epoch
-    todo_epoch=$(date -d "2026-01-01 09:00:00" +%s)
+    todo_epoch=$(tp_parse_datetime "2026-01-01 09:00:00")
     touch_epoch "$wd/.local/TODO.md" "$todo_epoch"
     local proj_dir="$home/.claude/projects/$(sanitize_cwd "$wd")"
     mkdir -p "$proj_dir"
     local self_transcript="$proj_dir/current-session.jsonl"
-    write_prompt_line "$self_transcript" "$(date -u -d "@$((todo_epoch + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+    write_prompt_line "$self_transcript" "$(tp_epoch_fmt "$((todo_epoch + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
     touch_epoch "$self_transcript" "$((todo_epoch + 3600))"
     local ctx
     ctx=$(run_hook_ctx "$wd" "$home" "$self_transcript")
@@ -389,7 +400,7 @@ test_b04_fresh_bounded_to_newest_five() {
     mkdir -p "$wd/.local"
     printf 'State: In Progress\nCurrent Task: boundedtest\n' > "$wd/.local/TODO.md"
     local todo_epoch
-    todo_epoch=$(date -d "2026-01-01 09:00:00" +%s)
+    todo_epoch=$(tp_parse_datetime "2026-01-01 09:00:00")
     touch_epoch "$wd/.local/TODO.md" "$todo_epoch"
     local proj_dir="$home/.claude/projects/$(sanitize_cwd "$wd")"
     mkdir -p "$proj_dir"
@@ -399,7 +410,7 @@ test_b04_fresh_bounded_to_newest_five() {
         touch_epoch "$proj_dir/newest-$i.jsonl" "$((todo_epoch + 600 - i * 10))"
     done
     local oldest="$proj_dir/oldest-6th.jsonl"
-    write_prompt_line "$oldest" "$(date -u -d "@$((todo_epoch + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+    write_prompt_line "$oldest" "$(tp_epoch_fmt "$((todo_epoch + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
     touch_epoch "$oldest" "$((todo_epoch - 5000))"
     local ctx
     ctx=$(run_hook_ctx "$wd" "$home" "$TMPROOT/b04-bounded-current.jsonl")

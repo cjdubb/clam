@@ -136,7 +136,7 @@ contains() { # text needle -> yes/no
 
 tree_snapshot() { # root -> sorted "relpath  sha256" lines
   local root="$1"
-  ( cd "$root" && find . -type f -exec sha256sum {} + ) | sort
+  ( cd "$root" && find . -type f -exec cksum {} + ) | sort
 }
 
 # ---------------------------------------------------------------------------

@@ -211,7 +211,9 @@ check_independent_review() {
 
     IR_BLOCK_REASON="Stop hook: CLAM_INDEPENDENT_REVIEW is enabled, but PR #${pr_num} on branch ${branch} has no independent-review report at ${report_file}.
 
-The independent self-review must run before the work reaches a human reviewer. Run /independent-review (it parks State: Awaiting Independent Agent Review, spawns a fresh read-only reviewer subagent, and writes the report). It supplements the configured bot reviewer and human review; it does not replace them, and the reviewer posts nothing to the PR.
+If you have not yet asked the engineer this session whether they want independent reviews, ask now — the review is worth skipping in legitimate cases (e.g. rationing a token budget, or a PR too small to warrant a reviewer subagent), and that call is the engineer's. If they decline, write the report file yourself with a one-line note that the engineer opted out of independent review for this PR; that satisfies this check honestly. Ask once per session, then apply the answer to every PR without re-asking.
+
+If the engineer wants the review, run /independent-review (it parks State: Awaiting Independent Agent Review, spawns a fresh read-only reviewer subagent, and writes the report). It supplements the configured bot reviewer and human review; it does not replace them, and the reviewer posts nothing to the PR.
 
 If the review genuinely cannot run (e.g. the reviewer subagent repeatedly fails), set State: Blocked in .local/TODO.md with a reason and end the turn that way."
     return 1

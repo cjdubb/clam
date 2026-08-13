@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
 # realm.sh — single source of truth for the language-agnostic test-file family.
 #
+# <!--
+# Contract: B03 realm-builtins-only (plan 001-lego-config-redesign)
+# Behavior:   classification uses ONLY the built-in test-file family below;
+#             the testPatterns config union is deleted.
+# Inputs:     a file path (existing CLI shape unchanged).
+# Outputs:    existing classification result, unchanged.
+# Errors:     none new; exit 2 on usage error as today.
+# Invariants: the built-in family never shrinks; no file reads, no jq, no
+#             config, pure bash.
+# Edge cases: paths that only matched via former testPatterns now classify
+#             impl-family by design — orchestrator judgment covers them at
+#             verification.
+# -->
+#
 # Usage: realm.sh <path>
 # Prints "test" or "impl" on stdout. Exit 2 on usage error.
 #
 # Test family (basename): *.spec.* | *.test.* | *_test.* | *_spec.* | test_*
 # Test family (path):     any /__tests__/ segment
-# Extension point:        "testPatterns" (basename or path globs) from the
-#                         layered config (NEW, plan 001-lc): the UNION of
-#                         .testPatterns in .claude/lego.json (committed
-#                         base, read first) and .local/config.json (local
-#                         override, read second), each file optional.
-#                         Deliberate exception to the recursive-merge
-#                         semantics used elsewhere: patterns are unioned,
-#                         never replaced — the test-file family can only
-#                         grow. Requires jq; silently skipped without it.
-#                         $LEGO_CONFIG overrides the override file's
-#                         location (default .local/config.json); the base
-#                         path is fixed.
+# No extension point:     the family is exactly the two rules above. No
+#                         config file is read, no jq is invoked, and
+#                         $LEGO_CONFIG is inert (B03 realm-builtins-only).
 set -euo pipefail
 
 path="${1:?usage: realm.sh <path>}"
@@ -30,18 +35,5 @@ esac
 case "$base" in
   *.spec.*|*.test.*|*_test.*|*_spec.*|test_*) echo test; exit 0 ;;
 esac
-
-base_config=".claude/lego.json"
-override_config="${LEGO_CONFIG:-.local/config.json}"
-if command -v jq >/dev/null 2>&1; then
-  for config in "$base_config" "$override_config"; do
-    [ -f "$config" ] || continue
-    while IFS= read -r pat; do
-      [ -n "$pat" ] || continue
-      case "$base" in $pat) echo test; exit 0 ;; esac
-      case "$path" in $pat) echo test; exit 0 ;; esac
-    done < <(jq -r '.testPatterns[]? // empty' "$config" 2>/dev/null)
-  done
-fi
 
 echo impl

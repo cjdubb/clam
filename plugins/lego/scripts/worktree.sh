@@ -1,6 +1,46 @@
 #!/usr/bin/env bash
 # worktree.sh — lego unit-worktree lifecycle helper.
 #
+# <!--
+# Contract: B01 worktree-per-unit-commands (plan 001-lego-config-redesign)
+# Behavior:   `add <plan-slug> <unit-id> <unit-slug> [--setup-cmd <cmd>]
+#             [--test-cmd <cmd>]` resolves the unit's commands from the
+#             blocks.md sections it already matches — per-block `- Setup:`
+#             (optional) and `- Test:` (required) fields — runs Setup (when
+#             present) then Test inside the new worktree as the baseline;
+#             flags override blocks.md per key. Seeded unit.md carries the
+#             matched sections with `PR group:`, `Est:`, and `Justification:`
+#             lines stripped (delivery knowledge is orchestrator-only).
+# Inputs:     existing positionals; new optional --setup-cmd/--test-cmd;
+#             blocks.md block sections bearing the new fields.
+# Outputs:    unchanged (worktree path as last stdout line); unit.md is
+#             delivery-clean.
+# Errors:     exit 3 when no Test: resolves for the unit (neither field nor
+#             flag) or when blocks sharing the unit disagree on Test:;
+#             exit 3 when invoked from a checkout whose branch matches the
+#             unit-worktree pattern lego/*/U*-* (add forks only from the
+#             integration tip, mirroring merge's guard); exit 4 on Setup or
+#             Test failure, distinct messages naming the failed phase.
+# Invariants: flags never write back to blocks.md; non-add subcommands are
+#             unaffected by the new fields; unknown blocks.md fields remain
+#             tolerated verbatim.
+# Edge cases: Setup absent -> baseline is Test alone; multiple blocks in a
+#             unit with identical fields -> command used once.
+#
+# Contract: B02 worktree-config-deletion (plan 001-lego-config-redesign)
+# Behavior:   no code path reads .claude/lego.json or .local/config.json;
+#             require_config_json/require_test_cmd are deleted; unit
+#             worktrees are always created in the repo root's parent
+#             directory; .local/config.json is no longer seeded.
+# Inputs:     as B01; no config file is ever consulted.
+# Outputs:    unchanged.
+# Errors:     former config-missing exit-3 paths removed; command-resolution
+#             errors are B01's.
+# Invariants: deterministic same-inputs-same-results contract preserved; jq
+#             retained only where still genuinely used.
+# Edge cases: a stray lego.json/config.json on disk is ignored, not an error.
+# -->
+#
 # Contract: B01 layered-config-resolution (worktree.sh unit-worktree lifecycle)
 #
 # New/changed clauses in plan 001-layered-config are marked (NEW, plan 001-lc)
@@ -402,7 +442,7 @@ set -uo pipefail
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh assemble --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
+USAGE_MSG="usage: worktree.sh add <plan-slug> <unit-id> <unit-slug> [--setup-cmd <cmd>] [--test-cmd <cmd>] | worktree.sh merge <plan-slug> <unit-id> <unit-slug> | worktree.sh assemble --manifest <path> <plan-slug> <base-branch> <unit-id> <unit-slug> [<unit-id> <unit-slug>...] | worktree.sh remove <plan-slug> <unit-id> <unit-slug> | worktree.sh clean <plan-slug> | worktree.sh clean --all"
 
 # err/die print the single mandated "ERROR: " stderr line. Only ever call
 # these from a function invoked as a plain statement (never from inside a
@@ -439,64 +479,11 @@ require_jq() {
   command -v "$JQ" >/dev/null 2>&1 || die 3 "jq is required"
 }
 
-# EFFECTIVE_CONFIG holds the resolved config as a JSON string (piped into
-# jq via stdin by callers below, never written to disk). require_config_json
-# computes the jq recursive merge (.[0] * .[1]) of the base
-# (.claude/lego.json) and override (.local/config.json) layers, both
-# optional, at least one required. A present-but-invalid-JSON file is exit 3.
-EFFECTIVE_CONFIG=""
-BASE_CONFIG_JSON=""
-OVERRIDE_CONFIG_JSON=""
-require_config_json() {
-  BASE_CONFIG_JSON="$REPO_ROOT/.claude/lego.json"
-  OVERRIDE_CONFIG_JSON="$REPO_ROOT/.local/config.json"
-
-  local have_base=0 have_override=0
-  [ -f "$BASE_CONFIG_JSON" ] && have_base=1
-  [ -f "$OVERRIDE_CONFIG_JSON" ] && have_override=1
-
-  if [ "$have_base" -eq 0 ] && [ "$have_override" -eq 0 ]; then
-    die 3 "missing config: neither .claude/lego.json nor .local/config.json exists"
-  fi
-
-  if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$BASE_CONFIG_JSON" >/dev/null 2>&1; then
-    die 3 "invalid JSON in .claude/lego.json"
-  fi
-  if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$OVERRIDE_CONFIG_JSON" >/dev/null 2>&1; then
-    die 3 "invalid JSON in .local/config.json"
-  fi
-
-  if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-    EFFECTIVE_CONFIG="$("$JQ" -s '.[0] * .[1]' "$BASE_CONFIG_JSON" "$OVERRIDE_CONFIG_JSON" 2>/dev/null)"
-  elif [ "$have_base" -eq 1 ]; then
-    EFFECTIVE_CONFIG="$(cat "$BASE_CONFIG_JSON")"
-  else
-    EFFECTIVE_CONFIG="$(cat "$OVERRIDE_CONFIG_JSON")"
-  fi
-}
-
-TEST_CMD=""
-require_test_cmd() {
-  local raw_type
-  raw_type="$("$JQ" -r '.commands.test | type' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
-
-  case "$raw_type" in
-    string)
-      TEST_CMD="$("$JQ" -r '.commands.test' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
-      [ -n "$TEST_CMD" ] || die 3 "commands.test is an empty string in the effective config"
-      ;;
-    object)
-      local default_key
-      default_key="$("$JQ" -r '.commands.test.default // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
-      [ -n "$default_key" ] || die 3 "commands.test is an object without a 'default' key in the effective config"
-      TEST_CMD="$("$JQ" -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
-      [ -n "$TEST_CMD" ] || die 3 "commands.test.default names an absent or empty variant in the effective config"
-      ;;
-    *)
-      die 3 "commands.test missing or empty in the effective config"
-      ;;
-  esac
-}
+# (B02 worktree-config-deletion) require_config_json and require_test_cmd are
+# deleted: no code path in this script reads .claude/lego.json or
+# .local/config.json. A unit's baseline commands come from .local/blocks.md
+# (see cmd_add), and the unit-worktree location is fixed to the repo root's
+# parent. A stray config file on disk is ignored, never an error.
 
 BLOCKS_MD=""
 require_blocks_md() {
@@ -709,12 +696,16 @@ newest_commit_with_subject() {
 #   MATCHED_CODE      the raw "- Code:" value (may be empty)
 #   MATCHED_CONTRACT  the full "- Contract:" line (may be empty)
 #   MATCHED_STATUS    the raw "- Status:" value (may be empty)
+#   MATCHED_SETUP     the raw "- Setup:" value (may be empty)
+#   MATCHED_TEST      the raw "- Test:" value (may be empty)
 read_blocks_sections() {
   local file="$1" unit_filter="$2"
   MATCHED_SECTIONS=(); MATCHED_BLOCK_IDS=(); MATCHED_HEADINGS=()
   MATCHED_CODE=(); MATCHED_CONTRACT=(); MATCHED_STATUS=()
+  MATCHED_SETUP=(); MATCHED_TEST=()
 
   local cur_id="" cur_unit="" cur_text="" cur_heading="" cur_code="" cur_contract="" cur_status=""
+  local cur_setup="" cur_test=""
   local in_section=0
   local line
   local -a lines=()
@@ -730,6 +721,8 @@ read_blocks_sections() {
         MATCHED_CODE+=("$cur_code")
         MATCHED_CONTRACT+=("$cur_contract")
         MATCHED_STATUS+=("$cur_status")
+        MATCHED_SETUP+=("$cur_setup")
+        MATCHED_TEST+=("$cur_test")
       fi
       cur_heading="$line"
       cur_id="${line#"## "}"
@@ -738,6 +731,8 @@ read_blocks_sections() {
       cur_code=""
       cur_contract=""
       cur_status=""
+      cur_setup=""
+      cur_test=""
       cur_text="$line"$'\n'
       in_section=1
       continue
@@ -748,6 +743,8 @@ read_blocks_sections() {
       "- Code: "*) cur_code="${line#"- Code: "}" ;;
       "- Contract: "*) cur_contract="$line" ;;
       "- Status: "*) cur_status="${line#"- Status: "}" ;;
+      "- Setup: "*) cur_setup="$(trim "${line#"- Setup: "}")" ;;
+      "- Test: "*) cur_test="$(trim "${line#"- Test: "}")" ;;
     esac
   done
 }
@@ -786,43 +783,70 @@ add_cleanup() {
   fi
 }
 
+# distinct_field_values <value>... -- prints the distinct non-empty values
+# among its arguments, one per line, in first-seen order. Blocks of a unit
+# that repeat the same command therefore collapse to a single value (the
+# command then runs once, not once per block), while genuinely different
+# values remain distinct so the caller can report the disagreement.
+distinct_field_values() {
+  local v seen w found
+  local -a out=()
+  for v in "$@"; do
+    [ -n "$v" ] || continue
+    found=0
+    for w in ${out[@]+"${out[@]}"}; do
+      [ "$w" = "$v" ] && { found=1; break; }
+    done
+    [ "$found" -eq 1 ] && continue
+    out+=("$v")
+  done
+  for seen in ${out[@]+"${out[@]}"}; do
+    printf '%s\n' "$seen"
+  done
+}
+
 cmd_add() {
-  [ "$#" -eq 3 ] || usage_die
-  local plan_slug="$1" unit_id="$2" unit_slug="$3"
+  # ---- Parse the three positionals plus the optional per-key command
+  # overrides --setup-cmd/--test-cmd, which may appear in any position. ----
+  local setup_flag="" test_flag="" setup_flag_set=0 test_flag_set=0
+  local -a positional=()
+  while [ "$#" -ge 1 ]; do
+    case "$1" in
+      --setup-cmd)
+        [ "$#" -ge 2 ] || usage_die
+        setup_flag="$2"; setup_flag_set=1; shift 2 ;;
+      --test-cmd)
+        [ "$#" -ge 2 ] || usage_die
+        test_flag="$2"; test_flag_set=1; shift 2 ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+
+  [ "${#positional[@]}" -eq 3 ] || usage_die
+  local plan_slug="${positional[0]}" unit_id="${positional[1]}" unit_slug="${positional[2]}"
   if ! valid_token "$plan_slug" || ! valid_token "$unit_id" || ! valid_token "$unit_slug"; then
     usage_die
   fi
 
   require_repo_root
-  require_jq
-  require_config_json
-  require_test_cmd
-  require_blocks_md
 
-  local worktree_dir
-  worktree_dir="$("$JQ" -r '.delivery.worktreeDir // empty' <<<"$EFFECTIVE_CONFIG" 2>/dev/null)"
-
-  local base_dir
-  if [ -z "$worktree_dir" ]; then
-    base_dir="$REPO_ROOT/.."
-  else
-    case "$worktree_dir" in
-      /*) base_dir="$worktree_dir" ;;
-      *) base_dir="$REPO_ROOT/$worktree_dir" ;;
+  # (B01) `add` forks the unit branch from the integration tip, so it must not
+  # run from a unit worktree -- mirroring merge's guard. A lego/* branch with
+  # no U*-* segment is not a unit branch; detached HEAD is not either.
+  local current_branch
+  if current_branch="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null)"; then
+    case "$current_branch" in
+      lego/*/U*-*)
+        die 3 "add must run from the integration worktree, not a unit worktree (current branch: $current_branch)"
+        ;;
     esac
   fi
-  # portable realpath -m: resolve the longest existing prefix, keep the tail
-  local _rp_resolved="" _rp_tail="" _rp_try="$base_dir"
-  while [ ! -e "$_rp_try" ] && [ "$_rp_try" != "/" ] && [ "$_rp_try" != "." ]; do
-    _rp_tail="/$(basename -- "$_rp_try")$_rp_tail"
-    _rp_try="$(dirname -- "$_rp_try")"
-  done
-  if [ -e "$_rp_try" ]; then
-    _rp_resolved="$(cd "$_rp_try" && pwd -P)$_rp_tail"
-  else
-    _rp_resolved="$base_dir"
-  fi
-  base_dir="$_rp_resolved"
+
+  require_blocks_md
+
+  # (B02) The unit-worktree location is fixed: the repo root's parent.
+  local base_dir
+  base_dir="$(cd "$REPO_ROOT/.." && pwd -P)"
 
   local new_wt branch
   new_wt="$base_dir/$(basename -- "$REPO_ROOT")-$unit_id"
@@ -831,6 +855,35 @@ cmd_add() {
   read_blocks_sections "$BLOCKS_MD" "$unit_id"
   if [ "${#MATCHED_SECTIONS[@]}" -eq 0 ]; then
     die 4 "no blocks.md section found for unit $unit_id"
+  fi
+
+  # ---- Resolve the unit's baseline commands from the matched sections;
+  # flags override blocks.md per key and never write back to it. Resolution
+  # happens BEFORE anything is created, so an unresolvable or disagreeing
+  # unit leaves no branch, worktree or seed behind. ----
+  local -a setup_values=() test_values=()
+  mapfile -t setup_values < <(distinct_field_values ${MATCHED_SETUP[@]+"${MATCHED_SETUP[@]}"})
+  mapfile -t test_values < <(distinct_field_values ${MATCHED_TEST[@]+"${MATCHED_TEST[@]}"})
+
+  local SETUP_CMD="" TEST_CMD=""
+  if [ "$setup_flag_set" -eq 1 ]; then
+    SETUP_CMD="$setup_flag"
+  elif [ "${#setup_values[@]}" -gt 1 ]; then
+    die 3 "blocks sharing unit $unit_id have disagreeing Setup fields in blocks.md"
+  elif [ "${#setup_values[@]}" -eq 1 ]; then
+    SETUP_CMD="${setup_values[0]}"
+  fi
+
+  if [ "$test_flag_set" -eq 1 ]; then
+    TEST_CMD="$test_flag"
+  elif [ "${#test_values[@]}" -gt 1 ]; then
+    die 3 "blocks sharing unit $unit_id have disagreeing Test fields in blocks.md"
+  elif [ "${#test_values[@]}" -eq 1 ]; then
+    TEST_CMD="${test_values[0]}"
+  fi
+
+  if [ -z "$TEST_CMD" ]; then
+    die 3 "no Test command resolves for unit $unit_id (no '- Test:' field in blocks.md and no --test-cmd)"
   fi
 
   if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -849,15 +902,22 @@ cmd_add() {
 
   local seed_ok=1
   mkdir -p -- "$new_wt/.local" 2>/dev/null || seed_ok=0
-  if [ "$seed_ok" -eq 1 ] && [ -f "$OVERRIDE_CONFIG_JSON" ]; then
-    cp -- "$OVERRIDE_CONFIG_JSON" "$new_wt/.local/config.json" 2>/dev/null || seed_ok=0
-  fi
+  # (B02) .local/config.json is no longer seeded: there is no config layer.
   if [ "$seed_ok" -eq 1 ]; then
     {
       printf '# Unit %s\n\n' "$unit_id"
-      local s
+      local s sline
+      local -a slines=()
       for s in "${MATCHED_SECTIONS[@]}"; do
-        printf '%s' "$s"
+        # (B01) The copy is verbatim except for the delivery fields, which
+        # are orchestrator-only knowledge: PR group, Est, Justification.
+        mapfile -t slines <<< "${s%$'\n'}"
+        for sline in ${slines[@]+"${slines[@]}"}; do
+          case "$sline" in
+            "- PR group:"*|"- Est:"*|"- Justification:"*) continue ;;
+          esac
+          printf '%s\n' "$sline"
+        done
       done
     } > "$new_wt/.local/unit.md" 2>/dev/null || seed_ok=0
   fi
@@ -901,9 +961,19 @@ cmd_add() {
     die 4 "failed to seed .local in new worktree for unit $unit_id"
   fi
 
+  # (B01) Baseline: Setup (when one resolved) then Test, both inside the new
+  # worktree, after seeding. Either failure is exit 4 with a message naming
+  # the phase, and cleans up everything this invocation created.
+  if [ -n "$SETUP_CMD" ]; then
+    if ! ( cd "$new_wt" && eval "$SETUP_CMD" ) >/dev/null 2>&1; then
+      add_cleanup "$new_wt" "$branch"
+      die 4 "baseline Setup command failed in new worktree"
+    fi
+  fi
+
   if ! ( cd "$new_wt" && eval "$TEST_CMD" ) >/dev/null 2>&1; then
     add_cleanup "$new_wt" "$branch"
-    die 4 "baseline test command failed in new worktree"
+    die 4 "baseline Test command failed in new worktree"
   fi
 
   printf '%s\n' "$new_wt"
@@ -1307,7 +1377,6 @@ cmd_assemble() {
 
   require_repo_root
   require_jq
-  require_config_json
   require_blocks_md
 
   # ---- Validate manifest ----

@@ -35,12 +35,17 @@ statusline refresh (each turn, and on Claude Code's `statusLine` heartbeat)
 as two lines:
 
 ```
-~/github/clam (burnrate) wip #231 ↑2  Build  In Progress
+~/github/clam › plugins/statusline (burnrate) wip #231 ↑2  Build  In Progress
 Fable 5 high │ ctx 10% │ 5h 1% ▼-1 (4h54m) │ wk 32% ▼-28 (2d23h)
 ```
 
-**Line 1 — where you are.** In the order shown: the current directory (`~`
-for `$HOME`), the git branch, a PR-status badge when `.local/.pr-status.json`
+**Line 1 — where you are.** In the order shown: the project directory the
+session started in (`~` for `$HOME`), then `›` and the current directory
+written relative to the project dir whenever the two differ — when they are
+the same path it renders as a single segment, and a current dir outside the
+project dir keeps its absolute path. That whole path segment is a clickable
+`file://` link, and it opens the directory you are working in now. Then the
+git branch, a PR-status badge when `.local/.pr-status.json`
 exists at the worktree root — `ok`, `queued` and `merged` collapse to counts,
 while `todo`, `wip` and `ejected` render per PR as a clickable `#N` — a git
 ahead/behind indicator (`↓N ↑M`) when `.local/.git-sync.json` exists, the
@@ -112,11 +117,16 @@ amount of staleness in exchange:
 
 - **Branch, PR badge, git-sync, the State segment and the clam mode** are one
   bundle, refreshed at most once every 5 seconds
-  (`CLAM_STATUSLINE_SEGMENT_TTL_SECONDS`, default `5`) and stored per-session
-  under `CLAM_STATUSLINE_CACHE_DIR` (default `~/.claude/.statusline-cache`).
-  A render inside that window reuses the cached bundle instead of re-running
-  the git, badge and state lookups.
-- **The cwd path and the whole of line 2 always render live** — recomputed
+  (`CLAM_STATUSLINE_SEGMENT_TTL_SECONDS`, default `5`) and stored under
+  `CLAM_STATUSLINE_CACHE_DIR` (default `~/.claude/.statusline-cache`) in a
+  file keyed on the payload's `session_id`, so two sessions never share a
+  bundle; a payload carrying no `session_id` is keyed on the current
+  directory instead. A render inside that window reuses the cached bundle
+  instead of re-running the git, badge and state lookups.
+- **The cache directory bounds itself.** Each time `context.sh` rebuilds the
+  bundle it also sweeps that directory, removing the files left there more
+  than a day ago, so an old session's bundle ages out on its own.
+- **The path segment and the whole of line 2 always render live** — recomputed
   on every render, never served from that bundle — along with the
   `.local/.ctx-status.json` publish. Only the bundled segments above are
   throttled.
@@ -230,9 +240,11 @@ without that field falls back to the env var). Reads
 writes `.local/.ctx-status.json` (context tokens, budget, occupancy, idle
 seconds, staleness level, timestamp) for the separate agent-dash project to
 read across sessions — best-effort and atomic, never errors the statusline on
-failure. Caches the branch/badges/State/mode bundle per session under
-`CLAM_STATUSLINE_CACHE_DIR` for `CLAM_STATUSLINE_SEGMENT_TTL_SECONDS`
-(default 5s); see [Caching and staleness](#caching-and-staleness).
+failure. Caches the branch/badges/State/mode bundle under
+`CLAM_STATUSLINE_CACHE_DIR`, keyed on the payload's `session_id`, for
+`CLAM_STATUSLINE_SEGMENT_TTL_SECONDS` (default 5s), and sweeps files more
+than a day old out of that directory whenever it rebuilds the bundle; see
+[Caching and staleness](#caching-and-staleness).
 
 **`scripts/ccost.sh`** — cost calculator, run standalone (see
 [Common workflows](#common-workflows)); nothing in the render invokes it.
@@ -340,6 +352,8 @@ If you ran `/statusline:setup`, run `/statusline:setup remove` first (or
 right after) — otherwise `~/.claude/settings.json` keeps pointing
 `statusLine` at a `context.sh` path that no longer exists. Plugin updates
 keep the same install path, so the settings entry survives updates on its
-own; only an uninstall breaks it. Neither `~/.claude/.statusline-cache` nor
-`~/.claude/.ccost-cache` is removed automatically; both are harmless disk
-clutter, safe to delete by hand.
+own; only an uninstall breaks it. `~/.claude/.statusline-cache` bounds
+itself — `context.sh` sweeps files more than a day old out of it as it
+rebuilds — so an uninstall leaves at most a day's bundles behind there.
+`~/.claude/.ccost-cache` is left where it is, harmless disk clutter, safe
+to delete by hand.

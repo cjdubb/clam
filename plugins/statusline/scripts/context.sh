@@ -144,13 +144,15 @@ sl_parse_input() {
   # percentage and its resets_at parse empty rather than picking up the
   # wrong-shaped value.
   #
-  # total_cost_usd and session_id are parsed but not read by anything in this
-  # file today: B05 retired the sub-tick interpolator that consumed them, and
-  # the contract keeps both fields in the twelve rather than dropping columns a
-  # later block (the session-keyed cache) needs back.
+  # total_cost_usd is parsed but not read by anything in this file today: B05
+  # retired the sub-tick interpolator that consumed it, and the contract keeps
+  # the field rather than dropping a column a later block might need back.
+  # session_id is read by B08's cache key and project_dir by B07's path
+  # segment; project_dir is APPENDED LAST to both ends, which is what lets it
+  # join the parse without moving any field before it.
   # shellcheck disable=SC2034  # parsed per contract; consumers live elsewhere
   IFS=$'\x1f' read -r window_size total_input transcript_path cwd model_name effort \
-    r5 r5_reset r7 r7_reset total_cost_usd session_id <<< "$(
+    r5 r5_reset r7 r7_reset total_cost_usd session_id project_dir <<< "$(
     printf '%s' "$input" | jq -r '
         . as $p
         | ($p.rate_limits.five_hour.used_percentage) as $u5
@@ -167,7 +169,8 @@ sl_parse_input() {
             (if $u7 == null then "" else $u7 end),
             (if $u7 == null then "" else ($p.rate_limits.seven_day.resets_at // "") end),
             ($p.cost.total_cost_usd // ""),
-            ($p.session_id // "")
+            ($p.session_id // ""),
+            ($p.workspace.project_dir // "")
           ]
         | join("\u001f")
       '
@@ -232,22 +235,52 @@ sl_parse_input() {
 #
 # sl_cache_key SESSION_ID CWD
 sl_cache_key() {
-  printf 'NotImplemented: B08 sl_cache_key\n' >&2
-  return 1
+  # session_id first: it is stable for the session's lifetime and unique per
+  # session, so two sessions in one worktree get two bundles and one session
+  # moving between worktrees keeps its own. The cwd is only the fallback, and
+  # the literal below only the fallback's fallback -- the stem is never empty,
+  # because an empty stem would name the cache dir itself.
+  local src="$1"
+  [ -z "$src" ] && src="$2"
+  [ -z "$src" ] && src="default"
+  # Flattened to ONE filename component. A session_id has no slashes in
+  # practice and a cwd is nothing but slashes; both go through the same
+  # substitution so neither can escape the cache dir.
+  printf '%s' "${src//\//_}"
 }
 
 # sl_cache_sweep DIR MAX_AGE_SECONDS
 sl_cache_sweep() {
-  printf 'NotImplemented: B08 sl_cache_sweep\n' >&2
-  return 1
+  # Bundle and tick files only, by name: a cache dir is a directory like any
+  # other and something else's file in it is not this function's to delete.
+  # Ages are compared in whole seconds against the render's shared $_sl_now,
+  # so the sweep forks no `date` of its own; the per-file `stat` is
+  # _sl_mtime_epoch's and this runs on the COLD path only, where the warm
+  # budget does not apply. One `rm` for the whole batch, and every failure
+  # silent -- a statusline that cannot tidy its cache still has a line to draw.
+  local dir="$1" max="$2" f mtime cutoff
+  local -a stale
+  [ -d "$dir" ] || return 0
+  case "$max" in ''|*[!0-9]*) return 0 ;; esac
+  cutoff=$(( _sl_now - max ))
+  stale=()
+  for f in "$dir"/*.bundle "$dir"/*.tick; do
+    [ -f "$f" ] || continue
+    mtime=$(_sl_mtime_epoch "$f")
+    [ "$mtime" -lt "$cutoff" ] || continue
+    stale[${#stale[@]}]="$f"
+  done
+  [ "${#stale[@]}" -gt 0 ] && rm -f "${stale[@]}" 2>/dev/null
+  return 0
 }
 
 # sl_bundle_read: emit the cached expensive-segment bundle for the current
 # session key iff it is fresh (age < SL_SEGMENT_TTL_SECONDS); non-zero exit
 # when stale, absent, corrupt, or caching is disabled (TTL <= 0).
 #
-# Reads its cache key from transcript_path/cwd (populated by sl_parse_input)
-# and the shared "now" epoch ($_sl_now) so it never forks its own `date`.
+# Reads its cache key from sl_cache_key (session_id, falling back to cwd; both
+# populated by sl_parse_input) and the shared "now" epoch ($_sl_now) so it
+# never forks its own `date`.
 # On success it populates branch, pr_badge, git_sync_segment, state_segment,
 # clam_mode from the bundle. The bundle is a plain key=value-per-line file
 # (no JSON) so a warm read never spends the render's one jq invocation on
@@ -259,14 +292,12 @@ sl_cache_sweep() {
 # ignored (matches no case arm below, contributes no bit) rather than
 # treated as corrupt — the migration path for every already-installed user.
 sl_bundle_read() {
-  local ttl key_src key file mtime age line got
+  local ttl key file mtime age line got
   ttl="$SL_SEGMENT_TTL_SECONDS"
   [[ "$ttl" =~ ^-?[0-9]+$ ]] || ttl=5
   [ "$ttl" -le 0 ] && return 1
 
-  key_src="$transcript_path"
-  [ -z "$key_src" ] && key_src="$cwd"
-  key="${key_src//\//_}"
+  key=$(sl_cache_key "$session_id" "$cwd")
   file="$SL_CACHE_DIR/$key.bundle"
   [ -f "$file" ] || return 1
 
@@ -293,10 +324,8 @@ sl_bundle_read() {
 # expensive-segment bundle for the current session key; best-effort — a
 # write failure leaves rendering unaffected.
 sl_bundle_write() {
-  local key_src key tmp
-  key_src="$transcript_path"
-  [ -z "$key_src" ] && key_src="$cwd"
-  key="${key_src//\//_}"
+  local key tmp
+  key=$(sl_cache_key "$session_id" "$cwd")
   mkdir -p "$SL_CACHE_DIR" 2>/dev/null || return 0
   tmp=$(mktemp "$SL_CACHE_DIR/.bundle.XXXXXX" 2>/dev/null) || return 0
   {
@@ -846,8 +875,105 @@ classify_pr_tag() {
 #
 # sl_render_path_segment PROJECT_DIR CURRENT_DIR
 sl_render_path_segment() {
-  printf 'NotImplemented: B07 sl_render_path_segment\n' >&2
-  return 1
+  local proj="$1" cur="$2" link text tail
+  local blue=$'\033[38;5;39m' dim=$'\033[38;5;245m' rst=$'\033[0m'
+
+  # Nothing to show and nothing to link to: print nothing at all rather than a
+  # bare pair of colour sequences.
+  [ -z "$proj" ] && [ -z "$cur" ] && return 0
+
+  # Where a Ctrl+Click lands: the directory the agent is working in now, which
+  # is the one a reader following the link wants open. With no current dir the
+  # project dir is both what shows and what opens.
+  link="$cur"
+  [ -z "$link" ] && link="$proj"
+
+  if [ -z "$proj" ] || [ -z "$cur" ] || [ "$proj" = "$cur" ]; then
+    # The normal case, and the two degenerate ones: ONE dir, no "›" to
+    # introduce a second with.
+    text="$blue$(_sl_path_display "${proj:-$cur}")$rst"
+  else
+    # Two dirs. The tail is expressed relative to the project dir when it sits
+    # underneath it -- which is the whole point of showing both, since the
+    # shared prefix carries no information the head has not already given --
+    # and absolute when it does not.
+    case "$cur" in
+      "$proj"/*) tail="$(_sl_path_clean "${cur#"$proj"/}")" ;;
+      *)         tail="$(_sl_path_display "$cur")" ;;
+    esac
+    # Braces around the expansion abutting the "›": unbraced, the separator's
+    # first byte is swallowed into the parameter name and both the colour and
+    # the glyph come out mangled.
+    text="$blue$(_sl_path_display "$proj")$rst ${dim}›$rst $blue$tail$rst"
+  fi
+
+  osc8_link "file://$(_sl_url_encode "$link")" "$text"
+}
+
+# _sl_path_display PATH -- PATH as the statusline shows it: $HOME collapsed to
+# a literal "~" (unchanged from the pre-B07 renderer, and skipped when $HOME is
+# empty or the path lies outside it) and control bytes dropped.
+_sl_path_display() { # path
+  local p="$1"
+  if [ -n "$HOME" ]; then
+    case "$p" in
+      "$HOME"|"$HOME"/*) p="~${p#"$HOME"}" ;;
+    esac
+  fi
+  _sl_path_clean "$p"
+}
+
+# _sl_path_clean TEXT -- TEXT with every control byte removed. A real
+# filesystem path holds none, but the OSC 8 framing must never be decidable by
+# what it wraps: a BEL arriving inside the visible text would close the
+# hyperlink early and leave the rest of the line inside a sequence no terminal
+# is expecting. Dropped rather than escaped, because the byte has no visible
+# form to preserve.
+_sl_path_clean() { # text
+  local LC_ALL=C
+  local s="$1" out="" i c
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    i=$(( i + 1 ))
+    case "$c" in
+      [[:cntrl:]]) continue ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# _sl_url_encode PATH -- PATH percent-encoded for the file:// URL. Everything
+# outside the unreserved set plus "/" is encoded, which covers the two bytes
+# that would otherwise break the sequence for real users -- a space, and a "#"
+# truncating the URL at what a terminal reads as a fragment -- as well as the
+# terminator byte itself. LC_ALL=C is load-bearing: it makes the loop walk
+# BYTES, so a path with non-ASCII characters is encoded as the UTF-8 octets a
+# file:// URL is made of rather than as codepoints. Builtins only; the
+# command substitutions are subshells, not execs, so this costs the render's
+# process budget nothing.
+_sl_url_encode() { # path
+  local LC_ALL=C
+  local s="$1" out="" i c n hex
+  local safe='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~/'
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    i=$(( i + 1 ))
+    case "$safe" in
+      *"$c"*) out="$out$c" ;;
+      *)
+        # The mask is load-bearing on bash 3.2: it reads a byte above 0x7f as a
+        # SIGNED char, so an unmasked %02X of "é" prints FFFFFFFFFFFFFFC3
+        # rather than C3 and the URL comes out unusable.
+        printf -v n '%d' "'$c"
+        printf -v hex '%%%02X' "$(( n & 255 ))"
+        out="$out$hex"
+        ;;
+    esac
+  done
+  printf '%s' "$out"
 }
 
 # Wrap text in an OSC 8 hyperlink so terminals (Alacritty 0.7+, iTerm2,
@@ -860,7 +986,7 @@ osc8_link() {
   if [ -z "$url" ]; then
     printf '%s' "$text"
   else
-    printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$text"
+    printf '\033]8;;%s\a%s\033]8;;\a' "$url" "$text"
   fi
 }
 
@@ -1067,6 +1193,15 @@ if ! sl_bundle_read; then
     clam_mode="${clam_mode:0:24}"
   fi
 
+  # Bound the cache directory (B08). COLD path only, and deliberately before
+  # the write rather than after it: the bundle this render is about to leave
+  # behind is by definition fresh, so sweeping first spares it a stat. One day
+  # is long enough that a session parked overnight still finds its own bundle
+  # and short enough that a machine's worth of dead sessions does not
+  # accumulate. Bundles written under the pre-B08 transcript_path key age out
+  # through this same call rather than being migrated.
+  sl_cache_sweep "$SL_CACHE_DIR" 86400
+
   sl_bundle_write
 fi
 # ------------------------------------------------------------------------
@@ -1151,17 +1286,12 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   fi
 fi
 
-# Format the status line. Render $HOME as ~ so the path segment stays short
-# (~ is kept literal; when $HOME is empty or $cwd is outside it, the full path
-# shows unchanged). $cwd itself is left intact — it is still used for the git
-# detection above.
-cwd_display="$cwd"
-if [ -n "$HOME" ]; then
-  case "$cwd" in
-    "$HOME"|"$HOME"/*) cwd_display="~${cwd#"$HOME"}" ;;
-  esac
-fi
-printf '\033[38;5;39m%s\033[0m' "$cwd_display"
+# Format the status line. The head is B07's path segment: the project dir and,
+# when it differs, the dir the agent is working in now, $HOME collapsed to "~"
+# and the whole thing hyperlinked. Live on every render, never cached. $cwd and
+# $project_dir themselves are left intact — $cwd is still what the git
+# detection above walks up from.
+sl_render_path_segment "$project_dir" "$cwd"
 
 if [ -n "$branch" ]; then
   printf ' \033[38;5;245m(\033[0m%s\033[38;5;245m)\033[0m' "$branch"

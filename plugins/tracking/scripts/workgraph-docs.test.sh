@@ -132,12 +132,14 @@ assert_contains_re_i() {
     local flat
     flat=$(printf '%s' "$2" | tr '\n' ' ')
     # LC_ALL=C: glibc's regex engine takes a dramatically slower multibyte
-    # code path for bounded-repetition EREs (the '.{0,600}'-style proximity
+    # code path for bounded-repetition EREs (the '.{0,250}'-style proximity
     # patterns below) once the haystack contains any multibyte character —
     # this README's em dashes are enough to trigger it under a UTF-8 locale,
     # turning a sub-millisecond match into several seconds. Every pattern
     # matched here is plain ASCII, so byte-wise (C-locale) matching is
     # exactly equivalent, just without the multibyte code path's cost.
+    # Bounded repetition counts must also stay <= 255: BSD grep (macOS)
+    # rejects any larger bound, so proximity windows here are capped at 250.
     if printf '%s' "$flat" | LC_ALL=C grep -qiE -- "$3"; then
         pass "$1"
     else
@@ -339,7 +341,7 @@ check "Hooks: a '- **SessionStart** (...)' bullet exists" \
 assert_contains_re_i "SessionStart bullet: names work-graph surfacing" "$sessionstart_bullet" \
     'work[ -]?graph'
 assert_contains_re_i "SessionStart bullet: work-graph surfacing comes after the open-follow-ups block" \
-    "$sessionstart_bullet" 'follow-?up.{0,600}work[ -]?graph'
+    "$sessionstart_bullet" 'follow-?up.{0,250}work[ -]?graph'
 
 stop_bullet=$(bullet_zone "$STRIPPED_README" "$STOP_START_RE")
 check "Hooks: a '- **Stop** (...)' bullet exists" \
@@ -430,7 +432,7 @@ else
     fail "Uninstalling: .local/WORKGRAPH.md is named" "no '.local/WORKGRAPH.md' reference found"
 fi
 assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed list" "$uninstalling_zone" \
-    '\.local/WORKGRAPH\.md[^.]{0,300}not removed|not removed[^.]{0,300}\.local/WORKGRAPH\.md'
+    '\.local/WORKGRAPH\.md[^.]{0,250}not removed|not removed[^.]{0,250}\.local/WORKGRAPH\.md'
 
 # ===========================================================================
 # Clause: plugin.json version is bumped exactly 0.6.3 -> 0.7.0 (a specific
@@ -461,7 +463,7 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # a literal retarget only — no assertion added, removed, or weakened, and the
 # frozen PASS count is unchanged.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.9.2" "$plugin_version" "0.9.2"
+check "plugin.json version is exactly 0.9.3" "$plugin_version" "0.9.3"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

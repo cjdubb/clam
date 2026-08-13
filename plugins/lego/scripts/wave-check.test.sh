@@ -479,7 +479,7 @@ commit_stub() {
 # commits it, so working tree and HEAD agree (see the header note).
 commit_sed() {
   local repo="$1" rel="$2" expr="$3" msg="$4"
-  sed -i "$expr" "$repo/$rel"
+  sed -i.bak "$expr" "$repo/$rel" && rm -f "$repo/$rel.bak"
   git -C "$repo" add -- "$rel"
   git -C "$repo" commit -q -m "$msg"
 }
@@ -1216,8 +1216,8 @@ test_contract_diff_pass_when_only_the_body_was_implemented() {
   cmd="$(green_cmd)"
   commit_stub "$repo" "src/thing.sh" "do_thing" "Does the thing." "scaffold src/thing.sh"
   ref="$(git -C "$repo" rev-parse HEAD)"
-  sed -i 's/^  echo "NotImplemented" >&2$/  printf "%s\\n" "$1"/' "$repo/src/thing.sh"
-  sed -i 's/^  return 70$/  return 0/' "$repo/src/thing.sh"
+  sed -i.bak 's/^  echo "NotImplemented" >&2$/  printf "%s\\n" "$1"/' "$repo/src/thing.sh" && rm -f "$repo/src/thing.sh.bak"
+  sed -i.bak 's/^  return 70$/  return 0/' "$repo/src/thing.sh" && rm -f "$repo/src/thing.sh.bak"
   git -C "$repo" add -- src/thing.sh
   git -C "$repo" commit -q -m "implement do_thing"
 
@@ -1677,7 +1677,7 @@ test_test_command_is_never_piped() {
   repo="$(new_git_repo)"
   probe="$(mktemp)"
   track_tmp "$probe"
-  cmd="$(make_raw_cmd "$(printf 'readlink /proc/self/fd/1 >> %q\nreadlink /proc/self/fd/2 >> %q\nexit 1' "$probe" "$probe")")"
+  cmd="$(make_raw_cmd "$(printf 'if [ -p /dev/fd/1 ]; then printf "pipe:1\\n" >> %q; else printf "redirect:1\\n" >> %q; fi\nif [ -p /dev/fd/2 ]; then printf "pipe:2\\n" >> %q; else printf "redirect:2\\n" >> %q; fi\nexit 1' "$probe" "$probe" "$probe" "$probe")")"
 
   run_wave "$repo" test --test-cmd "$cmd"
   assert_check "$RUN_OUT" "RED-RUN" "PASS" "pipe-probe fixture: the probe exits 1, so the red run passes"

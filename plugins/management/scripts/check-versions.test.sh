@@ -111,7 +111,12 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/check-versions.sh"
 
-TMPROOT=$(mktemp -d)
+# Physical (symlink-resolved) root: on macOS `mktemp -d` returns a /var/...
+# path that is a symlink to /private/var/..., whereas the script under test
+# resolves repo containers through git, which reports the physical form.
+# Without this, fixture paths recorded in the config and the paths the
+# script derives compare unequal and repo-scoping assertions fail.
+TMPROOT=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$TMPROOT"' EXIT
 
 STDOUT="$TMPROOT/.stdout"

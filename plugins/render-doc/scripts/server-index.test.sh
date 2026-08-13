@@ -540,7 +540,7 @@ write_seed "$REG_A" "${SEED_ARGS[@]}"
 # Read-only invariant: a manifest of every fixture file and its hash, compared
 # again once the page has been served.
 manifest() {
-  find "$IDX_HOME" -type f ! -path '*/.git/*' -exec sha256sum {} + 2> /dev/null | sort
+  find "$IDX_HOME" -type f ! -path '*/.git/*' -exec cksum {} + 2> /dev/null | sort
 }
 MANIFEST_BEFORE="$(manifest)"
 

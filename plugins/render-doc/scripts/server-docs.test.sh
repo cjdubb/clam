@@ -184,7 +184,7 @@ non_empty() { # <file> <label>
 # this file's own source would itself be a reference and would be flagged by
 # architecture-lint, so the vocabulary is a runtime value from `find`.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 
@@ -402,7 +402,7 @@ section "$README_BODY" '^### Maintenance$' > "$RM_MAINT"
 
 mapfile -t SHIPPED_TESTS < <(
   find "$PLUGIN_DIR/scripts" "$PLUGIN_DIR/lib" -maxdepth 1 -type f -name '*.test.sh' \
-    -printf '%f\n' 2> /dev/null | sort
+    -exec basename {} \; 2> /dev/null | sort
 )
 
 if [ "${#SHIPPED_TESTS[@]}" -eq 0 ]; then

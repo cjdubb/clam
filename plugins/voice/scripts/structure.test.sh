@@ -122,7 +122,7 @@ check "plugin.json .author is byte-identical (jq -Sc) to marketplace.json .owner
 # 2. output-styles/ contains exactly the two style files
 # ---------------------------------------------------------------------------
 
-style_files=$(find "$STYLES_DIR" -maxdepth 1 -type f | sed 's|.*/||' | sort | tr '\n' ' ' | sed -E 's/ $//')
+style_files=$(find "$STYLES_DIR" -maxdepth 1 -type f | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ' | sed -E 's/ $//')
 check "output-styles/ contains exactly voice-no-coding.md and voice.md" \
   "$style_files" "voice-no-coding.md voice.md"
 

@@ -29,6 +29,10 @@ if [ ! -f "$SCRIPT" ]; then
   exit 1
 fi
 
+# shellcheck source=lib/test-portability.sh
+# shellcheck disable=SC1091  # resolved at runtime via $SCRIPT_DIR
+. "$SCRIPT_DIR/lib/test-portability.sh"
+
 FAILED=0
 check() { # label got expected
   if [[ "$2" == "$3" ]]; then
@@ -102,16 +106,17 @@ commit_all() { # repo message -> prints resulting commit SHA
 }
 
 # ---------------------------------------------------------------------------
-# `jq`-missing PATH shim: every /usr/bin entry except jq, symlinked into a
-# fresh dir (git and bash — both needed to invoke the script under test —
-# live in /usr/bin here, so both stay reachable; only jq disappears).
+# `jq`-missing PATH shim: every executable on the caller's real PATH except
+# jq, symlinked into a fresh dir (git and bash — both needed to invoke the
+# script under test — stay reachable; only jq disappears). Farming only
+# /usr/bin would drop /bin/bash on macOS and yield exit 127 instead of the
+# contract's exit 2, so tp_shim_path walks the whole real PATH.
 # ---------------------------------------------------------------------------
 build_path_without() { # cmd -> prints new PATH dir
   local cmd="$1" out
   out="$(mktemp -d)"
   track_tmp "$out"
-  ln -s /usr/bin/* "$out/" 2>/dev/null
-  rm -f "$out/$cmd"
+  tp_shim_path "$out" --remove "$cmd" >/dev/null || return 1
   printf '%s' "$out"
 }
 NOJQBIN="$(build_path_without jq)"

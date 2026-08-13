@@ -1,6 +1,23 @@
 #!/bin/bash
 # Runs the mechanical half of a lego wave gate in one command.
 #
+# <!--
+# Contract: B04 wave-check-unit-md-fallback (plan 001-lego-config-redesign)
+# Behavior:   --test-cmd stays primary; when absent, the test command is
+#             resolved from the unit worktree's .local/unit.md block
+#             sections' `- Test:` field (the copy worktree.sh add seeds).
+#             Layered-config resolution and $LEGO_CONFIG are deleted.
+# Inputs:     existing flags; unit.md bearing Test: fields.
+# Outputs:    unchanged check lines and summary.
+# Errors:     exit 2 when neither --test-cmd nor a unit.md Test: resolves,
+#             message naming both paths tried; exit 2 when blocks sharing
+#             the unit disagree on Test:.
+# Invariants: RED-RUN/GREEN-RUN/REALM/CONTRACT-DIFF semantics
+#             byte-compatible.
+# Edge cases: run outside a unit worktree (no unit.md) with no flag ->
+#             exit 2, not a crash.
+# -->
+#
 # Run: bash plugins/lego/scripts/wave-check.sh <test|impl> [options] [diff-range]
 #
 # <!--
@@ -102,8 +119,6 @@
 # -->
 
 set -uo pipefail
-
-: "${JQ:=jq}"
 
 USAGE_MSG="usage: wave-check.sh <test|impl> [--test-cmd \"<command>\"] [--scaffold-ref <ref>] [--stub <path>]... [--collection-pattern \"<ERE>\"] [diff-range]"
 DEFAULT_COLLECTION_PATTERN="SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|ParseError|collection error"
@@ -209,71 +224,70 @@ if [ ! -f "$REALM_CHECK" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve the test command: --test-cmd wins outright (config is never read,
-# jq never invoked); otherwise commands.test from the layered config
-# (.claude/lego.json deep-merged with the override file; $LEGO_CONFIG
-# overrides the override path, both cwd-relative as in realm.sh).
+# Resolve the test command: --test-cmd wins outright (nothing on disk is read);
+# otherwise the `- Test:` field of the unit worktree's .local/unit.md block
+# sections -- the copy worktree.sh add seeds. No config file and no external
+# tool takes part in resolution.
 # ---------------------------------------------------------------------------
+
+# unit_md_path -- .local/unit.md at the worktree root, falling back to the cwd
+# when the root cannot be determined. Printed whether or not it exists, so the
+# unresolvable diagnostic can name the path that was tried.
+unit_md_path() {
+  local root
+  root="$(git rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$root" ] || root="$PWD"
+  printf '%s' "$root/.local/unit.md"
+}
+
 TEST_CMD=""
 if [ "$have_test_cmd_flag" -eq 1 ]; then
   TEST_CMD="$test_cmd_flag"
 else
-  base_config=".claude/lego.json"
-  override_config="${LEGO_CONFIG:-.local/config.json}"
+  UNIT_MD="$(unit_md_path)"
+  unresolved_msg="unresolvable test command: no --test-cmd given and no '- Test:' field found in the unit worktree's unit.md ($UNIT_MD)"
 
-  have_base=0
-  have_override=0
-  [ -f "$base_config" ] && have_base=1
-  [ -f "$override_config" ] && have_override=1
-
-  if [ "$have_base" -eq 0 ] && [ "$have_override" -eq 0 ]; then
-    err "unresolvable test command: no --test-cmd given and no config file present ($base_config, $override_config)"
+  if [ ! -f "$UNIT_MD" ]; then
+    err "$unresolved_msg"
     exit 2
   fi
 
-  if ! command -v "$JQ" >/dev/null 2>&1; then
-    err "jq is required to resolve commands.test from config ($base_config and/or $override_config present); pass --test-cmd to skip config entirely"
+  # Every block section's `- Test:` value, whole-field (multi-token commands
+  # included), leading/trailing whitespace trimmed. Agreement across blocks
+  # resolves once; disagreement is an error, never a silent pick.
+  test_values=()
+  in_block=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '## '*) in_block=1; continue ;;
+      '#'*) in_block=0; continue ;;
+    esac
+    [ "$in_block" -eq 1 ] || continue
+    case "$line" in
+      '- Test:'*)
+        value="${line#- Test:}"
+        # Trim surrounding whitespace.
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        [ -n "$value" ] || continue
+        test_values+=("$value")
+        ;;
+    esac
+  done < "$UNIT_MD"
+
+  if [ "${#test_values[@]}" -eq 0 ]; then
+    err "$unresolved_msg"
     exit 2
   fi
 
-  if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$base_config" >/dev/null 2>&1; then
-    err "invalid JSON in config file: $base_config"
-    exit 2
-  fi
-  if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$override_config" >/dev/null 2>&1; then
-    err "invalid JSON in config file: $override_config"
-    exit 2
-  fi
-
-  if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-    effective_config="$("$JQ" -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
-  elif [ "$have_base" -eq 1 ]; then
-    effective_config="$(cat "$base_config")"
-  else
-    effective_config="$(cat "$override_config")"
-  fi
-
-  raw_type="$("$JQ" -r '.commands.test | type' <<<"$effective_config" 2>/dev/null)"
-  case "$raw_type" in
-    string)
-      TEST_CMD="$("$JQ" -r '.commands.test' <<<"$effective_config" 2>/dev/null)"
-      [ -n "$TEST_CMD" ] || { err "commands.test is an empty string in the effective config"; exit 2; }
-      ;;
-    object)
-      default_key="$("$JQ" -r '.commands.test.default // empty' <<<"$effective_config" 2>/dev/null)"
-      [ -n "$default_key" ] || { err "commands.test is an object without a 'default' key in the effective config"; exit 2; }
-      # $k is the jq variable bound by --arg, not a shell one, so the single
-      # quotes are required. shellcheck cannot tell: it special-cases the
-      # literal command word `jq`, and "$JQ" hides that.
-      # shellcheck disable=SC2016
-      TEST_CMD="$("$JQ" -r --arg k "$default_key" '.commands.test[$k] // empty' <<<"$effective_config" 2>/dev/null)"
-      [ -n "$TEST_CMD" ] || { err "commands.test.default names an absent or empty variant in the effective config"; exit 2; }
-      ;;
-    *)
-      err "commands.test missing or empty in the effective config"
+  for v in "${test_values[@]}"; do
+    if [ -z "$TEST_CMD" ]; then
+      TEST_CMD="$v"
+    elif [ "$v" != "$TEST_CMD" ]; then
+      err "ambiguous test command: blocks in $UNIT_MD disagree on '- Test:' ([$TEST_CMD] vs [$v]); pass --test-cmd to choose"
       exit 2
-      ;;
-  esac
+    fi
+  done
 fi
 
 # ---------------------------------------------------------------------------

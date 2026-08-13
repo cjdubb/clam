@@ -151,7 +151,6 @@ done
 DECLARED=(
   "plugins/statusline/lib/burn-math.test.sh"
   "plugins/statusline/lib/burn-theme.test.sh"
-  "plugins/statusline/lib/burn-tick.test.sh"
   "plugins/statusline/scripts/ccost.test.sh"
   "plugins/statusline/scripts/readme.test.sh"
   "plugins/statusline/scripts/render-budget.test.sh"

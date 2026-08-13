@@ -548,105 +548,254 @@ test_budget_flag_ceiling_is_floor_of_half() {
   assert_block_finding B01 "justif" "Est 50 over ceiling 49"
 }
 
-# delivery.prSizeBudget from the committed base layer alone.
-test_budget_from_base_config() {
+# ---------------------------------------------------------------------------
+# B05: config resolution is DELETED. Everything below pins the new contract —
+# "budget = --budget when given, else the constant 500" — against the exact
+# fixtures the deleted layered-config behaviour used to be pinned with.
+#
+# assert_config_ignored <label> — the standard 2-block map (Est 50 / Est 10)
+# under whatever config fixtures the caller wrote must lint at the constant
+# 500 budget, i.e. ceiling 250, cleanly and with no script diagnostic. The
+# diagnostic check keys on the script's own "ERROR: " prefix rather than on
+# an empty stderr, because unrelated tooling noise (e.g. BSD sed's complaint
+# about the `--` end-of-options marker) is not the script speaking.
+# ---------------------------------------------------------------------------
+assert_config_ignored() {
+  local label="$1"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "$label: expected exit 0 at the constant budget 500, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_clean_structure "ALL PASS (2 blocks, ceiling 250)" "$label"
+  case "$RUN_ERR" in
+    *"ERROR: "*) record_fail "$label: expected no diagnostic from the script, got [$RUN_ERR]" ;;
+  esac
+}
+
+# REWRITTEN for B05 (was test_budget_from_base_config): a committed
+# .claude/lego.json carrying delivery.prSizeBudget no longer sets the budget.
+# The old fixture's budget 100 would give ceiling 50 and make Est 51 a
+# finding; under the new contract the budget is 500, so ceiling 250 and Est
+# 51 passes. Both directions are asserted, so a surviving config read cannot
+# masquerade as a pass.
+test_base_config_is_ignored() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 100)"
 
   run_in "$dir"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "base config budget 100, Est 50: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "budget resolved from .claude/lego.json"
+  assert_config_ignored ".claude/lego.json delivery.prSizeBudget 100 is ignored; the budget is the constant 500"
 
-  # Sharpened: the same map is a finding one line over that ceiling, so the
-  # config value is really what set it (not a coincidental default pass).
+  # Est 51 was a finding under the old config-derived ceiling of 50; under
+  # the constant 500 (ceiling 250) it is clean.
   local dir2
   dir2="$(new_map_dir "$(block B01 51)" "$(block B02 10)")"
   write_file_at "$dir2" ".claude/lego.json" "$(budget_json 100)"
   run_in "$dir2"
-  [ "$RUN_EXIT" -eq 1 ] || record_fail "base config budget 100, Est 51: expected exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_findings_structure "FAILURES: 1 — fix the block map before scaffolding" "Est 51 over the config-derived ceiling 50"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "base config budget 100, Est 51: expected exit 0 (ceiling 250, not the config's 50), got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_block_finding B01 "Est 51 against the constant-budget ceiling of 250"
+
+  # And a huge config budget cannot RAISE the ceiling either: Est 251 is
+  # still a finding with a config declaring 100000.
+  local dir3
+  dir3="$(new_map_dir "$(block B01 251)" "$(block B02 10)")"
+  write_file_at "$dir3" ".claude/lego.json" "$(budget_json 100000)"
+  run_in "$dir3"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "base config budget 100000, Est 251: expected exit 1 (ceiling stays 250), got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_findings_structure "FAILURES: 1 — fix the block map before scaffolding" "a config budget cannot raise the ceiling"
+  assert_block_finding B01 "justif" "Est 251 over the constant-budget ceiling 250"
 }
 
-# delivery.prSizeBudget from the local override layer alone (no base file).
-test_budget_from_override_config() {
+# REWRITTEN for B05 (was test_budget_from_override_config): the gitignored
+# .local/config.json override layer is ignored too.
+test_override_config_is_ignored() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".local/config.json" "$(budget_json 100)"
 
   run_in "$dir"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "override config budget 100, Est 50: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "budget resolved from .local/config.json"
+  assert_config_ignored ".local/config.json delivery.prSizeBudget 100 is ignored; the budget is the constant 500"
+
+  local dir2
+  dir2="$(new_map_dir "$(block B01 251)" "$(block B02 10)")"
+  write_file_at "$dir2" ".local/config.json" "$(budget_json 100000)"
+  run_in "$dir2"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "override config budget 100000, Est 251: expected exit 1 (ceiling stays 250), got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B01 "justif" "Est 251 over the constant-budget ceiling 250, override config present"
 }
 
-# Both layers present: the override wins per key, and the merge is DEEP — a
-# sibling key under .delivery in the override must not wipe the base's
-# prSizeBudget (a shallow top-level merge would, falling back to 500 /
-# ceiling 250).
-test_config_deep_merge_override_wins() {
+# REWRITTEN for B05 (was test_config_deep_merge_override_wins): there is no
+# layering left to merge. With BOTH files present and disagreeing, neither
+# wins — the budget is 500 and the ceiling 250.
+test_both_config_layers_ignored() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 1000)"
   write_file_at "$dir" ".local/config.json" "$(budget_json 100)"
 
   run_in "$dir"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "override 100 over base 1000: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "the override layer wins over the base layer"
+  assert_config_ignored "both config layers present and disagreeing: neither is consulted"
 
+  # The old deep-merge fixture (base budget 100, override with only a
+  # sibling key) resolved to ceiling 50; now it resolves to 250, and an Est
+  # of 251 proves the ceiling is not the merged config's.
   local dir2
-  dir2="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
+  dir2="$(new_map_dir "$(block B01 251)" "$(block B02 10)")"
   write_file_at "$dir2" ".claude/lego.json" "$(budget_json 100)"
   write_file_at "$dir2" ".local/config.json" '{"delivery":{"someOtherKey": true}}'
-
   run_in "$dir2"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "deep merge preserving the base prSizeBudget: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "deep merge: an unrelated override key under .delivery keeps the base's prSizeBudget (100) rather than falling back to the 500 default"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "both layers, Est 251: expected exit 1 at ceiling 250, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B01 "justif" "Est 251 over ceiling 250 with both config layers present"
 }
 
-# $LEGO_CONFIG redirects the override file's path; the real
-# .local/config.json is then ignored.
-test_lego_config_env_redirects_override_path() {
+# REWRITTEN for B05 (was test_lego_config_env_redirects_override_path):
+# $LEGO_CONFIG no longer redirects anything, because nothing is read. It is
+# ignored whether it points at a valid config, at a broken one, or at
+# nothing at all.
+test_lego_config_env_is_ignored() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".local/config.json" "$(budget_json 1000)"
   write_file_at "$dir" "custom/dir/myconfig.json" "$(budget_json 100)"
 
   run_cmd "$dir" "" "custom/dir/myconfig.json"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "LEGO_CONFIG redirect: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "\$LEGO_CONFIG points at custom/dir/myconfig.json (budget 100), not the default .local/config.json (budget 1000)"
+  assert_config_ignored "\$LEGO_CONFIG pointing at a valid config (budget 100) is ignored"
+
+  # $LEGO_CONFIG pointing at a path that does not exist is equally a
+  # non-event: no error, same verdict.
+  run_cmd "$dir" "" "no/such/config.json"
+  assert_config_ignored "\$LEGO_CONFIG pointing at a nonexistent path is a non-event"
+
+  # ...and pointing it at unparseable JSON must not produce a config error.
+  write_file_at "$dir" "custom/dir/broken.json" '{ this is not json'
+  run_cmd "$dir" "" "custom/dir/broken.json"
+  assert_config_ignored "\$LEGO_CONFIG pointing at unparseable JSON raises no config error"
 }
 
-# --budget beats the config, the config is never consulted, and jq is not
-# needed on that path even though a config file exists.
+# --budget still wins outright, and jq is not needed on that path even
+# though config files exist. (Kept from B04; the flag path is unchanged.)
 test_budget_flag_wins_over_config_and_no_jq_needed() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 20)"
 
   JQ=/nonexistent run_in "$dir" --budget 100
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 100 over a config budget of 20, jq absent: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "--budget wins over the config value and needs no jq"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 100 with a config present, jq absent: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_clean_structure "ALL PASS (2 blocks, ceiling 50)" "--budget sets the ceiling and needs no jq"
 }
 
-# jq needed (a config file exists, no --budget) but unavailable: diagnostic
-# on stderr, exit 2 — never a silent fall back to the 500 default.
-test_jq_required_when_config_resolution_needed() {
+# REWRITTEN for B05 (was test_jq_required_when_config_resolution_needed): jq
+# is NEVER required for budget resolution now, because there is no config
+# resolution. With config files present, no --budget, and $JQ pointing at a
+# nonexistent path, the run must succeed at the constant 500 — the old exit
+# 2 with a jq diagnostic is gone.
+test_jq_never_required_for_budget() {
   local dir
   dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir" ".claude/lego.json" "$(budget_json 20)"
 
   JQ=/nonexistent run_in "$dir"
-  assert_usage_error "base config present, no --budget, jq absent"
+  assert_config_ignored "base config present, no --budget, jq absent: no jq is needed"
   case "$RUN_ERR" in
-    *jq*|*JQ*) : ;;
-    *) record_fail "jq absent: the diagnostic does not mention jq (stderr: $RUN_ERR)" ;;
+    *jq*|*JQ*) record_fail "jq must not be mentioned on stderr any more (stderr: $RUN_ERR)" ;;
   esac
 
   local dir2
   dir2="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
   write_file_at "$dir2" ".local/config.json" "$(budget_json 20)"
   JQ=/nonexistent run_in "$dir2"
-  assert_usage_error "override config present, no --budget, jq absent"
+  assert_config_ignored "override config present, no --budget, jq absent"
+
+  local dir3
+  dir3="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
+  write_file_at "$dir3" ".claude/lego.json" "$(budget_json 20)"
+  JQ=/nonexistent run_cmd "$dir3" "" "custom.json"
+  assert_config_ignored "config present and \$LEGO_CONFIG set, no --budget, jq absent"
+}
+
+# Edge case: "omitted --budget on a repo with a stray lego.json -> 500, the
+# file is not read". Unreadable (chmod 000) and syntactically broken config
+# files would both have been exit-2 config errors under B04; now they are
+# invisible, which is the sharpest available proof that nothing opens them.
+test_stray_config_files_are_never_read() {
+  local dir
+  dir="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
+  write_file_at "$dir" ".claude/lego.json" '{ "delivery": { "prSizeBudget": '
+  write_file_at "$dir" ".local/config.json" 'not json at all'
+
+  run_in "$dir"
+  assert_config_ignored "unparseable config files on both layers are never opened"
+
+  local dir2
+  dir2="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
+  write_file_at "$dir2" ".claude/lego.json" "$(budget_json 100)"
+  write_file_at "$dir2" ".local/config.json" "$(budget_json 100)"
+  chmod 000 "$dir2/.claude/lego.json" "$dir2/.local/config.json"
+  run_in "$dir2"
+  assert_config_ignored "unreadable config files are never opened"
+  chmod 644 "$dir2/.claude/lego.json" "$dir2/.local/config.json"
+
+  # A config whose prSizeBudget is present but not a positive integer was an
+  # exit-2 "not a positive integer" error under B04; now it is ignored.
+  local dir3
+  dir3="$(new_map_dir "$(block B01 50)" "$(block B02 10)")"
+  write_file_at "$dir3" ".claude/lego.json" '{"delivery":{"prSizeBudget": "lots"}}'
+  run_in "$dir3"
+  assert_config_ignored "a non-integer delivery.prSizeBudget is no longer a config error"
+}
+
+# Invariant: the per-block ceiling stays floor(budget/2) on the new constant
+# path as well as the flag path — 500 floors to 250 (exact), and an odd
+# --budget still floors, with config files present to prove they change
+# nothing about the arithmetic.
+test_ceiling_stays_floor_of_half_with_config_present() {
+  local dir
+  dir="$(new_map_dir "$(block B01 250)" "$(block B02 10)")"
+  write_file_at "$dir" ".claude/lego.json" "$(budget_json 100)"
+  write_file_at "$dir" ".local/config.json" "$(budget_json 4000)"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "constant budget 500, Est exactly 250: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_clean_structure "ALL PASS (2 blocks, ceiling 250)" "the constant budget 500 derives ceiling 250 with config files present"
+
+  run_in "$dir" --budget 501
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 501 with config present, Est 250: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_clean_structure "ALL PASS (2 blocks, ceiling 250)" "--budget 501 still floors to ceiling 250"
+
+  run_in "$dir" --budget 499
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "--budget 499 with config present, Est 250 over ceiling 249: expected exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_findings_structure "FAILURES: 1 — fix the block map before scaffolding" "--budget 499 floors to ceiling 249"
+  assert_block_finding B01 "justif" "Est 250 over the floored ceiling 249"
+}
+
+# Errors clause: usage errors are UNCHANGED by the config deletion. The same
+# four families still exit 2 with a stderr diagnostic and no verdict, now
+# with config files present (which previously could have short-circuited
+# into a config error instead).
+test_usage_errors_unchanged_with_config_present() {
+  local dir bad
+  dir="$(new_map_dir "$(block B01 100)")"
+  write_file_at "$dir" ".claude/lego.json" "$(budget_json 100)"
+  write_file_at "$dir" ".local/config.json" '{ broken'
+
+  run_in "$dir" --frobnicate
+  assert_usage_error "unknown flag with config files present"
+
+  run_in "$dir" --budget
+  assert_usage_error "--budget with no value, config files present"
+
+  for bad in abc 0 -5 "12,00"; do
+    run_in "$dir" --budget "$bad"
+    assert_usage_error "--budget [$bad] with config files present"
+  done
+
+  cp "$dir/.local/blocks.md" "$dir/other.md"
+  run_in "$dir" .local/blocks.md other.md
+  assert_usage_error "two positional paths with config files present"
+
+  run_in "$dir" no/such/blocks.md
+  assert_usage_error "missing block map with config files present"
+
+  # jq absent changes none of it.
+  JQ=/nonexistent run_in "$dir" --nope
+  assert_usage_error "unknown flag, config present, jq absent"
 }
 
 # ===========================================================================
@@ -1026,7 +1175,7 @@ test_invariant_read_only() {
   head_before="$(git -C "$dir" rev-parse HEAD)"
   refs_before="$(git -C "$dir" show-ref)"
 
-  run_in "$dir"                          # findings (Est 900 over ceiling 50)
+  run_in "$dir"                          # findings (Est 900 over ceiling 250)
   [ "$RUN_EXIT" -eq 1 ] || record_fail "read-only fixture: expected the findings run to exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
   run_in "$dir" --budget 5000            # clean
   [ "$RUN_EXIT" -eq 0 ] || record_fail "read-only fixture: expected the clean run to exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
@@ -1104,12 +1253,15 @@ run_test "block map with zero entries -> exit 2" test_zero_block_entries_is_exit
 
 run_test "budget: default 500 -> ceiling 250, no jq needed" test_default_budget_500_ceiling_250_no_jq_needed
 run_test "budget: --budget sets the ceiling, floored (501 -> 250)" test_budget_flag_ceiling_is_floor_of_half
-run_test "budget: resolved from .claude/lego.json" test_budget_from_base_config
-run_test "budget: resolved from .local/config.json" test_budget_from_override_config
-run_test "budget: layered config deep-merges, override wins" test_config_deep_merge_override_wins
-run_test "budget: \$LEGO_CONFIG redirects the override path" test_lego_config_env_redirects_override_path
-run_test "budget: --budget wins over config and needs no jq" test_budget_flag_wins_over_config_and_no_jq_needed
-run_test "budget: jq required for config resolution -> exit 2 without it" test_jq_required_when_config_resolution_needed
+run_test "budget: .claude/lego.json is ignored -> constant 500" test_base_config_is_ignored
+run_test "budget: .local/config.json is ignored -> constant 500" test_override_config_is_ignored
+run_test "budget: both config layers ignored, nothing is merged" test_both_config_layers_ignored
+run_test "budget: \$LEGO_CONFIG is ignored entirely" test_lego_config_env_is_ignored
+run_test "budget: --budget sets the ceiling and needs no jq" test_budget_flag_wins_over_config_and_no_jq_needed
+run_test "budget: jq is never required for budget resolution" test_jq_never_required_for_budget
+run_test "budget: stray/broken/unreadable config files are never read" test_stray_config_files_are_never_read
+run_test "budget: ceiling stays floor(budget/2) with config present" test_ceiling_stays_floor_of_half_with_config_present
+run_test "usage errors unchanged with config files present" test_usage_errors_unchanged_with_config_present
 
 run_test "Est: a missing field is a finding" test_missing_est_is_a_finding
 run_test "Est: non-integer values (commas, units, ranges, ...) are findings" test_non_integer_est_values_are_findings

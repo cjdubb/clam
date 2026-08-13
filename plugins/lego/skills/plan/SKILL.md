@@ -39,6 +39,12 @@ alike:
   engineer. A question the engineer explicitly declines or skips counts as
   answered; a bare "go" accepting the recommended defaults counts as
   answering all open questions.
+- **Delivery knowledge is orchestrator-only.** The PR size budget, the
+  delivery mode, and the PR grouping are plan facts the orchestrator holds
+  and acts on: they shape how work is dispatched and landed, never how a
+  block is built, so they never reach a worker's brief. A worker asked to
+  weigh a budget, a mode, or a PR group has been briefed wrongly — strip
+  those facts out and re-brief it with its contract and its tests.
 
 ## Step 0a: Record plan entry
 
@@ -89,35 +95,24 @@ never assume. It applies at every level below this one too — an ambiguous
 contract, a surprising repo state, or evidence that contradicts the engineer's
 description are all questions to raise, not gaps to fill silently.
 
-## Step 1: Ensure the repo interface exists
+## Step 1: Discover and prove the repo's commands
 
-The repo interface is layered (full semantics in `docs/config-schema.md`):
-
-- **`.claude/lego.json`** — the committed base config: commands, models,
-  testPatterns, delivery mode. Repo facts belong with the repo; because
-  this file is committed, every worktree and fresh clone inherits it via
-  git checkout, so repo config never needs copying between worktrees.
-- **`.local/config.json`** — optional gitignored local override,
-  deep-merged over the base: machine-specific values
-  (`delivery.worktreeDir`), personal tweaks. Also the escape hatch for a
-  repo whose conventions the engineer doesn't control: the whole config
-  can live here instead, accepting that it is then per-clone and does not
-  survive a fresh clone.
-- **`.local/`** otherwise holds session state (block map, plans, per-unit
-  seeds) and stays untracked.
-
-If the repo has no `.claude/lego.json` (and no deliberate
-`.local/config.json`-only setup), ask the engineer for consent to create
-the interface, then:
+Every wave after this one runs commands in a worktree: a setup step that
+prepares the environment, and a test command that proves a block. Those
+commands are discovered here, agreed with the engineer, and proven by
+running them — never guessed, and never written to a settings file that
+would drift from the repo it describes. Nothing is created or committed
+here beyond the session-state scaffolding in items 0, 4, and 5 below.
 
 0. **Keep session state out of the tracked tree.** Append `.local/` to
    `.git/info/exclude` (create the file if absent; skip if the entry
    already exists, the repo's `.gitignore` already covers it, or the repo
    deliberately tracks `.local/` files). A team that wants the block map
    shared can commit `.local/` deliberately; the workflow works identically
-   either way.
-1. Create `.claude/lego.json`. Autodetect candidates and CONFIRM with the
-   engineer before writing; never guess silently:
+   either way. `.local/` holds session state — block map, plans, per-unit
+   seeds — and stays untracked.
+1. **Autodetect the candidates.** Read the repo's marker files and derive
+   the commands they imply:
 
    | Marker file | Likely commands |
    |---|---|
@@ -131,33 +126,35 @@ the interface, then:
 
    Where the repo has more than one meaningful test command — a monorepo
    (per-package vs affected-wide runs) or multiple test types (unit,
-   integration, e2e, storybook) — record them as named variants instead of
-   a single string, and agree with the engineer which one is `default`
-   (what mechanical checks run; prefer the cheapest tier that needs no
-   external infrastructure, usually unit):
+   integration, e2e, storybook) — carry every candidate forward rather than
+   collapsing them to one: which command a given block runs is a per-block
+   decision, and scope permutations (`nx run mylib:unit-test`) are
+   constructed from that block's own paths.
+2. **Agree the candidates with the engineer.** Present what you found — for
+   each tier, the command that runs the tests and the optional preparation
+   command that must precede it — and confirm every one of them; never guess
+   silently. Prefer the cheapest tier that needs no external infrastructure,
+   usually unit, as the default a block records.
+3. **Prove each agreed command by executing it.** Run each agreed Setup
+   command and then its Test command exactly once — in a scratch worktree
+   when that is feasible, so the repo you are planning in stays clean.
+   Execution is the proof, and the proof comes before the record: a command
+   is recorded only after it has been seen to run. A command that fails,
+   hangs, or turns out not to exist goes back to the engineer as a question,
+   never into the plan as an assumption.
 
-   ```json
-   "test": { "unit": "...", "integration": "...", "default": "unit" }
-   ```
+   Proving is not recording. The proved commands are written down per block,
+   as `Setup:` and `Test:` fields on that block's entry in `.local/blocks.md`,
+   at Step 4 — this step establishes what those fields will say, and Step 4
+   is where and when they land.
 
-   Scope permutations (`nx run mylib:unit-test`) are constructed at
-   dispatch time; config records the repo's test *types*, not every
-   permutation.
-
-   Schema: see `docs/config-schema.md` in the plugin; starter in
-   `templates/lego.json`. `commands.test` is required; `typecheck`, `build`,
-   `lint` optional; `models.testWriter`/`models.implementer` default to sonnet.
-
-   Also ask the engineer for the **delivery mode** (`delivery.mode`):
-   `main-prs` — each PR group is raised as a PR to master/main, or
-   `local-only` — units are merged locally and the engineer delivers
-   manually. `delivery.worktreeDir` (where per-unit worktrees are created)
-   is machine-specific: when needed, it goes in the `.local/config.json`
-   override, never the committed base.
-
-   Commit `.claude/lego.json` (with the engineer's consent) once confirmed.
-2. Create `.local/blocks.md` from `templates/blocks.md`.
-3. Create `.local/plans/`.
+   **When proving needs infrastructure.** A command that cannot honestly run
+   here — it needs a database, a browser grid, a cloud credential — is proved
+   at the cheapest honest tier instead: run the tier you can (unit, or a
+   collection-only invocation), and record the caveat in the plan document,
+   naming what was proved by execution and what was only agreed.
+4. Create `.local/blocks.md` from `templates/blocks.md`.
+5. Create `.local/plans/`.
 
 ## Step 2: Brownfield discovery (skip only in an empty repo)
 
@@ -252,6 +249,11 @@ For every block, agree with the engineer on:
   authoritative contract. A block re-planned mid-dispatch updates its draft and re-passes
   this bar before it is re-scaffolded.
 - Dependencies (which other blocks it consumes)
+- **`Setup:` and `Test:` commands**, agreed together as one item: the command
+  that runs this block's tests (`Test:`) and the optional command that
+  prepares the environment before it (`Setup:`) — drawn from the commands
+  proved by execution in Step 1, and recorded on the block's map entry at
+  Step 4.
 - Kind: leaf or composition
 - **Owner: agent or engineer.** Ask which blocks the engineer wants to build
   themselves. Engineer-owned blocks get the same contract and the same tests;
@@ -330,8 +332,13 @@ strategy behind it. Three things happen here, in order, with the engineer:
    suites — so weigh estimates accordingly.
 
 2. **Feed the estimates back into decomposition.** Compare each block against
-   the budget — `delivery.prSizeBudget` from the effective config, defaulting
-   to 500 changed lines when the config doesn't set one. A block estimated
+   the PR size budget. The budget is a plan fact, not a setting: agree it
+   with the engineer here — 500 changed lines unless they say otherwise —
+   and record it in the plan's **Landing strategy** section (Step 4)
+   alongside the **delivery mode**, which is the other plan fact recorded
+   there: `main-prs` — each PR group is raised as a PR to master/main — or
+   `local-only`, where units are merged locally and the engineer ships by
+   hand. A block estimated
    over budget is a mis-sized block, and the first remedy is to split it:
    return to Step 3 and break it into smaller blocks, never accept an
    oversized PR by default. Splitting fails only for a genuinely indivisible
@@ -343,9 +350,9 @@ strategy behind it. Three things happen here, in order, with the engineer:
    picking a number and moving on.
 
    Independently of the group budget, every block also carries a
-   **per-block ceiling** DERIVED from it: `ceiling = floor(prSizeBudget / 2)`
-   — default budget 500 gives a default ceiling of **250** — no new config
-   key is introduced. A block's Est exactly at the ceiling needs no
+   **per-block ceiling** DERIVED from it: `ceiling = floor(budget / 2)`
+   — default budget 500 gives a default ceiling of **250** — so the ceiling
+   is never recorded as a number of its own. A block's Est exactly at the ceiling needs no
    justification; only a strictly-over-ceiling Est triggers the requirement,
    and a rough Est on a prose or config block is not an exemption from the
    ceiling. An over-ceiling block is first split, same as any mis-sized
@@ -404,7 +411,9 @@ a PR.
    The Landing strategy section carries Step 3a's sizing decisions to disk so
    `/lego:dispatch` delivers from a recorded plan instead of improvising
    branch names, titles, and commit subjects at delivery time. It names the
-   budget the design was sized against, then one row per PR group: its
+   budget the design was sized against and the delivery mode the work lands
+   under (`main-prs` or `local-only`) — the two plan facts that have no home
+   anywhere else — then one row per PR group: its
    branch name, PR title, member units, and estimated changed lines, plus a
    written justification for any group deliberately left over budget. Each
    group's commit sequence is recorded alongside it — every commit in
@@ -428,6 +437,8 @@ a PR.
    - PR group: G<NN>
    - Est: <estimated changed lines>
    - Justification: <optional; required only when Est is strictly over the per-block ceiling from Step 3a>
+   - Setup: <optional; the command that prepares the environment, when the repo needs one>
+   - Test: <the command that runs this block's tests>
    - Code: <intended path(s)>
    - Contract: <one-line summary; authoritative contract is the docblock at Code>
    - Plan: plans/NNN-<slug>.md
@@ -445,6 +456,13 @@ a PR.
    repo inherits it. `Justification:` is optional — it is written only for a
    block whose Est exceeds the per-block ceiling and cannot be split
    further; a block under the ceiling omits it.
+
+   `Setup:` and `Test:` carry the commands agreed in Step 3 and proved by
+   execution in Step 1 — this entry is where they are recorded, and the only
+   place any wave reads them from. `Test:` is required of every block;
+   `Setup:` is optional, written only where the repo needs a preparation
+   step before tests run. A block whose command could only be proved at a
+   reduced tier records that caveat beside it in the plan document.
 
    Status lifecycle: `Planned → Scaffolded → Tests Written → Tests Verified →
    Implemented → Accepted`, with `Escalated` as a side-state that returns to the
@@ -557,8 +575,10 @@ The transcription obeys two principles:
    the document's skeleton — headings and section order in place, the prose
    itself deliberately absent — with the contract comment above it.
 
-   The implementation wave deletes the comment; acceptance confirms it is
-   gone. Anything the contract asserts that must outlive the block — a
+   The orchestrator deletes the comment at acceptance, once the prose has
+   been verified against every clause — the implementation wave writes the
+   document and leaves the comment standing. Anything the contract asserts
+   that must outlive the block — a
    standing editing rule, an invariant with no other home — is moved into the
    document's own prose or a short editing note *before* the contract goes.
 
@@ -585,9 +605,10 @@ whose `Est:` already carries a `Justification:` for exceeding the
 per-block ceiling passes the lint as written; nothing about it is
 re-argued here.
 
-Prove the design composes using the **strongest available check**, from the
-effective config's commands (`.claude/lego.json` merged with any
-`.local/config.json` override — see `docs/config-schema.md`), in this order:
+Prove the design composes using the **strongest available check**, drawn
+from the commands recorded in the plan and its block map — the ones proved
+by execution at Step 1, never a setting resolved at run time — in this
+order:
 
 1. `typecheck` — best: interfaces are proven to compose.
 2. `build` / compile — good: everything at least resolves and compiles.

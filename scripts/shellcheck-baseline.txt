@@ -38,7 +38,6 @@ plugins/lego/scripts/dispatch-skill.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2088
 plugins/lego/scripts/gate-wiring-docs.test.sh	SC2016
 plugins/lego/scripts/plan-sizing.test.sh	SC2034
-plugins/lego/scripts/pr-size-check.sh	SC2016
 plugins/lego/scripts/pr-size-check.test.sh	SC2069
 plugins/lego/scripts/realm-gate.test.sh	SC2012
 plugins/lego/scripts/scaffold-skill.test.sh	SC2016

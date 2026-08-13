@@ -182,8 +182,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Homebrew bash
-        run: brew list bash > /dev/null 2>&1 || brew install bash
+      - name: Install Homebrew bash and coreutils
+        # coreutils provides `timeout`, which several suites and helpers
+        # call bare — the same way a Homebrew dev box provides it.
+        run: |
+          brew list bash > /dev/null 2>&1 || brew install bash
+          brew list coreutils > /dev/null 2>&1 || brew install coreutils
+          command -v timeout > /dev/null 2>&1 || ln -s "$(brew --prefix)/bin/gtimeout" "$(brew --prefix)/bin/timeout"
+
+      - name: DEBUG render-doc server startup (temporary)
+        run: |
+          python3 --version
+          command -v python3 timeout gtimeout || true
+          RENDER_DOC_PORT=45678 python3 plugins/render-doc/scripts/serve.py > /tmp/srv.out 2> /tmp/srv.err &
+          sleep 3
+          curl -v --max-time 2 http://127.0.0.1:45678/health || true
+          echo "--- pidfile"; cat /tmp/render-doc-serve-45678.pid || true
+          echo "--- stdout"; cat /tmp/srv.out
+          echo "--- stderr"; cat /tmp/srv.err
 
       - name: Test
         run: '"$(brew --prefix)/bin/bash" scripts/ci.sh --test'

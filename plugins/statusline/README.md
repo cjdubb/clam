@@ -21,8 +21,8 @@ Installing writes no configuration. `statusLine` exists only in
 second step:
 
 ```
-/statusline:setup          # writes statusLine into ~/.claude/settings.json
-/statusline:setup remove   # puts it back
+/statusline:setup          # writes the statusline keys into ~/.claude/settings.json
+/statusline:setup remove   # puts them back
 ```
 
 Requires `jq` on `PATH`.
@@ -108,6 +108,18 @@ Both used percentages come straight from Claude Code's own payload and are
 never cached — a stale quota figure is worse than none. They are the
 server's view of your account, so parallel sessions, other machines and
 claude.ai usage all count against them without being visible here.
+
+### Subagent rows in the agent panel
+
+`/statusline:setup` also wires `subagentStatusLine`, so `scripts/subagent.sh`
+renders the body of each row in the agent panel while subagents are running.
+A row carries the task's name, its model, its reasoning effort, the basename
+of the directory the task runs in (the last path segment, never the whole
+path), and its context percentage. Every figure on a row is that subagent's
+own, never the main session's — the `statusLine` payload has no per-task
+state at all, which is why this is a second script rather than the same one.
+A row shows no effort when the task inherits the session's effort level, so a
+blank effort is inheritance rather than a bug or a dropped figure.
 
 ### Caching and staleness
 
@@ -207,8 +219,9 @@ needs to change.
 /statusline:setup remove
 ```
 
-Restores whatever `statusLine` value (or absence of one) preceded the setup,
-without touching any other setting.
+Restores whatever `statusLine`, `subagentStatusLine` and `refreshInterval`
+values (or absences of them) preceded the setup, without touching any other
+setting.
 
 ## Commands
 
@@ -216,14 +229,17 @@ without touching any other setting.
 
 **`/statusline:setup`** — not model-invocable
 (`disable-model-invocation: true`); must be run explicitly. Resolves the
-installed plugin root, shows the current `statusLine` value in
-`~/.claude/settings.json` and the entry it's about to write (asking first
-if a different statusline is already configured), backs up the settings
-file, merges in just the `statusLine` key via `jq` (preserving every other
-setting), and verifies the result still parses.
+installed plugin root, shows the current `statusLine` and
+`subagentStatusLine` values in `~/.claude/settings.json` and the entries it's
+about to write (asking first if a different statusline is already
+configured), backs up the settings file, merges in the `statusLine`,
+`subagentStatusLine` and `refreshInterval` keys in one `jq` pass (preserving
+every other setting), and verifies the result still parses.
 
-**`/statusline:setup remove`** — reverses it: deletes the `statusLine` key
-(or restores the backup), preserving all other settings.
+**`/statusline:setup remove`** — reverses it: deletes the `statusLine`,
+`subagentStatusLine` and `refreshInterval` keys (or restores the backup),
+preserving all other settings. A settings file written by an older version
+has only the first of the three, and remove handles that.
 
 ### Scripts
 
@@ -245,6 +261,16 @@ failure. Caches the branch/badges/State/mode bundle under
 `CLAM_STATUSLINE_SEGMENT_TTL_SECONDS` (default 5s), and sweeps files more
 than a day old out of that directory whenever it rebuilds the bundle; see
 [Caching and staleness](#caching-and-staleness).
+
+**`scripts/subagent.sh`** — the `subagentStatusLine` entry point; reads the
+agent-panel payload on stdin and prints one row per visible subagent, each
+carrying that task's own name, model, reasoning effort, working directory and
+context percentage (see [What to expect](#what-to-expect)). Requires `jq`;
+bash 3.2-safe. Renders on the same tight process budget as the statusline —
+one `jq` over the whole payload, no `git`, and no per-row forks. A malformed
+payload emits no lines at all, which leaves every row at its default
+rendering, and a missing `jq` does the same: a status line that fails loudly
+is worse than one that fails invisibly.
 
 **`scripts/ccost.sh`** — cost calculator, run standalone (see
 [Common workflows](#common-workflows)); nothing in the render invokes it.
@@ -350,7 +376,8 @@ Soft integration only; everything degrades gracefully when absent:
 
 If you ran `/statusline:setup`, run `/statusline:setup remove` first (or
 right after) — otherwise `~/.claude/settings.json` keeps pointing
-`statusLine` at a `context.sh` path that no longer exists. Plugin updates
+`statusLine` and `subagentStatusLine` at `context.sh` and `subagent.sh` paths
+that no longer exist, and keeps the `refreshInterval` the setup wrote. Plugin updates
 keep the same install path, so the settings entry survives updates on its
 own; only an uninstall breaks it. `~/.claude/.statusline-cache` bounds
 itself — `context.sh` sweeps files more than a day old out of it as it

@@ -267,13 +267,15 @@ job_context() {
   if [ -n "$nm" ]; then printf '%s' "$nm"; else printf '%s' "$1"; fi
 }
 
-# BASH3_JOB -- the job key that is neither lint, test nor ci: the bash-3 stage
-# B19 adds. Its docblock says "a fourth job" without fixing the key, so the key
-# is DERIVED rather than hardcoded — renaming the stage is not a failure, its
-# absence is. When it is absent (or when a fifth job muddies the derivation)
-# the sentinel below stands in, and every helper answers "no such job" for it,
-# which fails the B19 assertions rather than satisfying the negative ones.
-BASH3_JOB="$(job_names | grep -vFx -e lint -e test -e ci || true)"
+# BASH3_JOB -- the job key that is neither lint, test, test_macos nor ci: the
+# bash-3 stage B19 adds. Its docblock says "a fourth job" without fixing the
+# key, so the key is DERIVED rather than hardcoded — renaming the stage is not
+# a failure, its absence is. (B08's macOS stage is excluded by its literal key
+# `test_macos`, which B08 does fix.) When the bash-3 job is absent (or when an
+# extra job muddies the derivation) the sentinel below stands in, and every
+# helper answers "no such job" for it, which fails the B19 assertions rather
+# than satisfying the negative ones.
+BASH3_JOB="$(job_names | grep -vFx -e lint -e test -e test_macos -e ci || true)"
 BASH3_JOB_COUNT="$(printf '%s\n' "$BASH3_JOB" | grep -c . || true)"
 if [ "$BASH3_JOB_COUNT" -ne 1 ]; then BASH3_JOB="__no_bash3_job__"; fi
 
@@ -413,17 +415,23 @@ job_uses_checkout() { # <job>
 # ---------------------------------------------------------------------------
 
 # subst_results <text> <lint result> <test result> [<bash-3 result>]
+# [<test_macos result>]
 # `${{ needs.x.result }}` is interpolated into shell text, so it becomes the
 # bare value; a bare `needs.x.result` is expression context, so it becomes a
 # quoted literal the expression evaluator can compare.
 #
-# The bash-3 stage (B19) is substituted under its DERIVED key and defaults to
-# `success`, so the two-argument callers below are unaffected: a workflow with
-# no fourth job has no `needs.<bash3>.result` for the extra rules to match, and
-# a workflow with one gets a neutral value unless the caller says otherwise.
+# The bash-3 stage (B19) is substituted under its DERIVED key, and the macOS
+# stage (B08) under its fixed key `test_macos`; both default to `success`, so
+# the two-argument callers below are unaffected: a workflow without the extra
+# job has no `needs.<job>.result` for the extra rules to match, and a workflow
+# with one gets a neutral value unless the caller says otherwise. The
+# test_macos rules run FIRST: `needs.test.result` is a prefix of
+# `needs.test_macos.result`, so the other order would corrupt the longer key.
 subst_results() {
-  local b3="${4:-success}"
+  local b3="${4:-success}" tm="${5:-success}"
   printf '%s\n' "$1" | sed -E \
+    -e "s/\\\$\{\{[[:space:]]*needs\.test_macos\.result[[:space:]]*\}\}/$tm/g" \
+    -e "s/needs\.test_macos\.result/'$tm'/g" \
     -e "s/\\\$\{\{[[:space:]]*needs\.lint\.result[[:space:]]*\}\}/$2/g" \
     -e "s/\\\$\{\{[[:space:]]*needs\.test\.result[[:space:]]*\}\}/$3/g" \
     -e "s/\\\$\{\{[[:space:]]*needs\.$BASH3_JOB\.result[[:space:]]*\}\}/$b3/g" \
@@ -460,13 +468,14 @@ gh_expr_true() {
   esac
 }
 
-# simulate_ci <lint result> <test result> [<bash-3 result>] -- pass / fail /
-# unsupported: the verdict the `ci` job's own guard steps reach for those
-# dependency results. "unsupported" means no guard was found, or one was found
-# in a shape this evaluator will not guess at — never a silent pass.
-# The third result defaults to `success`; see subst_results.
+# simulate_ci <lint result> <test result> [<bash-3 result>]
+# [<test_macos result>] -- pass / fail / unsupported: the verdict the `ci`
+# job's own guard steps reach for those dependency results. "unsupported"
+# means no guard was found, or one was found in a shape this evaluator will
+# not guess at — never a silent pass.
+# The third and fourth results default to `success`; see subst_results.
 simulate_ci() {
-  local lr="$1" tr_="$2" b3="${3:-success}" n i step ifexpr run gate sif srun evaluated=0
+  local lr="$1" tr_="$2" b3="${3:-success}" tm="${4:-success}" n i step ifexpr run gate sif srun evaluated=0
   n="$(n_steps ci)"
   if [ "$n" -eq 0 ]; then printf 'unsupported'; return; fi
   for ((i = 1; i <= n; i++)); do
@@ -478,8 +487,8 @@ simulate_ci() {
       *) continue ;;
     esac
     evaluated=1
-    sif="$(subst_results "$ifexpr" "$lr" "$tr_" "$b3")"
-    srun="$(subst_results "$run" "$lr" "$tr_" "$b3")"
+    sif="$(subst_results "$ifexpr" "$lr" "$tr_" "$b3" "$tm")"
+    srun="$(subst_results "$run" "$lr" "$tr_" "$b3" "$tm")"
     # A `${{ }}` left in the SCRIPT is a context this suite did not
     # substitute (`github.*`, `steps.*`): bash would choke on it, so the run
     # is not simulatable. An `if:` may legitimately still be wrapped in
@@ -533,16 +542,18 @@ check "parse: a top-level jobs: mapping is present" \
 # context `ci`, so both halves of that are asserted.
 # ===========================================================================
 
-# B19 supersedes B13's job count: "a fourth job runs the statusline plugin's
-# test suites under a bash 3.2 interpreter". The count and the key set are
-# therefore restated for four jobs. Its key is not asserted, because no
-# docblock fixes one; what is asserted is that there is exactly one job beyond
-# the three B13 named, so a fifth job is still caught.
-check "jobs: the workflow declares exactly four jobs" \
-  "$(job_names | grep -c . || true)" "4"
-check "jobs: ci, lint and test are still three of the four job keys" \
-  "$(job_names | grep -Fx -e ci -e lint -e test | sort | tr '\n' ' ')" "ci lint test "
-check "jobs: exactly one job key beyond ci, lint and test — the bash-3 stage (B19)" \
+# B19 supersedes B13's job count ("a fourth job runs the statusline plugin's
+# test suites under a bash 3.2 interpreter"), and B08 supersedes B19's: a
+# fifth job runs the test stage on macOS, under the fixed key `test_macos`.
+# The count and the key set are therefore restated for five jobs. The bash-3
+# job's key is not asserted, because no docblock fixes one; what is asserted
+# is that there is exactly one job beyond the four named keys, so a sixth job
+# is still caught.
+check "jobs: the workflow declares exactly five jobs" \
+  "$(job_names | grep -c . || true)" "5"
+check "jobs: ci, lint, test and test_macos are still four of the five job keys" \
+  "$(job_names | grep -Fx -e ci -e lint -e test -e test_macos | sort | tr '\n' ' ')" "ci lint test test_macos "
+check "jobs: exactly one job key beyond ci, lint, test and test_macos — the bash-3 stage (B19)" \
   "$BASH3_JOB_COUNT" "1"
 
 check "jobs: a job whose key is the literal string 'ci' exists (the required status check)" \
@@ -589,11 +600,11 @@ check "aggregator: the ci job needs the lint job" \
   "$(job_needs ci lint)" "yes"
 check "aggregator: the ci job needs the test job" \
   "$(job_needs ci test)" "yes"
-# B19 widens this from two dependencies to three: the new job JOINS `needs:`,
-# and nothing else may.
-check "aggregator: the ci job needs exactly lint, test and the bash-3 stage" \
+# B19 widens this from two dependencies to three, and B08 to four: each new
+# job JOINS `needs:`, and nothing else may.
+check "aggregator: the ci job needs exactly lint, test, test_macos and the bash-3 stage" \
   "$(job_list ci needs | sort | tr '\n' ' ')" \
-  "$(printf '%s\n' lint test "$BASH3_JOB" | sort | tr '\n' ' ')"
+  "$(printf '%s\n' lint test test_macos "$BASH3_JOB" | sort | tr '\n' ' ')"
 
 # ===========================================================================
 # Invariant — `if: always()` on the ci job, at JOB level.
@@ -685,8 +696,11 @@ check "preservation: the test job never runs the lint stage" \
   "$(job_grep test 'ci\.sh.*--lint')" "no"
 check "preservation: the aggregator runs no ci.sh stage of its own" \
   "$(job_grep ci 'scripts/ci\.sh')" "no"
-check "preservation: every scripts/ci.sh invocation is exactly one of the two stage commands" \
-  "$(grep -F 'scripts/ci.sh' "$YAML" | grep -cvE '(^|[[:space:]])bash[[:space:]]+scripts/ci\.sh[[:space:]]+--(lint|test)[[:space:]]*$' || true)" "0"
+# B08's macOS stage invokes the same script through Homebrew bash
+# ("$(brew --prefix)/bin/bash"), so a bash path ending in /bash, optionally
+# quoted, is accepted alongside the bare `bash` the Linux stages use.
+check "preservation: every scripts/ci.sh invocation is exactly a stage command under a bash interpreter" \
+  "$(grep -F 'scripts/ci.sh' "$YAML" | grep -cvE '(^|[[:space:]/])bash\"?[[:space:]]+scripts/ci\.sh[[:space:]]+--(lint|test)[[:space:]]*$' || true)" "0"
 
 # ===========================================================================
 # Invariant — scripts/ci.sh is not touched by this block.
@@ -727,6 +741,67 @@ check "inputs: no repository variables are referenced" "$(yaml_grep '(^|[^A-Za-z
 check "inputs: no workflow inputs are declared" "$(yaml_grep '^[[:space:]]*inputs:')" "no"
 check "inputs: nothing is read from .claude/" "$(yaml_grep '\.claude/')" "no"
 check "inputs: nothing is read from .local/" "$(yaml_grep '\.local/')" "no"
+
+# ===========================================================================
+# Contract: B08 macOS test stage (plan 001-macos-test-portability) — the
+# fifth job, under the fixed key `test_macos`.
+#
+# It runs the SAME test stage as `test`, on a macos-latest runner, so the
+# suites execute under a BSD userland on every pull request. The runner's
+# /bin/bash is 3.2, which lacks constructs ci.sh relies on (mapfile), so the
+# stage runs under Homebrew bash — the interpreter a Homebrew macOS dev box
+# resolves first in PATH. No locale-gen step: the tool does not exist on
+# macOS and the runners ship en_US.UTF-8 already.
+# ===========================================================================
+
+check "b08: a job whose key is the literal string 'test_macos' exists" \
+  "$(has_job test_macos)" "yes"
+check "b08: the test_macos job's check context is 'test_macos' (no name: override)" \
+  "$(job_context test_macos)" "test_macos"
+check "b08: the test_macos job runs on macOS" \
+  "$(case "$(job_inline test_macos runs-on)" in *macos*) echo yes ;; *) echo no ;; esac)" "yes"
+check "b08: the test_macos job checks out the repo with actions/checkout" \
+  "$(job_uses_checkout test_macos)" "yes"
+check "b08: the test_macos job's checkout sets fetch-depth: 0" \
+  "$(checkout_fetch_depth test_macos)" "0"
+
+check "b08: LC_ALL is en_US.UTF-8 on the macOS stage" \
+  "$(job_grep test_macos 'LC_ALL[^A-Za-z0-9]*en_US\.UTF-8')" "yes"
+check "b08: no locale-gen step (the tool does not exist on macOS)" \
+  "$(job_grep test_macos 'locale-gen')" "no"
+
+check "b08: the macOS stage runs ci.sh --test under Homebrew bash (the runner's /bin/bash is 3.2)" \
+  "$(job_grep test_macos 'brew --prefix.*/bin/bash.*scripts/ci\.sh[[:space:]]+--test')" "yes"
+check "b08: the macOS stage ensures Homebrew bash is present" \
+  "$(job_grep test_macos 'brew (list|install) bash')" "yes"
+check "b08: the test_macos job never runs the lint stage" \
+  "$(job_grep test_macos 'ci\.sh.*--lint')" "no"
+
+# The macOS stage runs CONCURRENTLY with the other stages: no needs edge in
+# either direction.
+check "b08: the test_macos job declares no needs at all" \
+  "$(job_grep test_macos '^[[:space:]]*needs:')" "no"
+check "b08: neither lint nor test declares a needs edge onto test_macos" \
+  "$(
+    if [ "$(job_needs lint test_macos)" = no ] \
+      && [ "$(job_needs test test_macos)" = no ]; then echo yes; else echo no; fi
+  )" "yes"
+
+# The aggregator gains the job and asserts its result on == 'success', so a
+# cancelled or skipped macOS stage counts as failure like every other stage.
+check "b08: the ci job needs test_macos" \
+  "$(job_needs ci test_macos)" "yes"
+check "b08: the ci job compares needs.test_macos.result against the literal 'success'" \
+  "$(job_grep ci "needs\.test_macos\.result[^=!]*(==|!=|=)[^=]*success|success[^=!]*(==|!=|=)[^=]*needs\.test_macos\.result")" "yes"
+
+check "b08 edge case: all four stages succeed -> the ci guard passes" \
+  "$(simulate_ci success success success success)" "pass"
+check "b08 edge case: the macOS stage fails -> the ci guard fails" \
+  "$(simulate_ci success success success failure)" "fail"
+check "b08 edge case: the macOS stage is CANCELLED -> the ci guard fails" \
+  "$(simulate_ci success success success cancelled)" "fail"
+check "b08 edge case: the macOS stage is SKIPPED -> the ci guard fails" \
+  "$(simulate_ci success success success skipped)" "fail"
 
 # ===========================================================================
 # Contract: B19 ci-bash3-gate — the fourth job.

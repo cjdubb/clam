@@ -172,15 +172,21 @@ jobs:
     # repos. Runs the test stage under macOS's native BSD-flavored userland
     # (date/sed/grep/find etc.) on a macos-latest runner, alongside `lint`
     # and `test`. macOS runners ship `en_US.UTF-8` already, so no locale-gen
-    # step is needed (locale-gen does not exist on macOS).
+    # step is needed (locale-gen does not exist on macOS). The runner's
+    # /bin/bash is 3.2, which lacks mapfile and other constructs ci.sh
+    # relies on, so the stage runs under Homebrew bash — the same
+    # interpreter a Homebrew macOS dev box resolves first in PATH.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Install Homebrew bash
+        run: brew list bash > /dev/null 2>&1 || brew install bash
+
       - name: Test
-        run: bash scripts/ci.sh --test
+        run: "$(brew --prefix)/bin/bash" scripts/ci.sh --test
         env:
           LC_ALL: en_US.UTF-8
 

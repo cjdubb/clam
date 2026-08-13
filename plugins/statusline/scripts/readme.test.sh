@@ -303,6 +303,55 @@
 # `.statusline-cache` still claims nothing removes anything there, while the
 # paragraph goes on naming both directories.
 #
+# --- B12 subagent-docs (sections 32-35) ------------------------------------
+# B12 brings this README and plugin.json into agreement with B10 (the
+# `scripts/subagent.sh` agent-panel row renderer) and B11 (a setup skill that
+# writes three settings keys instead of one). Its contract is a file rather
+# than a docblock in the README, for the reason section 8 pins. The sections it
+# owns: a subagent-rows subsection under `## What to expect`, the
+# `scripts/subagent.sh` entry under `### Scripts`, the `/statusline:setup` and
+# `/statusline:setup remove` entries under `### Skills`, the `## Uninstalling`
+# section, and plugin.json's version and description.
+#
+# Two scoping oracles carry these sections, both of them structural rather than
+# textual, so no wording is pinned that the contract does not pin:
+#
+#   - THE SUBAGENT SUBSECTION is located by MEANING, not by title: the first H3
+#     inside `## What to expect` whose heading names subagents or the agent
+#     panel. The contract fixes what the subsection must say and not what it is
+#     called, so requiring one title would be this file inventing a clause, and
+#     hard-coding the title the implementer happens to choose is impossible
+#     before they choose it. Its emptiness is checked first, so every content
+#     check below is aimed at prose that is really there.
+#   - THE SCRIPT ENTRY reuses paragraph_in() against `## Commands`, exactly the
+#     way section 30 scopes the `scripts/context.sh` entry. Section 25 already
+#     asserts that every `scripts/…` path named in that section exists on disk,
+#     so a fabricated entry for a script that does not ship fails there without
+#     a second check here.
+#
+# THE EFFORT-ABSENT CLAUSE is the one the contract singles out, and it is
+# asserted at SENTENCE scope rather than over the subsection. A subsection-wide
+# proximity check between "effort" and "inherit" would pass on a subsection that
+# names effort in the row inventory and inheritance in an unrelated sentence,
+# which is precisely the pair of statements that leaves the reader thinking a
+# blank effort is a bug. What is required is one sentence carrying all three: the
+# effort field, the case where it is not shown, and inheritance as the reason.
+#
+# The `## Commands` and `## Uninstalling` clauses are key-set checks. All three
+# keys are required by name in the setup entry, the remove entry and the
+# uninstall section, each paired with a non-vacuity check that the entry still
+# describes the operation the keys belong to — an entry deleted outright would
+# otherwise satisfy nothing and fail nothing. `statusLine` is not a substring of
+# `subagentStatusLine` (the capital S differs), so the three literal checks are
+# genuinely independent.
+#
+# NOT re-asserted here, deliberately: the root README's Plugins-table VERSION
+# cell. Section 6 already holds it equal to plugin.json and therefore goes red
+# the moment section 35's bump lands without the row moving — the same division
+# of labour section 26 states for the same row. What section 35 adds is the
+# floor: strictly above the version this block starts from, which section 23's
+# older baseline no longer has teeth for.
+#
 # Run: bash plugins/statusline/scripts/readme.test.sh (non-zero exit on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -968,7 +1017,15 @@ check "the states-manifest paragraph still names the colour it does render" \
 check "the states-manifest paragraph still says the protocol leaves that mapping private" \
   "$(has_re 'private|own mapping' "$STATES_P")" "yes"
 
-LIBS_P="$(paragraph_in "$COMMANDS" 'lib/burn-theme.sh')"
+# Scoped on burn-math rather than burn-theme (B12 retarget): paragraph_in takes
+# the FIRST paragraph naming its needle, and B10's `scripts/subagent.sh` entry
+# legitimately names lib/burn-theme.sh too — it sources the same theme so a
+# subagent row and line 2 cannot disagree about a model's colour. With the old
+# needle this oracle silently moved to that entry and the three checks below
+# then failed against a correct README. burn-math is named by the libraries
+# paragraph alone, and section 25's loop still asserts that this paragraph names
+# EVERY surviving lib/burn-*.sh, so the scoping cannot drift unnoticed.
+LIBS_P="$(paragraph_in "$COMMANDS" 'lib/burn-math.sh')"
 check "the libraries paragraph is identifiable" \
   "$([ -n "$LIBS_P" ] && echo yes || echo no)" "yes"
 # What burn-theme CONTRIBUTES, not what the file holds: its dead mascot and pet
@@ -1853,6 +1910,185 @@ check "nor calls the statusline cache safe to delete by hand, which the sweep no
 check "that claim says the statusline cache bounds itself instead" \
   "$(has_re 'sweep|swept|prun|tidie|tidy|bound|older than|one day|a day|itself' \
      "$B09_CLUTTER_CLAIM")" "yes"
+
+# ===========================================================================
+# B12 subagent-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 32. The subagent-rows subsection under `## What to expect`
+# ---------------------------------------------------------------------------
+# Located by meaning rather than by title (see the header): the first H3 inside
+# `## What to expect` whose heading names subagents or the agent panel.
+
+b12_named_subsection() { # ere, matched case-insensitively against the H3 line
+  awk -v pat="$1" '
+    !inb && /^###[[:space:]]/ { h = tolower($0); if (h ~ pat) { inb = 1 } ; next }
+    inb && /^#+[[:space:]]/ { exit }
+    inb { print }
+  ' <<<"$WTE"
+}
+
+check "'What to expect' is still identifiable (scoping oracle is not empty)" \
+  "$([ -n "$WTE" ] && echo yes || echo no)" "yes"
+
+B12_SUB="$(b12_named_subsection 'subagent|agent panel|agent-panel|agent rows')"
+check "'What to expect' gains a subsection about the agent-panel rows" \
+  "$([ -n "$B12_SUB" ] && echo yes || echo no)" "yes"
+
+# The row inventory: what scripts/subagent.sh puts in a row, one check per
+# field the B10 contract names.
+check "the subagent subsection says a row carries the task's name" \
+  "$(b17_near "$B12_SUB" '(^|[^A-Za-z])name([^A-Za-z]|$)' \
+     '(^|[^A-Za-z])(task|agent|subagent)' 120)" "yes"
+check "the subagent subsection says a row carries the model" \
+  "$(has_re '(^|[^A-Za-z])model' "$B12_SUB")" "yes"
+check "the subagent subsection says a row carries the reasoning effort" \
+  "$(has_re '(^|[^A-Za-z])effort' "$B12_SUB")" "yes"
+check "the subagent subsection says a row carries the directory the task runs in" \
+  "$(has_re '(^|[^A-Za-z])(cwd|director(y|ies)|folder)' "$B12_SUB")" "yes"
+# The directory is the BASENAME of the task's cwd, not the whole path — a row
+# is a few columns wide and the prose has to say which part the reader sees.
+check "the subagent subsection says the directory is shown as its basename, not a full path" \
+  "$(b17_near "$B12_SUB" '(^|[^A-Za-z])(cwd|director(y|ies)|folder)' \
+     '(basename|base name|last (path )?(component|segment)|final segment|leaf|directory name|name of (the|its) (working )?director)' 160)" "yes"
+check "the subagent subsection says a row carries the context percentage" \
+  "$(b17_near "$B12_SUB" '(^|[^A-Za-z])context' '(%|percent)' 120)" "yes"
+
+# Provenance: every figure on a row is that subagent's own, which is the whole
+# reason B10 exists as a separate renderer. A subsection describing the fields
+# without saying whose they are documents a row the `statusLine` script could
+# already have rendered.
+check "the subagent subsection says the figures are the subagent's own, not the session's" \
+  "$(b17_near "$B12_SUB" '(^|[^A-Za-z])(its own|their own|that (task|agent|subagent).s own|per.(task|agent|subagent)|the (task|agent|subagent).s own)' \
+     '(^|[^A-Za-z])(main session|orchestrator|coordinator|session.s|top.level|parent)' 220)" "yes"
+
+# The effort-absent case, at SENTENCE scope (see the header for why).
+B12_EFFORT_CLAIMS="$(b17_claims "$B12_SUB" '(^|[^A-Za-z])effort')"
+check "the subagent subsection makes a claim about effort at all (scoping oracle is not empty)" \
+  "$([ -n "$B12_EFFORT_CLAIMS" ] && echo yes || echo no)" "yes"
+B12_INHERIT_CLAIM="$(printf '%s\n' "$B12_EFFORT_CLAIMS" | grep -iE 'inherit')"
+check "one effort sentence explains the absent case as inheritance" \
+  "$([ -n "$B12_INHERIT_CLAIM" ] && echo yes || echo no)" "yes"
+# Non-vacuity for the sentence above: "the effort is inherited" alone still
+# leaves a reader staring at a blank column. The same sentence has to say that
+# nothing is rendered in that case.
+check "that sentence says what the reader actually sees when the effort is inherited" \
+  "$(has_re '(no effort|nothing|blank|empty|omitted|omits|absent|missing|not (shown|rendered|printed|displayed)|without an effort|no reasoning.effort)' \
+     "$B12_INHERIT_CLAIM")" "yes"
+
+# ---------------------------------------------------------------------------
+# 33. The `scripts/subagent.sh` entry under `### Scripts`
+# ---------------------------------------------------------------------------
+# Scoped with paragraph_in against `## Commands`, the way section 30 scopes the
+# scripts/context.sh entry. Section 25 separately asserts that every scripts/
+# path this section names exists on disk, so this entry cannot document a file
+# that does not ship.
+
+B12_SCRIPT_ENTRY="$(paragraph_in "$COMMANDS" '**`scripts/subagent.sh`**')"
+check "the scripts/subagent.sh entry is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$B12_SCRIPT_ENTRY" ] && echo yes || echo no)" "yes"
+check "the scripts/subagent.sh entry names the settings key it is wired to" \
+  "$(has_fixed 'subagentStatusLine' "$B12_SCRIPT_ENTRY")" "yes"
+check "the scripts/subagent.sh entry says what it renders" \
+  "$(has_re '(agent panel|agent-panel|subagent row|row per|one row|per.(task|subagent) row)' \
+     "$B12_SCRIPT_ENTRY")" "yes"
+
+# The process budget, in the same terms the scripts/context.sh entry uses for
+# its own: one jq, and no git.
+check "the scripts/subagent.sh entry states its one-jq budget" \
+  "$(has_re '(^|[^A-Za-z])one[[:space:]]+.?jq' "$B12_SCRIPT_ENTRY")" "yes"
+check "the scripts/subagent.sh entry states that it runs no git" \
+  "$(has_re '(^|[^A-Za-z])no[[:space:]]+.?git' "$B12_SCRIPT_ENTRY")" "yes"
+
+# Never-loud errors: a status line that fails visibly is worse than one that
+# fails invisibly, so the failure sentence has to say the rows simply keep
+# their default rendering.
+B12_ERR_CLAIM="$(b17_claims "$B12_SCRIPT_ENTRY" '(malformed|invalid|bad (input|payload)|error|fails?|failure|missing jq|jq is (missing|absent)|without jq)')"
+check "the scripts/subagent.sh entry makes a failure claim at all (scoping oracle is not empty)" \
+  "$([ -n "$B12_ERR_CLAIM" ] && echo yes || echo no)" "yes"
+check "that failure claim says a bad payload leaves the rows at their default rendering" \
+  "$(has_re '(default|silent|silently|invisibl|no lines|nothing|unchanged|never (writes|exits|fails))' \
+     "$B12_ERR_CLAIM")" "yes"
+
+# ---------------------------------------------------------------------------
+# 34. `## Commands` and `## Uninstalling`: setup writes three keys, remove
+#     reverses three
+# ---------------------------------------------------------------------------
+# B11 turns a one-key setup into a three-key one. Every passage describing what
+# setup writes, or what uninstalling leaves behind, states a key set — and a key
+# set that names one of three is false documentation, not merely incomplete.
+
+B12_SKILLS="$(b17_subsection '### Skills')"
+check "the Skills subsection is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$B12_SKILLS" ] && echo yes || echo no)" "yes"
+
+B12_SETUP_ENTRY="$(paragraph_in "$B12_SKILLS" '**`/statusline:setup`**')"
+check "the /statusline:setup entry is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$B12_SETUP_ENTRY" ] && echo yes || echo no)" "yes"
+# Non-vacuity for the three key checks below: the entry must still describe the
+# merge it performs, so an entry gutted of its subject fails here rather than
+# quietly satisfying nothing.
+check "the /statusline:setup entry still describes the settings merge" \
+  "$(b17_near "$B12_SETUP_ENTRY" '(^|[^A-Za-z])(merge[sd]?|writes?|adds?)' \
+     'settings\.json' 200)" "yes"
+check "the /statusline:setup entry says it writes statusLine" \
+  "$(has_fixed 'statusLine' "$B12_SETUP_ENTRY")" "yes"
+check "the /statusline:setup entry says it writes subagentStatusLine" \
+  "$(has_fixed 'subagentStatusLine' "$B12_SETUP_ENTRY")" "yes"
+check "the /statusline:setup entry says it writes refreshInterval" \
+  "$(has_fixed 'refreshInterval' "$B12_SETUP_ENTRY")" "yes"
+
+B12_REMOVE_ENTRY="$(paragraph_in "$B12_SKILLS" '**`/statusline:setup remove`**')"
+check "the /statusline:setup remove entry is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$B12_REMOVE_ENTRY" ] && echo yes || echo no)" "yes"
+check "the remove entry still describes deleting the keys or restoring the backup" \
+  "$(has_re '(delete[sd]?|remove[sd]?|restore[sd]?)' "$B12_REMOVE_ENTRY")" "yes"
+check "the remove entry says it reverses statusLine" \
+  "$(has_fixed 'statusLine' "$B12_REMOVE_ENTRY")" "yes"
+check "the remove entry says it reverses subagentStatusLine" \
+  "$(has_fixed 'subagentStatusLine' "$B12_REMOVE_ENTRY")" "yes"
+check "the remove entry says it reverses refreshInterval" \
+  "$(has_fixed 'refreshInterval' "$B12_REMOVE_ENTRY")" "yes"
+
+# `## Uninstalling` carries the same key set from the other end: the section
+# tells the reader to run remove so settings.json stops pointing at paths that
+# no longer exist, and there are now two such paths and a third key beside them.
+check "the 'Uninstalling' section still tells the reader to run the remove command" \
+  "$(has_fixed '/statusline:setup remove' "$UNINSTALL")" "yes"
+check "the 'Uninstalling' section names statusLine among the keys remove reverses" \
+  "$(has_fixed 'statusLine' "$UNINSTALL")" "yes"
+check "the 'Uninstalling' section names subagentStatusLine among them" \
+  "$(has_fixed 'subagentStatusLine' "$UNINSTALL")" "yes"
+check "the 'Uninstalling' section names refreshInterval among them" \
+  "$(has_fixed 'refreshInterval' "$UNINSTALL")" "yes"
+
+# ---------------------------------------------------------------------------
+# 35. plugin.json: the bump this block's edits require, and a description that
+#     mentions the rows they add
+# ---------------------------------------------------------------------------
+# Same reasoning as section 23, one plan step later: version-bump-lint reads
+# COMMITTED state, so a README and skill change without a bump is invisible to
+# installed users. The baseline is the version this block starts from and is the
+# one literal here — derived from git it would go vacuous the moment the
+# implementer commits.
+
+B12_VERSION_BASE="0.8.0"
+check "plugin.json version ($PLUGIN_VERSION) is strictly above the $B12_VERSION_BASE this block starts from" \
+  "$([ -n "$PLUGIN_VERSION" ] && [ "$PLUGIN_VERSION" != "$B12_VERSION_BASE" ] \
+      && [ "$(printf '%s\n%s\n' "$B12_VERSION_BASE" "$PLUGIN_VERSION" | sort -V | head -1)" = "$B12_VERSION_BASE" ] \
+      && echo yes || echo no)" "yes"
+
+# The description is the plugin's one-line promise, and the agent panel is now
+# part of what it renders.
+check "plugin.json's description mentions the subagent rows the plugin now renders" \
+  "$(has_re '(subagent|agent panel|agent-panel)' "$PLUGIN_DESC")" "yes"
+# Non-vacuity: a description rewritten around the new rows alone would drop the
+# two lines the plugin has always been about. Section 23 holds the plan meters;
+# this holds the statusline itself.
+check "plugin.json's description still describes the two statusline lines" \
+  "$(b17_near "$PLUGIN_DESC" '(^|[^A-Za-z])(two lines|statusline|status line)' \
+     '(^|[^A-Za-z])(model|context|branch|path)' 200)" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

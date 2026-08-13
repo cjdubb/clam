@@ -156,8 +156,8 @@ done
 BLOCK_SEL_BASELINE='p, li, blockquote, tr, .tl-entry'
 SYNTH_SEL_BASELINE='.rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer'
 
-current_block_sel="$(grep -oP 'var BLOCK_SEL = "\K[^"]+' "$TEMPLATE" | head -1)"
-current_synth_sel="$(grep -oP 'var SYNTH_SEL = "\K[^"]+' "$TEMPLATE" | head -1)"
+current_block_sel="$(sed -nE 's/.*var BLOCK_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
+current_synth_sel="$(sed -nE 's/.*var SYNTH_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
 
 block_baseline_count="$(printf '%s' "$BLOCK_SEL_BASELINE" | tr ',' '\n' | wc -l | tr -d ' ')"
 synth_baseline_count="$(printf '%s' "$SYNTH_SEL_BASELINE" | tr ',' '\n' | wc -l | tr -d ' ')"

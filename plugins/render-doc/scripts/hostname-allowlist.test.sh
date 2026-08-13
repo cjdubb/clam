@@ -410,6 +410,14 @@ fi
 
 PORT_A="$(free_port)"
 BASE_A="http://127.0.0.1:$PORT_A"
+# A port that is emphatically NOT PORT_A's, for layer 2's "wrong port" wiring
+# check. Derived from PORT_A rather than reusing layer 1's WRONG_PORT: the OS
+# can hand out consecutive ports (common on macOS), so WRONG_PORT could equal
+# PORT_A and the "wrong port" Host header would then name this very server.
+WRONG_PORT_A=$((PORT_A + 1))
+if [ "$WRONG_PORT_A" = "$PORT_A" ]; then
+  fail "setup: the layer-2 wrong-port fixture equals the test port; no port clause can be checked"
+fi
 if [ -e "/tmp/render-doc-serve-$PORT_A.pid" ] || [ -e "/tmp/render-doc-registry-$PORT_A.json" ]; then
   fail "test port $PORT_A already has /tmp state; aborting to avoid clobbering it"
   printf 'hostname-allowlist.test.sh: %d assertion(s) failed\n' "$FAILURES" >&2
@@ -464,7 +472,7 @@ expect_rejected "wiring: a multi-label subdomain is rejected" \
 expect_rejected "wiring: a leading-hyphen label is rejected" \
   -H "Host: -x.localhost:$PORT_A" "$BASE_A/health"
 expect_rejected "wiring: an accepted name with the wrong port is rejected" \
-  -H "Host: localhost:$WRONG_PORT" "$BASE_A/health"
+  -H "Host: localhost:$WRONG_PORT_A" "$BASE_A/health"
 expect_rejected "wiring: an accepted name with no port is rejected" \
   -H 'Host: localhost' "$BASE_A/health"
 expect_rejected "wiring: a non-loopback address is rejected" \

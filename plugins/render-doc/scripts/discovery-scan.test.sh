@@ -155,9 +155,18 @@ make_git_shim() { # <dir> <body...>
 # Every fixture path with its mtime, and every regular file with its content
 # hash: both functions are specified read-only, and this is how that is proved
 # rather than assumed.
+# Portable stand-in for GNU `find -printf '%p %y %T@\n'`, which BSD find lacks:
+# BSD `stat -f` first, GNU `stat -c` as the fallback; the type character comes
+# from a test, so no %y either.
+_mtime() { stat -c '%Y' "$1" 2> /dev/null || stat -f '%m' "$1" 2> /dev/null; }
 manifest() {
-  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' -printf '%p %y %T@\n' 2> /dev/null | sort
-  find "$FIX" -type f ! -path '*/.git/*' -exec sha256sum {} + 2> /dev/null | sort
+  local p t
+  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' 2> /dev/null | sort \
+    | while IFS= read -r p; do
+        if [ -L "$p" ]; then t=l; else t=f; fi
+        printf '%s %s %s\n' "$p" "$t" "$(_mtime "$p")"
+      done
+  find "$FIX" -type f ! -path '*/.git/*' -exec cksum {} + 2> /dev/null | sort
 }
 
 # --- Fixtures ----------------------------------------------------------------

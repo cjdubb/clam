@@ -807,9 +807,9 @@ test_invariant_read_only_repo_unchanged() {
   commit_all "$repo" "add alpha notes"
   write_baseline "$repo" "$(printf 'plugins/zeta/GONE.md\tpath\tbeta\n')"
 
-  before="$( (cd "$repo" && find . -type f -exec sha256sum {} + ) | sort)"
+  before="$( (cd "$repo" && find . -type f -exec cksum {} + ) | sort)"
   run_lint "$repo"
-  after="$( (cd "$repo" && find . -type f -exec sha256sum {} + ) | sort)"
+  after="$( (cd "$repo" && find . -type f -exec cksum {} + ) | sort)"
 
   assert_eq "$before" "$after" "the fixture tree (including the baseline file) must be byte-identical before and after a run"
 }

@@ -103,7 +103,7 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.19.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.19.1 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.2.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
@@ -119,7 +119,7 @@ auto-update doesn't refresh the recorded install path
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
 | [build](plugins/build/) | ✅ v0.5.1 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle, providing delivery workflow context. |
-| [render-doc](plugins/render-doc/) | ✅ v0.12.3 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
+| [render-doc](plugins/render-doc/) | ✅ v0.12.4 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.3 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [notifications](plugins/notifications/) | ✅ v0.1.2 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
 | [session-data](plugins/session-data/) | ✅ v0.1.3 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |

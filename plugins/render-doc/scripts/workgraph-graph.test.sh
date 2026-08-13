@@ -91,7 +91,7 @@ strip_comments() { sed '/<!--/,/-->/d' "$1"; }  # HTML comments
 # =============================================================================
 
 RENDER_CODE="$WORK/render.no-docblock.sh"
-sed '/^# Contract: 229-B01 vendored-graph-libs-and-splice/,/^die() {/ { /^die() {/!d }' "$RENDER" > "$RENDER_CODE"
+sed '/^# Contract: 229-B01 vendored-graph-libs-and-splice/,/^die() {/ { /^die() {/!d; }' "$RENDER" > "$RENDER_CODE"
 
 if grep -qF 'Contract: 229-B01' "$RENDER_CODE"; then
   fail "sanity: 229-B01 docblock strip did not remove the marker — the sed range needs adjusting"
@@ -437,8 +437,8 @@ fi
 # test wave; canvas content is not block-annotatable per contract).
 BLOCK_SEL_BASELINE='p, li, blockquote, tr, .tl-entry, .wg-summary'
 SYNTH_SEL_BASELINE='.rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-dep-badge, .wg-focus-banner'
-current_block_sel="$(grep -oP 'var BLOCK_SEL = "\K[^"]+' "$TEMPLATE" | head -1)"
-current_synth_sel="$(grep -oP 'var SYNTH_SEL = "\K[^"]+' "$TEMPLATE" | head -1)"
+current_block_sel="$(sed -nE 's/.*var BLOCK_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
+current_synth_sel="$(sed -nE 's/.*var SYNTH_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
 if [ "$current_block_sel" = "$BLOCK_SEL_BASELINE" ]; then
   pass "invariant: BLOCK_SEL unchanged (graph container is not block-annotatable)"
 else

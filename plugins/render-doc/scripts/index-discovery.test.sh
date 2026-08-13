@@ -330,8 +330,17 @@ text_matches() { # <text> <ere>
   printf '%s' "$1" | grep -Eqi -- "$2"
 }
 
+# Portable stand-in for GNU `find -printf '%p %y %T@\n'`, which BSD find lacks:
+# BSD `stat -f` first, GNU `stat -c` as the fallback; the type character comes
+# from a test, so no %y either.
+_mtime() { stat -c '%Y' "$1" 2> /dev/null || stat -f '%m' "$1" 2> /dev/null; }
 manifest() {
-  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' -printf '%p %y %T@\n' 2> /dev/null | sort
+  local p t
+  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' 2> /dev/null | sort \
+    | while IFS= read -r p; do
+        if [ -L "$p" ]; then t=l; else t=f; fi
+        printf '%s %s %s\n' "$p" "$t" "$(_mtime "$p")"
+      done
 }
 
 # --- Fixtures ----------------------------------------------------------------

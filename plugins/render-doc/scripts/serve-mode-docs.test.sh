@@ -52,7 +52,10 @@ VERSION_FLOOR='0.7.0'
 # How much text either side of a "--serve" mention counts as documenting it.
 # Wide enough for a paragraph that states all four facts, narrow enough that an
 # unrelated neighbouring paragraph cannot satisfy a clause on its own.
-WINDOW=350
+# Capped at 250 because it is spliced into an ERE bound below: BSD/POSIX
+# regex allows at most 255 repetitions, and a larger bound makes grep error
+# out (empty window, every windowed clause failing) rather than match wider.
+WINDOW=250
 
 FAILURES=0
 fail() {
@@ -112,7 +115,7 @@ serve_window() { # <flattened region>
 # reference and get flagged by architecture-lint. Copied from
 # workgraph-docs.test.sh, which explains the reasoning at length.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 

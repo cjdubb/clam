@@ -30,9 +30,10 @@
 #     Step 3's question gates, the always-blocks subsection, the group-level
 #     budget rules, the pre-existing entry-format fields, the zone
 #     boundaries other suites slice on) still read as they did.
-#   - "No new config key": the set of `delivery.<key>` identifiers named in
-#     the file is unchanged — the ceiling is DERIVED from the budget, so a
-#     new key is a contract violation even if every other anchor passes.
+#   - "No config key": the set of `delivery.<key>` identifiers named in the
+#     file is EMPTY (Contract: B07 — the budget is a plan fact recorded in the
+#     Landing strategy, and the ceiling is DERIVED from it), so any key at all
+#     is a contract violation even if every other anchor passes.
 # This file does not test prose semantics beyond tokens/order/adjacency —
 # meaning is verified by the orchestrator at acceptance.
 #
@@ -96,12 +97,12 @@ near_all() { # window content anchor other...
   local window="$1" content="$2" anchor="$3"
   shift 3
   local -a anchor_lines other_lines
-  mapfile -t anchor_lines < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
+  anchor_lines=(); while IFS= read -r __ln; do anchor_lines+=(""); done < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
   local a o tok ok
   for a in "${anchor_lines[@]}"; do
     ok=yes
     for tok in "$@"; do
-      mapfile -t other_lines < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
+      other_lines=(); while IFS= read -r __ln; do other_lines+=(""); done < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
       local hit=no
       for o in "${other_lines[@]}"; do
         if (( o - a <= window && a - o <= window )); then hit=yes; break; fi
@@ -217,8 +218,11 @@ check "invariant: the full contract is still written at materialization" \
   "$(has_f "$STEP3_BODY" "materialized")" "yes"
 
 # --- 3. Behavior 3: Step 3a's per-block ceiling is DERIVED from the budget -
-check "Step 3a derives the ceiling from prSizeBudget (literal division)" \
-  "$(has_re "$STEP3A_SECTION" "prSizeBudget[[:space:]]*/[[:space:]]*2")" "yes"
+# The divisor is what the contract fixes, not the budget's spelling: B07
+# removes the `delivery.prSizeBudget` config key and makes the budget a plan
+# fact, so the derivation now reads off the plain word.
+check "Step 3a derives the ceiling from the budget (literal division)" \
+  "$(has_re "$STEP3A_SECTION" "[Bb]udget[[:space:]]*/[[:space:]]*2")" "yes"
 check "Step 3a names 250 as the default ceiling" \
   "$(has_f "$STEP3A_SECTION" "250")" "yes"
 check "Step 3a calls it a ceiling" \
@@ -242,20 +246,31 @@ check "Step 3a: an unjustified over-ceiling block blocks Step 7 approval" \
 check "Step 3a: the defect framing reaches the Step 7 gate" \
   "$(near_all 6 "$STEP3A_SECTION" "Step 7" "[Dd]efect")" "yes"
 
-# --- 5. Behavior 3, cont.: invariant — the group-level budget rules stay
-# alongside the new per-block ceiling (both numbers present, both named) ---
-check "invariant: Step 3a still names delivery.prSizeBudget" \
-  "$(has_f "$STEP3A_SECTION" "delivery.prSizeBudget")" "yes"
+# --- 5. Behavior 3, cont.: the group-level budget rules stay alongside the
+# per-block ceiling (both numbers present, both named). REWRITTEN for
+# Contract: B07 — the budget is no longer a config key read from an effective
+# config; it is a PLAN FACT recorded in the Landing strategy. The default and
+# the group rules are unchanged, so those checks stand as they were ---------
+check "Step 3a no longer names a delivery.prSizeBudget config key" \
+  "$(has_f "$STEP3A_SECTION" "delivery.prSizeBudget")" "no"
+check "Step 3a names the budget as a plan fact" \
+  "$(has_re "$STEP3A_SECTION" "(plan fact|recorded in the plan|the plan records|plan-recorded|recorded at plan time)")" "yes"
+check "the budget and its 500 default are stated as one plan fact" \
+  "$(near_all 4 "$STEP3A_SECTION" "(plan fact|recorded in the plan|the plan records|plan-recorded|recorded at plan time)" "500")" "yes"
 check "invariant: Step 3a still names the 500 budget default" \
   "$(has_f "$STEP3A_SECTION" "500")" "yes"
 check "invariant: Step 3a still forms PR groups against the budget" \
   "$(has_f "$STEP3A_SECTION" "PR groups")" "yes"
 
-# --- 6. Behavior 3, cont.: no new config key. The ceiling is derived, so
-# the set of delivery.<key> identifiers the skill names must not grow ------
+# --- 6. Behavior 3, cont.: no config key at all. The ceiling was always
+# DERIVED from the budget; under Contract: B07 the budget itself stops being
+# configuration, so the closed world here is now EMPTY — every
+# `delivery.<key>` identifier is gone from the document, and reintroducing
+# one (including the ceiling as a key of its own) is a contract violation
+# even if every other anchor passes -----------------------------------------
 DELIVERY_KEYS="$(grep -oE 'delivery\.[A-Za-z]+' <<<"$STRIPPED" | sort -u | tr '\n' ' ')"
-check "no new delivery.* config key is introduced" \
-  "$DELIVERY_KEYS" "delivery.mode delivery.prSizeBudget delivery.worktreeDir "
+check "no delivery.* config key survives anywhere in the skill" \
+  "$DELIVERY_KEYS" ""
 
 # --- 7. Edge cases (one bullet = one check) -------------------------------
 # Est exactly at the ceiling needs no justification: only strictly greater

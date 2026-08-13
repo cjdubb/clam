@@ -61,12 +61,12 @@ near_all() { # window content anchor other...
   local window="$1" content="$2" anchor="$3"
   shift 3
   local -a anchor_lines other_lines
-  mapfile -t anchor_lines < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
+  anchor_lines=(); while IFS= read -r __ln; do anchor_lines+=(""); done < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
   local a o tok ok
   for a in "${anchor_lines[@]}"; do
     ok=yes
     for tok in "$@"; do
-      mapfile -t other_lines < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
+      other_lines=(); while IFS= read -r __ln; do other_lines+=(""); done < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
       local hit=no
       for o in "${other_lines[@]}"; do
         if (( o - a <= window && a - o <= window )); then hit=yes; break; fi
@@ -253,6 +253,32 @@ check "a mid-dispatch re-plan updates the draft" \
   "$(has_re "$STEP3_BODY" "re-plan")" "yes"
 check "an updated draft re-passes the bar before re-scaffold" \
   "$(near_all 6 "$STEP3_BODY" "re-plan" "re-scaffold")" "yes"
+
+# === Contract: B07 — the per-block field list gains the proved commands ====
+# B07 records the Setup/Test commands proved in Step 1 as per-block fields.
+# Two places gain them: Step 4's block-map entry format (pinned by
+# plan-landing-strategy.test.sh, which owns the entry format and its
+# cross-file agreement with templates/blocks.md) and Step 3's field list —
+# the per-block agreement bullets — which is this suite's territory, since
+# this suite already owns what Step 3 agrees per block. Sliced from
+# $STRIPPED like everything else here: B07's docblock names both fields
+# verbatim, so a $RAW check would be a false green today.
+
+# --- 11a. The field list agrees a Test: command per block -----------------
+check "Step 3's per-block agreement names the Test: field" \
+  "$(has_f "$STEP3_BODY" "Test:")" "yes"
+check "Step 3's per-block agreement names the Setup: field" \
+  "$(has_f "$STEP3_BODY" "Setup:")" "yes"
+check "the two command fields are agreed together, as one item" \
+  "$(near_all 4 "$STEP3_BODY" "Test:" "Setup:")" "yes"
+check "the fields are named as commands, not bare labels" \
+  "$(near_all 4 "$STEP3_BODY" "Test:" "[Cc]ommand")" "yes"
+# Placement: they are per-block agreement items, not sizing (Step 3a) and not
+# part of the always-blocks subsection.
+check "the command fields are not introduced in Step 3a" \
+  "$(has_f "$STEP3A_SECTION" "- Test:")" "no"
+check "the command fields are not introduced in the always-blocks subsection" \
+  "$(has_f "$ALWAYS_BLOCKS" "- Test:")" "no"
 
 # --- 12. Placement: the draft bar does not leak into neighbouring sections -
 check "the interface-draft bar is not introduced in the always-blocks subsection" \

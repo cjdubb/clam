@@ -1,6 +1,19 @@
 #!/bin/bash
 # Measures a git diff range against the configured PR size budget.
 #
+# <!--
+# Contract: B06 pr-size-check-budget-flag (plan 001-lego-config-redesign)
+# Behavior:   budget = --budget when given, else the constant 500; the
+#             layered-config resolution block is deleted.
+# Inputs:     existing CLI shape; --budget validation retained.
+# Outputs:    unchanged measurement report.
+# Errors:     config-error paths removed; usage errors unchanged (exit 2).
+# Invariants: measurement semantics unchanged; $LEGO_CONFIG and any config
+#             file on disk are ignored.
+# Edge cases: omitted --budget on a repo with a stray lego.json -> 500, the
+#             file is not read.
+# -->
+#
 # Run: bash plugins/lego/scripts/pr-size-check.sh [--budget <n>] [--justified] <diff-range> [-- <pathspec>...]
 #      (exit 0 within budget, 1 over budget, 2 usage/environment error)
 
@@ -134,7 +147,6 @@
 # -->
 
 set -uo pipefail
-: "${JQ:=jq}"
 
 USAGE_MSG="usage: pr-size-check.sh [--budget <n>] [--justified] <diff-range> [-- <pathspec>...]"
 
@@ -207,67 +219,14 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -n "$REPO_ROOT" ] || { err "not inside a git repository"; exit 2; }
 
 # ---------------------------------------------------------------------------
-# Resolve the budget: --budget wins (config is never read, jq never
-# invoked); otherwise .delivery.prSizeBudget from the effective config
-# (jq recursive merge of the committed base and the gitignored override,
-# both optional); otherwise the 500 default.
+# Resolve the budget: --budget when given, else the constant 500. No config
+# file is consulted — there is no layered-config resolution here, so no
+# config file on disk and no $LEGO_CONFIG can influence the result, and jq
+# is never needed.
 # ---------------------------------------------------------------------------
 BUDGET=500
 if [ -n "$budget_flag" ]; then
   BUDGET="$budget_flag"
-else
-  base_config="$REPO_ROOT/.claude/lego.json"
-  override_rel="${LEGO_CONFIG:-.local/config.json}"
-  case "$override_rel" in
-    /*) override_config="$override_rel" ;;
-    *) override_config="$REPO_ROOT/$override_rel" ;;
-  esac
-
-  have_base=0
-  have_override=0
-  [ -f "$base_config" ] && have_base=1
-  [ -f "$override_config" ] && have_override=1
-
-  if [ "$have_base" -eq 1 ] || [ "$have_override" -eq 1 ]; then
-    if ! command -v "$JQ" >/dev/null 2>&1; then
-      err "jq is required to read delivery.prSizeBudget from config ($base_config and/or $override_config present); pass --budget to skip config entirely"
-      exit 2
-    fi
-
-    if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$base_config" >/dev/null 2>&1; then
-      err "invalid JSON in config file: $base_config"
-      exit 2
-    fi
-    if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$override_config" >/dev/null 2>&1; then
-      err "invalid JSON in config file: $override_config"
-      exit 2
-    fi
-
-    if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-      effective_config="$("$JQ" -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
-    elif [ "$have_base" -eq 1 ]; then
-      effective_config="$(cat "$base_config")"
-    else
-      effective_config="$(cat "$override_config")"
-    fi
-
-    resolved="$("$JQ" -r '
-      (.delivery.prSizeBudget) as $b
-      | if $b == null then "absent"
-        elif ($b | type) == "number" and $b > 0 and ($b == ($b | floor)) then "valid:\($b | floor)"
-        else "invalid"
-        end
-    ' <<<"$effective_config" 2>/dev/null)"
-
-    case "$resolved" in
-      absent) BUDGET=500 ;;
-      valid:*) BUDGET="${resolved#valid:}" ;;
-      *)
-        err "delivery.prSizeBudget in the effective config is not a positive integer"
-        exit 2
-        ;;
-    esac
-  fi
 fi
 
 # ---------------------------------------------------------------------------

@@ -116,7 +116,6 @@ plugins/tracking/scripts/workgraph-docs.test.sh	SC2016
 plugins/tracking/scripts/workgraph-docs.test.sh	SC2034
 plugins/tracking/scripts/workgraph-lifecycle.test.sh	SC2016
 plugins/tracking/scripts/workgraph-template.test.sh	SC2016
-plugins/voice/scripts/structure.test.sh	SC2016
 plugins/worktrees/scripts/b02-usage-skill.test.sh	SC2034
 plugins/worktrees/scripts/b03-per-worker-skill.test.sh	SC2016
 scripts/architecture-doc.test.sh	SC2016

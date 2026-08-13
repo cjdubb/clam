@@ -8,7 +8,7 @@
 # covered by registration.test.sh.
 #
 # Covers plugin.json:
-#   - valid JSON; name "voice"; version "0.3.0" exactly; non-empty
+#   - valid JSON; name "voice"; version "0.3.1" exactly; non-empty
 #     description naming both the Voice communication spec and its
 #     output-style delivery, free of STUB/TODO/NotImplemented markers;
 #     .author byte-identical (jq -Sc) to marketplace.json's .owner (single
@@ -97,11 +97,10 @@ check "plugin.json is valid JSON" \
 pj_name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'voice'" "$pj_name" "voice"
 
-# Retargeted 0.2.0 -> 0.3.0 by the SessionStart-hook -> output-styles
-# conversion. The pin tracks the CURRENT version, so every legitimate bump
-# retargets it.
+# The pin tracks the CURRENT version, so every legitimate bump retargets it.
+# Retargeted 0.3.0 -> 0.3.1 by the dramatic-reveal wording extension.
 pj_version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is exactly '0.3.0'" "$pj_version" "0.3.0"
+check "plugin.json .version is exactly '0.3.1'" "$pj_version" "0.3.1"
 
 pj_description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \

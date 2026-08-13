@@ -1,6 +1,6 @@
 ---
 name: render
-description: "Render a planning or decision markdown file into a single self-contained dark-theme HTML view and optionally open it in the browser. Use at feedback checkpoints (plan ready for review, decision parked), or when the user asks for an HTML view of a document: `/render-doc:render <file>`."
+description: "Render a planning or decision markdown file into a single self-contained dark-theme HTML view and optionally open it in the browser. Use at every feedback checkpoint (plan ready for review, decision parked) — render with `--open` there, without being asked; `--serve` is only for ambient live views a hook requested. Also use when the user asks for an HTML view of a document: `/render-doc:render <file>`."
 ---
 
 # Render Doc
@@ -38,6 +38,15 @@ The composer emits exactly this annotation vocabulary: `@COMMENT:`, `@QUESTION:`
 | Save to markdown | When served via the annotation server (`--open`), each "Add" POSTs to the server, which writes the `@TAG: note` line directly into the source `.md` file. Section-level annotations insert after the `## heading` line; block-level annotations insert after the line containing the excerpt. The agent reads the markdown and sees annotations inline, no clipboard paste needed. On `file://` (no server), annotations are in-memory only and "Copy all feedback" remains the export path. |
 
 ## Checkpoint integration
+
+A feedback checkpoint is any moment the user is being asked to read a document and react: a plan ready for review, a decision parked for a ruling, a design-questions file awaiting answers. At every such checkpoint, render the document with `--open` before ending the turn — proactively, not on request. A user who has to type `/render-doc:render` after a session parked on a document has hit a failure of this rule, not a normal flow.
+
+The two modes are not interchangeable:
+
+- `--open` is the checkpoint mode. It puts the document on the user's screen. If the choice of mode is in doubt, use `--open`.
+- `--serve` is the ambient mode: registration for a live, self-updating view that some hook or convention asked to have available in the background (a work-graph, a long-running status doc). It never opens a browser, so it never satisfies a checkpoint — serving a decision file and telling the user the URL is not presenting the document.
+
+A document already being served is re-`--open`ed when a new checkpoint lands on it — after substantive edits to a parked plan or decision, open it again rather than assuming the earlier view is still in front of the user.
 
 Automatic rendering at checkpoints is gated by plugin presence: callers check whether the `render-doc:render` skill is available and skip silently when it is not. `/decision-log:rundown` renders the decision file with `--open` after writing it at park time when this plugin is installed.
 

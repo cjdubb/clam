@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" "$cwd/.local/.workgraph-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" "$cwd/.local/.workgraph-nudge-fired" "$cwd/.local/.workgraph-create-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -110,7 +110,12 @@ resolved, or dropped (<reason>) — rather than deleting it.
 When a problem genuinely decomposes into subproblems, capture that
 decomposition in \`.local/WORKGRAPH.md\`, created lazily from the template at
 \`$PLUGIN_ROOT/templates/WORKGRAPH.md\` — never ahead of need — the moment it
-first happens. Add one node per subproblem at the moment it surfaces, each
+first happens. That moment is observable, not a judgement call: writing any
+artifact that enumerates two or more work items — a plan, a block or unit
+table, a task breakdown — IS the decomposition, whichever workflow produced
+it, and the graph exists before the turn that wrote such an artifact ends.
+Those artifacts do not substitute for the graph; they are what the graph
+mirrors. Add one node per subproblem at the moment it surfaces, each
 with a Goal, a Parent decomposition edge, and Deps ordering edges. Move the
 file-level Focus pointer in real time as attention shifts between nodes, and
 cite the Focus node's id in TODO.md's Current Task field. Mark each node
@@ -119,7 +124,7 @@ never removed. When asked to show the work graph, render it as an indented
 ASCII tree: children nested under their parents, \`[needs: N<NN>]\` dependency
 annotations, a status glyph per node, and an arrow marking the Focus node.
 
-Three defaults govern how graph nodes are written. Node titles are plain
+Four defaults govern how graph nodes are written. Node titles are plain
 language — \`N<NN>\` is the only identifier a title needs, and ids from other
 numbering systems belong in \`Notes:\` or in the artifacts that own them. Add
 one node per actual work item rather than one per topic: when a problem is
@@ -127,7 +132,12 @@ worked as distinct phases by distinct actors, each phase is its own node
 carrying its own dependency edge, so who is doing what right now reads from
 the graph alone. And a follow-up captured mid-effort gets its graph node at
 capture, not once it is acted on — mirror the follow-up's outcome onto that
-node as the entry resolves.
+node as the entry resolves. And the graph is a tree with ordering edges,
+not a flat list: exactly one node is a root per deliverable, and every
+other node carries a Parent edge to the node it decomposes. A graph created
+late — after work has already started — is still authored this way, top-down
+with per-phase nodes and Parent edges, never transcribed as a flat summary
+of a unit table.
 
 The moment \`.local/WORKGRAPH.md\` is created, check the skill catalog for a
 skill that can serve a markdown document as a live, self-updating HTML view
@@ -148,7 +158,12 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
   recommended option, and the file path). Every artifact a decision document
   references — a plan, a graph, another decision, a piece of code — is carried
   as a relative markdown link resolvable from that decision file's own
-  directory, never as a bare path in backticks.
+  directory, never as a bare path in backticks. The moment the decision file
+  is written, check the skill catalog for a skill that renders a markdown
+  document to an HTML view opened in the engineer's browser; when one is
+  available, open the decision file through it before ending the turn.
+  Opening is the point — registering a document on a background server
+  without opening it does not present it, and does not satisfy this rule.
 - **Parked, summons once then waits:** \`Awaiting User Review\` (draft PR up,
   user reviewing at their own pace).
 - **Parked, resumes on its own, stays silent:** \`Awaiting Agent\`,

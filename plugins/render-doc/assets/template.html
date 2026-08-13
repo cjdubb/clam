@@ -102,6 +102,11 @@
     margin: 0 auto;
     padding: clamp(18px, 3vw, 36px) clamp(16px, 4vw, 40px) 90px;
   }
+  /* While the graph view is active the #toc nav is display:none, and grid
+     auto-placement would drop #main into the 250px TOC column — squeezing
+     the cytoscape canvas into a strip at the left edge. Collapse to a
+     single full-width column for the graph's lifetime instead. */
+  .layout.graph-active { grid-template-columns: minmax(0, 1fr); }
 
   /* ---------- TOC ---------- */
   .toc {
@@ -1397,7 +1402,10 @@ __CYTOSCAPE_DAGRE_SPLICE__
        Inputs: the #toc element; the existing graph-view lifecycle
          (activateGraphView / deactivateGraphView call sites).
        Outputs: no new markup, no new external resources; visibility is
-         toggled on the existing #toc element only.
+         toggled on the existing #toc element only, plus a "graph-active"
+         class on the .layout grid so the remaining #main column spans the
+         full width (without it, auto-placement drops #main into the 250px
+         TOC column and the graph renders in a strip at the left edge).
        Errors: a failure while hiding or restoring the TOC never breaks
          rendering (same degrade posture as the rest of the graph
          lifecycle - the page stays usable).
@@ -1417,9 +1425,12 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var docEl = document.getElementById("doc");
       var container = document.getElementById("graph-view");
       var tocEl = document.getElementById("toc");
+      var layoutEl = document.querySelector(".layout");
       docEl.style.display = "none";
       container.hidden = false;
       if (tocEl) { tocEl.hidden = true; }
+      // Widen to one column BEFORE cytoscape reads the container's size.
+      if (layoutEl) { layoutEl.classList.add("graph-active"); }
       try {
         if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
         cyInstance = renderWorkGraphGraphView();
@@ -1436,9 +1447,11 @@ __CYTOSCAPE_DAGRE_SPLICE__
         cyInstance = null;
       }
       var tocEl = document.getElementById("toc");
+      var layoutEl = document.querySelector(".layout");
       document.getElementById("graph-view").hidden = true;
       document.getElementById("doc").style.display = "";
       if (tocEl) { tocEl.hidden = false; }
+      if (layoutEl) { layoutEl.classList.remove("graph-active"); }
       closeNodePanel();
       state.graphOn = false;
     }

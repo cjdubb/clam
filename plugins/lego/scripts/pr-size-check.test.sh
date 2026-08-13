@@ -47,6 +47,31 @@
 #     detected with `command -v "$JQ"`, which a nonexistent path fails the
 #     same way a PATH without jq does.
 # -->
+
+# <!--
+# Contract: B06 pr-size-check-budget-flag (plan 001-lego-config-redesign)
+#
+# Behavior:
+#   Supersedes B04's frozen pass-count invariant. pr-size-check.sh's budget
+#   is now `--budget` when given, else the constant 500; the layered-config
+#   resolution block (and its config-error exit paths) is deleted. Tests that
+#   pinned config resolution are REWRITTEN here to pin the new contract —
+#   config files and $LEGO_CONFIG are ignored — rather than deleted, so the
+#   ignoring is asserted rather than merely unasserted.
+#
+# Inputs:  unchanged — the same throwaway git repositories under mktemp.
+# Outputs: `Passed: 36  Failed: 0  Total: 36` (B04's 34 no longer applies:
+#          three config-resolution tests were rewritten in place and five
+#          were added).
+#
+# Invariants:
+#   - Measurement, summary/breakdown formats, --justified, pathspec
+#     passthrough, and usage-error assertions are untouched and stay green.
+#   - Every rewritten config test uses a DISTINGUISHING fixture: the config
+#     value it carries would produce a different verdict from 500, so a
+#     surviving config read fails the test rather than passing by accident.
+#   - The independent awk oracle over `git diff --numstat` STAYS.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pr-size-check.sh"
@@ -402,62 +427,99 @@ test_bad_revision_diagnostic_surfaces_gits_own_text() {
 }
 
 # ===========================================================================
-# Config errors (Errors clauses 4-6)
+# B06: config resolution is DELETED. No config file on disk, and no
+# $LEGO_CONFIG, can influence the budget; the config-error exit paths are
+# gone with it. (B06 Behavior; B06 Errors; B06 Invariants; B06 Edge case.)
 # ===========================================================================
 
-# A config file that exists but is not valid JSON: diagnostic naming the
-# file, exit 2 -- for both the base and the override layer independently.
-test_config_invalid_json_base_and_override() {
+# A config file that exists but is not valid JSON is simply never read: no
+# diagnostic, no exit 2, the constant 500 applies -- for the base layer, the
+# override layer, and both together. Under the old layered-config contract
+# each of these was a config error naming the file.
+test_config_invalid_json_is_ignored_not_an_error() {
   local repo
   repo="$(new_git_repo)"
   write_base_config "$repo" '{not valid json'
 
   run_in "$repo" HEAD..HEAD
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid JSON in base .claude/lego.json: expected exit 2, got $RUN_EXIT"
-  case "$RUN_ERR" in
-    *lego.json*) : ;;
-    *) record_fail "invalid JSON in base: diagnostic does not name the file (stderr: $RUN_ERR)" ;;
-  esac
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "invalid JSON in base .claude/lego.json: expected exit 0 (file never read), got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  0 lines changed (budget 500)" "$RUN_OUT" "invalid JSON in base: constant 500 budget, file not read"
+  [ -z "$RUN_ERR" ] || record_fail "invalid JSON in base: expected no stderr diagnostic, got: $RUN_ERR"
 
   local repo2
   repo2="$(new_git_repo)"
   write_override_config "$repo2" '{not valid json'
 
   run_in "$repo2" HEAD..HEAD
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "invalid JSON in override .local/config.json: expected exit 2, got $RUN_EXIT"
-  case "$RUN_ERR" in
-    *config.json*) : ;;
-    *) record_fail "invalid JSON in override: diagnostic does not name the file (stderr: $RUN_ERR)" ;;
-  esac
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "invalid JSON in override .local/config.json: expected exit 0 (file never read), got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  0 lines changed (budget 500)" "$RUN_OUT" "invalid JSON in override: constant 500 budget, file not read"
+  [ -z "$RUN_ERR" ] || record_fail "invalid JSON in override: expected no stderr diagnostic, got: $RUN_ERR"
+
+  local repo3
+  repo3="$(new_git_repo)"
+  write_base_config "$repo3" '{not valid json'
+  write_override_config "$repo3" 'also not json'
+
+  run_in "$repo3" HEAD..HEAD
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "invalid JSON in both layers: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  0 lines changed (budget 500)" "$RUN_OUT" "invalid JSON in both layers: constant 500 budget"
 }
 
-# .delivery.prSizeBudget present but not a positive integer: diagnostic on
-# stderr, exit 2 -- string, zero, negative, and non-integer values.
-test_config_pr_size_budget_not_positive_integer() {
+# .delivery.prSizeBudget present but not a positive integer is no longer a
+# config error, because the key is never looked at: the constant 500 applies.
+test_config_bad_pr_size_budget_value_is_ignored() {
   local repo bad
   for bad in '"abc"' '0' '-5' '3.5'; do
     repo="$(new_git_repo)"
     write_override_config "$repo" "$(printf '{"delivery":{"prSizeBudget": %s}}' "$bad")"
 
     run_in "$repo" HEAD..HEAD
-    [ "$RUN_EXIT" -eq 2 ] || record_fail "prSizeBudget=$bad: expected exit 2, got $RUN_EXIT"
-    [ -n "$RUN_ERR" ] || record_fail "prSizeBudget=$bad: expected a diagnostic on stderr"
+    [ "$RUN_EXIT" -eq 0 ] || record_fail "prSizeBudget=$bad: expected exit 0 (key never read), got $RUN_EXIT (stderr: $RUN_ERR)"
+    assert_eq "PASS  0 lines changed (budget 500)" "$RUN_OUT" "prSizeBudget=$bad: constant 500 budget"
+    [ -z "$RUN_ERR" ] || record_fail "prSizeBudget=$bad: expected no stderr diagnostic, got: $RUN_ERR"
   done
 }
 
-# jq needed (config-sourced budget, at least one config file present, no
-# --budget) but not installed: diagnostic on stderr, exit 2.
-test_jq_required_when_config_budget_needed_but_absent() {
-  local repo
+# jq is never needed on any path now: a repo with both config layers present
+# and no --budget still measures against 500 with JQ=/nonexistent.
+test_jq_never_needed_even_with_config_present() {
+  local repo head0 head1 t
   repo="$(new_git_repo)"
-  write_base_config "$repo" "$(budget_json 50)"
+  write_base_config "$repo" "$(budget_json 1)"
+  write_override_config "$repo" "$(budget_json 2)"
+  head0="$(git -C "$repo" rev-parse HEAD)"
+  commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
+  head1="$(git -C "$repo" rev-parse HEAD)"
+  t="$(expected_total "$repo" "$head0..$head1")"
 
-  JQ=/nonexistent run_in "$repo" HEAD..HEAD
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "config present, no --budget, jq absent: expected exit 2, got $RUN_EXIT"
-  case "$RUN_ERR" in
-    *jq*|*JQ*) : ;;
-    *) record_fail "jq absent: diagnostic does not mention jq (stderr: $RUN_ERR)" ;;
-  esac
+  JQ=/nonexistent run_in "$repo" "$head0..$head1"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "both configs present, no --budget, jq absent: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "jq never needed: constant 500 budget despite both config layers"
+  [ -z "$RUN_ERR" ] || record_fail "jq never needed: expected no stderr diagnostic, got: $RUN_ERR"
+}
+
+# A config file that could not even be opened (mode 000) proves the file is
+# not read at all, rather than read-and-ignored: were it opened, its
+# prSizeBudget of 1 would fail this 5-line range, or the open error would
+# surface. Skipped when running as root, where mode 000 does not deny reads.
+test_config_file_is_not_read_at_all() {
+  local repo head0 head1 t
+  if [ "$(id -u)" -eq 0 ]; then
+    return
+  fi
+  repo="$(new_git_repo)"
+  write_base_config "$repo" "$(budget_json 1)"
+  chmod 000 "$repo/.claude/lego.json"
+  head0="$(git -C "$repo" rev-parse HEAD)"
+  commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
+  head1="$(git -C "$repo" rev-parse HEAD)"
+  t="$(expected_total "$repo" "$head0..$head1")"
+
+  run_in "$repo" "$head0..$head1"
+  chmod 644 "$repo/.claude/lego.json"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "unreadable config file: expected exit 0 (never opened), got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "unreadable config file: constant 500 budget, file never opened"
+  [ -z "$RUN_ERR" ] || record_fail "unreadable config file: expected no stderr diagnostic, got: $RUN_ERR"
 }
 
 # ===========================================================================
@@ -481,41 +543,44 @@ test_budget_flag_wins_and_config_never_read_and_no_jq_needed() {
   assert_eq "PASS  $t lines changed (budget 1000)" "$RUN_OUT" "--budget wins: summary reflects the flag's value, not the config's"
 }
 
-# Merged config, base only: .claude/lego.json alone resolves the budget.
-test_budget_from_merged_config_base_only() {
+# B06 Edge case: an omitted --budget on a repo carrying a stray
+# .claude/lego.json resolves to 500 -- the base layer no longer resolves
+# anything. Its prSizeBudget of 5 would have FAILed this 8-line range under
+# the old contract; now it PASSes against 500.
+test_base_config_does_not_resolve_budget() {
   local repo head0 head1 t
   repo="$(new_git_repo)"
-  write_base_config "$repo" "$(budget_json 100)"
+  write_base_config "$repo" "$(budget_json 5)"
   head0="$(git -C "$repo" rev-parse HEAD)"
-  commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
+  commit_file "$repo" "src/small.txt" "$(n_lines 8)" "add small.txt"
   head1="$(git -C "$repo" rev-parse HEAD)"
   t="$(expected_total "$repo" "$head0..$head1")"
 
   run_in "$repo" "$head0..$head1"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "base-only config: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "PASS  $t lines changed (budget 100)" "$RUN_OUT" "base-only config: budget resolved from .claude/lego.json"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "stray base config: expected exit 0 against the constant 500, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "stray .claude/lego.json ignored: budget is the constant 500, not the file's 5"
 }
 
-# Merged config, override only: .local/config.json alone (no base file at
-# all) resolves the budget.
-test_budget_from_merged_config_override_only() {
+# The gitignored override layer (.local/config.json) no longer resolves
+# anything either -- same distinguishing fixture, override layer only.
+test_override_config_does_not_resolve_budget() {
   local repo head0 head1 t
   repo="$(new_git_repo)"
-  write_override_config "$repo" "$(budget_json 100)"
+  write_override_config "$repo" "$(budget_json 5)"
   head0="$(git -C "$repo" rev-parse HEAD)"
-  commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
+  commit_file "$repo" "src/small.txt" "$(n_lines 8)" "add small.txt"
   head1="$(git -C "$repo" rev-parse HEAD)"
   t="$(expected_total "$repo" "$head0..$head1")"
 
   run_in "$repo" "$head0..$head1"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "override-only config: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "PASS  $t lines changed (budget 100)" "$RUN_OUT" "override-only config: budget resolved from .local/config.json"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "stray override config: expected exit 0 against the constant 500, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "stray .local/config.json ignored: budget is the constant 500, not the file's 5"
 }
 
-# Merged config, both present: override wins per key (jq recursive merge
-# .[0] * .[1], base first then override).
-test_budget_from_merged_config_override_wins_over_base() {
-  local repo head0 head1 t first_line
+# Both layers present: there is no layered merge left to perform, so neither
+# the base value nor the override value reaches the budget.
+test_both_config_layers_ignored_no_merge() {
+  local repo head0 head1 t
   repo="$(new_git_repo)"
   write_base_config "$repo" "$(budget_json 100)"
   write_override_config "$repo" "$(budget_json 5)"
@@ -525,27 +590,50 @@ test_budget_from_merged_config_override_wins_over_base() {
   t="$(expected_total "$repo" "$head0..$head1")"
 
   run_in "$repo" "$head0..$head1"
-  [ "$RUN_EXIT" -eq 1 ] || record_fail "override wins over base: expected exit 1 (over the override's budget of 5), got $RUN_EXIT (stderr: $RUN_ERR)"
-  first_line="$(printf '%s\n' "$RUN_OUT" | head -n1)"
-  assert_eq "FAIL  $t lines changed, over budget 5 by $((t - 5))" "$first_line" "override wins over base: FAIL summary reflects the override's budget (5), not the base's (100)"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "both layers present: expected exit 0 against the constant 500, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "no layered merge remains: budget is 500, neither the base's 100 nor the override's 5"
 }
 
-# $LEGO_CONFIG redirects the override file's path (default .local/config.json)
-# -- a real .local/config.json is present with a different value, but must
-# be ignored once $LEGO_CONFIG points elsewhere.
-test_lego_config_env_redirects_override_path() {
+# $LEGO_CONFIG is ignored outright: it no longer redirects anything, because
+# there is no config file to redirect to.
+test_lego_config_env_is_ignored() {
   local repo head0 head1 t
   repo="$(new_git_repo)"
   write_override_config "$repo" "$(budget_json 999)"
-  write_json_at "$repo" "custom/dir/myconfig.json" "$(budget_json 7)"
+  write_json_at "$repo" "custom/dir/myconfig.json" "$(budget_json 5)"
   head0="$(git -C "$repo" rev-parse HEAD)"
-  commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
+  commit_file "$repo" "src/small.txt" "$(n_lines 8)" "add small.txt"
   head1="$(git -C "$repo" rev-parse HEAD)"
   t="$(expected_total "$repo" "$head0..$head1")"
 
   run_cmd "$repo" "custom/dir/myconfig.json" "$head0..$head1"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "LEGO_CONFIG redirect: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "PASS  $t lines changed (budget 7)" "$RUN_OUT" "LEGO_CONFIG points at custom/dir/myconfig.json (budget 7), not the default .local/config.json (budget 999)"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "\$LEGO_CONFIG set: expected exit 0 against the constant 500, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "\$LEGO_CONFIG ignored: budget is 500, neither the redirected file's 5 nor the default file's 999"
+  [ -z "$RUN_ERR" ] || record_fail "\$LEGO_CONFIG set: expected no stderr diagnostic, got: $RUN_ERR"
+}
+
+# B06 Behavior: --budget, when given, IS the budget -- pinned against the
+# constant so a flag value below 500 genuinely changes the verdict.
+test_budget_flag_overrides_the_constant_500() {
+  local repo head0 head1 t first_line
+  repo="$(new_git_repo)"
+  head0="$(git -C "$repo" rev-parse HEAD)"
+  commit_file "$repo" "src/small.txt" "$(n_lines 8)" "add small.txt"
+  head1="$(git -C "$repo" rev-parse HEAD)"
+  t="$(expected_total "$repo" "$head0..$head1")"
+
+  run_in "$repo" "$head0..$head1"
+  assert_eq "PASS  $t lines changed (budget 500)" "$RUN_OUT" "no --budget: the constant 500 applies"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "no --budget: expected exit 0, got $RUN_EXIT"
+
+  run_in "$repo" --budget 5 "$head0..$head1"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "--budget 5: expected exit 1 (over the flag's budget), got $RUN_EXIT (stderr: $RUN_ERR)"
+  first_line="$(printf '%s\n' "$RUN_OUT" | head -n1)"
+  assert_eq "FAIL  $t lines changed, over budget 5 by $((t - 5))" "$first_line" "--budget 5: the flag's value is the budget, not the constant 500"
+
+  run_in "$repo" --budget 900 "$head0..$head1"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 900: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  $t lines changed (budget 900)" "$RUN_OUT" "--budget 900: a flag value above the constant is honoured too"
 }
 
 # EC8/EC9: neither config file exists and no --budget -- the 500 default
@@ -999,15 +1087,13 @@ test_invariant_read_only_repo_state_unchanged() {
   assert_eq "$refs_before" "$refs_after" "read-only: refs unchanged"
 }
 
-# cwd-independence: the same range and the same config-sourced budget
-# produce the same result whether invoked from the repo root or from a
-# subdirectory. Uses a committed base config (reaches every subdirectory via
-# git checkout, same as the repo root) so this isolates cwd-independence of
-# config resolution itself, not $LEGO_CONFIG's own relative-path semantics.
+# cwd-independence: the same range measures the same from the repo root and
+# from a subdirectory, because the script resolves the repo root and runs git
+# from there. Exercised on both the default-budget path (B06: the constant
+# 500, no config anywhere) and the --budget path.
 test_invariant_cwd_independence_from_subdirectory() {
   local repo head0 head1 out_root out_sub
   repo="$(new_git_repo)"
-  write_base_config "$repo" "$(budget_json 8)"
   head0="$(git -C "$repo" rev-parse HEAD)"
   commit_file "$repo" "src/small.txt" "$(n_lines 5)" "add small.txt"
   head1="$(git -C "$repo" rev-parse HEAD)"
@@ -1021,8 +1107,17 @@ test_invariant_cwd_independence_from_subdirectory() {
   out_sub="$RUN_OUT"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "from a subdirectory: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
-  assert_eq "PASS  5 lines changed (budget 8)" "$out_root" "from repo root: exact summary (config-sourced budget resolved)"
-  assert_eq "$out_root" "$out_sub" "cwd-independence: identical result from repo root and from a subdirectory (config resolution is repo-root-relative)"
+  assert_eq "PASS  5 lines changed (budget 500)" "$out_root" "from repo root: exact summary (constant 500 budget)"
+  assert_eq "$out_root" "$out_sub" "cwd-independence: identical result from repo root and from a subdirectory (default-budget path)"
+
+  run_in "$repo" --budget 8 "$head0..$head1"
+  out_root="$RUN_OUT"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget from repo root: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  run_in "$repo/sub/deeper" --budget 8 "$head0..$head1"
+  out_sub="$RUN_OUT"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget from a subdirectory: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "PASS  5 lines changed (budget 8)" "$out_root" "--budget from repo root: exact summary"
+  assert_eq "$out_root" "$out_sub" "cwd-independence: identical result from repo root and from a subdirectory (--budget path)"
 }
 
 test_invariant_deterministic_same_input_same_output() {
@@ -1099,15 +1194,17 @@ run_test "EC11: -- with no pathspecs -> exit 2" test_double_dash_no_pathspecs_is
 run_test "not a git repository -> exit 2" test_not_a_git_repo
 run_test "bad revision: diagnostic names range and surfaces git's own error text" test_bad_revision_diagnostic_surfaces_gits_own_text
 
-run_test "config: invalid JSON in base and override -> exit 2, names the file" test_config_invalid_json_base_and_override
-run_test "config: prSizeBudget not a positive integer -> exit 2" test_config_pr_size_budget_not_positive_integer
-run_test "jq required when config-sourced budget needed but jq absent -> exit 2" test_jq_required_when_config_budget_needed_but_absent
+run_test "B06: invalid JSON config is ignored, not an error" test_config_invalid_json_is_ignored_not_an_error
+run_test "B06: bad prSizeBudget value is ignored, not an error" test_config_bad_pr_size_budget_value_is_ignored
+run_test "B06: jq never needed, even with both config layers present" test_jq_never_needed_even_with_config_present
+run_test "B06: the config file is never opened at all" test_config_file_is_not_read_at_all
 
 run_test "--budget wins, config never read, jq not needed" test_budget_flag_wins_and_config_never_read_and_no_jq_needed
-run_test "budget resolution: base config only" test_budget_from_merged_config_base_only
-run_test "budget resolution: override config only" test_budget_from_merged_config_override_only
-run_test "budget resolution: override wins over base (recursive merge)" test_budget_from_merged_config_override_wins_over_base
-run_test "\$LEGO_CONFIG redirects the override path" test_lego_config_env_redirects_override_path
+run_test "B06: base config does not resolve the budget" test_base_config_does_not_resolve_budget
+run_test "B06: override config does not resolve the budget" test_override_config_does_not_resolve_budget
+run_test "B06: both layers ignored, no merge remains" test_both_config_layers_ignored_no_merge
+run_test "B06: \$LEGO_CONFIG is ignored" test_lego_config_env_is_ignored
+run_test "B06: --budget overrides the constant 500" test_budget_flag_overrides_the_constant_500
 run_test "EC6/EC8: default budget 500 when no config/flag, no jq needed" test_default_budget_500_when_no_config_no_flag_and_no_jq_needed
 
 run_test "measurement: basic PASS/FAIL summaries and breakdown line" test_measurement_basic_pass_and_fail_and_exit_codes

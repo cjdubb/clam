@@ -41,16 +41,13 @@ plugins/lego/scripts/plan-sizing.test.sh	SC2034
 plugins/lego/scripts/pr-size-check.sh	SC2016
 plugins/lego/scripts/pr-size-check.test.sh	SC2069
 plugins/lego/scripts/realm-gate.test.sh	SC2012
-plugins/lego/scripts/realm.sh	SC2254
 plugins/lego/scripts/scaffold-skill.test.sh	SC2016
 plugins/lego/scripts/standing-rules-question-gate.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2143
 plugins/lego/scripts/wave-check.test.sh	SC2295
-plugins/lego/scripts/worktree.sh	SC2016
 plugins/lego/scripts/worktree.sh	SC2181
 plugins/lego/scripts/worktree.test.sh	SC2012
-plugins/lego/scripts/worktree.test.sh	SC2034
 plugins/management/scripts/manifest.test.sh	SC2016
 plugins/management/scripts/prune-stamp.test.sh	SC2088
 plugins/management/scripts/prune-stamp.test.sh	SC2295

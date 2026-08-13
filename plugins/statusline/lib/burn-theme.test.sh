@@ -1,14 +1,14 @@
 #!/bin/bash
 # Table-driven functional tests for burn-theme.sh: the presentation layer for
-# the burnrate line -- the per-model hue family, the frame-drifting rainbow,
-# the reasoning-effort colour, the meter colour scales (plan, today, pace,
-# ctx-state, ctx-fullness, trend), the two fixed subordinate colours (diff,
-# countdown), and the reset countdown string. Every function is a pure mapping
-# from value to appearance (Contract: B03 burn-theme, plan
+# the burnrate line -- the flat per-model colour, the reasoning-effort colour,
+# the meter colour scales (plan, today, pace, ctx-state, ctx-fullness, trend),
+# the fixed countdown colour and the reset countdown string. Every function is
+# a pure mapping from value to appearance (Contract: B03 burn-theme, plan
 # 001-statusline-burnrate-uplift, amended by B08 burn-theme-deemoji, plan
 # 002-statusline-emoji-removal, extended by B13/B14/B15, plan
-# 003-statusline-meter-colour), so these tests are table-driven and pin the
-# contract's exact literal colour codes and hue arrays -- not a paraphrase.
+# 003-statusline-meter-colour, and narrowed by B05 line2-groups, plan
+# 001-statusline-glance-uplift), so these tests are table-driven and pin the
+# contract's exact literal colour codes -- not a paraphrase.
 #
 # What B08 changed, and what it deliberately did not:
 #
@@ -17,14 +17,6 @@
 #          Nothing replaces either. The tests for them are not relaxed, they
 #          are inverted: absence is asserted as sharply as the old presence
 #          was, because "the emoji is removed, not relocated" is the contract.
-#
-#   HELD.  burn_frame_advance and burn_rainbow, unchanged and fully tested.
-#          These matter more than the deletions. The frame counter drove the
-#          pet AND drives the model name's rainbow drift, so an implementer
-#          who deletes it alongside burn_pet silently freezes the colour and
-#          breaks nothing loudly. The burn_frame_advance and burn_rainbow
-#          sections below are the guard against exactly that; they pass today
-#          and must still pass afterwards.
 #
 #   NEW.   One file-wide invariant, checked three independent ways (source
 #          text, parsed function bodies, runtime output): no function in this
@@ -41,11 +33,18 @@
 # `declare -F` and pick them up automatically, and emit_every_branch -- which
 # enumerates by hand -- lists them explicitly.
 #
-# Two behaviours in the contract (burn_rainbow's per-frame hue offset, and
-# the exact drift formula) have no byte-exact formula written down, so those
-# sections assert the documented BEHAVIOUR (drift, ordering, reset-
-# termination, text preservation) via structural checks rather than guessing
-# an exact output string.
+# What B05 line2-groups RETIRES, and how this file records it. B03 replaced the
+# drifting per-character model palette with one flat colour per family, and
+# B05's new line 2 carries no +added/-removed segment at all, so four functions
+# now have no call site anywhere: burn_frame_advance, burn_model_style,
+# burn_rainbow and burn_diff_color. They are deleted from burn-theme.sh, and
+# their sections here are deleted with them rather than relaxed -- a test for a
+# function that no longer exists cannot be made to pass honestly. What replaced
+# each one still has its own section: burn_model_color for the first three,
+# and nothing at all for the diff colour, which answered none of the seven
+# glance-items. The two roster assertions (DOCUMENTED_FUNCTIONS and the
+# parsed-body count) are re-pointed to the ten functions that survive and stay
+# EXACT equalities, so the retirement is asserted, not merely tolerated.
 #
 # Run: bash plugins/statusline/lib/burn-theme.test.sh   (exits non-zero on failure)
 
@@ -140,7 +139,19 @@ $code" _ "$THEME" 2>/dev/null
 # fooled by a comment, a stale copy, or the test harness's own helpers.
 # ============================================================================
 
-DOCUMENTED_FUNCTIONS="burn_countdown_color burn_ctx_color burn_ctx_state burn_diff_color burn_effort_color burn_frame_advance burn_model_style burn_pace_color burn_plan_color burn_rainbow burn_reset_str burn_today_color burn_trend_color"
+# B03 (plan 001) added burn_model_color to this roster. B05 line2-groups (same
+# plan) is the "later block" B03's note pointed at: burn_model_color and the
+# glance-item groups have taken over every call site, so burn_model_style,
+# burn_rainbow, burn_frame_advance and burn_diff_color are RETIRED from
+# burn-theme.sh and drop off this roster, leaving ten. burn_today_color and
+# burn_pace_color stay: the contract does not retire them.
+#
+# The roster is still the EXACT inventory, not a subset: it is sorted and it is
+# compared for EQUALITY, never "contains". That is what makes this list a real
+# check in both directions after the shrink -- a retired function that survives
+# in the file fails just as loudly as a surviving function that goes missing,
+# and a new undocumented function still fails too.
+DOCUMENTED_FUNCTIONS="burn_countdown_color burn_ctx_color burn_ctx_state burn_effort_color burn_model_color burn_pace_color burn_plan_color burn_reset_str burn_today_color burn_trend_color"
 
 # `declare -F` prints "declare -f NAME" per line; read the third field with
 # builtins only so this works with PATH stripped as well.
@@ -169,9 +180,10 @@ check "sourcing burn-theme.sh defines no 'faces' or 'effects' array at file scop
   "$(pristine 'echo "faces=${faces[*]-unset} effects=${effects[*]-unset}"')" \
   "faces=unset effects=unset"
 
-# Sourcing sets NO global at all: BURN_HUES appears only once
-# burn_model_style is called, and BURN_MASCOT never appears again.
-check "sourcing burn-theme.sh sets no BURN_* variable (BURN_HUES is set by the call, not the source)" \
+# Sourcing sets NO global at all. Since B05 no function in this file sets one
+# either -- burn_model_style, the last one that did, is retired -- so this is
+# now the stricter statement it always read as.
+check "sourcing burn-theme.sh sets no BURN_* variable" \
   "$(pristine 'for v in ${!BURN@}; do echo "LEAK:$v"; done; echo "(none)"')" \
   "(none)"
 
@@ -211,8 +223,12 @@ check_clean "no non-ASCII character in any parsed function body (bash's own pars
 # escape. Without all three, "no offenders" could mean "nothing was scanned"
 # or "the pattern matches nothing" -- and a pattern that flagged ESC would
 # make the invariant unfalsifiable in the other direction.
+# 10, not 14, since B05 retires four functions: the count moves in lockstep
+# with DOCUMENTED_FUNCTIONS above and stays an exact equality (never >=), so a
+# body that is not parsed -- or an extra one that is, including a retired
+# function left behind -- still fails the scan-is-not-vacuous control.
 check "the parsed-body scan covers exactly the documented functions (scan is not vacuous)" \
-  "$(printf '%s\n' "$parsed_bodies" | LC_ALL=C grep -c '^burn_[a-z_]* ()')" "13"
+  "$(printf '%s\n' "$parsed_bodies" | LC_ALL=C grep -c '^burn_[a-z_]* ()')" "10"
 check "the non-ASCII pattern fires on a known non-ASCII byte" \
   "$(printf 'ok\nbad \xe2\x80\x94 here\n' | LC_ALL=C grep -c "$NONASCII_RE")" "1"
 check "the non-ASCII pattern does NOT fire on an SGR escape (ESC is ASCII)" \
@@ -221,26 +237,10 @@ check "the non-ASCII pattern does NOT fire on an SGR escape (ESC is ASCII)" \
 # 3. Runtime output over every documented branch. emit_every_branch calls
 #    each function across its whole documented input space with ASCII-only
 #    arguments, so anything non-ASCII on stdout came from this file, not from
-#    the caller's text. (burn_rainbow's contract requires it to pass a
-#    caller's multi-byte text through untouched -- that is tested separately
-#    below, and is why this sweep feeds it ASCII.)
-EMIT_FRAME_FRESH="$TMPROOT/emit-frame-fresh"
-EMIT_FRAME_SEEDED="$TMPROOT/emit-frame-seeded"; printf '41' > "$EMIT_FRAME_SEEDED"
-EMIT_FRAME_BAD="$TMPROOT/emit-frame-bad-dir"; mkdir -p "$EMIT_FRAME_BAD"
-
+#    the caller's text. (Every function left after B05 emits a bare colour
+#    opener and never echoes caller text at all, so ASCII-only arguments make
+#    the sweep unambiguous rather than merely convenient.)
 emit_every_branch() {
-  burn_frame_advance "$EMIT_FRAME_FRESH"
-  burn_frame_advance "$EMIT_FRAME_SEEDED"
-  burn_frame_advance "$EMIT_FRAME_BAD"
-
-  local m f
-  for m in opus sonnet fable haiku gpt-4 "" "Claude Opus Haiku"; do
-    burn_model_style "$m"
-    for f in 0 1 5 7 8; do
-      burn_rainbow "Claude Model 4.7" "$f"
-    done
-  done
-
   for f in low medium high xhigh max critical ""; do burn_effort_color "$f"; done
   for f in 100 70 69 50 49 30 29 0 -5 abc ""; do burn_plan_color "$f"; done
   for f in 100 50 49 25 24 10 9 0 -5 abc ""; do burn_today_color "$f"; done
@@ -257,16 +257,28 @@ emit_every_branch() {
 
   # This enumeration is by HAND, so a function added to burn-theme.sh and not
   # added here is silently exempt from both sweeps that use it (non-ASCII on
-  # stdout, and the no-stderr invariant below). The four functions plan 003
-  # adds are therefore listed across their whole documented input space, same
-  # as every function above.
+  # stdout, and the no-stderr invariant below). Every surviving function is
+  # therefore listed across its whole documented input space. B05's four
+  # retired functions are struck from here rather than left calling into a
+  # file that no longer defines them.
   for f in 200 100 61 60 59 40 39 20 19 0 -5 abc ""; do burn_ctx_color "$f"; done
   for f in 99 15 14 8 7 4 3 0 -3 -4 -8 -15 -99 abc ""; do burn_trend_color "$f"; done
-  for f in add del ADD junk ""; do burn_diff_color "$f"; done
-  burn_diff_color
+  # B03, plan 001: the same by-hand enumeration duty applies to burn_model_color
+  # -- listed across its whole documented input space (every family, a stray
+  # name, an empty name, a multi-match name, a parenthesised suffix) so both
+  # sweeps that use this function reach it.
+  for f in haiku sonnet opus fable HAIKU "Claude Sonnet 4.6" "Opus 5 (1M context)" \
+           "Claude Opus Haiku" gpt-4 "" "-"; do
+    burn_model_color "$f"
+  done
+  burn_model_color
   burn_countdown_color
   burn_countdown_color stray
 
+  burn_reset_str 604800 0
+  burn_reset_str 187200 0
+  burn_reset_str 86400 0
+  burn_reset_str 187200 abc
   burn_reset_str 17640 0
   burn_reset_str 3600 0
   burn_reset_str 720 0
@@ -285,260 +297,166 @@ check_clean "no function emits a non-ASCII character on stdout, across every doc
 check "the runtime sweep produced output (scan is not vacuous)" \
   "$([ -n "$emitted" ] && echo produced || echo empty)" "produced"
 
-# The rainbow is where a mascot would most plausibly be re-attached, so it
-# gets its own narrower assertion: coloured ASCII text in, pure ASCII out.
-reset_style() { unset BURN_MASCOT; unset BURN_HUES; }
-reset_style; burn_model_style "opus"
-rainbow_offenders=$(burn_rainbow "Claude Opus 4.7" 3 | LC_ALL=C grep -n "$NONASCII_RE")
-check_clean "burn_rainbow over ASCII text emits pure ASCII (no mascot re-attached)" \
-  "$rainbow_offenders"
-
 # ============================================================================
-# burn_frame_advance FRAME_FILE -- HELD INVARIANT by B08. Advances and
-# persists; absent/empty/non-numeric content restarts at 1; unwritable path
-# echoes 1, returns 0. The pet is gone but the rainbow still consumes this
-# counter, so every one of these must still pass.
-# ============================================================================
-
-check "burn_frame_advance survives B08 (still defined after sourcing)" \
-  "$(pristine 'type -t burn_frame_advance')" "function"
-
-# Absent file: first call starts the sequence at 1, then advances and
-# persists across repeated calls on the same file (behaviour + outputs).
-SEQ_FRAME="$TMPROOT/seq-frame"   # deliberately not pre-created
-r1=$(burn_frame_advance "$SEQ_FRAME"); c1=$?
-r2=$(burn_frame_advance "$SEQ_FRAME")
-r3=$(burn_frame_advance "$SEQ_FRAME")
-check "burn_frame_advance on an absent file starts the sequence at 1" "$r1" "1"
-check "burn_frame_advance exit code 0 on the first (absent-file) call" "$c1" "0"
-check "burn_frame_advance advances to 2 on the second call" "$r2" "2"
-check "burn_frame_advance advances to 3 on the third call" "$r3" "3"
-check "burn_frame_advance persists 3 in the frame file" "$(cat "$SEQ_FRAME")" "3"
-
-# Positive control: valid existing numeric content is read and incremented
-# (not just always reset to 1).
-PRESET_FRAME="$TMPROOT/preset-frame"
-printf '5' > "$PRESET_FRAME"
-out=$(burn_frame_advance "$PRESET_FRAME")
-check "burn_frame_advance increments existing valid content (5 -> 6)" "$out" "6"
-check "burn_frame_advance persists the incremented value" "$(cat "$PRESET_FRAME")" "6"
-
-# Absent / empty / non-numeric content all restart at 1 (edge cases).
-EMPTY_FRAME="$TMPROOT/empty-frame"
-: > "$EMPTY_FRAME"
-check "burn_frame_advance on an empty file restarts at 1" \
-  "$(burn_frame_advance "$EMPTY_FRAME")" "1"
-
-NONNUM_FRAME="$TMPROOT/nonnum-frame"
-printf 'abc' > "$NONNUM_FRAME"
-check "burn_frame_advance on non-numeric content restarts at 1" \
-  "$(burn_frame_advance "$NONNUM_FRAME")" "1"
-
-DECIMAL_FRAME="$TMPROOT/decimal-frame"
-printf '3.5' > "$DECIMAL_FRAME"
-check "burn_frame_advance on decimal (non-integer) content restarts at 1" \
-  "$(burn_frame_advance "$DECIMAL_FRAME")" "1"
-
-# Unwritable path: a directory occupying the target path can never be opened
-# for write as a regular file (true even for root), so this reliably forces
-# the unwritable branch without relying on permission bits.
-UNWRITABLE_TARGET="$TMPROOT/unwritable-target"; mkdir -p "$UNWRITABLE_TARGET"
-out=$(burn_frame_advance "$UNWRITABLE_TARGET"); rc=$?
-check "burn_frame_advance echoes 1 when the path is unwritable" "$out" "1"
-check "burn_frame_advance returns 0 (not an error) when the path is unwritable" "$rc" "0"
-
-# Integer overflow: contract says the counter "may wrap or reset freely", so
-# only the non-crashing, still-a-bare-integer shape is pinned, not a value.
-OVERFLOW_FRAME="$TMPROOT/overflow-frame"
-printf '99999999999999999999999999999999' > "$OVERFLOW_FRAME"
-out=$(burn_frame_advance "$OVERFLOW_FRAME"); rc=$?
-check "burn_frame_advance at integer overflow does not error (exit 0)" "$rc" "0"
-check "burn_frame_advance at integer overflow still echoes a bare integer" \
-  "$(printf '%s' "$out" | grep -qE '^[0-9]+$' && echo yes || echo no)" "yes"
-
-# The counter and the rainbow are wired together: the value burn_frame_advance
-# returns must actually move burn_rainbow's colours. This is the coupling that
-# makes the counter load-bearing after the pet's removal, so it is asserted
-# end-to-end rather than left implied by the two functions' separate sections.
-DRIFT_FRAME="$TMPROOT/drift-frame"
-reset_style; burn_model_style "opus"
-d1=$(burn_rainbow "Opus" "$(burn_frame_advance "$DRIFT_FRAME")")
-d2=$(burn_rainbow "Opus" "$(burn_frame_advance "$DRIFT_FRAME")")
-check "the frame counter still drives the rainbow: consecutive renders differ" \
-  "$([ "$d1" != "$d2" ] && echo differs || echo frozen)" "differs"
-
-# ============================================================================
-# burn_model_style MODEL -> sets BURN_HUES ONLY (case-insensitive substring
-# match; first match in documented order wins; echoes nothing).
+# burn_model_color MODEL  [B03, plan 001-statusline-glance-uplift] -- ONE flat
+# 256-colour opener per model family, replacing the drifting per-character
+# palette of burn_model_style + burn_rainbow. Blue DEEPENS with capability
+# (haiku 117 light, sonnet 75 mid, opus 33 blue) and purple sits outside that
+# ramp (fable 141); anything unrecognised, empty included, is dim grey 245.
 #
-# B08: BURN_MASCOT is NOT set. Asserted with a sentinel rather than by
-# comparing against "", because BURN_MASCOT="" would be a relocation of the
-# decision into the caller, and the contract says removed, not relocated:
-# no caller may rely on the variable at all.
+# The flatness is the feature, so it is asserted as such: the same name gives
+# the same code on every call, with no frame, time or other input in the
+# mapping. That invariance IS what "remove the fancy colouring" means, which is
+# why it is pinned here rather than left implied by the per-family rows.
+#
+# B05 line2-groups is the later block B03 anticipated: burn_model_style and
+# burn_rainbow have no call sites left, so they are retired and their sections
+# are deleted from this file. This function is now the model name's ENTIRE
+# appearance, which is why the flatness and no-glyph assertions below matter
+# more after the retirement than before it.
 # ============================================================================
 
-MASCOT_SENTINEL="__untouched__"
+while read -r model code note; do
+  [[ -z "$model" ]] && continue
+  check "model '$model' -> $code ($note)" \
+    "$(burn_model_color "$(tbl_arg "$model")")" "$(sgr "$code")"
+done <<'MODEL_ROWS'
+haiku      117 light blue: the shallow end of the capability ramp
+sonnet     75  mid blue
+opus       33  blue: the deep end of the ramp
+fable      141 purple, deliberately outside the blue ramp
+gpt-4      245 an unrecognised family takes dim grey
+claude     245 a bare vendor name names no family
+<empty>    245 an empty display name takes dim grey, never nothing
+-          245 a stray token is just unrecognised
+MODEL_ROWS
 
-reset_style
-out=$(burn_model_style "opus")
-check "burn_model_style echoes nothing" "$out" ""
+# Case-insensitive SUBSTRING matching, over the real display-name shapes the
+# payload supplies -- the mapping never sees a bare family token in practice.
+while read -r code model; do
+  [[ -z "$code" ]] && continue
+  check "case-insensitive substring match: '$model' -> $code" \
+    "$(burn_model_color "$model")" "$(sgr "$code")"
+done <<'MODEL_NAME_ROWS'
+117 Claude Haiku 4.5
+75 Claude Sonnet 4.6
+33 Claude Opus 4.7
+141 the fable model
+117 HAIKU
+75 SONNET
+33 OPUS
+141 FABLE
+33 oPuS
+MODEL_NAME_ROWS
 
-reset_style; burn_model_style "opus"
-check "opus hues" "${BURN_HUES[*]}" "196 202 208 214 220 226 214 208"
+# A parenthesised suffix still matches: trimming the display name is the
+# renderer's job, not this function's.
+check "parenthesised suffix still matches: 'Opus 5 (1M context)' -> blue 33" \
+  "$(burn_model_color "Opus 5 (1M context)")" "$(sgr 33)"
+check "parenthesised suffix still matches: 'Haiku 4.5 (fast)' -> light blue 117" \
+  "$(burn_model_color "Haiku 4.5 (fast)")" "$(sgr 117)"
 
-reset_style; burn_model_style "sonnet"
-check "sonnet hues" "${BURN_HUES[*]}" "21 27 33 39 45 51 45 39"
+# Multi-match names resolve deterministically to the FIRST family in the
+# contract's documented order -- haiku, sonnet, opus, fable -- regardless of
+# where each token appears in the name. Order-of-appearance in the STRING is
+# the plausible wrong reading, so both orderings of the same pair are pinned to
+# the same colour.
+check "multiple matches ('Claude Opus Haiku') resolve to the first documented family (haiku 117)" \
+  "$(burn_model_color "Claude Opus Haiku")" "$(sgr 117)"
+check "multiple matches ('Claude Haiku Opus') resolve identically (haiku 117, not string order)" \
+  "$(burn_model_color "Claude Haiku Opus")" "$(sgr 117)"
+check "multiple matches ('Sonnet Fable') resolve to the first documented family (sonnet 75)" \
+  "$(burn_model_color "Sonnet Fable")" "$(sgr 75)"
+check "multiple matches ('Fable Opus') resolve to the first documented family (opus 33)" \
+  "$(burn_model_color "Fable Opus")" "$(sgr 33)"
 
-reset_style; burn_model_style "fable"
-check "fable hues" "${BURN_HUES[*]}" "93 99 135 141 177 201 171 135"
+# Blue deepens with capability: the three blue tiers are three DISTINCT codes,
+# and purple is none of them. A single blue reused across families would pass
+# every "is it a colour" check and lose the whole point of the ramp.
+check "the three blue tiers are distinct codes, and purple is outside the ramp" \
+  "$(burn_model_color haiku)$(burn_model_color sonnet)$(burn_model_color opus)$(burn_model_color fable)" \
+  "$(sgr 117)$(sgr 75)$(sgr 33)$(sgr 141)"
 
-reset_style; burn_model_style "haiku"
-check "haiku hues" "${BURN_HUES[*]}" "22 28 34 40 46 82 118 46"
-
-reset_style; burn_model_style "gpt-4"
-check "unrecognised model falls back to the rainbow hues" "${BURN_HUES[*]}" "196 208 226 46 51 33 201 129"
-
-reset_style; burn_model_style ""
-check "empty model falls back to the rainbow hues" "${BURN_HUES[*]}" "196 208 226 46 51 33 201 129"
-
-# Every hue family still has exactly 8 entries -- burn_rainbow indexes modulo
-# 8 unconditionally, so a short palette would emit an empty colour code.
-for m in opus sonnet fable haiku gpt-4; do
-  reset_style; burn_model_style "$m"
-  check "'$m' hue family has 8 entries (burn_rainbow indexes modulo 8)" "${#BURN_HUES[@]}" "8"
+# Flatness: the colour does not vary with time, call count or any other input.
+# Ten consecutive calls with the same name -- interleaved with calls for OTHER
+# models, which would perturb a drifting palette -- give one identical code
+# every time. (Before B05 this loop also interleaved burn_frame_advance calls;
+# B05 retires the frame counter outright, so the perturbation that remains is
+# the interleaved other-model call, and the assertion is unchanged.)
+flat_out=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  burn_model_color sonnet >/dev/null
+  flat_out="$flat_out$(burn_model_color "Claude Opus 4.7")"
 done
+flat_want=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do flat_want="$flat_want$(sgr 33)"; done
+check "burn_model_color is flat: the same name gives the same code on every call" \
+  "$flat_out" "$flat_want"
 
-# B08: BURN_MASCOT is never written. With the variable already holding a
-# sentinel, any assignment at all -- glyph, text label or empty string --
-# fails this.
-for m in opus sonnet fable haiku gpt-4 "" "Claude Opus Haiku"; do
-  BURN_MASCOT="$MASCOT_SENTINEL"; unset BURN_HUES
-  burn_model_style "$m"
-  check "burn_model_style '$m' leaves a pre-existing BURN_MASCOT untouched (does not set it)" \
-    "$BURN_MASCOT" "$MASCOT_SENTINEL"
-done
+# One colour per name, not one per character: the whole render is a single
+# opener, so the code appears exactly once no matter how long the name is.
+check "burn_model_color emits exactly one colour escape for a long name (not one per character)" \
+  "$(burn_model_color "Claude Sonnet 4.6" | grep -oE "${ESC}\\[38;5;[0-9]+m" | wc -l | tr -d ' ')" "1"
 
-# ...and with BURN_MASCOT unset going in, it stays unset going out -- the
-# `+set` form distinguishes "unset" from "set to the empty string".
-for m in opus sonnet fable haiku gpt-4; do
-  unset BURN_MASCOT BURN_HUES
-  burn_model_style "$m"
-  check "burn_model_style '$m' leaves BURN_MASCOT unset (not set-to-empty)" \
-    "${BURN_MASCOT+set}" ""
-done
+# A missing argument is not a third state: $1 is empty either way.
+check "burn_model_color with no argument at all -> dim grey 245 (identical to an empty name)" \
+  "$(burn_model_color)" "$(sgr 245)"
 
-# The same, from a pristine shell, so the harness cannot be the thing keeping
-# it unset.
-check "pristine shell: burn_model_style sets BURN_HUES and not BURN_MASCOT" \
-  "$(pristine 'burn_model_style opus; echo "hues=${BURN_HUES[*]-unset} mascot=${BURN_MASCOT-unset}"')" \
-  "hues=196 202 208 214 220 226 214 208 mascot=unset"
+# Never nothing. An empty echo would leave the model name uncoloured while the
+# caller still emits its reset, which is exactly how colour leaks into the next
+# segment -- the failure mode the contract's Errors clause names.
+check "burn_model_color on an unrecognised name emits something, never an empty string" \
+  "$([ -n "$(burn_model_color junk)" ] && echo emitted || echo empty)" "emitted"
+check "burn_model_color on an empty name emits something, never an empty string" \
+  "$([ -n "$(burn_model_color "")" ] && echo emitted || echo empty)" "emitted"
 
-# BURN_HUES is the ONE global the contract allows this function to set, so
-# nothing else may appear alongside it.
-check "burn_model_style sets exactly one BURN_* global, BURN_HUES" \
-  "$(pristine 'burn_model_style sonnet; for v in ${!BURN@}; do echo "$v"; done')" \
-  "BURN_HUES"
+# Grey 245 is a 256-COLOUR opener, not the dim SGR 2 attribute: the two are
+# different tiers elsewhere in this file and conflating them is the plausible
+# mis-reading of "dim grey".
+check "burn_model_color's dim grey is 256-colour 245, not the SGR 2 attribute" \
+  "$(burn_model_color junk | LC_ALL=C grep -c '\[2m')" "0"
 
-# Case-insensitive substring matching -- now observed through BURN_HUES,
-# since the mascot that used to witness it is gone.
-reset_style; burn_model_style "Claude Opus 4.7"
-check "case-insensitive substring match: 'Claude Opus 4.7' -> opus hues" \
-  "${BURN_HUES[*]}" "196 202 208 214 220 226 214 208"
+# Bare opener, no reset: the caller closes it, as every burn_*_color here does.
+check "burn_model_color emits only the bare colour prefix (no embedded reset)" \
+  "$(burn_model_color opus | grep -c "${ESC}\\[0m")" "0"
 
-reset_style; burn_model_style "SONNET"
-check "case-insensitive substring match: 'SONNET' -> sonnet hues" \
-  "${BURN_HUES[*]}" "21 27 33 39 45 51 45 39"
+model_want=$(sgr 117)
+check "burn_model_color emits exactly the opener, with no trailing newline" \
+  "$(burn_model_color haiku | wc -c | tr -d ' ')" "${#model_want}"
 
-reset_style; burn_model_style "the fable model"
-check "case-insensitive substring match: 'the fable model' -> fable hues" \
-  "${BURN_HUES[*]}" "93 99 135 141 177 201 171 135"
+# Errors clause: none. Every input, documented or not, exits 0 silently.
+check_silent "burn_model_color opus (a documented family)" 'burn_model_color opus'
+check_silent "burn_model_color junk (unrecognised)" 'burn_model_color junk'
+check_silent "burn_model_color with an empty name" 'burn_model_color ""'
+check_silent "burn_model_color with no argument" 'burn_model_color'
 
-reset_style; burn_model_style "Claude Haiku 4.5"
-check "case-insensitive substring match: 'Claude Haiku 4.5' -> haiku hues" \
-  "${BURN_HUES[*]}" "22 28 34 40 46 82 118 46"
+# Sets no global and echoes only its colour: this function communicates through
+# stdout alone, so nothing may leak into the caller's shell. (The one function
+# in this file that ever set a global, burn_model_style, is retired by B05, so
+# no exception to that rule survives.)
+check "burn_model_color sets no BURN_* global (it communicates through stdout alone)" \
+  "$(pristine 'burn_model_color opus >/dev/null; for v in ${!BURN@}; do echo "LEAK:$v"; done; echo "(none)"')" \
+  "(none)"
 
-# Deterministic first-match-wins ordering when several patterns match.
-reset_style; burn_model_style "Claude Opus Haiku"
-check "multiple matches ('Claude Opus Haiku') resolve to the first documented pattern (opus hues)" \
-  "${BURN_HUES[*]}" "196 202 208 214 220 226 214 208"
-
-reset_style; burn_model_style "Sonnet Fable"
-check "multiple matches ('Sonnet Fable') resolve to the first documented pattern (sonnet hues)" \
-  "${BURN_HUES[*]}" "21 27 33 39 45 51 45 39"
-
-# nocasematch is borrowed, not appropriated: the shell option must be left as
-# it was found, in both directions.
-check "burn_model_style restores nocasematch=off when it was off" \
-  "$(pristine 'shopt -u nocasematch; burn_model_style opus; shopt -q nocasematch && echo on || echo off')" \
+# nocasematch is borrowed, not appropriated -- saved and restored in BOTH
+# directions.
+check "burn_model_color restores nocasematch=off when it was off" \
+  "$(pristine 'shopt -u nocasematch; burn_model_color Opus >/dev/null; shopt -q nocasematch && echo on || echo off')" \
   "off"
-check "burn_model_style leaves nocasematch=on when the caller had it on" \
-  "$(pristine 'shopt -s nocasematch; burn_model_style opus; shopt -q nocasematch && echo on || echo off')" \
+check "burn_model_color leaves nocasematch=on when the caller had it on" \
+  "$(pristine 'shopt -s nocasematch; burn_model_color Opus >/dev/null; shopt -q nocasematch && echo on || echo off')" \
   "on"
 
-# ============================================================================
-# burn_rainbow TEXT FRAME -- HELD INVARIANT by B08. Per-character colour from
-# BURN_HUES, offset by FRAME; ends with a reset; empty TEXT echoes nothing.
-# No exact hue-per-char formula is documented, so these assert the documented
-# BEHAVIOUR only.
-# ============================================================================
-
-check "burn_rainbow survives B08 (still defined after sourcing)" \
-  "$(pristine 'type -t burn_rainbow')" "function"
-
-reset_style; burn_model_style "opus"   # BURN_HUES is opus's palette below
-
-check "burn_rainbow on empty TEXT echoes nothing (not a bare reset)" \
-  "$(burn_rainbow "" 0)" ""
-
-out_ascii=$(burn_rainbow "ABC" 0)
-stripped=$(printf '%s' "$out_ascii" | sed -E "s/${ESC}\\[[0-9;]*m//g")
-check "non-empty TEXT round-trips intact once ANSI is stripped" "$stripped" "ABC"
-check "non-empty TEXT ends with a reset sequence" \
-  "$(printf '%s' "$out_ascii" | tail -c 4)" "${ESC}[0m"
-
-color_count=$(printf '%s' "$out_ascii" | grep -oE "${ESC}\\[38;5;[0-9]+m" | wc -l | tr -d ' ')
-check "one colour escape per character ('ABC' -> 3)" "$color_count" "3"
-
-used_colors=$(printf '%s' "$out_ascii" | grep -oE "${ESC}\\[38;5;[0-9]+m" | sed -E 's/.*;([0-9]+)m/\1/')
-all_in_hues="yes"
-for c in $used_colors; do
-  case " ${BURN_HUES[*]} " in
-    *" $c "*) ;;
-    *) all_in_hues="no" ;;
-  esac
-done
-check "every colour used is drawn from the current model's BURN_HUES palette" "$all_in_hues" "yes"
-
-frame0=$(burn_rainbow "ABC" 0)
-frame1=$(burn_rainbow "ABC" 1)
-check "colours drift with FRAME (same text differs across frames)" \
-  "$([ "$frame0" != "$frame1" ] && echo differs || echo same)" "differs"
-
-# The drift is a rotation of one fixed palette, not a repaint: frame 8 lands
-# back on frame 0 because the palette has 8 entries.
-check "the drift is a rotation: FRAME=8 returns to FRAME=0's colours" \
-  "$(burn_rainbow "ABC" 8)" "$frame0"
-
-# Palette follows the model: the same text under a different model's hues
-# must actually change colour, which is the whole reason BURN_HUES survived
-# B08 while BURN_MASCOT did not.
-reset_style; burn_model_style "sonnet"
-sonnet_render=$(burn_rainbow "ABC" 0)
-reset_style; burn_model_style "opus"
-check "the same text renders differently under a different model's palette" \
-  "$([ "$sonnet_render" != "$frame0" ] && echo differs || echo same)" "differs"
-
-emoji_text="A🎉B"
-out_emoji=$(burn_rainbow "$emoji_text" 0)
-stripped_emoji=$(printf '%s' "$out_emoji" | sed -E "s/${ESC}\\[[0-9;]*m//g")
-check "multi-byte/emoji TEXT is never truncated or reordered" "$stripped_emoji" "$emoji_text"
-
-# The B08 invariant is about what this FILE emits, not about what a caller
-# hands it: text passed in comes back out byte-for-byte, glyphs included.
-accented_text=$(printf 'Ren\xc3\xa9')
-out_accented=$(burn_rainbow "$accented_text" 2)
-stripped_accented=$(printf '%s' "$out_accented" | sed -E "s/${ESC}\\[[0-9;]*m//g")
-check "multi-byte non-emoji TEXT is preserved byte-for-byte" "$stripped_accented" "$accented_text"
+# The file-wide no-non-ASCII invariant, restated where a mascot would most
+# plausibly come back: this function is the model name's whole appearance now,
+# so a glyph re-attached to a family would land here first.
+model_glyph_offenders=$(
+  for m in haiku sonnet opus fable HAIKU "Claude Opus 4.7" "Claude Opus Haiku" gpt-4 ""; do
+    burn_model_color "$m"
+  done 2>/dev/null | LC_ALL=C grep -n "$NONASCII_RE"
+)
+check_clean "burn_model_color emits no glyph for any family (no mascot re-attached)" \
+  "$model_glyph_offenders"
 
 # ============================================================================
 # burn_effort_color EFFORT -- bare SGR sequence per tier; anything else
@@ -789,52 +707,17 @@ check_clean "burn_trend_color emits no glyph in any band (the upstream's on-trac
   "$trend_glyph_offenders"
 
 # ============================================================================
-# burn_diff_color KIND and burn_countdown_color  [B15, plan 003] -- fixed
-# colours for the two values that sit BESIDE a meter rather than being one.
-# No thresholds, no severity: these are not scales.
+# burn_countdown_color  [B15, plan 003] -- the fixed dim colour for the reset
+# countdown that sits BESIDE a meter rather than being one. No thresholds, no
+# severity: this is not a scale.
 #
-# The unrecognised-KIND arm matters more than it looks. It echoes dim, NEVER
-# nothing: an empty echo leaves the text uncoloured while the caller still
-# emits its reset, which is exactly how colour leaks into the next segment.
+# Contract: B05 line2-groups (plan 001-statusline-glance-uplift) RETIRES
+# burn_diff_color along with the +added/-removed segment it coloured -- the one
+# value on line 2 that answered none of the seven glance-items. Its rows are
+# deleted with it rather than relaxed. burn_countdown_color is NOT retired: B05
+# keeps the countdown in both limit groups, wrapped in dimmed parens, so every
+# assertion below stays exactly as sharp as it was.
 # ============================================================================
-
-while read -r kind code note; do
-  [[ -z "$kind" ]] && continue
-  check "diff '$kind' -> $code ($note)" \
-    "$(burn_diff_color "$(tbl_arg "$kind")")" "$(sgr "$code")"
-done <<'DIFF_ROWS'
-add     40  the diffstat convention: additions are green
-del     196 the diffstat convention: removals are red
-ADD     dim only the two documented lowercase tokens are recognised
-added   dim a near miss is not a match
-remove  dim an unrecognised kind
-+       dim the renderer's sign is not the kind
-<empty> dim empty is not a third state
-DIFF_ROWS
-
-check "diff with no argument at all -> dim (identical handling to an unrecognised kind)" \
-  "$(burn_diff_color)" "$(sgr dim)"
-
-# Never nothing: an empty echo is the failure mode the contract names, and it
-# would pass any assertion phrased as "not a colour".
-check "burn_diff_color on an unrecognised kind emits something, never an empty string" \
-  "$([ -n "$(burn_diff_color junk)" ] && echo emitted || echo empty)" "emitted"
-
-# Dim is the SGR 2 ATTRIBUTE, not 256-colour 2, which renders as a solid
-# green-black and is the plausible mis-reading of "dim SGR 2".
-check "burn_diff_color's dim is the bare SGR 2 attribute, not 256-colour 2" \
-  "$(burn_diff_color junk | LC_ALL=C grep -c '38;5;2m')" "0"
-
-check "burn_diff_color emits only the bare colour prefix (no embedded reset)" \
-  "$(burn_diff_color add | grep -c "${ESC}\\[0m")" "0"
-
-diff_want=$(sgr 40)
-check "burn_diff_color emits exactly the opener, with no trailing newline" \
-  "$(burn_diff_color add | wc -c | tr -d ' ')" "${#diff_want}"
-
-check_silent "burn_diff_color add" 'burn_diff_color add'
-check_silent "burn_diff_color junk (unrecognised)" 'burn_diff_color junk'
-check_silent "burn_diff_color with no argument" 'burn_diff_color'
 
 check "countdown -> dim (subordinate to the meter it follows)" \
   "$(burn_countdown_color)" "$(sgr dim)"
@@ -886,11 +769,78 @@ check "reset_str non-numeric RESET_EPOCH echoes nothing" "$out" ""
 check "reset_str non-numeric RESET_EPOCH returns 1" "$rc" "1"
 
 # ============================================================================
+# burn_reset_str RESET_EPOCH NOW  [B04, plan 001-statusline-glance-uplift] --
+# the DAY band. At 24 hours or more the countdown reads "2d4h" rather than
+# "52h0m": three bands checked in order (>=24h -> "<D>d<H>h", >=1h ->
+# "<H>h<M>m", below -> "<M>m"). The two existing bands are BYTE-IDENTICAL and
+# are pinned unchanged in the section above -- this block adds a band, it does
+# not re-derive them, so the rows above are as much a part of B04's contract as
+# the rows below.
+#
+# In the day band the minutes are dropped, not rounded: the unit pair is
+# always the two LARGEST non-zero-order units, which is what makes the segment
+# a glance rather than a reading.
+# ============================================================================
+
+while read -r secs want note; do
+  [[ -z "$secs" ]] && continue
+  check "reset_str ${secs}s -> $want ($note)" "$(burn_reset_str "$secs" 0)" "$want"
+done <<'RESET_ROWS'
+86400    1d0h   exactly 24 hours: the band boundary, inclusive
+86399    23h59m one second under 24 hours: still the hours band
+90000    1d1h   25 hours
+187200   2d4h   the contract's own example
+190740   2d4h   2d4h59m: the minutes are dropped, never rounded up
+604800   7d0h   a weekly reset, dead on
+587520   6d19h  163h12m, the form this band replaces
+863999   9d23h  just under ten days
+864000   10d0h  ten days: a two-digit day count, nothing clamps
+8640000  100d0h a malformed payload's far-future reset renders as-is
+RESET_ROWS
+
+# The day band is reached by the DIFFERENCE, not by the raw epoch: the same
+# span measured from a non-zero NOW renders identically.
+check "reset_str day band is computed from the difference (NOW=1000000)" \
+  "$(burn_reset_str 1187200 1000000)" "2d4h"
+
+# NOW's existing treatment is unchanged: a non-integer NOW is 0, as today.
+check "reset_str non-integer NOW is treated as 0 in the day band" \
+  "$(burn_reset_str 187200 abc)" "2d4h"
+check "reset_str missing NOW is treated as 0 in the day band" \
+  "$(burn_reset_str 187200)" "2d4h"
+
+# The day band is a normal success: rc 0 and nothing on stderr, like every
+# other band. Only an unparseable RESET_EPOCH returns non-zero.
+out=$(burn_reset_str 187200 0); rc=$?
+check "reset_str returns 0 in the day band" "$rc" "0"
+check_silent "burn_reset_str 187200 0 (day band)" 'burn_reset_str 187200 0'
+check_silent "burn_reset_str 86400 0 (band boundary)" 'burn_reset_str 86400 0'
+
+# One line, no colour: the caller wraps it in parens and dims it, so a colour
+# escape emitted here would be dimmed twice and could not be un-nested.
+check "reset_str day band emits no colour escape" \
+  "$(burn_reset_str 187200 0 | LC_ALL=C grep -c "${ESC}")" "0"
+check "reset_str day band emits exactly one line" \
+  "$(burn_reset_str 187200 0 | wc -l | tr -d ' ')" "1"
+
+# The band is exclusive at its lower edge in BOTH directions: one second either
+# side of 24 hours picks different bands, and the hours band never emits a
+# day-count of its own.
+check "reset_str at 86401s -> 1d0h (just over the boundary)" \
+  "$(burn_reset_str 86401 0)" "1d0h"
+check "reset_str below 24h never emits a 'd' unit" \
+  "$(burn_reset_str 86399 0 | LC_ALL=C grep -c 'd')" "0"
+check "reset_str at or above 24h never emits an 'm' unit" \
+  "$(burn_reset_str 187200 0 | LC_ALL=C grep -c 'm')" "0"
+
+# ============================================================================
 # Invariant: no function writes to stderr in normal operation -- output lands
 # directly in the user's statusline, so a stray diagnostic would corrupt the
 # render rather than surface anywhere useful. Swept over the same
-# every-branch matrix used for the ASCII check above, including the
-# unwritable frame file, whose failure the contract requires to be silent.
+# every-branch matrix used for the ASCII check above. (Before B05 this sweep
+# also covered burn_frame_advance's unwritable frame file; that function is
+# retired with the frame counter, and no surviving function touches the
+# filesystem at all, so there is no silent-failure path left to cover.)
 # ============================================================================
 
 emit_every_branch >/dev/null 2>"$TMPROOT/stderr.log"
@@ -903,7 +853,7 @@ check "no function writes to stderr across every documented branch" \
 # whole file dies at source time rather than at the call. Checked statically
 # because a bash 5 test run cannot otherwise observe it, and checked here
 # rather than left to a lint because an associative array is precisely what a
-# rewrite of burn_model_style's model-to-hues mapping would reach for.
+# rewrite of burn_model_color's name-to-family mapping would reach for.
 # ============================================================================
 
 # Comment lines are excluded for the same reason the ASCII scan excludes
@@ -918,8 +868,8 @@ check "burn-theme.sh uses no case-modification expansion (\${var^^} / \${var,,} 
   "$(printf '%s\n' "$theme_code" | LC_ALL=C grep -cE '\$\{[A-Za-z_0-9]+(\[[^]]*\])?(\^|,)')" "0"
 
 # ============================================================================
-# Invariant: forks NO external process -- every function (including
-# burn_frame_advance's read/write) is pure bash builtins. Re-run a
+# Invariant: forks NO external process -- every function is pure bash
+# builtins. Re-run a
 # representative call per function with PATH cleared: if a real
 # implementation shelled out to date/expr/sed/bc/cat/etc., the call would
 # fail (or silently misbehave) with only builtins on offer.
@@ -928,21 +878,6 @@ check "burn-theme.sh uses no case-modification expansion (\${var^^} / \${var,,} 
 no_fork() { # bash_code
   PATH= "$REAL_BASH" -c ". '$THEME'; $1" 2>/dev/null
 }
-
-NF_FRAME="$TMPROOT/no-fork-frame"
-nf_frame_code="burn_frame_advance '$NF_FRAME'"
-nf_out=$(no_fork "$nf_frame_code")
-check "no-fork: burn_frame_advance still advances (absent file -> 1)" "$nf_out" "1"
-
-nf_out=$(no_fork 'burn_model_style opus; printf "%s" "${BURN_HUES[*]}"')
-check "no-fork: burn_model_style still sets BURN_HUES for opus" \
-  "$nf_out" "196 202 208 214 220 226 214 208"
-
-nf_out=$(no_fork 'burn_model_style opus; printf "%s" "${BURN_MASCOT-unset}"')
-check "no-fork: burn_model_style still sets no BURN_MASCOT" "$nf_out" "unset"
-
-nf_out=$(no_fork 'burn_model_style opus; burn_rainbow "Hi" 0' | tail -c 4)
-check "no-fork: burn_rainbow still ends its output with a reset" "$nf_out" "${ESC}[0m"
 
 nf_out=$(no_fork 'burn_effort_color high')
 check "no-fork: burn_effort_color still maps high -> amber 214" "$nf_out" "${ESC}[38;5;214m"
@@ -962,14 +897,23 @@ check "no-fork: burn_ctx_state still maps over-budget -> cold 196" "$nf_out" "co
 nf_out=$(no_fork 'burn_reset_str 3600 0')
 check "no-fork: burn_reset_str still formats 3600s as 1h0m" "$nf_out" "1h0m"
 
+# B04: the day band is arithmetic too -- date(1) is exactly what a
+# day/hour split would reach for, and it is not available here.
+nf_out=$(no_fork 'burn_reset_str 187200 0')
+check "no-fork: burn_reset_str still formats 187200s as 2d4h" "$nf_out" "2d4h"
+
+# B03: the model mapping is a pure case match, no tr/awk/sed for the fold.
+nf_out=$(no_fork 'burn_model_color "Claude Opus 4.7"')
+check "no-fork: burn_model_color still maps an opus name -> blue 33" "$nf_out" "$(sgr 33)"
+
+nf_out=$(no_fork 'burn_model_color gpt-4')
+check "no-fork: burn_model_color still maps an unrecognised name -> grey 245" "$nf_out" "$(sgr 245)"
+
 nf_out=$(no_fork 'burn_ctx_color 60')
 check "no-fork: burn_ctx_color still maps 60 -> red 196" "$nf_out" "$(sgr 196)"
 
 nf_out=$(no_fork 'burn_trend_color -9')
 check "no-fork: burn_trend_color still maps -9 -> grey 245" "$nf_out" "$(sgr 245)"
-
-nf_out=$(no_fork 'burn_diff_color add')
-check "no-fork: burn_diff_color still maps add -> green 40" "$nf_out" "$(sgr 40)"
 
 nf_out=$(no_fork 'burn_countdown_color')
 check "no-fork: burn_countdown_color still emits the dim sequence" "$nf_out" "$(sgr dim)"
@@ -1004,22 +948,17 @@ check "env-isolated: burn_ctx_state still maps over-budget -> cold 196" "$ei_out
 ei_out=$(env_isolated 'burn_reset_str 3600 0')
 check "env-isolated: burn_reset_str still formats 3600s as 1h0m" "$ei_out" "1h0m"
 
-ei_out=$(env_isolated 'burn_model_style opus; printf "%s" "${BURN_HUES[*]}"')
-check "env-isolated: burn_model_style still sets the opus hue family" \
-  "$ei_out" "196 202 208 214 220 226 214 208"
+ei_out=$(env_isolated 'burn_reset_str 187200 0')
+check "env-isolated: burn_reset_str still formats 187200s as 2d4h (no TZ or clock read)" "$ei_out" "2d4h"
 
-ei_frame_code="burn_frame_advance '$TMPROOT/env-isolated-frame'"
-ei_out=$(env_isolated "$ei_frame_code")
-check "env-isolated: burn_frame_advance still starts a fresh file at 1" "$ei_out" "1"
+ei_out=$(env_isolated 'burn_model_color sonnet')
+check "env-isolated: burn_model_color still maps sonnet -> mid blue 75" "$ei_out" "$(sgr 75)"
 
 ei_out=$(env_isolated 'burn_ctx_color 60')
 check "env-isolated: burn_ctx_color still maps 60 -> red 196" "$ei_out" "$(sgr 196)"
 
 ei_out=$(env_isolated 'burn_trend_color 15')
 check "env-isolated: burn_trend_color still maps 15 -> red 196" "$ei_out" "$(sgr 196)"
-
-ei_out=$(env_isolated 'burn_diff_color del')
-check "env-isolated: burn_diff_color still maps del -> red 196" "$ei_out" "$(sgr 196)"
 
 ei_out=$(env_isolated 'burn_countdown_color')
 check "env-isolated: burn_countdown_color still emits the dim sequence" "$ei_out" "$(sgr dim)"
@@ -1039,16 +978,9 @@ check "the trend dead band is a locked constant: decoy env vars do not widen or 
   "$(BURN_TREND_DEADBAND=0 BURN_TREND_BAND=99 BURN_TREND_RED=1 burn_trend_color 3)" \
   "$(sgr 40)"
 
-check "burn_diff_color's fixed colours are not env-configurable" \
-  "$(BURN_DIFF_ADD=99 BURN_DIFF_COLOR=99 burn_diff_color add)" "$(sgr 40)"
-
-# A decoy BURN_MASCOT EXPORTED into the shell must not be honoured either --
-# the emoji is removed, not made configurable. (env_isolated is not usable
-# here: env -i would wipe the very variable under test, so this exports into
-# an otherwise-normal child shell.)
-check "an exported BURN_MASCOT is ignored, not rendered" \
-  "$(BURN_MASCOT="🎭" "$REAL_BASH" -c ". '$THEME'; burn_model_style opus; burn_rainbow 'Opus' 0" 2>/dev/null | LC_ALL=C grep -c "$NONASCII_RE")" \
-  "0"
+# B03: the per-family codes are constants, not a palette a user can retint.
+check "burn_model_color's family colours are not env-configurable" \
+  "$(BURN_MODEL_OPUS=99 BURN_MODEL_COLOR=99 CLAUDE_MODEL_COLOR=1 burn_model_color opus)" "$(sgr 33)"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

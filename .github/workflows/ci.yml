@@ -190,24 +190,6 @@ jobs:
           brew list coreutils > /dev/null 2>&1 || brew install coreutils
           command -v timeout > /dev/null 2>&1 || ln -s "$(brew --prefix)/bin/gtimeout" "$(brew --prefix)/bin/timeout"
 
-      - name: DEBUG render-doc server startup (temporary)
-        run: |
-          set -x
-          RENDER_DOC_PORT=45678 python3 plugins/render-doc/scripts/serve.py > /tmp/srv.out 2> /tmp/srv.err &
-          SRV=$!
-          sleep 5
-          ps -p "$SRV" -o pid,stat,time,command || echo "server process gone"
-          netstat -an | grep 45678 || echo "no socket on 45678"
-          sample "$SRV" 1 2>/dev/null | head -40 || true
-          curl -sv --max-time 2 http://127.0.0.1:45678/health || true
-          echo "--- srv stdout"; cat /tmp/srv.out; echo "--- srv stderr"; cat /tmp/srv.err
-          echo "--- minimal listener probe"
-          python3 -c 'import socket,time,sys; s=socket.socket(); s.bind(("127.0.0.1",45679)); s.listen(); print("listening",flush=True); time.sleep(8)' > /tmp/min.out 2>&1 &
-          sleep 2
-          cat /tmp/min.out
-          curl -sv --max-time 2 http://127.0.0.1:45679/ || true
-          echo "--- system python probe"
-          /usr/bin/python3 --version || true
 
       - name: Test
         run: '"$(brew --prefix)/bin/bash" scripts/ci.sh --test'

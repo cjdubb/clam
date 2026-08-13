@@ -152,6 +152,7 @@ import os
 import re
 import signal
 import socket
+import socketserver
 import subprocess
 import sys
 import threading
@@ -1333,10 +1334,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return None
 
 
+class _NoFqdnHTTPServer(http.server.ThreadingHTTPServer):
+    """ThreadingHTTPServer whose server_bind skips socket.getfqdn().
+
+    HTTPServer.server_bind reverse-resolves the bind address to set
+    server_name, and that lookup can hang for minutes on a host with a
+    wedged resolver (GitHub's macOS runners). Nothing here serves the
+    FQDN — both listeners are loopback-only — so the literal bind host
+    stands in for it.
+    """
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
+
 def main():
     """Bind the fixed port and serve until killed; exit 0 if already bound."""
     try:
-        server = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+        server = _NoFqdnHTTPServer(('127.0.0.1', PORT), Handler)
     except OSError as e:
         if e.errno == errno.EADDRINUSE:
             print(f"render-doc serve: port {PORT} already bound; "
@@ -1348,7 +1365,7 @@ def main():
     # hands *.localhost to ::1 (curl on this machine) still reaches this
     # same server. Any failure here (IPv6 disabled, ::1 already taken)
     # leaves the v4 server above fully functional.
-    class _V6Server(http.server.ThreadingHTTPServer):
+    class _V6Server(_NoFqdnHTTPServer):
         address_family = socket.AF_INET6
 
     server6 = None

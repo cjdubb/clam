@@ -1,6 +1,19 @@
 #!/bin/bash
 # Lints a lego block map for plan-time sizing discipline.
 #
+# <!--
+# Contract: B05 blocks-lint-budget-flag (plan 001-lego-config-redesign)
+# Behavior:   budget = --budget when given, else the constant 500; the
+#             layered-config resolution block is deleted.
+# Inputs:     existing CLI shape; --budget validation retained.
+# Outputs:    unchanged findings/summary.
+# Errors:     config-error paths removed; usage errors unchanged (exit 2).
+# Invariants: per-block ceiling stays floor(budget/2); $LEGO_CONFIG and any
+#             config file on disk are ignored; jq only where still used.
+# Edge cases: omitted --budget on a repo with a stray lego.json -> 500, the
+#             file is not read.
+# -->
+#
 # Run: bash plugins/lego/scripts/blocks-lint.sh [--budget <n>] [path/to/blocks.md]
 #
 # <!--
@@ -66,8 +79,6 @@
 
 set -uo pipefail
 
-: "${JQ:=jq}"
-
 USAGE_MSG="usage: blocks-lint.sh [--budget <n>] [path/to/blocks.md]"
 err() { printf 'ERROR: %s\n' "$1" >&2; }
 usage() { err "$USAGE_MSG"; exit 2; }
@@ -128,67 +139,13 @@ if [ ! -f "$MAP_PATH" ] || [ ! -r "$MAP_PATH" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve the budget: --budget wins (config is never read, jq never
-# invoked); otherwise delivery.prSizeBudget from the effective config (jq
-# recursive merge of the committed base and the gitignored override, both
-# optional, both cwd-relative); otherwise the 500 default.
+# Resolve the budget: --budget when given, else the constant 500. No config
+# file is consulted — not .claude/lego.json, not .local/config.json, not
+# $LEGO_CONFIG — so no config error exists and jq is never needed.
 # ---------------------------------------------------------------------------
 BUDGET=500
 if [ -n "$budget_flag" ]; then
   BUDGET="$budget_flag"
-else
-  base_config=".claude/lego.json"
-  override_config="${LEGO_CONFIG:-.local/config.json}"
-
-  have_base=0
-  have_override=0
-  [ -f "$base_config" ] && have_base=1
-  [ -f "$override_config" ] && have_override=1
-
-  if [ "$have_base" -eq 1 ] || [ "$have_override" -eq 1 ]; then
-    if ! command -v "$JQ" >/dev/null 2>&1; then
-      err "jq is required to read delivery.prSizeBudget from config ($base_config and/or $override_config present); pass --budget to skip config entirely"
-      exit 2
-    fi
-
-    if [ "$have_base" -eq 1 ] && ! "$JQ" -e . "$base_config" >/dev/null 2>&1; then
-      err "invalid JSON in config file: $base_config"
-      exit 2
-    fi
-    if [ "$have_override" -eq 1 ] && ! "$JQ" -e . "$override_config" >/dev/null 2>&1; then
-      err "invalid JSON in config file: $override_config"
-      exit 2
-    fi
-
-    if [ "$have_base" -eq 1 ] && [ "$have_override" -eq 1 ]; then
-      effective_config="$("$JQ" -s '.[0] * .[1]' "$base_config" "$override_config" 2>/dev/null)"
-    elif [ "$have_base" -eq 1 ]; then
-      effective_config="$(cat "$base_config")"
-    else
-      effective_config="$(cat "$override_config")"
-    fi
-
-    # $b is a jq variable, not a shell one, so the single quotes are required.
-    # The linter cannot tell: it special-cases the literal command word `jq`
-    # and understands its argument is a jq program, but "$JQ" hides that.
-    # shellcheck disable=SC2016
-    resolved="$("$JQ" -r '
-      (.delivery.prSizeBudget) as $b
-      | if $b == null then "absent"
-        elif ($b | type) == "number" and $b > 0 and ($b == ($b | floor)) then "valid:\($b | floor)"
-        else "invalid"
-        end
-    ' <<<"$effective_config" 2>/dev/null)"
-
-    case "$resolved" in
-      absent) BUDGET=500 ;;
-      valid:*) BUDGET="${resolved#valid:}" ;;
-      *)
-        err "delivery.prSizeBudget in the effective config is not a positive integer"
-        exit 2
-        ;;
-    esac
-  fi
 fi
 
 CEILING=$((BUDGET / 2))

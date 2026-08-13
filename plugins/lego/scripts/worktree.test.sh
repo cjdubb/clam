@@ -102,6 +102,38 @@
 # new correct behavior (exit 0, local-base fallback, no stderr) rather than
 # the old exit-4 failure. See that test for the full rationale.
 # -->
+# <!--
+# Amendment: B01 worktree-per-unit-commands + B02 worktree-config-deletion +
+# B03 realm-builtins-only (plan 001-lego-config-redesign)
+#
+# Same scoping as the amendments above: B04's freeze covers that refactor, not
+# later contracts. This plan deletes the config layer these tests were written
+# around, so two of B04's clauses move again:
+#   - The pass count moves from 140 to 156. It is still exact: any other value
+#     is a defect, whichever direction it moves.
+#   - Assertions that pinned DELETED behavior are REWRITTEN, not weakened —
+#     each rewrite pins the inverse clause the new contract states, and the
+#     rewritten test carries a comment naming what it used to pin and why it
+#     changed. Concretely:
+#       * test_add_missing_dependencies — its jq / config.json-missing /
+#         commands.test-unresolvable arms are gone (B02 deletes
+#         require_config_json and require_test_cmd); the blocks.md arm stays.
+#       * test_add_success_and_seeding — the seeded-.local/config.json
+#         assertion is inverted (B02: no longer seeded).
+#       * test_add_worktree_dir_resolution — delivery.worktreeDir resolution
+#         becomes "the location is fixed to the repo root's parent and a
+#         configured worktreeDir is inert".
+#       * test_assemble_missing_dependencies — its config.json arm is gone
+#         (assemble consults no config either); jq and blocks.md stay.
+#       * the six layered-config tests and the three realm.sh testPatterns
+#         tests are replaced wholesale by the config-deletion and
+#         realm-builtins-only sections.
+#   - The shared write_blocks_md fixture now emits a per-block "- Test:"
+#     field (and takes an optional command argument), because blocks.md is
+#     the only remaining source of a unit's baseline command.
+# No assertion covering behavior these contracts KEEP is weakened, skipped,
+# merged, or deleted.
+# -->
 set -u
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/worktree.sh"
@@ -378,10 +410,18 @@ write_override_config() {
   printf '%s' "$content" > "$repo/.local/config.json"
 }
 
+# write_blocks_md <repo> [<test-cmd>] -- the shared block map. Every section
+# carries a per-block "- Test:" field (B01 worktree-per-unit-commands: `add`
+# resolves the unit's baseline command from blocks.md, not from any config
+# file); <test-cmd> defaults to "true" and is written identically into every
+# section, so a multi-block unit resolves one agreed command. Blocks sharing a
+# unit therefore never disagree here -- the disagreement error path has its
+# own fixture in the per-unit-commands section below.
 write_blocks_md() {
   local repo="$1"
+  local testcmd="${2:-true}"
   mkdir -p "$repo/.local"
-  cat > "$repo/.local/blocks.md" <<'BLOCKSMD'
+  cat > "$repo/.local/blocks.md" <<BLOCKSMD
 # Block Map
 
 ## B01 — greet
@@ -390,6 +430,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: ${testcmd}
 - Code: src/greet.sh, src/greet_test.sh
 - Contract: greets politely and covers the happy path
 - Plan: plans/001-test.md
@@ -400,6 +441,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: ${testcmd}
 - Code: src/other.sh, src/dir with space/file.sh
 - Contract: handles the other responsibilities of the unit
 - Plan: plans/001-test.md
@@ -410,6 +452,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U02
+- Test: ${testcmd}
 - Code: src/solo.sh
 - Contract: stands alone as a single-block unit
 - Plan: plans/001-test.md
@@ -420,6 +463,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U03
+- Test: ${testcmd}
 - Contract: documents a decision; carries no code paths
 - Plan: plans/001-test.md
 
@@ -429,6 +473,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U04
+- Test: ${testcmd}
 - Code: src/needsimpl.sh
 - Contract: exercises the missing-implementation-commit error path
 - Plan: plans/001-test.md
@@ -439,6 +484,7 @@ write_blocks_md() {
 - Kind: leaf
 - Deps: none
 - Unit: U05
+- Test: ${testcmd}
 - Code: src/noop.sh
 - Contract: exercises the no-op restore path
 - Plan: plans/001-test.md
@@ -596,43 +642,24 @@ test_add_invalid_chars() {
   [ "$RUN_EXIT" -eq 2 ] || record_fail "semicolon in unit-slug: expected exit 2, got $RUN_EXIT"
 }
 
+# REWRITTEN (B02 worktree-config-deletion). The config-shaped arms of this
+# test -- ".local/config.json missing is exit 3", "commands.test empty is exit
+# 3", "commands.test key absent is exit 3" -- pinned behavior B02 deletes: no
+# code path reads .claude/lego.json or .local/config.json any more, and
+# require_config_json/require_test_cmd are gone. What survives here is the one
+# missing-input error `add` keeps: .local/blocks.md. The positive side of the
+# deletion (a repo with no config file at all, and a repo whose config is
+# unusable, both add successfully) is pinned in the config-deletion section
+# further down. The jq arm moves there too: `add` resolves its commands from
+# blocks.md and parses no JSON, so it must not demand jq (B02: "jq retained
+# only where still genuinely used").
 test_add_missing_dependencies() {
   local repo
   repo="$(new_git_repo)"
   write_config_json "$repo" "true"
-  write_blocks_md "$repo"
-  write_contracts "$repo"
-
-  JQ=/nonexistent run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "jq absent: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "jq absent"
-
-  local repo2
-  repo2="$(new_git_repo)"
-  write_blocks_md "$repo2"
-  run_in "$repo2" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "config.json missing: expected exit 3, got $RUN_EXIT"
-
-  local repo3
-  repo3="$(new_git_repo)"
-  write_config_json "$repo3" ""
-  write_blocks_md "$repo3"
-  run_in "$repo3" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "commands.test empty: expected exit 3, got $RUN_EXIT"
-
-  local repo4
-  repo4="$(new_git_repo)"
-  mkdir -p "$repo4/.local"
-  jq -n '{commands:{}}' > "$repo4/.local/config.json"
-  write_blocks_md "$repo4"
-  run_in "$repo4" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "commands.test key absent: expected exit 3, got $RUN_EXIT"
-
-  local repo5
-  repo5="$(new_git_repo)"
-  write_config_json "$repo5" "true"
-  run_in "$repo5" add plan1 U01 greetstuff
+  run_in "$repo" add plan1 U01 greetstuff
   [ "$RUN_EXIT" -eq 3 ] || record_fail "blocks.md missing: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "blocks.md missing"
 }
 
 test_requires_git_work_tree() {
@@ -700,7 +727,7 @@ test_add_baseline_failure_cleans_up() {
   local repo expected_wt
   repo="$(new_git_repo)"
   write_config_json "$repo" "false"
-  write_blocks_md "$repo"
+  write_blocks_md "$repo" "false"
   write_contracts "$repo"
   expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
 
@@ -749,12 +776,13 @@ test_add_success_and_seeding() {
     record_fail "expected git worktree list to include $expected_wt"
   fi
 
-  if [ -f "$expected_wt/.local/config.json" ]; then
-    if ! diff -q "$repo/.local/config.json" "$expected_wt/.local/config.json" >/dev/null 2>&1; then
-      record_fail "seeded .local/config.json is not a verbatim copy"
-    fi
-  else
-    record_fail "expected seeded .local/config.json to exist in new worktree"
+  # REWRITTEN (B02 worktree-config-deletion): this block previously required
+  # a verbatim .local/config.json copy in the new worktree. B02 deletes that
+  # seed outright -- no config file is consulted or propagated any more --
+  # while every other seeded artifact below (unit.md, contracts/, status.md,
+  # briefs/, reports/) is unchanged.
+  if [ -e "$expected_wt/.local/config.json" ]; then
+    record_fail ".local/config.json must no longer be seeded into the unit worktree (B02)"
   fi
 
   if [ -f "$expected_wt/.local/unit.md" ]; then
@@ -823,6 +851,11 @@ test_add_no_contract_file_silently_skipped() {
   fi
 }
 
+# REWRITTEN (B02 worktree-config-deletion). This test previously pinned
+# delivery.worktreeDir resolution (default / relative-against-repo-root). B02
+# fixes the location: unit worktrees are ALWAYS created in the repo root's
+# parent directory, and a delivery.worktreeDir in either former config file is
+# inert -- a stray value on disk is ignored, not an error and not obeyed.
 test_add_worktree_dir_resolution() {
   local repo expected_wt
   repo="$(new_git_repo)"
@@ -832,19 +865,24 @@ test_add_worktree_dir_resolution() {
   expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
 
   run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "default worktreeDir: expected exit 0, got $RUN_EXIT"
-  assert_eq "$expected_wt" "$RUN_OUT_LAST" "default (missing) worktreeDir resolves to parent of repo root"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "no worktreeDir anywhere: expected exit 0, got $RUN_EXIT"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "unit worktree is created in the repo root's parent directory"
 
+  # A worktreeDir set in BOTH former layers must change nothing.
   local repo2 expected_wt2
   repo2="$(new_git_repo)"
+  write_base_config "$repo2" '{"commands":{"test":"true"},"delivery":{"worktreeDir":"../basewt"}}'
   write_config_json "$repo2" "true" "../wtout"
   write_blocks_md "$repo2"
   write_contracts "$repo2"
-  expected_wt2="$(dirname "$repo2")/wtout/$(basename "$repo2")-U01"
+  expected_wt2="$(dirname "$repo2")/$(basename "$repo2")-U01"
 
   run_in "$repo2" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "relative worktreeDir: expected exit 0, got $RUN_EXIT"
-  assert_eq "$expected_wt2" "$RUN_OUT_LAST" "relative worktreeDir resolves against repo root"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "stray worktreeDir in both config files: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt2" "$RUN_OUT_LAST" "delivery.worktreeDir is inert: the worktree still lands in the repo root's parent (B02)"
+  if [ -e "$(dirname "$repo2")/wtout" ] || [ -e "$(dirname "$repo2")/basewt" ]; then
+    record_fail "no directory from a configured worktreeDir may be created at all (B02)"
+  fi
 }
 
 test_add_deterministic() {
@@ -877,7 +915,7 @@ test_add_baseline_runs_inside_new_worktree_after_seeding() {
   # repo, or before seeding completed, this command would fail there and
   # `add` would report a baseline failure instead of succeeding.
   write_config_json "$repo" "test -f .local/unit.md"
-  write_blocks_md "$repo"
+  write_blocks_md "$repo" "test -f .local/unit.md"
   write_contracts "$repo"
 
   run_in "$repo" add plan1 U01 greetstuff
@@ -954,6 +992,7 @@ test_add_status_md_status_field_verbatim_and_empty() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: true
 - Code: src/a.sh
 - Contract: has no Status field at all
 - Plan: plans/001-test.md
@@ -964,6 +1003,7 @@ test_add_status_md_status_field_verbatim_and_empty() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: true
 - Code: src/b.sh
 - Contract: carries an explicit Status field
 - Plan: plans/001-test.md
@@ -999,6 +1039,7 @@ test_add_status_md_multiblock_file_order() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: true
 - Code: src/b.sh
 - Contract: appears first in the file despite the higher block id
 - Plan: plans/001-test.md
@@ -1009,6 +1050,7 @@ test_add_status_md_multiblock_file_order() {
 - Kind: leaf
 - Deps: none
 - Unit: U01
+- Test: true
 - Code: src/a.sh
 - Contract: appears second in the file despite the lower block id
 - Plan: plans/001-test.md
@@ -1097,164 +1139,143 @@ test_add_status_md_deterministic() {
 }
 
 # ===========================================================================
-# add: layered config resolution (NEW/CHANGED, plan 001-lc)
+# config deletion (B02 worktree-config-deletion, plan 001-lego-config-redesign)
 #
-# Effective config = jq recursive merge (.[0] * .[1]) of .claude/lego.json
-# (committed base, read first) and .local/config.json (gitignored override,
-# read second, wins per key). Fixtures below deliberately construct cases
-# the OLD single-file (.local/config.json only) implementation cannot
-# satisfy by coincidence, so a red run here reflects a real gap rather than
-# an accident of the old error paths (e.g. old code's hard requirement that
-# .local/config.json exist would itself produce exit 3/4 for the wrong
-# reason if a fixture only supplied .claude/lego.json or only relied on
-# object-form commands.test).
+# REWRITTEN SECTION. This block previously pinned layered config resolution:
+# the jq recursive merge of .claude/lego.json and .local/config.json, an
+# object-form commands.test with a "default" variant key, and
+# delivery.worktreeDir. B02 deletes all of it -- no code path reads either
+# file, require_config_json/require_test_cmd are gone, the worktree location
+# is fixed to the repo root's parent, and .local/config.json is no longer
+# seeded. The six tests that lived here are replaced by the tests below,
+# which pin the inverse: config files on disk are inert, and their absence,
+# their unusability, and jq's absence are all non-events for `add`.
 # ===========================================================================
 
-test_config_base_only_resolves_and_seeds_without_local_override() {
-  local repo expected_wt base_content_before base_content_after
+test_config_no_config_files_at_all_is_not_an_error() {
+  local repo expected_wt
   repo="$(new_git_repo)"
-  write_base_config "$repo" '{"commands":{"test":"printf BASE_ONLY > MARKER; true"},"delivery":{"worktreeDir":"../basewt"}}'
-  write_blocks_md "$repo"
+  # Deliberately no .claude/lego.json and no .local/config.json anywhere.
+  write_blocks_md "$repo" "printf FROM_BLOCKS > MARKER; true"
   write_contracts "$repo"
-  expected_wt="$(dirname "$repo")/basewt/$(basename "$repo")-U01"
-  base_content_before="$(cat "$repo/.claude/lego.json")"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
 
   run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "only .claude/lego.json exists (no .local/config.json anywhere): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "$expected_wt" "$RUN_OUT_LAST" "delivery.worktreeDir resolved from the base-only effective config"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "no config file of either kind exists: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "worktree path still printed as the last stdout line with no config anywhere"
 
   if [ -f "$expected_wt/MARKER" ]; then
-    assert_eq "BASE_ONLY" "$(cat "$expected_wt/MARKER")" "baseline test command resolved from the base-only effective config actually ran"
+    assert_eq "FROM_BLOCKS" "$(cat "$expected_wt/MARKER")" "the baseline command came from blocks.md, the only remaining source"
   else
-    record_fail "expected baseline MARKER file written by the base-resolved test command"
-  fi
-
-  if [ ! -f "$expected_wt/.claude/lego.json" ]; then
-    record_fail "expected the committed .claude/lego.json to reach the new worktree via git checkout (not explicit seeding)"
+    record_fail "expected the blocks.md-resolved baseline command to have run in the new worktree"
   fi
   if [ -e "$expected_wt/.local/config.json" ]; then
-    record_fail "no .local/config.json existed in the invoking worktree to copy; the new worktree should not have one either (absence is not an error)"
+    record_fail ".local/config.json must never be seeded (B02)"
   fi
-
-  base_content_after="$(cat "$repo/.claude/lego.json" 2>/dev/null)"
-  assert_eq "$base_content_before" "$base_content_after" "committed .claude/lego.json in the invoking worktree is never written by add (read-only input)"
 }
 
-test_config_invalid_json_exit3() {
-  local repo
+test_config_unusable_config_files_are_ignored_not_read() {
+  local repo expected_wt
   repo="$(new_git_repo)"
+  # Both former layers exist and are individually fatal under the OLD
+  # contract: the base is not valid JSON at all, and the override's
+  # commands.test is an object with no resolvable "default". Under B02
+  # neither file is opened, so neither can fail.
   write_base_config "$repo" '{not valid json'
-  write_config_json "$repo" "true"
-  write_blocks_md "$repo"
-  write_contracts "$repo"
-
-  run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "invalid JSON in committed .claude/lego.json, even though .local/config.json alone would otherwise be sufficient: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "invalid JSON in base config"
-
-  local repo2
-  repo2="$(new_git_repo)"
-  write_base_config "$repo2" '{"commands":{"test":"true"}}'
-  write_override_config "$repo2" '{not valid json'
-  write_blocks_md "$repo2"
-  write_contracts "$repo2"
-
-  run_in "$repo2" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "invalid JSON in .local/config.json override, even though .claude/lego.json alone would otherwise be sufficient: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "invalid JSON in override config"
-}
-
-test_config_commands_test_object_errors() {
-  local repo
-  repo="$(new_git_repo)"
-  write_override_config "$repo" '{"commands":{"test":{"main":"true"}}}'
-  write_blocks_md "$repo"
-  write_contracts "$repo"
-  run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "object-form commands.test without a 'default' key: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "object commands.test missing default"
-
-  local repo2
-  repo2="$(new_git_repo)"
-  write_override_config "$repo2" '{"commands":{"test":{"main":"true","default":"missing"}}}'
-  write_blocks_md "$repo2"
-  write_contracts "$repo2"
-  run_in "$repo2" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "'default' names a variant that does not exist: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "default names an absent variant"
-
-  local repo3
-  repo3="$(new_git_repo)"
-  write_override_config "$repo3" '{"commands":{"test":{"main":"","default":"main"}}}'
-  write_blocks_md "$repo3"
-  write_contracts "$repo3"
-  run_in "$repo3" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "'default' names a variant whose value is an empty string: expected exit 3, got $RUN_EXIT"
-  assert_single_error_line "$RUN_ERR" "default names an empty-string variant"
-}
-
-test_config_commands_test_object_resolves_default_variant() {
-  local repo expected_wt
-  repo="$(new_git_repo)"
-  write_override_config "$repo" '{"commands":{"test":{"main":"printf MAIN > MARKER; true","other":"printf OTHER > MARKER; true","default":"main"}}}'
-  write_blocks_md "$repo"
+  write_override_config "$repo" '{"commands":{"test":{"main":""}},"delivery":{"worktreeDir":"../wtout"}}'
+  write_blocks_md "$repo" "printf FROM_BLOCKS > MARKER; true"
   write_contracts "$repo"
   expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
 
   run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "object-form commands.test with a valid default: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "a stray unusable lego.json/config.json must be ignored, not an error: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "worktree still lands in the repo root's parent despite the stray worktreeDir"
+  assert_eq "" "$RUN_ERR" "no diagnostic of any kind is printed for the ignored config files"
 
   if [ -f "$expected_wt/MARKER" ]; then
-    assert_eq "MAIN" "$(cat "$expected_wt/MARKER")" "resolved and ran the variant named by 'default' ('main'), proving 'default' is used as a key reference and never itself eval'd as a command"
+    assert_eq "FROM_BLOCKS" "$(cat "$expected_wt/MARKER")" "baseline came from blocks.md, not from the unusable commands.test"
   else
-    record_fail "expected baseline MARKER file from the resolved 'main' variant"
+    record_fail "expected the blocks.md-resolved baseline command to have run"
   fi
 }
 
-test_config_merge_nested_object_override_wins_default_key() {
-  local repo expected_wt
-  repo="$(new_git_repo)"
-  write_base_config "$repo" '{"commands":{"test":{"fast":"printf FAST > MARKER; true","slow":"printf SLOW > MARKER; true","default":"fast"}}}'
-  write_override_config "$repo" '{"commands":{"test":{"default":"slow"}}}'
-  write_blocks_md "$repo"
-  write_contracts "$repo"
-  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
-
-  run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "recursive merge of a nested commands.test object: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-
-  if [ -f "$expected_wt/MARKER" ]; then
-    assert_eq "SLOW" "$(cat "$expected_wt/MARKER")" "override's 'default' wins per-key while base's variant definitions ('fast'/'slow') survive the merge -- if commands.test were replaced wholesale by the override object instead of merged per key, 'slow' would be undefined and this would fail as an unresolvable default (exit 3), not succeed"
-  else
-    record_fail "expected baseline MARKER file from the resolved 'slow' variant (defined only in base, selected by override's 'default')"
-  fi
-}
-
-test_config_merge_combines_base_and_override_keys() {
+test_config_files_are_neither_written_nor_seeded() {
   local repo expected_wt base_before base_after override_before override_after
   repo="$(new_git_repo)"
-  write_base_config "$repo" '{"commands":{"test":"printf BASE_CMD > MARKER; true"},"delivery":{"worktreeDir":"../basewt"}}'
+  write_base_config "$repo" '{"commands":{"test":"printf CONFIG_CMD > MARKER; true"}}'
   write_override_config "$repo" '{"commands":{"test":"printf OVERRIDE_CMD > MARKER; true"}}'
-  write_blocks_md "$repo"
+  write_blocks_md "$repo" "true"
   write_contracts "$repo"
-  expected_wt="$(dirname "$repo")/basewt/$(basename "$repo")-U01"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
   base_before="$(cat "$repo/.claude/lego.json")"
   override_before="$(cat "$repo/.local/config.json")"
 
   run_in "$repo" add plan1 U01 greetstuff
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "merge of base+override across different top-level keys: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
-  assert_eq "$expected_wt" "$RUN_OUT_LAST" "delivery.worktreeDir inherited from base when the override does not set it"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
 
-  if [ -f "$expected_wt/MARKER" ]; then
-    assert_eq "OVERRIDE_CMD" "$(cat "$expected_wt/MARKER")" "commands.test from the override wins over base's value for the same key"
-  else
-    record_fail "expected baseline MARKER file from the override-resolved test command"
+  if [ -e "$expected_wt/MARKER" ]; then
+    record_fail "neither config file's commands.test may be executed as the baseline any more (B02); MARKER content: $(cat "$expected_wt/MARKER")"
+  fi
+  if [ -e "$expected_wt/.local/config.json" ]; then
+    record_fail ".local/config.json must no longer be copied into the unit worktree (B02)"
   fi
 
   base_after="$(cat "$repo/.claude/lego.json" 2>/dev/null)"
   override_after="$(cat "$repo/.local/config.json" 2>/dev/null)"
-  assert_eq "$base_before" "$base_after" "committed .claude/lego.json unchanged by add (read-only input)"
-  assert_eq "$override_before" "$override_after" "invoking worktree's .local/config.json unchanged by add (read-only input; only the seeded copy in the new worktree is written)"
+  assert_eq "$base_before" "$base_after" "the stray .claude/lego.json is never written by add"
+  assert_eq "$override_before" "$override_after" "the stray .local/config.json is never written by add"
+}
+
+test_config_add_does_not_require_jq() {
+  local repo
+  repo="$(new_git_repo)"
+  write_blocks_md "$repo" "true"
+  write_contracts "$repo"
+
+  # B02: "jq retained only where still genuinely used". `add` resolves its
+  # commands from blocks.md and parses no JSON at all, so an absent jq (the
+  # injectable JQ seam, exactly as elsewhere in this file) must not stop it.
+  JQ=/nonexistent run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "add parses no JSON and must not demand jq: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+}
+
+test_config_add_is_deterministic_without_any_config() {
+  local repoA repoB exitA exitB outA outB
+  repoA="$(new_git_repo)"
+  write_blocks_md "$repoA" "true"
+  write_contracts "$repoA"
+  repoB="$(new_git_repo)"
+  write_blocks_md "$repoB" "true"
+  write_contracts "$repoB"
+
+  run_in "$repoA" add plan1 U01 greetstuff
+  exitA="$RUN_EXIT"; outA="$RUN_OUT_LAST"
+  run_in "$repoB" add plan1 U01 greetstuff
+  exitB="$RUN_EXIT"; outB="$RUN_OUT_LAST"
+
+  [ "$exitA" -eq 0 ] || record_fail "run A: expected exit 0, got $exitA"
+  [ "$exitB" -eq 0 ] || record_fail "run B: expected exit 0, got $exitB"
+  assert_eq "$(basename "$outA")" "$(basename "$outB")" "same inputs, same results with the config layer deleted (determinism preserved)"
+}
+
+test_config_assemble_needs_no_config_file() {
+  local repo manifest
+  repo="$(build_deliver_base)"
+  # build_deliver_base still writes a .local/config.json (harmless under B02,
+  # since nothing reads it); delete it so this fixture has no config layer at
+  # all and assemble's former require_config_json would fire.
+  rm -f "$repo/.local/config.json"
+
+  git -C "$repo" checkout -q -b "lego/plan1/U01-greetstuff" master
+  commit_file "$repo" "src/greet.sh" "greet v1" "lego(U01): implementation"
+  git -C "$repo" checkout -q master
+  integrate_units "$repo" "lego/plan1/U01-greetstuff"
+
+  manifest="$(write_valid_manifest "$repo" "test: assemble without config" "lego/deliver/plan1/U01" U01)"
+
+  run_in "$repo" assemble --manifest "$manifest" plan1 master U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "assemble must no longer require a config file (B02): expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "lego/deliver/plan1/U01" "$RUN_OUT_LAST" "assembled branch name still the last stdout line with no config file present"
 }
 
 # ===========================================================================
@@ -1740,12 +1761,11 @@ test_assemble_missing_dependencies() {
     *) record_fail "jq absent: diagnostic does not mention jq (stderr: $RUN_ERR)" ;;
   esac
 
-  local repo2
-  repo2="$(new_git_repo)"
-  write_blocks_md "$repo2"
-  run_in "$repo2" assemble --manifest "$repo2/unused-manifest.json" plan1 master U01 greetstuff
-  [ "$RUN_EXIT" -eq 3 ] || record_fail "config.json missing: expected exit 3, got $RUN_EXIT"
-
+  # REWRITTEN (B02 worktree-config-deletion): the "config.json missing ->
+  # exit 3" arm is deleted, because assemble no longer consults any config
+  # file (its positive counterpart is
+  # test_config_assemble_needs_no_config_file). jq survives here: assemble
+  # genuinely still parses the manifest with it. blocks.md is unchanged.
   local repo3
   repo3="$(new_git_repo)"
   write_config_json "$repo3" "true"
@@ -4018,52 +4038,125 @@ test_archive_merge_success_removal_failure_preserves_source_copy() {
 }
 
 # ===========================================================================
-# realm.sh: testPatterns union across the layered config (NEW, plan 001-lc)
+# realm.sh: built-in family only (B03 realm-builtins-only, plan
+# 001-lego-config-redesign)
 #
-# realm.sh's extension point currently reads only .local/config.json
-# (LEGO_CONFIG-overridable). The new contract unions its testPatterns with
-# .claude/lego.json's (fixed path, unaffected by $LEGO_CONFIG), each file
-# optional -- a deliberate exception to the recursive-merge-with-override-
-# wins semantics used elsewhere: the test-file family can only grow.
+# REWRITTEN SECTION. These three tests previously pinned the testPatterns
+# extension point: the union of .claude/lego.json's and .local/config.json's
+# testPatterns arrays, with $LEGO_CONFIG redirecting the override file. B03
+# deletes the extension point outright -- classification uses ONLY the
+# built-in family, and realm.sh reads no file, shells out to no jq, and
+# consults no config. The rewrites below pin exactly that inversion, plus the
+# built-in family itself (which the contract says may never shrink) and the
+# named edge case: a path that used to match only via testPatterns now
+# classifies impl by design.
 # ===========================================================================
 
-test_realm_testpatterns_union_combines_base_and_override() {
+# run_realm_with_jq_probe <dir> <path> -- like run_realm, but with a fake `jq`
+# first on PATH that records every invocation. Proves the "no jq" invariant
+# positively: if realm.sh still shells out to jq, the probe log is non-empty.
+# Sets RUN_REALM_OUT / RUN_REALM_EXIT / RUN_REALM_JQ_CALLS.
+RUN_REALM_JQ_CALLS=""
+run_realm_with_jq_probe() {
+  local dir="$1" path="$2"
+  local container out ec
+  container="$(mktemp -d)"
+  track_tmp "$container"
+  mkdir -p "$container/bin"
+  : > "$container/jq.log"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'printf "%%s\\n" "$*" >> %s\n' "$(printf '%q' "$container/jq.log")"
+    printf 'exit 0\n'
+  } > "$container/bin/jq"
+  chmod +x "$container/bin/jq"
+
+  out="$(mktemp)"
+  ( cd "$dir" && PATH="$container/bin:$PATH" bash "$REALM_SCRIPT" "$path" ) >"$out" 2>/dev/null
+  ec=$?
+  RUN_REALM_OUT="$(cat "$out")"
+  RUN_REALM_EXIT=$ec
+  RUN_REALM_JQ_CALLS="$(cat "$container/jq.log")"
+  rm -f "$out"
+}
+
+test_realm_builtin_family_classification() {
+  local repo
+  repo="$(new_git_repo)"
+
+  local p
+  for p in "src/foo.spec.js" "src/foo.test.ts" "src/foo_test.py" "src/foo_spec.rb" "src/test_foo.py" "src/__tests__/fixture.md" "__tests__/a/b/c.json"; do
+    run_realm "$repo" "" "$p"
+    assert_eq "test" "$RUN_REALM_OUT" "built-in test family classifies $p as test (the family never shrinks)"
+    [ "$RUN_REALM_EXIT" -eq 0 ] || record_fail "$p: expected exit 0, got $RUN_REALM_EXIT"
+  done
+
+  for p in "src/foo.js" "src/tests.js" "src/contest_helper.py" "docs/testing.md"; do
+    run_realm "$repo" "" "$p"
+    assert_eq "impl" "$RUN_REALM_OUT" "a path outside the built-in family classifies $p as impl"
+    [ "$RUN_REALM_EXIT" -eq 0 ] || record_fail "$p: expected exit 0, got $RUN_REALM_EXIT"
+  done
+}
+
+test_realm_testpatterns_no_longer_extend_the_family() {
+  local repo
+  repo="$(new_git_repo)"
+  write_base_config "$repo" '{"testPatterns":["*.basepat","src/globbed/*"]}'
+  write_override_config "$repo" '{"testPatterns":["*.overridepat"]}'
+
+  run_realm "$repo" "" "foo.basepat"
+  assert_eq "impl" "$RUN_REALM_OUT" "a basename that only matched via .claude/lego.json's testPatterns now classifies impl by design (B03)"
+
+  run_realm "$repo" "" "bar.overridepat"
+  assert_eq "impl" "$RUN_REALM_OUT" "a basename that only matched via .local/config.json's testPatterns now classifies impl by design (B03)"
+
+  run_realm "$repo" "" "src/globbed/thing.js"
+  assert_eq "impl" "$RUN_REALM_OUT" "a full-path pattern from the deleted extension point no longer classifies as test (B03)"
+
+  # The built-in family is unaffected by the presence of those files.
+  run_realm "$repo" "" "src/thing.test.js"
+  assert_eq "test" "$RUN_REALM_OUT" "built-in family still classifies normally with config files present"
+}
+
+test_realm_reads_no_config_and_never_invokes_jq() {
   local repo
   repo="$(new_git_repo)"
   write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
   write_override_config "$repo" '{"testPatterns":["*.overridepat"]}'
-
-  run_realm "$repo" "" "foo.basepat"
-  assert_eq "test" "$RUN_REALM_OUT" "base-contributed pattern matches (union includes .claude/lego.json's testPatterns, not just .local/config.json's)"
-
-  run_realm "$repo" "" "bar.overridepat"
-  assert_eq "test" "$RUN_REALM_OUT" "override-contributed pattern still matches"
-
-  run_realm "$repo" "" "baz.other"
-  assert_eq "impl" "$RUN_REALM_OUT" "a path matching neither file's patterns and no built-in test family is impl"
-}
-
-test_realm_testpatterns_base_only_when_no_override_present() {
-  local repo
-  repo="$(new_git_repo)"
-  write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
-
-  run_realm "$repo" "" "x.basepat"
-  assert_eq "test" "$RUN_REALM_OUT" "base file alone (no .local/config.json present at all) still contributes its testPatterns -- each file is independently optional"
-}
-
-test_realm_lego_config_env_overrides_only_override_location_base_fixed() {
-  local repo
-  repo="$(new_git_repo)"
-  write_base_config "$repo" '{"testPatterns":["*.basepat"]}'
   mkdir -p "$repo/custom"
   printf '%s' '{"testPatterns":["*.custompat"]}' > "$repo/custom/override.json"
 
+  # $LEGO_CONFIG is inert: there is no override file to redirect any more.
   run_realm "$repo" "custom/override.json" "a.custompat"
-  assert_eq "test" "$RUN_REALM_OUT" "\$LEGO_CONFIG redirects the override file's location"
+  assert_eq "impl" "$RUN_REALM_OUT" "\$LEGO_CONFIG no longer redirects anything: the named file is never read (B03)"
 
-  run_realm "$repo" "custom/override.json" "b.basepat"
-  assert_eq "test" "$RUN_REALM_OUT" "the base path (.claude/lego.json) is fixed and still read even when \$LEGO_CONFIG points the override elsewhere"
+  run_realm_with_jq_probe "$repo" "foo.basepat"
+  assert_eq "impl" "$RUN_REALM_OUT" "config-only pattern is impl even with a working jq on PATH"
+  assert_eq "" "$RUN_REALM_JQ_CALLS" "realm.sh must never invoke jq (no jq dependency, no config read)"
+
+  run_realm_with_jq_probe "$repo" "src/foo.test.js"
+  assert_eq "test" "$RUN_REALM_OUT" "built-in classification is unchanged with jq present"
+  assert_eq "" "$RUN_REALM_JQ_CALLS" "the built-in path invokes no jq either"
+}
+
+test_realm_usage_error_and_cli_shape_unchanged() {
+  local repo out ec
+  repo="$(new_git_repo)"
+
+  # CLI shape unchanged: exactly one positional path, result on stdout.
+  run_realm "$repo" "" "src/a.test.js"
+  assert_eq "test" "$RUN_REALM_OUT" "realm.sh <path> still prints the classification on stdout"
+
+  # Usage error: no path argument. The contract says "exit 2 on usage error as
+  # today"; today's implementation exits 1 via ${1:?...}. Rather than pick a
+  # side, this pins what both readings agree on -- a non-zero exit and no
+  # classification on stdout. See the report's escalation note.
+  out="$(mktemp)"
+  track_tmp "$out"
+  ( cd "$repo" && bash "$REALM_SCRIPT" ) >"$out" 2>/dev/null
+  ec=$?
+  [ "$ec" -ne 0 ] || record_fail "realm.sh with no path argument: expected a non-zero usage exit, got $ec"
+  assert_eq "" "$(cat "$out")" "a usage error prints no classification on stdout"
 }
 
 # ===========================================================================
@@ -4952,20 +5045,451 @@ test_assemble_subject_scan_lower_bound_uses_the_fresh_base() {
 }
 
 # ===========================================================================
+# add: per-unit commands from blocks.md (B01 worktree-per-unit-commands,
+# plan 001-lego-config-redesign)
+#
+# `add` resolves the unit's baseline from the blocks.md sections it already
+# matches: the optional per-block "- Setup:" and the required per-block
+# "- Test:". It runs Setup (when present) then Test inside the new worktree;
+# --setup-cmd/--test-cmd override blocks.md per key. Every fixture below
+# still writes a .local/config.json whose commands.test is a command that
+# touches NOTHING (or writes a distinguishable marker), so a red run here is
+# caused by the blocks.md-sourced behavior being missing, never by the old
+# config path merely being unavailable.
+#
+# Commands write to a PROBE file OUTSIDE the new worktree, because the
+# failure paths delete that worktree before the assertions run; the probe is
+# the only way to observe which phases executed.
+# ===========================================================================
+
+# write_probe_blocks <repo> <setup-or-empty> <test-or-empty> [extra-line...] --
+# a one-block map for unit U01 whose Setup/Test fields are written verbatim
+# (omitted entirely when the argument is empty). Extra "- Key: value" lines
+# are appended to the section verbatim.
+write_probe_blocks() {
+  local repo="$1" setup="$2" testcmd="$3"
+  shift 3
+  mkdir -p "$repo/.local"
+  {
+    printf '# Block Map\n'
+    printf '\n'
+    printf '## B01 — greet\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Owner: agent\n'
+    printf -- '- Kind: leaf\n'
+    printf -- '- Deps: none\n'
+    printf -- '- Unit: U01\n'
+    [ -n "$setup" ] && printf -- '- Setup: %s\n' "$setup"
+    [ -n "$testcmd" ] && printf -- '- Test: %s\n' "$testcmd"
+    printf -- '- Code: src/greet.sh\n'
+    printf -- '- Contract: greets politely and covers the happy path\n'
+    local extra
+    for extra in "$@"; do
+      printf '%s\n' "$extra"
+    done
+    printf -- '- Plan: plans/001-test.md\n'
+  } > "$repo/.local/blocks.md"
+}
+
+# new_probe -- prints a fresh probe file path inside its own tracked temp dir.
+new_probe() {
+  local d
+  d="$(mktemp -d)"
+  track_tmp "$d"
+  printf '%s' "$d/probe"
+}
+
+test_add_resolves_test_command_from_blocks_md() {
+  local repo probe expected_wt
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  # A config whose commands.test would write a DIFFERENT marker: if the
+  # baseline still came from the config, the probe would say CONFIG.
+  write_config_json "$repo" "printf CONFIG >> $probe"
+  write_probe_blocks "$repo" "" "printf BLOCKS >> $probe"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "worktree path is still the last stdout line"
+  assert_eq "BLOCKS" "$(cat "$probe" 2>/dev/null)" "the baseline is blocks.md's '- Test:' value, run exactly once, with no Setup phase (Setup absent -> Test alone)"
+}
+
+test_add_runs_setup_then_test_in_the_new_worktree() {
+  local repo probe expected_wt line1 line2
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "printf 'SETUP:%s\\n' \"\$(pwd)\" >> $probe" "printf 'TEST:%s\\n' \"\$(pwd)\" >> $probe"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  line1="$(sed -n '1p' "$probe" 2>/dev/null)"
+  line2="$(sed -n '2p' "$probe" 2>/dev/null)"
+  assert_eq "SETUP:$expected_wt" "$line1" "Setup runs first, inside the new worktree"
+  assert_eq "TEST:$expected_wt" "$line2" "Test runs after Setup, inside the new worktree"
+  assert_eq "2" "$(grep -c '' "$probe" 2>/dev/null)" "exactly two baseline phases ran"
+}
+
+test_add_setup_failure_exit4_names_the_phase() {
+  local repo probe expected_wt
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "printf SETUP >> $probe; false" "printf TEST >> $probe"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "Setup failure: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "Setup failure"
+  case "$(printf '%s' "$RUN_ERR" | tr '[:upper:]' '[:lower:]')" in
+    *setup*) : ;;
+    *) record_fail "Setup failure: the error line must name the failed phase (stderr: $RUN_ERR)" ;;
+  esac
+
+  assert_eq "SETUP" "$(cat "$probe" 2>/dev/null)" "Test never runs when Setup fails"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "Setup failure must clean up the branch it created"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "Setup failure must clean up the worktree it created"
+  fi
+}
+
+test_add_test_failure_exit4_names_the_phase() {
+  local repo probe expected_wt setup_err test_err
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "printf SETUP >> $probe" "printf TEST >> $probe; false"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 4 ] || record_fail "Test failure: expected exit 4, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "Test failure"
+  test_err="$RUN_ERR"
+  case "$(printf '%s' "$test_err" | tr '[:upper:]' '[:lower:]')" in
+    *test*) : ;;
+    *) record_fail "Test failure: the error line must name the failed phase (stderr: $test_err)" ;;
+  esac
+  assert_eq "SETUPTEST" "$(cat "$probe" 2>/dev/null)" "Setup succeeded and Test ran before failing"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "Test failure must clean up the branch it created"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "Test failure must clean up the worktree it created"
+  fi
+
+  # The two phases must be distinguishable from the message alone.
+  local repo2 probe2
+  repo2="$(new_git_repo)"
+  probe2="$(new_probe)"
+  write_config_json "$repo2" "true"
+  write_probe_blocks "$repo2" "printf SETUP >> $probe2; false" "true"
+  write_contracts "$repo2"
+  run_in "$repo2" add plan1 U01 greetstuff
+  setup_err="$RUN_ERR"
+  if [ "$setup_err" = "$test_err" ]; then
+    record_fail "Setup and Test failures must print distinct messages naming the failed phase (both: $test_err)"
+  fi
+}
+
+test_add_no_test_command_resolves_exit3() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  # A perfectly usable commands.test in the config is deliberately present:
+  # it must NOT rescue a unit whose blocks.md carries no Test field.
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "" ""
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "no Test field and no --test-cmd: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "no Test resolves"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "an unresolvable Test command must create no branch"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "an unresolvable Test command must create no worktree"
+  fi
+}
+
+test_add_test_cmd_flag_satisfies_missing_field() {
+  local repo probe
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "printf CONFIG >> $probe"
+  write_probe_blocks "$repo" "" ""
+  write_contracts "$repo"
+
+  run_in "$repo" add plan1 U01 greetstuff --test-cmd "printf FLAG >> $probe"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--test-cmd supplies the missing Test field: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "FLAG" "$(cat "$probe" 2>/dev/null)" "the flag's command is the baseline"
+}
+
+test_add_conflicting_test_fields_exit3() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  {
+    printf '# Block Map\n\n'
+    printf '## B01 — greet\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Test: make test-a\n'
+    printf -- '- Code: src/greet.sh\n'
+    printf -- '- Contract: one half of a disagreeing unit\n\n'
+    printf '## B02 — other\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Test: make test-b\n'
+    printf -- '- Code: src/other.sh\n'
+    printf -- '- Contract: the other half of a disagreeing unit\n'
+  } > "$repo/.local/blocks.md"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "blocks sharing a unit disagree on Test: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "disagreeing Test fields"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "a disagreeing unit must create no branch"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "a disagreeing unit must create no worktree"
+  fi
+}
+
+test_add_flags_override_blocks_md_per_key() {
+  local repo probe blocks_before blocks_after
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "printf S1 >> $probe" "printf T1 >> $probe"
+  write_contracts "$repo"
+  blocks_before="$(cat "$repo/.local/blocks.md")"
+
+  # --test-cmd only: the blocks.md Setup survives, the Test is replaced.
+  run_in "$repo" add plan1 U01 greetstuff --test-cmd "printf T2 >> $probe"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--test-cmd override: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "S1T2" "$(cat "$probe" 2>/dev/null)" "--test-cmd overrides only the Test key; blocks.md's Setup still runs first"
+
+  blocks_after="$(cat "$repo/.local/blocks.md")"
+  assert_eq "$blocks_before" "$blocks_after" "flags never write back to blocks.md"
+
+  # --setup-cmd only: the blocks.md Test survives, the Setup is replaced.
+  local repo2 probe2
+  repo2="$(new_git_repo)"
+  probe2="$(new_probe)"
+  write_config_json "$repo2" "true"
+  write_probe_blocks "$repo2" "printf S1 >> $probe2" "printf T1 >> $probe2"
+  write_contracts "$repo2"
+
+  run_in "$repo2" add plan1 U01 greetstuff --setup-cmd "printf S2 >> $probe2"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--setup-cmd override: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "S2T1" "$(cat "$probe2" 2>/dev/null)" "--setup-cmd overrides only the Setup key; blocks.md's Test still runs"
+}
+
+test_add_setup_cmd_flag_with_no_setup_field() {
+  local repo probe
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "" "printf T >> $probe"
+  write_contracts "$repo"
+
+  run_in "$repo" add plan1 U01 greetstuff --setup-cmd "printf S >> $probe"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "ST" "$(cat "$probe" 2>/dev/null)" "a --setup-cmd with no blocks.md Setup field still runs before Test"
+}
+
+test_add_identical_fields_across_blocks_run_each_command_once() {
+  local repo probe
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  {
+    printf '# Block Map\n\n'
+    printf '## B01 — greet\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Setup: printf S >> %s\n' "$probe"
+    printf -- '- Test: printf T >> %s\n' "$probe"
+    printf -- '- Code: src/greet.sh\n'
+    printf -- '- Contract: first of two blocks with identical commands\n\n'
+    printf '## B02 — other\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Setup: printf S >> %s\n' "$probe"
+    printf -- '- Test: printf T >> %s\n' "$probe"
+    printf -- '- Code: src/other.sh\n'
+    printf -- '- Contract: second of two blocks with identical commands\n'
+  } > "$repo/.local/blocks.md"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "two blocks with identical fields: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "ST" "$(cat "$probe" 2>/dev/null)" "identical fields across a unit's blocks run each command exactly once, not once per block"
+}
+
+test_add_unit_md_strips_delivery_fields() {
+  local repo expected_wt unit_md
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "" "true" \
+    "- PR group: G01" "- Est: 250" "- Justification: the orchestrator's sizing rationale"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  unit_md="$expected_wt/.local/unit.md"
+  if [ ! -f "$unit_md" ]; then
+    record_fail "expected seeded .local/unit.md"
+    return
+  fi
+
+  if grep -q -- '- PR group:' "$unit_md"; then
+    record_fail "unit.md must not carry '- PR group:' (delivery knowledge is orchestrator-only)"
+  fi
+  if grep -q -- '- Est:' "$unit_md"; then
+    record_fail "unit.md must not carry '- Est:'"
+  fi
+  if grep -q -- '- Justification:' "$unit_md"; then
+    record_fail "unit.md must not carry '- Justification:'"
+  fi
+
+  # Everything else survives verbatim, including the new command fields.
+  local keep
+  for keep in "## B01 — greet" "- Status: Scaffolded" "- Unit: U01" "- Test: true" \
+              "- Code: src/greet.sh" "- Contract: greets politely and covers the happy path"; do
+    if ! grep -qF -- "$keep" "$unit_md"; then
+      record_fail "unit.md lost a non-delivery line that must survive verbatim: $keep"
+    fi
+  done
+  assert_eq "# Unit U01" "$(head -n1 "$unit_md")" "unit.md first line unchanged"
+
+  # The source map itself is untouched -- stripping happens on the copy.
+  if ! grep -q -- '- PR group: G01' "$repo/.local/blocks.md"; then
+    record_fail "the integration worktree's blocks.md must keep its delivery fields (add never rewrites it)"
+  fi
+}
+
+test_add_tolerates_unknown_blocks_fields() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_probe_blocks "$repo" "" "true" "- Frobnicate: yes, verbatim" "- Wave: 7"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "unknown blocks.md fields must be tolerated: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+
+  if ! grep -qF -- "- Frobnicate: yes, verbatim" "$expected_wt/.local/unit.md" 2>/dev/null; then
+    record_fail "an unknown field must reach the seeded unit.md verbatim"
+  fi
+  if ! grep -qF -- "- Wave: 7" "$expected_wt/.local/unit.md" 2>/dev/null; then
+    record_fail "a second unknown field must reach the seeded unit.md verbatim"
+  fi
+}
+
+test_add_refuses_to_fork_from_a_unit_worktree() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  write_blocks_md "$repo"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+  # Stand in the shoes of a unit worktree: a checkout whose branch matches
+  # the unit-branch pattern. add forks only from the integration tip.
+  git -C "$repo" checkout -q -b "lego/plan9/U07-someslug"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "add from a unit worktree: expected exit 3, got $RUN_EXIT"
+  assert_single_error_line "$RUN_ERR" "add from a unit worktree"
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "a refused add must create no branch"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "a refused add must create no worktree"
+  fi
+
+  # Mirroring merge's guard: a lego/* branch with no U*-* segment is fine.
+  local repo2 expected_wt2
+  repo2="$(new_git_repo)"
+  write_config_json "$repo2" "true"
+  write_blocks_md "$repo2"
+  write_contracts "$repo2"
+  expected_wt2="$(dirname "$repo2")/$(basename "$repo2")-U01"
+  git -C "$repo2" checkout -q -b "lego/foo/bar"
+
+  run_in "$repo2" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "a lego/* branch with no U*-* segment is not a unit worktree: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt2" "$RUN_OUT_LAST" "add still succeeds from a non-unit lego branch"
+}
+
+test_new_blocks_fields_do_not_affect_other_subcommands() {
+  local repo branch wt
+  repo="$(new_git_repo)"
+  # A block map carrying every new field, plus delivery fields: merge must
+  # behave exactly as it does without them (it never runs a unit's commands).
+  write_probe_blocks "$repo" "false" "false" "- PR group: G01" "- Est: 250"
+  branch="lego/plan1/U01-greetstuff"
+  wt="$(dirname "$repo")/manual-wt-U01"
+
+  git -C "$repo" branch "$branch"
+  git -C "$repo" worktree add -q "$wt" "$branch"
+  commit_file "$wt" "feature.txt" "feature content" "unit work"
+
+  run_in "$repo" merge plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "merge is unaffected by the new blocks.md fields: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  if [ ! -f "$repo/feature.txt" ]; then
+    record_fail "expected the merge itself to have succeeded"
+  fi
+}
+
+# ===========================================================================
 # main
 # ===========================================================================
 
 run_test "add: usage error on wrong argument count" test_add_usage_argcount
+run_test "add: resolves the baseline Test command from blocks.md; Setup absent means Test alone (B01 worktree-per-unit-commands)" test_add_resolves_test_command_from_blocks_md
+run_test "add: runs Setup then Test, in that order, inside the new worktree (B01 worktree-per-unit-commands)" test_add_runs_setup_then_test_in_the_new_worktree
+run_test "add: Setup failure is exit 4 naming the setup phase, Test never runs, everything created is cleaned up (B01 worktree-per-unit-commands)" test_add_setup_failure_exit4_names_the_phase
+run_test "add: Test failure is exit 4 naming the test phase, with a message distinct from the setup phase (B01 worktree-per-unit-commands)" test_add_test_failure_exit4_names_the_phase
+run_test "add: no Test resolvable for the unit (no field, no flag) is exit 3 and creates nothing (B01 worktree-per-unit-commands)" test_add_no_test_command_resolves_exit3
+run_test "add: --test-cmd alone satisfies the requirement when blocks.md carries no Test field (B01 worktree-per-unit-commands)" test_add_test_cmd_flag_satisfies_missing_field
+run_test "add: blocks sharing the unit that disagree on Test is exit 3 and creates nothing (B01 worktree-per-unit-commands)" test_add_conflicting_test_fields_exit3
+run_test "add: --setup-cmd/--test-cmd override blocks.md per key and never write back to it (B01 worktree-per-unit-commands)" test_add_flags_override_blocks_md_per_key
+run_test "add: --setup-cmd supplies a Setup phase the blocks.md sections do not declare (B01 worktree-per-unit-commands)" test_add_setup_cmd_flag_with_no_setup_field
+run_test "add: multiple blocks in one unit with identical fields run each command exactly once (B01 worktree-per-unit-commands)" test_add_identical_fields_across_blocks_run_each_command_once
+run_test "add: seeded unit.md strips PR group/Est/Justification and keeps every other line verbatim (B01 worktree-per-unit-commands)" test_add_unit_md_strips_delivery_fields
+run_test "add: unknown blocks.md fields are tolerated and reach unit.md verbatim (B01 worktree-per-unit-commands)" test_add_tolerates_unknown_blocks_fields
+run_test "add: refuses to run from a unit worktree (branch lego/*/U*-*), exit 3; a non-unit lego branch still works (B01 worktree-per-unit-commands)" test_add_refuses_to_fork_from_a_unit_worktree
+run_test "add: the new blocks.md fields leave non-add subcommands unaffected (B01 worktree-per-unit-commands)" test_new_blocks_fields_do_not_affect_other_subcommands
 run_test "add: usage error on invalid characters in id/slug" test_add_invalid_chars
-run_test "add: missing dependency/input errors (jq, config.json, commands.test, blocks.md)" test_add_missing_dependencies
+run_test "add: missing input error (blocks.md) -- the config-shaped arms are deleted (B02)" test_add_missing_dependencies
 run_test "all subcommands: require running inside a git work tree" test_requires_git_work_tree
 run_test "add: unknown unit id (no matching blocks.md section)" test_add_unit_not_found
 run_test "add: branch already exists" test_add_branch_already_exists
 run_test "add: worktree path already exists" test_add_worktree_path_already_exists
 run_test "add: baseline test failure cleans up branch and worktree" test_add_baseline_failure_cleans_up
-run_test "add: success creates branch+worktree and seeds .local (config, unit.md, contracts)" test_add_success_and_seeding
+run_test "add: success creates branch+worktree and seeds .local (unit.md, contracts; NO config.json) (B02)" test_add_success_and_seeding
 run_test "add: unit with no contract file seeds no contracts (silently skipped)" test_add_no_contract_file_silently_skipped
-run_test "add: worktreeDir resolution (default and relative)" test_add_worktree_dir_resolution
+run_test "add: unit worktrees always land in the repo root's parent; a configured worktreeDir is inert (B02)" test_add_worktree_dir_resolution
 run_test "add: deterministic across identical repo state and args" test_add_deterministic
 run_test "add: baseline test command runs inside the new worktree, after seeding" test_add_baseline_runs_inside_new_worktree_after_seeding
 run_test "add: succeeds without gh (deliver-only dependency)" test_add_succeeds_without_gh
@@ -4975,12 +5499,12 @@ run_test "add: status.md multi-block unit lists one Blocks line per section in b
 run_test "add: creates .local/briefs/ and .local/reports/ as empty directories (NEW)" test_add_creates_empty_briefs_and_reports_dirs
 run_test "add: status.md is deterministic across identical repo state and args (NEW)" test_add_status_md_deterministic
 
-run_test "config: base-only (.claude/lego.json, no .local/config.json) resolves commands.test/worktreeDir and seeds without an override copy (NEW)" test_config_base_only_resolves_and_seeds_without_local_override
-run_test "config: invalid JSON in either layer is exit 3 even when the other layer alone would suffice (CHANGED)" test_config_invalid_json_exit3
-run_test "config: object-form commands.test errors (missing default, default names absent/empty variant) (NEW)" test_config_commands_test_object_errors
-run_test "config: object-form commands.test resolves the variant named by 'default' (NEW)" test_config_commands_test_object_resolves_default_variant
-run_test "config: recursive merge on a nested commands.test object -- override wins per key, base-only keys survive (NEW)" test_config_merge_nested_object_override_wins_default_key
-run_test "config: merge combines distinct top-level keys from base and override; override wins on a shared key (NEW/CHANGED)" test_config_merge_combines_base_and_override_keys
+run_test "config deletion: no config file of either kind is not an error; blocks.md is the only command source (B02)" test_config_no_config_files_at_all_is_not_an_error
+run_test "config deletion: a stray unusable lego.json/config.json is ignored, never read, never fatal (B02)" test_config_unusable_config_files_are_ignored_not_read
+run_test "config deletion: config files are neither executed, nor seeded into the unit worktree, nor written (B02)" test_config_files_are_neither_written_nor_seeded
+run_test "config deletion: add parses no JSON and does not require jq (B02)" test_config_add_does_not_require_jq
+run_test "config deletion: add stays deterministic with the config layer gone (B02)" test_config_add_is_deterministic_without_any_config
+run_test "config deletion: assemble no longer requires a config file either (B02)" test_config_assemble_needs_no_config_file
 
 run_test "merge: usage error on wrong argument count (plan-scoped)" test_merge_usage
 run_test "merge: usage error on invalid characters in plan-slug/unit-id/unit-slug" test_merge_invalid_chars
@@ -5004,7 +5528,7 @@ run_test "deliver: usage error on invalid characters in plan-slug/base-branch/un
 run_test "deliver --manifest: --manifest flag itself is required, dies exit 3 when absent (B01 manifest-required)" test_assemble_manifest_flag_required
 run_test "assemble: succeeds with GH=/nonexistent -- gh is no longer a dependency (B10)" test_assemble_succeeds_without_gh
 run_test "assemble: never invokes gh, even when a working gh is present on PATH (B10)" test_assemble_never_invokes_gh_even_when_present
-run_test "deliver: missing dependency/input errors (jq, config.json, blocks.md)" test_assemble_missing_dependencies
+run_test "deliver: missing dependency/input errors (jq, blocks.md) -- config.json arm deleted (B02)" test_assemble_missing_dependencies
 run_test "deliver: constructed unit branch does not exist" test_assemble_zero_branch_match
 run_test "deliver: cross-plan isolation (same unit-id under a different plan is untouched)" test_assemble_cross_plan_isolation
 run_test "deliver: stale same-subject commit inherited from base history is skipped, not fatal" test_assemble_stale_tests_commit_in_base_history_is_skipped
@@ -5087,9 +5611,10 @@ run_test "archive: deterministic across identical repo state and arguments (B01 
 run_test "archive: assemble's successful cleanup archives the worktree's audit trail before removing it, keeps branch deleted, assembled branch name still last stdout line (B01 worktree-unit-archive)" test_archive_assemble_success_archives_before_removing_worktree
 run_test "archive: a successful merge archive leaves the source worktree's .local/ untouched when the later removal fails, proving copy-not-move (B01 worktree-unit-archive)" test_archive_merge_success_removal_failure_preserves_source_copy
 
-run_test "realm.sh: testPatterns union combines base and override files (NEW)" test_realm_testpatterns_union_combines_base_and_override
-run_test "realm.sh: testPatterns from base alone when no override file is present (NEW)" test_realm_testpatterns_base_only_when_no_override_present
-run_test "realm.sh: \$LEGO_CONFIG overrides only the override file's location; base path is fixed (NEW)" test_realm_lego_config_env_overrides_only_override_location_base_fixed
+run_test "realm.sh: the built-in test-file family classifies test vs impl, and never shrinks (B03 realm-builtins-only)" test_realm_builtin_family_classification
+run_test "realm.sh: testPatterns in either config file no longer extend the family (B03 realm-builtins-only)" test_realm_testpatterns_no_longer_extend_the_family
+run_test "realm.sh: reads no config file, honours no \$LEGO_CONFIG, and never invokes jq (B03 realm-builtins-only)" test_realm_reads_no_config_and_never_invokes_jq
+run_test "realm.sh: CLI shape unchanged; a missing path argument is a non-zero usage error with no classification (B03 realm-builtins-only)" test_realm_usage_error_and_cli_shape_unchanged
 
 run_test "deliver --manifest: extraCommits appends one commit per entry, in manifest order, after every unit commit (B07 manifest extraCommits)" test_assemble_extra_commits_appended_after_unit_commits_in_order
 run_test "deliver --manifest: an extra commit's content comes from the integration tip, not any unit-branch version (B07 manifest extraCommits)" test_assemble_extra_commit_content_comes_from_the_integration_tip

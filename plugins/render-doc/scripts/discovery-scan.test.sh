@@ -158,7 +158,7 @@ make_git_shim() { # <dir> <body...>
 # Portable stand-in for GNU `find -printf '%p %y %T@\n'`, which BSD find lacks:
 # BSD `stat -f` first, GNU `stat -c` as the fallback; the type character comes
 # from a test, so no %y either.
-_mtime() { stat -f '%m' "$1" 2> /dev/null || stat -c '%Y' "$1" 2> /dev/null; }
+_mtime() { stat -c '%Y' "$1" 2> /dev/null || stat -f '%m' "$1" 2> /dev/null; }
 manifest() {
   local p t
   find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' 2> /dev/null | sort \

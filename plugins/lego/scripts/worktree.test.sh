@@ -298,6 +298,7 @@ run_realm() {
 new_git_repo() {
   local container repo
   container="$(mktemp -d)"
+  container="$(cd "$container" && pwd -P)"
   track_tmp "$container"
   repo="$container/repo"
   mkdir -p "$repo"

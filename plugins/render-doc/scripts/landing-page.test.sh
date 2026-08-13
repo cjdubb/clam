@@ -421,7 +421,7 @@ expect_json_error() { # <label> <expected code> <curl args...>
 # a literal name in one of the four reference forms would itself be a
 # cross-plugin reference in this file. Copied from discovery-docs.test.sh.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 
@@ -452,8 +452,17 @@ has_git_ancestor() { # <path>
   done
 }
 
+# Portable stand-in for GNU `find -printf '%p %y %T@\n'`, which BSD find lacks:
+# BSD `stat -f` first, GNU `stat -c` as the fallback; the type character comes
+# from a test, so no %y either.
+_mtime() { stat -c '%Y' "$1" 2> /dev/null || stat -f '%m' "$1" 2> /dev/null; }
 manifest() {
-  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' -printf '%p %y %T@\n' 2> /dev/null | sort
+  local p t
+  find "$FIX" \( -type f -o -type l \) ! -path '*/.git/*' 2> /dev/null | sort \
+    | while IFS= read -r p; do
+        if [ -L "$p" ]; then t=l; else t=f; fi
+        printf '%s %s %s\n' "$p" "$t" "$(_mtime "$p")"
+      done
 }
 
 # --- Fixtures ----------------------------------------------------------------

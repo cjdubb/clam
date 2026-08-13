@@ -54,6 +54,37 @@ has_f() { # content literal
   if grep -qF -- "$2" <<<"$1"; then echo yes; else echo no; fi
 }
 
+# Extended-regex presence check. Used ONLY where the contract fixes a concept
+# whose correct spellings genuinely vary; everything else is has_f.
+has_re() { # content regex
+  if grep -qE -- "$2" <<<"$1"; then echo yes; else echo no; fi
+}
+
+# "yes" when some occurrence of the anchor pattern has an occurrence of EVERY
+# other pattern within +/- window lines of it — i.e. the parts are stated
+# together as one rule rather than scattered across the section. Patterns are
+# extended regexes, matching has_re.
+near_all() { # window content anchor other...
+  local window="$1" content="$2" anchor="$3"
+  shift 3
+  local -a anchor_lines other_lines
+  anchor_lines=(); while IFS= read -r __ln; do anchor_lines+=(""); done < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
+  local a o tok ok
+  for a in "${anchor_lines[@]}"; do
+    ok=yes
+    for tok in "$@"; do
+      other_lines=(); while IFS= read -r __ln; do other_lines+=(""); done < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
+      local hit=no
+      for o in "${other_lines[@]}"; do
+        if (( o - a <= window && a - o <= window )); then hit=yes; break; fi
+      done
+      [[ "$hit" == "yes" ]] || { ok=no; break; }
+    done
+    [[ "$ok" == "yes" ]] && { echo yes; return; }
+  done
+  echo no
+}
+
 # First line number (1-indexed) at which a literal string appears, within
 # the given content (not the raw file — see the comment-stripping note
 # above). Empty if not found.
@@ -141,11 +172,28 @@ check "Step 3a names splitting an over-budget block back into Step 3" \
 check "Step 3a names forming PR groups" \
   "$(has_f "$STEP3A_SECTION" "PR groups")" "yes"
 
-# --- 4. Step 3a: the budget is named explicitly, with its default ----------
-check "Step 3a names delivery.prSizeBudget" \
-  "$(has_f "$STEP3A_SECTION" "delivery.prSizeBudget")" "yes"
+# --- 4. Step 3a: the budget is named explicitly, with its default. REWRITTEN
+# for Contract: B07 — the budget stops being `delivery.prSizeBudget` read from
+# a config file and becomes a PLAN FACT recorded in the Landing strategy
+# alongside the delivery mode. The default (500) is unchanged --------------
+check "Step 3a no longer names a delivery.prSizeBudget config key" \
+  "$(has_f "$STEP3A_SECTION" "delivery.prSizeBudget")" "no"
 check "Step 3a names the 500 default" \
   "$(has_f "$STEP3A_SECTION" "500")" "yes"
+check "Step 3a names the budget as a plan fact" \
+  "$(has_re "$STEP3A_SECTION" "(plan fact|recorded in the plan|the plan records|plan-recorded|recorded at plan time)")" "yes"
+# Where the fact is written down, and what it sits next to, are both fixed by
+# the contract: the Landing strategy section, alongside the delivery mode.
+check "Step 3a says the budget is recorded in the Landing strategy" \
+  "$(has_f "$STEP3A_SECTION" "Landing strategy")" "yes"
+check "Step 3a records the budget alongside the delivery mode" \
+  "$(near_all 6 "$STEP3A_SECTION" "Landing strategy" "[Bb]udget" "[Dd]elivery mode")" "yes"
+# The delivery mode's two values used to be defined in Step 1's config flow,
+# which B07 deletes; as a plan fact they are named here.
+check "Step 3a names the main-prs delivery mode" \
+  "$(has_f "$STEP3A_SECTION" "main-prs")" "yes"
+check "Step 3a names the local-only delivery mode" \
+  "$(has_f "$STEP3A_SECTION" "local-only")" "yes"
 
 # --- 5. Step 3a: per-group landing details are all named (Outputs-fixed
 # field names, verbatim) -----------------------------------------------------
@@ -201,6 +249,13 @@ check "Step 4 requires a Landing strategy section" \
   "$(has_f "$STEP4_SECTION" "Landing strategy")" "yes"
 check "Step 4 Landing strategy carries the budget it was sized against" \
   "$(has_f "$STEP4_SECTION" "budget")" "yes"
+# Contract: B07 — the delivery mode is a plan fact too, and the Landing
+# strategy is the one place it is written down (there is no config to hold
+# it any more).
+check "Step 4 Landing strategy carries the delivery mode" \
+  "$(has_re "$STEP4_SECTION" "[Dd]elivery mode")" "yes"
+check "the budget and the delivery mode are recorded together" \
+  "$(near_all 6 "$STEP4_SECTION" "[Dd]elivery mode" "budget")" "yes"
 for tok in "branch name" "PR title" "member units" "estimated changed lines" \
            "commit sequence" "justification"; do
   check "Step 4 Landing strategy carries: $tok" \
@@ -210,6 +265,22 @@ done
 # --- 13. Step 4: the block-map entry format gains Est: ----------------------
 check "Step 4 block-map entry format shows an Est: field" \
   "$(has_f "$STEP4_SECTION" "- Est:")" "yes"
+
+# --- 13a. Contract: B07 — the entry format gains the per-block commands.
+# The commands proved in Step 1 are recorded per block, in blocks.md, at
+# Step 4: that is the whole interface that replaces the config file, so the
+# two field labels are asserted verbatim as entry-format bullets rather than
+# as prose anywhere in the section ------------------------------------------
+check "Step 4 block-map entry format shows a Test: field" \
+  "$(has_f "$STEP4_SECTION" "- Test:")" "yes"
+check "Step 4 block-map entry format shows a Setup: field" \
+  "$(has_f "$STEP4_SECTION" "- Setup:")" "yes"
+check "the two command fields sit together in the entry format" \
+  "$(near_all 3 "$STEP4_SECTION" "^[[:space:]]*- Test:" "^[[:space:]]*- Setup:")" "yes"
+# Setup is optional (a repo with no setup step records only Test); Test is
+# what every unit must resolve, so the entry format says which is which.
+check "Step 4 documents the Setup: field as optional" \
+  "$(has_re "$STEP4_SECTION" "[Ss]etup.{0,80}optional|optional.{0,80}[Ss]etup")" "yes"
 
 # --- 14. Step 4: pre-existing artifact requirements survive (additive) -----
 check "Step 4: Plan document artifact still required" \
@@ -255,13 +326,16 @@ SKILL_ONLY="$(grep -vxF -f <(printf '%s\n' "$TEMPLATE_FIELDS") \
   <(printf '%s\n' "$SKILL_FIELDS"))"
 check "every templates/blocks.md field appears in the block-map field list" \
   "$TEMPLATE_ONLY" ""
-if [[ -z "$SKILL_ONLY" || "$SKILL_ONLY" == "Justification" ]]; then
-  SKILL_ONLY_VERDICT="only the optional Justification, if anything"
-else
-  SKILL_ONLY_VERDICT="$SKILL_ONLY"
-fi
-check "block-map fields absent from the template are limited to Justification" \
-  "$SKILL_ONLY_VERDICT" "only the optional Justification, if anything"
+# The carve-out is now three field names wide, in that one direction only.
+# `Justification:` is optional for the reason above. `Setup:`/`Test:` are
+# Contract: B07's new per-block command fields: the template's example entry
+# gains them in a different block of this plan (the docs-and-templates
+# block), so a template that has not caught up yet is stale-but-expected
+# here, not a failure of B07. Every other divergence, in either direction,
+# is still a failure ---------------------------------------------------------
+SKILL_ONLY="$(grep -vxE 'Justification|Setup|Test' <<<"$SKILL_ONLY")"
+check "block-map fields absent from the template are limited to Justification/Setup/Test" \
+  "$SKILL_ONLY" ""
 
 # --- 20. Isolation: neither new section references tracking's files -------
 check "Step 3a section has no TODO.md reference" \
@@ -273,9 +347,11 @@ check "Step 4 section has no TODO.md reference" \
 check "Step 4 section has no PLAN.md reference" \
   "$(has_f "$STEP4_SECTION" "PLAN.md")" "no"
 
-# --- 21. Invariant: original Step 0-5 headings survive unchanged -----------
+# --- 21. Invariant: the original step headings survive. Step 1's is
+# Contract: B07's new one ("Discover and prove the repo's commands"); every
+# other heading is unchanged -------------------------------------------------
 for h in "## Step 0: Establish the deliverable — a hard gate" \
-         "## Step 1: Ensure the repo interface exists" \
+         "## Step 1: Discover and prove" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \

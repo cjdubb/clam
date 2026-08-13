@@ -1,7 +1,21 @@
 #!/bin/bash
 # Structural/anchor test for skills/plan/SKILL.md against Contract: B07
 # lego-plan-lifecycle, Contract: 001-B02 premise-invalid-closure, and
-# Contract: 001-B01 plan-always-blocks. This skill is a documentation block,
+# Contract: 001-B01 plan-always-blocks.
+#
+# Sections 9-14 extend the same approach to Contract: B07 —
+# plan-skill-discover-and-prove (plan 001-lego-config-redesign): Step 1 stops
+# creating a config interface and becomes "Discover and prove the repo's
+# commands" (autodetect, agree, EXECUTE once, then record); the Standing
+# rules state the orchestrator-only delivery-knowledge invariant; Step 5's
+# prose-contract note names the ORCHESTRATOR as the deleter at acceptance;
+# Step 6's rung ladder reads plan-recorded commands; and no config-file
+# identifier survives anywhere in the document. Note that B07 renames the
+# Step 1 heading, so section 8's surviving-heading loop pins the NEW heading —
+# a checkout still carrying "Ensure the repo interface exists" fails there as
+# well as in section 9.
+#
+# This skill is a documentation block,
 # not executable code, so the tests here are:
 #   - "Heading presence": Step 0a, Step 2a, and the always-blocks headings exist; the
 #     Step 5a off-ramp heading is ABSENT (001-B02/001-B01 replace it: a
@@ -65,6 +79,12 @@ has_f() { # content literal
   if grep -qF -- "$2" <<<"$1"; then echo yes; else echo no; fi
 }
 
+# Extended-regex presence check. Used ONLY where the contract fixes a concept
+# whose correct spellings genuinely vary; everything else is has_f.
+has_re() { # content regex
+  if grep -qE -- "$2" <<<"$1"; then echo yes; else echo no; fi
+}
+
 # First line number (1-indexed) at which a literal string appears at the
 # start of a line, or empty if not found.
 first_heading_line() { # literal
@@ -85,6 +105,42 @@ section_text() { # heading_prefix < text
     capture && index($0, "## ") == 1 { exit }
     capture { print }
   '
+}
+
+# Text of a section bounded by an EXPLICIT stop prefix rather than the next
+# "## " heading — lets a "## " section be sliced short of its own "### "
+# subsection (Step 6 short of Step 6a, Standing rules short of Step 0a).
+section_between() { # heading_prefix stop_prefix < text
+  awk -v pat="$1" -v stop="$2" '
+    index($0, pat) == 1 { capture=1; print; next }
+    capture && index($0, stop) == 1 { exit }
+    capture { print }
+  '
+}
+
+# "yes" when some occurrence of the anchor pattern has an occurrence of EVERY
+# other pattern within +/- window lines of it — i.e. the parts are stated
+# together as one rule rather than scattered across the section. Patterns are
+# extended regexes, matching has_re.
+near_all() { # window content anchor other...
+  local window="$1" content="$2" anchor="$3"
+  shift 3
+  local -a anchor_lines other_lines
+  anchor_lines=(); while IFS= read -r __ln; do anchor_lines+=(""); done < <(grep -nE -- "$anchor" <<<"$content" | cut -d: -f1)
+  local a o tok ok
+  for a in "${anchor_lines[@]}"; do
+    ok=yes
+    for tok in "$@"; do
+      other_lines=(); while IFS= read -r __ln; do other_lines+=(""); done < <(grep -nE -- "$tok" <<<"$content" | cut -d: -f1)
+      local hit=no
+      for o in "${other_lines[@]}"; do
+        if (( o - a <= window && a - o <= window )); then hit=yes; break; fi
+      done
+      [[ "$hit" == "yes" ]] || { ok=no; break; }
+    done
+    [[ "$ok" == "yes" ]] && { echo yes; return; }
+  done
+  echo no
 }
 
 check_before() { # label line_a line_b -- assert a precedes b
@@ -337,9 +393,184 @@ check "Step 4 links-rule Edge case: linked when first referenced" \
 check "Step 4 links-rule Edge case: a reference outside the plan's worktree" \
   "$(has_f "$STEP4_SECTION" "outside the plan")" "yes"
 
-# --- 8. Original steps preserved (headings intact) --------------------------
+# === Contract: B07 — plan-skill-discover-and-prove =========================
+# Every slice below comes from $STRIPPED for the reason stated in the file
+# header: B07's own docblock sits at the top of the file and quotes nearly
+# every anchor here verbatim ("EXECUTED", "scratch worktree",
+# "Setup:"/"Test:", "orchestrator-only"), so a check written against $RAW
+# would pass today off the comment and keep passing after the comment is
+# removed at acceptance with no prose ever written. The two heading checks
+# are the exception: a heading is not comment text, so they read $RAW.
+
+STANDING_RULES="$(section_between '## Standing rules' '## Step 0a' <<<"$STRIPPED")"
+STEP1_SECTION="$(section_text '## Step 1' <<<"$STRIPPED")"
+STEP5_SECTION="$(section_text '## Step 5' <<<"$STRIPPED")"
+STEP6_BODY="$(section_between '## Step 6' '### Step 6a' <<<"$STRIPPED")"
+STEP6A_SECTION="$(section_text '### Step 6a' <<<"$STRIPPED")"
+
+# --- 9. Section slices are non-empty (an empty slice would fail every token
+# check below for the wrong reason) -----------------------------------------
+for pair in "Standing rules:$STANDING_RULES" "Step 1:$STEP1_SECTION" \
+            "Step 5:$STEP5_SECTION" "Step 6 body:$STEP6_BODY" \
+            "Step 6a:$STEP6A_SECTION"; do
+  label="${pair%%:*}"; body="${pair#*:}"
+  check "section slice is non-empty: $label" \
+    "$([[ -n "$(tr -d '[:space:]' <<<"$body")" ]] && echo yes || echo no)" "yes"
+done
+
+# --- 10. Behavior 1: Step 1 IS the discover-and-prove step -----------------
+check "Step 1 is the discover-and-prove step" \
+  "$(has_f "$RAW" '## Step 1: Discover and prove')" "yes"
+check "the old repo-interface Step 1 heading is gone" \
+  "$(has_f "$RAW" 'Ensure the repo interface exists')" "no"
+# Step 1's own sequence: autodetect candidates -> agree with the engineer ->
+# EXECUTE each agreed command once -> only then record it.
+check "Step 1 still autodetects candidate commands" \
+  "$(has_re "$STEP1_SECTION" "[Aa]utodetect")" "yes"
+check "Step 1 still agrees the candidates with the engineer" \
+  "$(has_re "$STEP1_SECTION" "engineer")" "yes"
+check "Step 1 executes each agreed command" \
+  "$(has_re "$STEP1_SECTION" "[Ee]xecut")" "yes"
+check "Step 1 frames the execution as proof" \
+  "$(has_re "$STEP1_SECTION" "([Pp]rove|[Pp]roof|[Pp]roven|[Pp]roving)")" "yes"
+check "Step 1 runs the command once" \
+  "$(has_re "$STEP1_SECTION" "once")" "yes"
+check "Step 1 names the scratch worktree as where proving happens when feasible" \
+  "$(has_re "$STEP1_SECTION" "scratch worktree")" "yes"
+check "Step 1 names the Setup command" \
+  "$(has_re "$STEP1_SECTION" "[Ss]etup")" "yes"
+check "Step 1 names the Test command" \
+  "$(has_re "$STEP1_SECTION" "[Tt]est")" "yes"
+
+# Invariant 2: proof by execution PRECEDES recording — the two must read as
+# one ordered rule, not as two unrelated sentences.
+check "Step 1 states that recording follows execution" \
+  "$(near_all 6 "$STEP1_SECTION" "[Ee]xecut" "[Rr]ecord" "before")" "yes"
+# The commands are recorded per block, in the block map, at Step 4 — Step 1
+# proves them and points at where they land.
+check "Step 1 points at blocks.md as where the commands are recorded" \
+  "$(has_f "$STEP1_SECTION" "blocks.md")" "yes"
+check "Step 1 points at Step 4 as when the commands are recorded" \
+  "$(has_f "$STEP1_SECTION" "Step 4")" "yes"
+
+# Behavior 1, cont.: no interface files are created or committed here. The
+# global absence checks in section 13 cover the identifiers file-wide; these
+# pin the flow's disappearance from the step that used to carry it.
+check "Step 1 no longer creates a committed config file" \
+  "$(has_f "$STEP1_SECTION" "lego.json")" "no"
+check "Step 1 no longer offers a local config override" \
+  "$(has_f "$STEP1_SECTION" "config.json")" "no"
+# The delivery mode is a plan fact recorded at Step 3a / in the Landing
+# strategy (pinned by plan-landing-strategy.test.sh), so Step 1 does not ask
+# for it any more.
+check "Step 1 no longer asks the engineer for the delivery mode" \
+  "$(has_re "$STEP1_SECTION" "[Dd]elivery mode")" "no"
+
+# Invariant 3: Step 1's non-config semantics are unchanged. Step 0a defers
+# its plan-doc write "until immediately after Step 1 creates `.local/plans/`",
+# so these three are load-bearing for other steps, not incidental.
+for tok in ".git/info/exclude" ".local/blocks.md" ".local/plans/" \
+           "templates/blocks.md"; do
+  check "invariant: Step 1 still does its non-config work: $tok" \
+    "$(has_f "$STEP1_SECTION" "$tok")" "yes"
+done
+
+# Edge case: a repo where proving needs infrastructure proves the cheapest
+# honest tier and records the caveat in the plan document.
+check "Step 1 edge case: proving that needs infrastructure is named" \
+  "$(has_re "$STEP1_SECTION" "infrastructure")" "yes"
+check "Step 1 edge case: prove the cheapest honest tier" \
+  "$(has_re "$STEP1_SECTION" "cheapest")" "yes"
+check "Step 1 edge case: the caveat is recorded in the plan document" \
+  "$(has_re "$STEP1_SECTION" "caveat")" "yes"
+check "the cheapest-tier fallback and its recorded caveat are one rule" \
+  "$(near_all 4 "$STEP1_SECTION" "cheapest" "caveat")" "yes"
+
+check "Step 1 section has no TODO.md reference" \
+  "$(has_f "$STEP1_SECTION" "TODO.md")" "no"
+
+# --- 11. Behavior: the Standing rules state the orchestrator-only
+# delivery-knowledge invariant ----------------------------------------------
+check "Standing rules name delivery knowledge" \
+  "$(has_re "$STANDING_RULES" "[Dd]elivery")" "yes"
+check "Standing rules make delivery knowledge orchestrator-only" \
+  "$(has_re "$STANDING_RULES" "(orchestrator-only|only the orchestrator|orchestrator business|never a worker)")" "yes"
+# What "delivery knowledge" covers, and who it is withheld from, must read as
+# one rule rather than as words scattered through the section.
+check "the invariant names the budget/mode/grouping facts and the worker together" \
+  "$(near_all 6 "$STANDING_RULES" "[Dd]elivery" "(budget|mode|PR group)" "[Ww]orker")" "yes"
+# Invariant 3: the pre-existing standing rules survive.
+for tok in "Clarify and verify; never guess." "Workers NEVER design" \
+           "Owner: engineer" "explicitly answered before proceeding"; do
+  check "invariant: standing rule survives: $tok" \
+    "$(has_f "$STANDING_RULES" "$tok")" "yes"
+done
+
+# --- 12. Behavior: Step 5's prose-contract note names the ORCHESTRATOR as
+# the deleter, at acceptance (decisions/003 ruling 2) ------------------------
+check "Step 5 says the orchestrator deletes the prose contract" \
+  "$(has_re "$STEP5_SECTION" "[Oo]rchestrator deletes")" "yes"
+check "the deletion is placed at acceptance" \
+  "$(near_all 4 "$STEP5_SECTION" "[Oo]rchestrator deletes" "acceptance")" "yes"
+check "the implementation wave is no longer the deleter" \
+  "$(has_f "$STEP5_SECTION" "The implementation wave deletes the comment")" "no"
+# Invariant: everything else about the prose-block exception is unchanged.
+for tok in "Prose blocks are the exception" \
+           "Runtime-present" "authoritative contract" \
+           "moved into the"; do
+  check "invariant: Step 5 token survives: $tok" \
+    "$(has_f "$STEP5_SECTION" "$tok")" "yes"
+done
+# The `(remove at acceptance)` marker Step 5 tells the orchestrator to write
+# lives inside an EXAMPLE HTML comment, which $STRIPPED removes along with
+# the real docblocks — so this one invariant reads the raw section. It is an
+# invariant, not a B07 anchor: the marker's wording is unchanged, only who
+# acts on it is.
+STEP5_SECTION_RAW="$(section_text '## Step 5' <<<"$RAW")"
+check "invariant: Step 5 still writes the (remove at acceptance) marker" \
+  "$(has_f "$STEP5_SECTION_RAW" "(remove at acceptance)")" "yes"
+
+# --- 13. Behavior: Step 6's rung ladder reads plan-recorded commands -------
+check "Step 6 reads the commands the plan recorded" \
+  "$(has_re "$STEP6_BODY" "(plan-recorded|recorded in the plan|the plan records|plan's recorded|recorded at plan time)")" "yes"
+check "Step 6 no longer resolves commands from an effective config" \
+  "$(has_f "$STEP6_BODY" "effective config")" "no"
+# Invariant: the ladder itself — rung 0 and the four composition rungs — is
+# unchanged; only where the commands come from moves.
+for tok in "Rung 0" "blocks-lint.sh" "typecheck" "build" "lint" \
+           "Record which rung ran"; do
+  check "invariant: Step 6 rung ladder token survives: $tok" \
+    "$(has_f "$STEP6_BODY" "$tok")" "yes"
+done
+# Invariant: Step 6a's review-gated semantics are untouched by B07.
+for tok in "review-gated" "Decide by clause, not by convenience." \
+           "configuration whose only" "engineer-owned"; do
+  check "invariant: Step 6a token survives: $tok" \
+    "$(has_f "$STEP6A_SECTION" "$tok")" "yes"
+done
+
+# --- 14. Invariant 1: no instruction anywhere to create, commit, or read a
+# config file. Global over the comment-stripped document: an identifier that
+# survives in any step is a contract violation even if every anchor above
+# passes. "config"/"configuration" as ordinary English is NOT banned — Step
+# 3a's "a rough Est on a prose or config block" and Step 6a's "configuration
+# whose only assertion is its own literal content" are pre-existing, correct
+# prose about a KIND OF BLOCK, and Invariant 3 requires them to survive ------
+for tok in "lego.json" "config.json" "config-schema" "testPatterns" \
+           "models.testWriter" "models.implementer" "commands.test" \
+           "effective config"; do
+  check "no config-interface reference survives: $tok" \
+    "$(has_f "$STRIPPED" "$tok")" "no"
+done
+check "no delivery.<key> config identifier survives" \
+  "$(has_re "$STRIPPED" "delivery\.[A-Za-z]")" "no"
+check "invariant 3: Step 6a's config-block prose is untouched by the purge" \
+  "$(has_f "$STEP6A_SECTION" "configuration whose only")" "yes"
+
+# --- 15. Original steps preserved (headings intact). Step 1's heading is
+# B07's new one — see the file header ----------------------------------------
 for h in "## Step 0: Establish the deliverable — a hard gate" \
-         "## Step 1: Ensure the repo interface exists" \
+         "## Step 1: Discover and prove" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \

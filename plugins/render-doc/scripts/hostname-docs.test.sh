@@ -136,7 +136,7 @@ section() { # <file> <heading-ere> <stop-ere>
 # reference and get flagged by architecture-lint. Copied from
 # landing-docs.test.sh, which copied it from discovery-docs.test.sh.
 sibling_plugins() {
-  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2> /dev/null \
+  find "$REPO_ROOT/plugins" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null \
     | grep -vFx "$(basename "$PLUGIN_DIR")" | sort
 }
 

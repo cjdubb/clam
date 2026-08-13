@@ -143,8 +143,16 @@ sl_parse_input() {
   # shape (a different internal surface) has no used_percentage, so both its
   # percentage and its resets_at parse empty rather than picking up the
   # wrong-shaped value.
+  #
+  # total_cost_usd is parsed but not read by anything in this file today: B05
+  # retired the sub-tick interpolator that consumed it, and the contract keeps
+  # the field rather than dropping a column a later block might need back.
+  # session_id is read by B08's cache key and project_dir by B07's path
+  # segment; project_dir is APPENDED LAST to both ends, which is what lets it
+  # join the parse without moving any field before it.
+  # shellcheck disable=SC2034  # parsed per contract; consumers live elsewhere
   IFS=$'\x1f' read -r window_size total_input transcript_path cwd model_name effort \
-    r5 r5_reset r7 r7_reset lines_added lines_removed total_cost_usd session_id <<< "$(
+    r5 r5_reset r7 r7_reset total_cost_usd session_id project_dir <<< "$(
     printf '%s' "$input" | jq -r '
         . as $p
         | ($p.rate_limits.five_hour.used_percentage) as $u5
@@ -160,10 +168,9 @@ sl_parse_input() {
             (if $u5 == null then "" else ($p.rate_limits.five_hour.resets_at // "") end),
             (if $u7 == null then "" else $u7 end),
             (if $u7 == null then "" else ($p.rate_limits.seven_day.resets_at // "") end),
-            ($p.cost.total_lines_added // ""),
-            ($p.cost.total_lines_removed // ""),
             ($p.cost.total_cost_usd // ""),
-            ($p.session_id // "")
+            ($p.session_id // ""),
+            ($p.workspace.project_dir // "")
           ]
         | join("\u001f")
       '
@@ -171,12 +178,109 @@ sl_parse_input() {
   [ -z "$effort" ] && effort="${CLAUDE_EFFORT:-}"
 }
 
+# Contract: B08 cache-session-key (plan 001-statusline-glance-uplift)
+#
+# Behavior:
+#   sl_cache_key derives the expensive-segment bundle's filename stem. It keys
+#   on session_id — already parsed above, and documented by Claude Code as
+#   "stable for the lifetime of a session and unique per session", which is
+#   exactly what a cache key needs — instead of transcript_path, falling back
+#   to the current directory when session_id is absent. Path separators are
+#   flattened so the stem is a single filename component.
+#
+#   sl_cache_sweep bounds the cache directory, which today grows without
+#   limit: it removes bundle and tick files whose mtime is older than
+#   MAX_AGE_SECONDS. It runs on the COLD path only.
+#
+#   sl_bundle_read and sl_bundle_write are rewired onto sl_cache_key by this
+#   block; neither their format, their atomic temp-plus-rename write, nor
+#   their TTL semantics change.
+#
+# Inputs:
+#   sl_cache_key SESSION_ID CWD
+#     SESSION_ID  the payload's session_id, possibly empty
+#     CWD         the current directory, used only as the fallback key source
+#   sl_cache_sweep DIR MAX_AGE_SECONDS
+#     DIR              the cache directory (CLAM_STATUSLINE_CACHE_DIR)
+#     MAX_AGE_SECONDS  positive integer; 86400 (one day) at the call site
+#
+# Outputs:
+#   sl_cache_key    echoes one filename stem, no slashes, never empty.
+#   sl_cache_sweep  echoes nothing. Its effect is on the filesystem.
+#   Neither changes any rendered text. The cache FILE's name changes; nothing
+#   the user sees does.
+#
+# Errors:
+#   Unchanged from today: an uncreatable or unwritable cache dir degrades to a
+#   full cold render every time. A sweep failure is SILENT and never fails the
+#   render — a statusline that cannot tidy its own cache still has a line to
+#   draw.
+#
+# Invariants:
+#   - The sweep runs on the COLD path only. The warm-render budget has no room
+#     for it, and a warm render must still open nothing it did not open
+#     before.
+#   - Two different sessions never share a bundle.
+#   - A corrupt or partially written bundle is still treated as absent.
+#   - bash 3.2 compatible.
+#
+# Edge cases:
+#   - An absent or empty session_id: falls back to the cwd key, and the bundle
+#     is still cached rather than disabled.
+#   - Bundles left behind under the old transcript_path key: aged out by the
+#     same sweep rather than migrated. There is nothing in them worth keeping.
+#   - A clock step making a bundle future-dated: still reads fresh, unchanged
+#     from today.
+#   - TTL <= 0 disables cache serving, unchanged.
+#
+# sl_cache_key SESSION_ID CWD
+sl_cache_key() {
+  # session_id first: it is stable for the session's lifetime and unique per
+  # session, so two sessions in one worktree get two bundles and one session
+  # moving between worktrees keeps its own. The cwd is only the fallback, and
+  # the literal below only the fallback's fallback -- the stem is never empty,
+  # because an empty stem would name the cache dir itself.
+  local src="$1"
+  [ -z "$src" ] && src="$2"
+  [ -z "$src" ] && src="default"
+  # Flattened to ONE filename component. A session_id has no slashes in
+  # practice and a cwd is nothing but slashes; both go through the same
+  # substitution so neither can escape the cache dir.
+  printf '%s' "${src//\//_}"
+}
+
+# sl_cache_sweep DIR MAX_AGE_SECONDS
+sl_cache_sweep() {
+  # Bundle and tick files only, by name: a cache dir is a directory like any
+  # other and something else's file in it is not this function's to delete.
+  # Ages are compared in whole seconds against the render's shared $_sl_now,
+  # so the sweep forks no `date` of its own; the per-file `stat` is
+  # _sl_mtime_epoch's and this runs on the COLD path only, where the warm
+  # budget does not apply. One `rm` for the whole batch, and every failure
+  # silent -- a statusline that cannot tidy its cache still has a line to draw.
+  local dir="$1" max="$2" f mtime cutoff
+  local -a stale
+  [ -d "$dir" ] || return 0
+  case "$max" in ''|*[!0-9]*) return 0 ;; esac
+  cutoff=$(( _sl_now - max ))
+  stale=()
+  for f in "$dir"/*.bundle "$dir"/*.tick; do
+    [ -f "$f" ] || continue
+    mtime=$(_sl_mtime_epoch "$f")
+    [ "$mtime" -lt "$cutoff" ] || continue
+    stale[${#stale[@]}]="$f"
+  done
+  [ "${#stale[@]}" -gt 0 ] && rm -f "${stale[@]}" 2>/dev/null
+  return 0
+}
+
 # sl_bundle_read: emit the cached expensive-segment bundle for the current
 # session key iff it is fresh (age < SL_SEGMENT_TTL_SECONDS); non-zero exit
 # when stale, absent, corrupt, or caching is disabled (TTL <= 0).
 #
-# Reads its cache key from transcript_path/cwd (populated by sl_parse_input)
-# and the shared "now" epoch ($_sl_now) so it never forks its own `date`.
+# Reads its cache key from sl_cache_key (session_id, falling back to cwd; both
+# populated by sl_parse_input) and the shared "now" epoch ($_sl_now) so it
+# never forks its own `date`.
 # On success it populates branch, pr_badge, git_sync_segment, state_segment,
 # clam_mode from the bundle. The bundle is a plain key=value-per-line file
 # (no JSON) so a warm read never spends the render's one jq invocation on
@@ -188,14 +292,12 @@ sl_parse_input() {
 # ignored (matches no case arm below, contributes no bit) rather than
 # treated as corrupt — the migration path for every already-installed user.
 sl_bundle_read() {
-  local ttl key_src key file mtime age line got
+  local ttl key file mtime age line got
   ttl="$SL_SEGMENT_TTL_SECONDS"
   [[ "$ttl" =~ ^-?[0-9]+$ ]] || ttl=5
   [ "$ttl" -le 0 ] && return 1
 
-  key_src="$transcript_path"
-  [ -z "$key_src" ] && key_src="$cwd"
-  key="${key_src//\//_}"
+  key=$(sl_cache_key "$session_id" "$cwd")
   file="$SL_CACHE_DIR/$key.bundle"
   [ -f "$file" ] || return 1
 
@@ -222,10 +324,8 @@ sl_bundle_read() {
 # expensive-segment bundle for the current session key; best-effort — a
 # write failure leaves rendering unaffected.
 sl_bundle_write() {
-  local key_src key tmp
-  key_src="$transcript_path"
-  [ -z "$key_src" ] && key_src="$cwd"
-  key="${key_src//\//_}"
+  local key tmp
+  key=$(sl_cache_key "$session_id" "$cwd")
   mkdir -p "$SL_CACHE_DIR" 2>/dev/null || return 0
   tmp=$(mktemp "$SL_CACHE_DIR/.bundle.XXXXXX" 2>/dev/null) || return 0
   {
@@ -323,353 +423,176 @@ sl_parse_burn_fields() {
   return 0
 }
 
-# Contract: B05 burnrate-line (plan 001-statusline-burnrate-uplift),
-#           amended by B09 burn-line-labels (plan 002-statusline-emoji-removal),
-#           amended by B16 burn-line-colour-wiring (plan 003-statusline-meter-colour)
+# Contract: B05 line2-groups (plan 001-statusline-glance-uplift)
+#
+# This is the COMPOSITION block for line 2: its contract is about how B01-B04
+# compose into a rendered line, not about any figure in isolation. It
+# supersedes the previous B05 burnrate-line contract (plan
+# 001-statusline-burnrate-uplift, amended by plans 002 and 003) entirely.
 #
 # Behavior:
-#   Assembles the entire burnrate line and echoes it as one string with no
-#   trailing newline. Replaces what were three separate rendered lines (the
-#   mode/model/effort line, the Ctx-usage line, and the Cost line) with the
-#   single line the plugin now shows beneath the path line:
+#   Assembles line 2 and echoes it as one string with no trailing newline.
+#   FOUR groups joined by the existing dim │ separator:
 #
-#     Fable 5 high │ wk 32% 72%t 17%/d ▼-11 │ ctx 10% +503/-16 │ 5h 1% (4h54m)
+#     Fable 5 high │ ctx 10% │ 5h 1% ▼-1 (4h54m) │ wk 32% ▼-25 (2d4h)
 #
-#   FOUR groups joined by a dim │ separator:
-#     1. model    the model name in its drifting rainbow, and the effort
-#                 tier in its own colour. NO mascot prefix.
-#     2. weekly   `wk` used%, today's remaining share (%t), sustainable pace
-#                 (%/d), and the trend arrow vs the awake even-burn line
-#     3. session  `ctx` context occupancy, and lines added/removed this session
-#     4. 5-hour   `5h` used%, and the countdown to its reset IN PARENS
+#     1. model    the model name in B03's FLAT per-model colour, and the
+#                 effort tier in its own colour. Glance-items 1 and 2.
+#     2. context  `ctx` occupancy. Glance-item 5.
+#     3. 5-hour   `5h` used%, trend, countdown. Glance-item 6.
+#     4. weekly   `wk` used%, trend, countdown. Glance-item 7.
 #
-# B09 amendment — this line emits no emoji:
-#   - The three meter emoji become bare ASCII labels: 🎯 -> `wk`, 🧠 -> `ctx`,
-#     🔥 -> `5h`. Each label sits INSIDE its meter's colour sequence exactly
-#     where the emoji did, so the colour still spans label and figure
-#     together and no group gains or loses a reset.
-#   - Group 1 drops the `$BURN_MASCOT ` prefix. The rainbow, the model-name
-#     trim at " (", and the effort colour are untouched.
-#   - Group 5 (the pet) is deleted outright, along with the stress-scan loop
-#     that fed it. `_sl_burn_group` already omits an absent group's
-#     separator, so the line simply ends after the 5-hour group — it must
-#     never end with a dangling │.
-#   - The 5-hour countdown is wrapped in parens: `5h 1% (4h54m)`. Without
-#     them `5h 1% 4h54m` reads as two durations rather than a meter and its
-#     reset. The parens are OUTSIDE any colour sequence burn_reset_str
-#     returns, and appear only when a countdown is actually rendered — a
-#     missing or unparseable reset drops the countdown and its parens
-#     together, never leaving an empty `()`.
-#   - Ambiguous-width non-emoji symbols are DELIBERATELY unchanged: the dim
-#     │ separator and the ▲/▼ trend arrows stay exactly as they are.
+#   Each limit group is the SAME three figures — used% · trend · countdown —
+#   so the reader learns one reading rather than two. The trend comes from
+#   B02 (burn_linear_trend for the 5-hour window, burn_week_trend for the
+#   weekly one) and is coloured by the existing burn_trend_color; the
+#   countdown comes from B04, wrapped in dimmed parens.
 #
-# B09 amendment 2 — the weekly and 5-hour figures render as INTEGERS:
-#   Both meters currently take the integer part for the COLOUR and then print
-#   the value exactly as the payload sent it:
-#     weekly  `$(burn_plan_color "${r7%%.*}")🎯 ${r7}%$rst`
-#     5-hour  `$(burn_plan_color "${r5%%.*}")🔥 ${r5}%$rst`
-#   B04's parse contract preserves a float used_percentage as given (see its
-#   docblock), which is correct there — the payload is the source of truth. But
-#   the payload delivers IEEE-754 noise, and the render shows it verbatim:
-#   `5h 14.000000000000002%` is a real observed render, not a hypothetical.
-#
-#   Both figures therefore print the INTEGER PART, the same value the colour
-#   already uses. Requirements:
-#     - The printed number and the colour threshold read the SAME value, so
-#       they can never disagree at a boundary. This is why the rule is
-#       truncation and not rounding: rounding 49.7 to 50 while colouring it as
-#       49 would put a figure in the wrong colour band.
-#     - A sub-1% value renders `0`, never an empty figure: `0.5` renders
-#       `5h 0%`. (`${r5%%.*}` of `0.5` is already `0`; only a leading-dot
-#       `.5` expands EMPTY. JSON number syntax requires a digit before the
-#       point, so that form is unreachable from a payload and a guard against
-#       it is defensive rather than required. Corrected from this amendment's
-#       first wording, which named `0.5` as the empty case.)
-#     - An integer-valued payload is unaffected: `14` renders `14`, and no
-#       trailing `.` or `.0` may appear.
-#     - This changes presentation ONLY. No threshold, no colour, no parse
-#       behaviour, and no other group moves. The `ctx` meter is NOT touched:
-#       its `pct` is bash integer arithmetic and cannot carry a fraction.
-#
-#   Composes B01 (burn_metrics), B02 (burn_tick_frac), and B03 (all
-#   presentation) over B04's parsed fields. It performs no arithmetic and no
-#   colour selection of its own — every number comes from B01/B02 and every
-#   colour from B03.
-#
-# B16 amendment — every value on this line carries colour:
-#   Three values render with NO SGR at all today (#307), and the ctx meter
-#   renders green at every occupancy (#306). B16 closes both by sourcing four
-#   more colours from B03. The line's SHAPE does not move: same four groups,
-#   same dim │ separators, same omission rules, same integer truncation of r5
-#   and r7, one string on stdout with no trailing newline. The ONLY observable
-#   difference is which bytes of SGR appear.
-#
-#   - Group 2's trend. The arrow and its magnitude are wrapped in
-#     `burn_trend_color "$m_trend"` ... `$rst`. The ARROW STAYS: `▲`/`▼` are
-#     chosen in this function, exactly as today, and B14's +/-3 dead band is
-#     expressed as the green tier — the upstream's on-track ✓ is deliberately
-#     NOT adopted, so no new codepoint appears anywhere on this line.
-#   - Group 3's ctx meter. Its colour moves from burn_ctx_state's COLOR field
-#     to `burn_ctx_color "$pct"`, so the meter finally warns as the context
-#     fills. burn_ctx_state itself is untouched and still runs: its LEVEL
-#     feeds .local/.ctx-status.json, and the published tier and the on-screen
-#     colour now answer different questions on purpose — "how stale" and "how
-#     full". At the ctx computation further down this file that means
-#     `read -r level ctx_color <<< ...` becomes `read -r level _ <<< ...`, and
-#     the `ctx_color=40` default is deleted rather than left unread.
-#   - Group 3's line counts. `+N` takes `burn_diff_color add` and `-M` takes
-#     `burn_diff_color del`, each closed with its own $rst so the two halves
-#     never bleed into one another. The `/` between them is uncoloured. The
-#     rule that the pair appears only once a count is above zero is UNCHANGED.
-#   - Group 4's countdown. `($countdown)` is wrapped in
-#     `burn_countdown_color` ... `$rst`, PARENS INCLUDED, so the whole
-#     subordinate clause dims together and the eye reaches `5h 20%` first. The
-#     rule that a missing or unparseable reset drops the countdown and its
-#     parens together — never leaving an empty `()` — is unchanged.
-#
-#   Consequence worth stating, because it is a contract the next reader will
-#   check: this removes the LAST hand-typed ${esc}[38;5;Nm from this function.
-#   The "three escape shapes" note at the top of the body becomes two —
-#   $_sl_burn_sep and $rst — and any 38;5; sequence reappearing here is a bug
-#   by the same standard as before.
-#
-#   The SEPARATING SPACE between a value and the one before it sits OUTSIDE
-#   the colour opener, in all four cases above: `"$g $(burn_diff_color add)+$n$rst"`,
-#   never `"$g$(burn_diff_color add) +$n$rst"`. This is the minimal diff from
-#   today's `g="$g +N/-M"` and it is what "the ONLY observable difference is
-#   which bytes of SGR appear" requires — a space moved inside an opener is a
-#   different byte sequence for the same glyph. The tests pin all four
-#   byte-exactly, so this is not a matter of taste at implementation time.
-#
-#   Degradation is stated as an OUTCOME, not a mechanism: an install missing
-#   lib/burn-theme.sh renders exactly today's uncoloured line — exit 0, nothing
-#   on stderr, no partial sequence, no leaked or locally-invented colour. It
-#   does NOT prescribe a `declare -f` guard, because this function does not use
-#   one for colour helpers: burn_rainbow, burn_effort_color, burn_plan_color,
-#   burn_today_color and burn_pace_color are all called BARE today, and their
-#   "command not found" cannot reach the user because the single call site
-#   drops this function's stderr by design (`burn_line=$(sl_render_burn_line
-#   2>/dev/null)`, with its own note explaining why). Measured, not assumed: a
-#   bare-call build of all four new calls, run against an install with
-#   burn-theme.sh absent, exits 0 with 0 bytes on stderr and not one 38;5;
-#   sequence on the line. Guard them or don't; the clause is the outcome.
-#   No threshold is decided here; all four live in B03.
+#   RETIRES, in this same change — everything that serves none of the seven
+#   glance-items: the +added/-removed segment, the %t figure, the %/d figure,
+#   the lines_added/lines_removed fields of the jq parse, the whole of
+#   lib/burn-tick.sh and its test, and the now-uncalled burn_metrics,
+#   burn_awake_seconds, burn_day_start_epoch, burn_rainbow, burn_model_style,
+#   burn_frame_advance and burn_diff_color.
 #
 # Inputs:
-#   Reads the variables B04 populates (r5, r5_reset, r7, r7_reset,
-#   lines_added, lines_removed, total_cost_usd, session_id, model_name,
-#   effort), plus used_tokens, ctx_budget and idle_seconds from the live Ctx
-#   computation, the shared $_sl_now, and the local time-of-day seconds used
-#   to derive the day-start anchor.
+#   The parsed payload variables (r5, r5_reset, r7, r7_reset, model_name,
+#   effort, pct), the shared $_sl_now, and ONE plain `date` call — machine
+#   local time — yielding seconds-into-day AND ISO weekday together, which is
+#   what B01's anchor pair is derived from.
 #
-#   Two environment knobs, both consumed here and passed down to B01. They
-#   carry the plugin's PUBLIC env prefix, as every user-settable knob here
-#   does; the bare SL_* spellings are internal locals seeded from them, the
-#   same split CLAM_STATUSLINE_CACHE_DIR -> SL_CACHE_DIR already uses:
-#     CLAM_STATUSLINE_DAY_START     hour the user's day flips, 0..23 (default 2)
-#     CLAM_STATUSLINE_SLEEP_HOURS   hours after that counted as sleep (default 6)
-#   A non-integer or out-of-range value for either falls back to its
-#   default rather than erroring. Zero-padded values are read as DECIMAL:
-#   "08" is a user writing an hour correctly, not octal.
+#   Three schedule knobs, all documented in the README's env table:
+#     CLAM_STATUSLINE_WORK_DAYS  default "1-5"  ISO weekdays worked
+#     CLAM_STATUSLINE_DAY_START  default 8      hour the working day starts
+#     CLAM_STATUSLINE_DAY_END    default 18     hour the working day ends
+#
+#   A non-integer, out-of-range, or otherwise unusable value for any of them
+#   falls back to ITS OWN default rather than erroring. Zero-padded values are
+#   read as decimal — "08" is a correctly written hour, not octal, and the 10#
+#   forcing that guarantees it is load-bearing, not decoration. A DAY_END at
+#   or below DAY_START falls back to the default pair rather than yielding a
+#   negative window.
+#
+#   ALL schedule arithmetic runs in the machine's local timezone. There is
+#   deliberately no timezone knob (engineer's decision): a machine whose clock
+#   is set to a zone other than the user's working zone shifts every working
+#   window by the offset between them. Accepted, and documented as a
+#   limitation rather than worked around.
 #
 # Outputs:
-#   One line of text on stdout, no trailing newline, ANSI-coloured.
-#
-#   Each group is omitted ENTIRELY, along with its separator, when its data
-#   is unavailable — so the line never shows a dangling │, a stray label
-#   with no number, or a leading/trailing separator. A session with no
-#   rate_limits at all renders groups 1 and 3 only.
-#
-#   The +N/-M sub-segment appears only once at least one of the two counts
-#   is above zero; a session that has edited nothing shows no counts rather
-#   than "+0/-0".
+#   One line on stdout, no trailing newline, ANSI-coloured. A group with no
+#   data is omitted WITH ITS SEPARATOR, so the line never shows a dangling │,
+#   a label with no number, or a leading/trailing separator. Every group empty
+#   echoes the empty string and the caller prints no line at all.
 #
 # Errors:
-#   Never fails the render. Any component returning non-zero — B01 unable to
-#   compute, B02's state file unwritable, a missing reset timestamp — drops
-#   that figure or its whole group and the rest of the line still renders.
-#   Nothing is ever written to stdout except the line itself.
+#   Never fails the render. Any component returning non-zero drops that figure
+#   or its whole group; the rest of the line still renders. Nothing reaches
+#   stdout but the line itself.
 #
 # Invariants:
-#   - The ctx meter keeps this plugin's occupancy math
-#     (total_input_tokens / CLAUDE_CODE_AUTO_COMPACT_WINDOW, non-saturating)
-#     rather than the upstream's .context_window.used_percentage. Decided in
-#     .local/decisions/002-context-meter-source.md: that field saturates at
-#     100 and tracks the model's full window, and the token math runs
-#     regardless to feed .local/.ctx-status.json — displaying the payload
-#     field would publish one number and show another.
-#     B16 amends only where the meter's COLOUR comes from, never the number:
-#     the numerator, the budget resolution and the non-saturating division are
-#     untouched, and the idle-aware tier survives intact as the published
-#     `level`. What changed is that the tier stopped deciding the colour —
-#     which is #306, a meter that never warned because it was answering a
-#     different question from the one it appeared to answer.
-#   - The clam mode does NOT appear on this line. It renders on the path
-#     line beside the State segment, per
-#     .local/decisions/001-clam-mode-placement.md, so the burnrate line is
-#     exactly the four groups above.
-#   - Warm-render process budget, raised from 10 to 12 external commands and
-#     measured by the PATH-shim harness in context.test.sh: the pre-uplift
-#     warm render measured 8, and this line adds at most three — two awk
-#     (one in B01, one in B02) and one date (local time-of-day for the
-#     day-start anchor, alongside the existing shared UTC date). Within
-#     that: exactly one jq, at most two date, at most two awk, and still no
-#     git, no ccost.sh, and nothing opened under CLAUDE_PROJECTS_DIR.
-#   - Rate-limit figures are LIVE on every render, never cached — they are
+#   - The warm-render process budget does NOT move: exactly one jq over stdin,
+#     at most two date, at most two awk, no git, no ccost.sh, nothing opened
+#     under CLAUDE_PROJECTS_DIR. Retiring the sub-tick interpolator frees one
+#     awk, which the 5-hour trend does not spend — burn_linear_trend is pure
+#     bash.
+#   - Rate-limit figures stay LIVE on every render, never cached. They are
 #     server-side quota state and a stale one is worse than none.
+#   - Every colour comes from lib/burn-theme.sh. A hand-typed `38;5;` sequence
+#     in this function is a bug — the same standard the previous contract set.
+#     The two exceptions remain the dim group separator and the closing reset.
+#   - The ctx meter keeps this plugin's non-saturating occupancy math and its
+#     .local/.ctx-status.json publish unchanged (decision 002-context-meter-source).
 #
 # Edge cases:
-#   - No rate_limits in the payload: groups 2 and 4 vanish with their
-#     separators; groups 1 and 3 render normally.
-#   - Weekly data present but its reset timestamp absent: `wk` used% still
-#     renders; %t, %/d and the trend do not (all three need the reset).
-#   - B01 returning NA for today's share (a degenerate slice): the %t
-#     sub-segment is omitted while pace and trend still render.
-#   - Context occupancy over 100% (an overrun): renders above 100 rather
-#     than clamping — the whole reason this plugin computes it itself. Under
-#     B16 it renders red, via the same >=60 tier as any lesser overrun.
-#   - Model name carrying a parenthesised suffix ("Opus 5 (1M context)"):
-#     trimmed at " (" before colouring, so the line stays short.
-#   - Every group empty (a payload with nothing but a cwd): echoes the empty
-#     string, and the caller prints no line at all rather than a bare
-#     newline.
-#   - A session that has edited nothing: the +N/-M pair is absent, so
-#     burn_diff_color is never called and group 3 is `ctx` alone. B16 adds no
-#     colour to a segment that does not render.
-#   - A trend of exactly 0 (`▲0`, which this line does print): green, inside
-#     B14's dead band. The arrow is still `▲` — the sign test that picks it is
-#     untouched.
-#     CORRECTION (orchestrator, mid-dispatch): an earlier draft of this clause
-#     claimed "a zero trend has never printed `▼`". That is FALSE, and the
-#     correction is measured rather than reasoned. B01's burn_metrics signs its
-#     output, so a trend landing in [-0.5, 0) prints `-0`, not `0`; sweeping
-#     every integer used% from 0 to 100 through burn_metrics produces `-0` at
-#     one of them and a bare `0` at none. The arrow test below matches on the
-#     leading `-` (`case "$m_trend" in -*)`), so that session renders `▼-0` on
-#     screen today and still will after B16. The COLOUR clause is unaffected:
-#     burn_trend_color "-0" takes the |T| <= 3 dead band and returns green 40,
-#     the same answer it gives `0`. Nothing in B16 changes because of this; the
-#     prose was simply wrong and the next reader would have trusted it.
-#   - lib/burn-theme.sh absent from an install: all four new colours are
-#     skipped and the line renders exactly as it does today, uncoloured in
-#     those four places, with no partial sequence and no stray reset.
+#   - No rate_limits in the payload (API-key, Bedrock, Vertex auth): groups 3
+#     and 4 vanish with their separators; groups 1 and 2 render.
+#   - A window with used_percentage present but resets_at absent: the used
+#     figure renders, the trend AND countdown both drop — both need the reset.
+#   - A float used_percentage such as 14.000000000000002: prints its integer
+#     part, the same value the colour threshold reads, so the two can never
+#     disagree at a boundary.
+#   - Context occupancy over 100%: renders above 100 rather than clamping.
+#   - A model name with a parenthesised suffix: trimmed at " (" before
+#     colouring.
+#   - An install missing lib/burn-theme.sh or lib/burn-math.sh: renders the
+#     groups that do not need it, exit 0, nothing on stderr, no partial escape
+#     sequence.
 sl_render_burn_line() {
-  # Every COLOUR on this line is B03's choice; no threshold or palette is
-  # decided here. Two escape shapes are still typed out below, neither of
-  # them a colour decision:
-  #   $_sl_burn_sep -- the dim group separator, which B03 offers no helper
-  #     for. "Dim" in the Outputs clause above is SGR 2.
-  #   $rst -- the closing half of B03's sequences. burn_plan_color and its
-  #     siblings each echo a bare SGR OPENER, so closing it is the caller's
-  #     job.
+  # Every COLOUR on this line is burn-theme.sh's choice; no threshold or
+  # palette is decided here. Two escape shapes are still typed out below,
+  # neither of them a colour decision:
+  #   $_sl_burn_sep -- the dim group separator, which burn-theme.sh offers no
+  #     helper for. "Dim" in the Outputs clause above is SGR 2.
+  #   $rst -- the closing half of burn-theme.sh's sequences. Every
+  #     burn_*_color function echoes a bare SGR OPENER, so closing it is the
+  #     caller's job.
   # Anything beyond those two is a bug: it means a colour was picked here
   # instead of in burn-theme.sh.
   local rst=$'\033[0m'
-  local _sl_burn_acc="" g frame
+  local _sl_burn_acc="" g name t cd arrow
 
-  # One animation frame per render, shared by the rainbow and the pet. The
-  # frame file sits in the segment-cache dir, which the bundle write already
-  # created, so the warm path spends no `mkdir` of its own on it. An
-  # unwritable path freezes the animation rather than failing (B03).
-  frame=1
-  if declare -f burn_frame_advance >/dev/null 2>&1; then
-    frame=$(burn_frame_advance "$SL_CACHE_DIR/.burn-frame")
-  fi
-
-  # --- group 1: model name, effort tier --------------------------------------
+  # --- group 1: model name, effort tier (glance-items 1 and 2) --------------
   g=""
-  if [ -n "$model_name" ] && declare -f burn_model_style >/dev/null 2>&1; then
-    # BARE call, never $(burn_model_style ...): it sets BURN_HUES as a global
-    # and echoes nothing, so a subshell capture would discard exactly what the
-    # line below reads.
-    burn_model_style "$model_name"
+  if [ -n "$model_name" ]; then
     # "Opus 5 (1M context)" is trimmed at " (": the suffix costs a third of
-    # the line's width and says nothing the meters do not.
-    g="$(burn_rainbow "${model_name%% (*}" "$frame")"
+    # the line's width and says nothing the meters do not. The trim happens
+    # BEFORE the colour lookup, so the family is chosen from the short name.
+    name="${model_name%% (*}"
+    g="$(_sl_burn_color burn_model_color "$name")$name$rst"
   fi
   if [ -n "$effort" ]; then
     [ -n "$g" ] && g="$g "
-    g="$g$(burn_effort_color "$effort")$effort$rst"
+    g="$g$(_sl_burn_color burn_effort_color "$effort")$effort$rst"
   fi
   _sl_burn_group "$g"
 
-  # --- group 2: weekly limit (wk used%, %t, %/d, trend) ----------------------
-  g=""
-  if [ -n "$r7" ]; then
-    g="$(burn_plan_color "${r7%%.*}")wk ${r7%%.*}%$rst"
-    if [ -n "$r7_reset" ]; then
-      local hour slp ds frac metrics m_today m_pace m_trend arrow
-      # The awake-hours knobs, both passed straight down to B01. A
-      # non-integer (the leading "-" of a negative included) or out-of-range
-      # value falls back to its default rather than erroring. The 10# is not
-      # decoration: a perfectly reasonable "08" is OCTAL to bash arithmetic,
-      # and an unforced one aborts the multiplication below -- silently
-      # dropping %t, %/d and the trend for a value the user wrote correctly.
-      hour="${CLAM_STATUSLINE_DAY_START:-2}"
-      case "$hour" in ''|*[!0-9]*) hour=2 ;; *) hour=$(( 10#$hour )) ;; esac
-      [ "$hour" -gt 23 ] && hour=2
-      slp="${CLAM_STATUSLINE_SLEEP_HOURS:-6}"
-      case "$slp" in ''|*[!0-9]*) slp=6 ;; *) slp=$(( 10#$slp )) ;; esac
-      [ "$slp" -gt 23 ] && slp=6
-
-      ds=$(_sl_burn_day_start "$hour")
-      if [ -n "$ds" ]; then
-        # The sub-tick fraction refines %t only, and only when the payload
-        # carries the session cost it is estimated from; without one B02 has
-        # nothing to measure, so skip the call rather than let it re-anchor
-        # (and re-write its state file) on every render.
-        frac=0
-        if [ -n "$total_cost_usd" ] && declare -f burn_tick_frac >/dev/null 2>&1; then
-          frac=$(burn_tick_frac "$r7" "$session_id" "$total_cost_usd" "$_sl_burn_tick_file")
-          [ -n "$frac" ] || frac=0
-        fi
-        # burn_metrics echoes "TODAY PACE TREND" or, when it cannot compute
-        # (a reset already past, a degenerate week), nothing at all -- in
-        # which case all three derived figures drop and 🎯 used% stays.
-        metrics=$(burn_metrics "$r7" "$frac" "$_sl_now" "$r7_reset" "$ds" "$(( slp * 3600 ))")
-        if [ -n "$metrics" ]; then
-          read -r m_today m_pace m_trend <<< "$metrics"
-          # NA is B01 saying today's slice is degenerate, not a figure to
-          # render; pace and trend survive it.
-          [ "$m_today" != "NA" ] \
-            && g="$g $(burn_today_color "$m_today")${m_today}%t$rst"
-          g="$g $(burn_pace_color "$m_pace")${m_pace}%/d$rst"
-          # Ahead of the even-burn line points up. The magnitude is printed as
-          # B01 signs it, so a negative trend reads "▼-11".
-          case "$m_trend" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
-          g="$g $(burn_trend_color "$m_trend")$arrow$m_trend$rst"
-        fi
-      fi
-    fi
-  fi
-  _sl_burn_group "$g"
-
-  # --- group 3: session (ctx occupancy, lines touched) -----------------------
+  # --- group 2: context occupancy (glance-item 5) --------------------------
+  # $pct is the plugin's own non-saturating occupancy against the compaction
+  # budget, computed below this function; an overrun renders above 100 rather
+  # than clamping, and the same integer feeds the colour band so the number on
+  # screen and the band it takes can never disagree.
   g=""
   if [ -n "$pct" ]; then
-    g="$(burn_ctx_color "$pct")ctx ${pct}%$rst"
-    # Only once at least one count is above zero: a session that has edited
-    # nothing shows nothing, not "+0/-0". Each half closes with its OWN
-    # reset so neither bleeds into the other; the "/" between them is
-    # deliberately uncoloured.
-    if [ "${lines_added:-0}" -gt 0 ] 2>/dev/null \
-      || [ "${lines_removed:-0}" -gt 0 ] 2>/dev/null; then
-      g="$g $(burn_diff_color add)+${lines_added:-0}$rst/$(burn_diff_color del)-${lines_removed:-0}$rst"
+    g="$(_sl_burn_color burn_ctx_color "$pct")ctx ${pct}%$rst"
+  fi
+  _sl_burn_group "$g"
+
+  # --- group 3: the 5-hour limit (glance-item 6) ---------------------------
+  # used% , trend, countdown -- the same three figures, in the same order, as
+  # the weekly group below, so the reader learns one reading rather than two.
+  # The trend is burn_linear_trend's: over a five-hour window "which days do
+  # you work" cannot apply, so it is plain wall clock over 18000 seconds.
+  g=""
+  if [ -n "$r5" ]; then
+    g="$(_sl_burn_color burn_plan_color "${r5%%.*}")5h ${r5%%.*}%$rst"
+    # A missing or unusable reset drops the trend AND the countdown -- both
+    # need it -- while the used figure stays: it is live quota state.
+    if [ -n "$r5_reset" ]; then
+      if declare -f burn_linear_trend >/dev/null 2>&1; then
+        t=$(burn_linear_trend "$r5" "$_sl_now" "$r5_reset" 18000 2>/dev/null) \
+          && [ -n "$t" ] \
+          && { case "$t" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
+               g="$g $(_sl_burn_color burn_trend_color "$t")$arrow$t$rst"; }
+      fi
+      g="$g$(_sl_burn_countdown "$r5_reset")"
     fi
   fi
   _sl_burn_group "$g"
 
-  # --- group 4: 5-hour limit (5h used%, countdown) ---------------------------
+  # --- group 4: the weekly limit (glance-item 7) ---------------------------
+  # Same three figures as group 3, but the trend is burn_week_trend's: a
+  # weekly window whose reset lands mid-week must not count the hours the user
+  # does not work as burnable.
   g=""
-  if [ -n "$r5" ]; then
-    g="$(burn_plan_color "${r5%%.*}")5h ${r5%%.*}%$rst"
-    # A missing reset drops the countdown ONLY -- the used% is live quota
-    # state, exactly as the weekly group keeps its wk figure without one.
-    if [ -n "$r5_reset" ]; then
-      local countdown
-      countdown=$(burn_reset_str "$r5_reset" "$_sl_now") \
-        && [ -n "$countdown" ] \
-        && g="$g $(burn_countdown_color)($countdown)$rst"
+  if [ -n "$r7" ]; then
+    g="$(_sl_burn_color burn_plan_color "${r7%%.*}")wk ${r7%%.*}%$rst"
+    if [ -n "$r7_reset" ]; then
+      t=$(_sl_burn_week_trend) \
+        && [ -n "$t" ] \
+        && { case "$t" in -*) arrow='▼' ;; *) arrow='▲' ;; esac
+             g="$g $(_sl_burn_color burn_trend_color "$t")$arrow$t$rst"; }
+      g="$g$(_sl_burn_countdown "$r7_reset")"
     fi
   fi
   _sl_burn_group "$g"
@@ -685,7 +608,7 @@ _sl_burn_sep=$'\033[2m│\033[0m'
 # _sl_burn_group GROUP -- append GROUP to the line under assembly. The
 # accumulator is sl_render_burn_line's own $_sl_burn_acc local, visible here
 # through bash's dynamic scoping; this exists only to keep that function's
-# five group blocks free of the same four lines of join bookkeeping.
+# four group blocks free of the same four lines of join bookkeeping.
 _sl_burn_group() { # group
   [ -z "$1" ] && return 0
   [ -n "$_sl_burn_acc" ] && _sl_burn_acc="$_sl_burn_acc $_sl_burn_sep "
@@ -693,17 +616,79 @@ _sl_burn_group() { # group
   return 0
 }
 
-# _sl_burn_day_start HOUR -> epoch of the current day's start, or nothing when
-# the clock cannot be read. Spends the render's SECOND and last `date` on the
-# seconds-into-the-LOCAL-day figure B01 needs: one `date` invocation carries
-# one timezone, and the shared $_sl_now has to be UTC because
-# .ctx-status.json's fetched_at is. Called only from the weekly group, so a
-# payload with no weekly data never pays for it.
-_sl_burn_day_start() { # hour
-  local h m s
-  read -r h m s <<< "$(date +'%H %M %S')"
-  case "$h$m$s" in ''|*[!0-9]*) return 1 ;; esac
-  burn_day_start_epoch "$_sl_now" "$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))" "$1"
+# _sl_burn_color FUNC [ARG...] -- the colour opener FUNC yields, or NOTHING at
+# all when the install has no lib/burn-theme.sh. Every colour on line 2 goes
+# through here, which is what lets an install missing the presentation library
+# render the same TEXT with no colour rather than a partial escape sequence or
+# a locally-invented fallback: no colour decision lives in this file.
+_sl_burn_color() { # func [arg...]
+  local fn="$1"; shift
+  declare -f "$fn" >/dev/null 2>&1 || return 0
+  "$fn" "$@" 2>/dev/null
+  return 0
+}
+
+# _sl_burn_countdown RESET -- the dimmed, parenthesised countdown to RESET,
+# with its leading space, or the empty string when it cannot be computed. The
+# parens sit INSIDE the dim sequence so the whole subordinate clause dims
+# together, and they drop WITH the figure so the line never shows an empty
+# "()".
+_sl_burn_countdown() { # reset
+  local cd
+  declare -f burn_reset_str >/dev/null 2>&1 || return 0
+  cd=$(burn_reset_str "$1" "$_sl_now" 2>/dev/null) || return 0
+  [ -n "$cd" ] || return 0
+  printf ' %s(%s)%s' "$(_sl_burn_color burn_countdown_color)" "$cd" $'\033[0m'
+  return 0
+}
+
+# _sl_burn_week_trend -- the weekly trend, or nothing (non-zero) when it
+# cannot be computed. Spends the render's SECOND and last `date` on the one
+# LOCAL reading the working-week model needs: seconds-into-the-local-day and
+# the ISO weekday TOGETHER, from a single invocation, because one `date` call
+# carries one timezone and the shared $_sl_now has to be UTC ('.ctx-status.json's
+# fetched_at is). Called only from the weekly group, so a payload with no
+# weekly data never pays for it.
+#
+# All schedule arithmetic is therefore in the machine's LOCAL timezone, and
+# there is deliberately no timezone knob: a machine whose clock is set to a
+# zone other than the user's working one shifts every window by the offset
+# between them. Accepted and documented, not worked around.
+_sl_burn_week_trend() {
+  declare -f burn_week_trend >/dev/null 2>&1 || return 1
+  declare -f burn_work_parse >/dev/null 2>&1 || return 1
+
+  # The three schedule knobs. Each unusable value falls back to ITS OWN
+  # default rather than to a whole default set, so the two good knobs still
+  # take effect alongside the rejected one. The 10# is not decoration: a
+  # perfectly reasonable "08" is OCTAL to bash arithmetic, and an unforced one
+  # aborts the comparison below -- silently dropping the trend for a value the
+  # user wrote correctly.
+  local days st en sched mask ss es h m s wd am
+  days="${CLAM_STATUSLINE_WORK_DAYS:-1-5}"
+  st="${CLAM_STATUSLINE_DAY_START:-8}"
+  en="${CLAM_STATUSLINE_DAY_END:-18}"
+  case "$st" in ''|*[!0-9]*) st=8 ;; *) st=$(( 10#$st )) ;; esac
+  [ "$st" -gt 23 ] && st=8
+  case "$en" in ''|*[!0-9]*) en=18 ;; *) en=$(( 10#$en )) ;; esac
+  { [ "$en" -lt 1 ] || [ "$en" -gt 24 ]; } && en=18
+  # A day that ends at or before it starts is not a shorter window, it is no
+  # window at all, so this one fallback is to the default PAIR.
+  if [ "$en" -le "$st" ]; then st=8; en=18; fi
+
+  read -r h m s wd <<< "$(date +'%H %M %S %u')"
+  case "$h$m$s$wd" in ''|*[!0-9]*) return 1 ;; esac
+  am=$(( _sl_now - (10#$h * 3600 + 10#$m * 60 + 10#$s) ))
+
+  # An unparseable weekday SET falls back to the default week; the hours have
+  # already fallen back on their own above.
+  sched=$(burn_work_parse "$days" "$st" "$en" 2>/dev/null) \
+    || sched=$(burn_work_parse "1-5" "$st" "$en" 2>/dev/null) \
+    || return 1
+  read -r mask ss es <<< "$sched"
+
+  burn_week_trend "$r7" "$_sl_now" "$r7_reset" "$am" "$(( 10#$wd ))" \
+    "$mask" "$ss" "$es" 2>/dev/null
 }
 # ------------------------------------------------------------------------
 
@@ -731,12 +716,12 @@ _LIB_DIR="$(cd "$(_sl_dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
 _STATES_LIB="$_LIB_DIR/states.sh"
 [ -f "$_STATES_LIB" ] && . "$_STATES_LIB"
 
-# Burnrate line libraries (B01 pacing math, B02 sub-tick interpolation, B03
-# presentation). `.` is a builtin, so sourcing three more files costs the
+# Burnrate line libraries (B01/B02 working-week pacing math, B03/B04
+# presentation). `.` is a builtin, so sourcing two more files costs the
 # warm-render process budget nothing. Each is optional at load time: a
 # missing file leaves its functions undefined and sl_render_burn_line omits
-# the groups that need them, exactly as it does for absent payload data.
-for _burn_lib in burn-math.sh burn-tick.sh burn-theme.sh; do
+# the figures that need them, exactly as it does for absent payload data.
+for _burn_lib in burn-math.sh burn-theme.sh; do
   [ -f "$_LIB_DIR/$_burn_lib" ] && . "$_LIB_DIR/$_burn_lib"
 done
 unset _burn_lib
@@ -770,16 +755,6 @@ _sl_mtime_epoch() {
 }
 
 sl_parse_input
-
-# B02's sub-tick anchor file, keyed exactly as the segment bundle is (the
-# transcript path, falling back to the cwd) so two sessions never share an
-# anchor. It lives in the segment-cache dir the bundle write already creates,
-# which is what keeps the burnrate line's scratch state off the warm render's
-# process budget: no `mkdir` of its own, and an unwritable path just degrades
-# the interpolation to a zero fraction.
-_sl_burn_tick_key="$transcript_path"
-[ -z "$_sl_burn_tick_key" ] && _sl_burn_tick_key="$cwd"
-_sl_burn_tick_file="$SL_CACHE_DIR/${_sl_burn_tick_key//\//_}.tick"
 
 # Age of a file in seconds (missing file reads as very old). Only used by
 # the refresh-engine kicks below, which are cold-path-only; the live parts
@@ -845,16 +820,173 @@ classify_pr_tag() {
   fi
 }
 
+# Contract: B07 line1-paths (plan 001-statusline-glance-uplift)
+#
+# Behavior:
+#   sl_render_path_segment renders glance-items 3 and 4 — the project
+#   directory the orchestrator started in, and the directory the agent is
+#   working in now — as the head of line 1.
+#
+#   When PROJECT_DIR and CURRENT_DIR are the same path (the normal case) it
+#   renders ONE segment showing the project dir, with $HOME collapsed to "~".
+#   When they differ it renders the project dir, then "›", then the current
+#   dir expressed RELATIVE to the project dir — falling back to the absolute
+#   current dir when the current dir is not underneath it.
+#
+#   The whole segment is wrapped in an OSC 8 file:// hyperlink. As part of
+#   this block, osc8_link's terminator changes from ST (\033\\) to BEL (\a),
+#   matching the form the Claude Code statusline docs use.
+#
+# Inputs:
+#   sl_render_path_segment PROJECT_DIR CURRENT_DIR
+#     PROJECT_DIR  workspace.project_dir, ADDED to the single-jq parse by this
+#                  block; possibly empty
+#     CURRENT_DIR  workspace.current_dir, already parsed today
+#   $HOME, read from the environment for the "~" collapse.
+#
+# Outputs:
+#   One coloured, hyperlinked path segment, no trailing newline, followed by
+#   the existing branch, PR, git-sync, mode and State segments UNCHANGED — no
+#   segment past the path gains or loses a leading space.
+#
+# Errors:
+#   Never fails the render. An absent PROJECT_DIR falls back to rendering the
+#   current dir alone, exactly as today. A terminal that ignores OSC 8 shows
+#   the visible text unchanged, which is the whole reason the sequence is safe
+#   to emit unconditionally.
+#
+# Invariants:
+#   - Still EXACTLY ONE jq over the stdin payload. project_dir rides the
+#     existing invocation; it does not buy a second one.
+#   - The path segment stays live on every render, never served from the cache
+#     bundle.
+#   - The URL is percent-encoded enough that a path containing a space or "#"
+#     does not break the sequence.
+#   - bash 3.2 compatible.
+#
+# Edge cases:
+#   - PROJECT_DIR and CURRENT_DIR identical: one segment, no "›".
+#   - CURRENT_DIR outside PROJECT_DIR: absolute path after the "›".
+#   - $HOME unset, or the path outside it: no "~" collapse.
+#   - A path containing the OSC 8 terminator byte cannot arise from a real
+#     filesystem path, but the encoding must not emit a raw BEL from user data
+#     regardless — the sequence's framing must never be decidable by its
+#     content.
+#
+# sl_render_path_segment PROJECT_DIR CURRENT_DIR
+sl_render_path_segment() {
+  local proj="$1" cur="$2" link text tail
+  local blue=$'\033[38;5;39m' dim=$'\033[38;5;245m' rst=$'\033[0m'
+
+  # Nothing to show and nothing to link to: print nothing at all rather than a
+  # bare pair of colour sequences.
+  [ -z "$proj" ] && [ -z "$cur" ] && return 0
+
+  # Where a Ctrl+Click lands: the directory the agent is working in now, which
+  # is the one a reader following the link wants open. With no current dir the
+  # project dir is both what shows and what opens.
+  link="$cur"
+  [ -z "$link" ] && link="$proj"
+
+  if [ -z "$proj" ] || [ -z "$cur" ] || [ "$proj" = "$cur" ]; then
+    # The normal case, and the two degenerate ones: ONE dir, no "›" to
+    # introduce a second with.
+    text="$blue$(_sl_path_display "${proj:-$cur}")$rst"
+  else
+    # Two dirs. The tail is expressed relative to the project dir when it sits
+    # underneath it -- which is the whole point of showing both, since the
+    # shared prefix carries no information the head has not already given --
+    # and absolute when it does not.
+    case "$cur" in
+      "$proj"/*) tail="$(_sl_path_clean "${cur#"$proj"/}")" ;;
+      *)         tail="$(_sl_path_display "$cur")" ;;
+    esac
+    # Braces around the expansion abutting the "›": unbraced, the separator's
+    # first byte is swallowed into the parameter name and both the colour and
+    # the glyph come out mangled.
+    text="$blue$(_sl_path_display "$proj")$rst ${dim}›$rst $blue$tail$rst"
+  fi
+
+  osc8_link "file://$(_sl_url_encode "$link")" "$text"
+}
+
+# _sl_path_display PATH -- PATH as the statusline shows it: $HOME collapsed to
+# a literal "~" (unchanged from the pre-B07 renderer, and skipped when $HOME is
+# empty or the path lies outside it) and control bytes dropped.
+_sl_path_display() { # path
+  local p="$1"
+  if [ -n "$HOME" ]; then
+    case "$p" in
+      "$HOME"|"$HOME"/*) p="~${p#"$HOME"}" ;;
+    esac
+  fi
+  _sl_path_clean "$p"
+}
+
+# _sl_path_clean TEXT -- TEXT with every control byte removed. A real
+# filesystem path holds none, but the OSC 8 framing must never be decidable by
+# what it wraps: a BEL arriving inside the visible text would close the
+# hyperlink early and leave the rest of the line inside a sequence no terminal
+# is expecting. Dropped rather than escaped, because the byte has no visible
+# form to preserve.
+_sl_path_clean() { # text
+  local LC_ALL=C
+  local s="$1" out="" i c
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    i=$(( i + 1 ))
+    case "$c" in
+      [[:cntrl:]]) continue ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# _sl_url_encode PATH -- PATH percent-encoded for the file:// URL. Everything
+# outside the unreserved set plus "/" is encoded, which covers the two bytes
+# that would otherwise break the sequence for real users -- a space, and a "#"
+# truncating the URL at what a terminal reads as a fragment -- as well as the
+# terminator byte itself. LC_ALL=C is load-bearing: it makes the loop walk
+# BYTES, so a path with non-ASCII characters is encoded as the UTF-8 octets a
+# file:// URL is made of rather than as codepoints. Builtins only; the
+# command substitutions are subshells, not execs, so this costs the render's
+# process budget nothing.
+_sl_url_encode() { # path
+  local LC_ALL=C
+  local s="$1" out="" i c n hex
+  local safe='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~/'
+  i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    i=$(( i + 1 ))
+    case "$safe" in
+      *"$c"*) out="$out$c" ;;
+      *)
+        # The mask is load-bearing on bash 3.2: it reads a byte above 0x7f as a
+        # SIGNED char, so an unmasked %02X of "é" prints FFFFFFFFFFFFFFC3
+        # rather than C3 and the URL comes out unusable.
+        printf -v n '%d' "'$c"
+        printf -v hex '%%%02X' "$(( n & 255 ))"
+        out="$out$hex"
+        ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 # Wrap text in an OSC 8 hyperlink so terminals (Alacritty 0.7+, iTerm2,
 # WezTerm) make it Ctrl+Clickable. tmux 3.4+ passes the sequence through.
 # In terminals that ignore OSC 8, the visible text is unchanged.
+# The terminator is BEL (\a), matching the Claude Code statusline docs (B07).
 # Args: $1=url $2=text
 osc8_link() {
   local url="$1" text="$2"
   if [ -z "$url" ]; then
     printf '%s' "$text"
   else
-    printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$text"
+    printf '\033]8;;%s\a%s\033]8;;\a' "$url" "$text"
   fi
 }
 
@@ -1061,6 +1193,15 @@ if ! sl_bundle_read; then
     clam_mode="${clam_mode:0:24}"
   fi
 
+  # Bound the cache directory (B08). COLD path only, and deliberately before
+  # the write rather than after it: the bundle this render is about to leave
+  # behind is by definition fresh, so sweeping first spares it a stat. One day
+  # is long enough that a session parked overnight still finds its own bundle
+  # and short enough that a machine's worth of dead sessions does not
+  # accumulate. Bundles written under the pre-B08 transcript_path key age out
+  # through this same call rather than being migrated.
+  sl_cache_sweep "$SL_CACHE_DIR" 86400
+
   sl_bundle_write
 fi
 # ------------------------------------------------------------------------
@@ -1145,17 +1286,12 @@ if [ -n "$total_input" ] && [ -n "$ctx_budget" ] && [ "$ctx_budget" -gt 0 ] 2>/d
   fi
 fi
 
-# Format the status line. Render $HOME as ~ so the path segment stays short
-# (~ is kept literal; when $HOME is empty or $cwd is outside it, the full path
-# shows unchanged). $cwd itself is left intact — it is still used for the git
-# detection above.
-cwd_display="$cwd"
-if [ -n "$HOME" ]; then
-  case "$cwd" in
-    "$HOME"|"$HOME"/*) cwd_display="~${cwd#"$HOME"}" ;;
-  esac
-fi
-printf '\033[38;5;39m%s\033[0m' "$cwd_display"
+# Format the status line. The head is B07's path segment: the project dir and,
+# when it differs, the dir the agent is working in now, $HOME collapsed to "~"
+# and the whole thing hyperlinked. Live on every render, never cached. $cwd and
+# $project_dir themselves are left intact — $cwd is still what the git
+# detection above walks up from.
+sl_render_path_segment "$project_dir" "$cwd"
 
 if [ -n "$branch" ]; then
   printf ' \033[38;5;245m(\033[0m%s\033[38;5;245m)\033[0m' "$branch"

@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: Run the per-unit worktree pipeline over scaffolded lego blocks — worktree, test wave, verification, implementation wave, acceptance, local merge, and (per delivery mode) PR delivery — dependency-ordered and parallel where independent, with orchestrator verification checklists, mechanical realm checks, and the escalation loop. Use after /lego:scaffold's gate passes.
+description: Run the per-unit worktree pipeline over scaffolded lego blocks — worktree, test wave, verification, implementation wave, acceptance, local merge, and (per delivery mode) PR delivery — dependency-ordered and parallel where independent, with orchestrator verification checklists, mechanical realm checks, and the escalation loop. Use after /lego:plan's approval gate passes.
 ---
 
 # Lego Dispatch

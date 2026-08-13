@@ -45,12 +45,16 @@ while IFS= read -r rel; do
   else
     fail "SKILL.md path does not resolve: \${CLAUDE_PLUGIN_ROOT}/$rel -> $target"
   fi
-done < <(grep -oP '\$\{CLAUDE_PLUGIN_ROOT\}/\K[^ `"'"'"']+' "$SKILL_MD" | sort -u)
+done < <(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/[^ `"'"'"']+' "$SKILL_MD" \
+  | sed 's|^\${CLAUDE_PLUGIN_ROOT}/||' | sort -u)
 
 # --- Clause 2: no stale ~/.claude/skills/render-doc refs ----------------------
 # Strip HTML comments before checking — contract docblocks quote the very
 # string being checked for, but those are metadata, not live references.
-stale_refs="$(cd "$REPO_ROOT" && git ls-files -z | xargs -0 -I{} sh -c 'sed "/<!--/,/-->/d" "$1" | grep -q "~/.claude/skills/render-doc" && echo "$1"' _ {} 2>/dev/null | grep -v 'MIGRATION.md' | grep -v '\.test\.sh$' || true)"
+stale_refs="$(
+  cd "$REPO_ROOT" || exit 0
+  git ls-files -z | xargs -0 -I{} sh -c 'sed "/<!--/,/-->/d" "$1" | grep -q "~/.claude/skills/render-doc" && echo "$1"' _ {} 2>/dev/null | grep -v 'MIGRATION.md' | grep -v '\.test\.sh$' || true
+)"
 if [ -z "$stale_refs" ]; then
   pass "no stale ~/.claude/skills/render-doc refs outside MIGRATION.md and test files"
 else
@@ -73,7 +77,8 @@ fi
 
 # Root README: extract version from the render-doc row (e.g., "✅ v0.1.0")
 strip_docblocks() { sed '/<!--/,/-->/d' "$1"; }
-readme_version="$(strip_docblocks "$ROOT_README" | grep -oP 'render-doc.*?v\K[0-9]+\.[0-9]+\.[0-9]+')"
+readme_version="$(strip_docblocks "$ROOT_README" \
+  | sed -nE 's/.*render-doc[^v]*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)"
 
 if [ "$pj_version" = "$readme_version" ]; then
   pass "plugin.json version ($pj_version) == root README version ($readme_version)"
@@ -340,10 +345,12 @@ b06_pair() { # <label> <value-from-serve.py> <value-from-render.sh>
 # has ([A-Z_][A-Z0-9_]*), not [A-Z_]+: a renamed-with-a-digit override would
 # otherwise fall out of the extraction and be reported as a moved anchor
 # rather than as the disagreement it is.
-py_port_env="$(grep -oP "os\.environ\.get\(\s*'\K[A-Z_][A-Z0-9_]*" "$SERVE_PY" | head -1)"
-py_port_default="$(grep -oP "os\.environ\.get\(\s*'[A-Z_][A-Z0-9_]*'\s*,\s*'\K[0-9]+" "$SERVE_PY" | head -1)"
-sh_port_env="$(grep -oP '\$\{\K[A-Z_][A-Z0-9_]*(?=:-[0-9]+\})' "$RENDER" | head -1)"
-sh_port_default="$(grep -oP '\$\{[A-Z_][A-Z0-9_]*:-\K[0-9]+(?=\})' "$RENDER" | head -1)"
+# Extraction is sed-with-a-capture-group rather than PCRE \K/lookaround: BSD
+# grep has no -P at all, and exits 2 on it — which would read as "no match".
+py_port_env="$(sed -nE "s/.*os\.environ\.get\([[:space:]]*'([A-Z_][A-Z0-9_]*)'.*/\1/p" "$SERVE_PY" | head -1)"
+py_port_default="$(sed -nE "s/.*os\.environ\.get\([[:space:]]*'[A-Z_][A-Z0-9_]*'[[:space:]]*,[[:space:]]*'([0-9]+)'.*/\1/p" "$SERVE_PY" | head -1)"
+sh_port_env="$(sed -nE 's/^[^$]*\$\{([A-Z_][A-Z0-9_]*):-[0-9]+\}.*/\1/p' "$RENDER" | head -1)"
+sh_port_default="$(sed -nE 's/^[^$]*\$\{[A-Z_][A-Z0-9_]*:-([0-9]+)\}.*/\1/p' "$RENDER" | head -1)"
 
 b06_pair "the port override variable" "$py_port_env" "$sh_port_env"
 b06_pair "the port default" "$py_port_default" "$sh_port_default"
@@ -363,9 +370,9 @@ fi
 
 # Routes are read from serve.py, which owns them, and each must be one of the
 # $BASE-relative paths render.sh actually builds its URLs from.
-py_doc_route="$(grep -oP "startswith\('\K/[A-Za-z0-9_-]+" "$SERVE_PY" | head -1)"
-py_health_route="$(grep -oP "raw == '\K/[A-Za-z0-9_-]+" "$SERVE_PY" | head -1)"
-sh_routes="$(grep -oP '\$BASE\K/[A-Za-z0-9_-]+' "$RENDER" | sort -u)"
+py_doc_route="$(sed -nE "s|.*startswith\('(/[A-Za-z0-9_-]+).*|\1|p" "$SERVE_PY" | head -1)"
+py_health_route="$(sed -nE "s|.*raw == '(/[A-Za-z0-9_-]+).*|\1|p" "$SERVE_PY" | head -1)"
+sh_routes="$(grep -oE '\$BASE/[A-Za-z0-9_-]+' "$RENDER" | sed 's|^\$BASE||' | sort -u)"
 
 b06_route() { # <label> <route-from-serve.py>
   if [ -z "$2" ]; then
@@ -386,8 +393,8 @@ else
   fail "B06 clause 2: the document route prefix is '${py_doc_route:-not found}', not /doc"
 fi
 
-py_app="$(grep -oP '"app":\s*"\K[^"]+' "$SERVE_PY" | head -1)"
-sh_app="$(grep -oP '\$APP"[[:space:]]*[!=]=[[:space:]]*"\K[^"]+' "$RENDER" | head -1)"
+py_app="$(sed -nE 's/.*"app":[[:space:]]*"([^"]+)".*/\1/p' "$SERVE_PY" | head -1)"
+sh_app="$(sed -nE 's/.*\$APP"[[:space:]]*[!=]=[[:space:]]*"([^"]+)".*/\1/p' "$RENDER" | head -1)"
 b06_pair "the /health app marker" "$py_app" "$sh_app"
 
 # --- B06 clause 3: all four fixtures still render, tree included -------------

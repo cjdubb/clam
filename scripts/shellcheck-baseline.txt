@@ -33,7 +33,6 @@ plugins/debugging/scripts/b10-registration.test.sh	SC2016
 plugins/debugging/scripts/structure.test.sh	SC2016
 plugins/decision-log/scripts/rundown-render-seam.test.sh	SC2088
 plugins/landing/scripts/landing-docs.test.sh	SC2155
-plugins/lego/scripts/blocks-lint.test.sh	SC2015
 plugins/lego/scripts/dispatch-scheduling.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2016
 plugins/lego/scripts/dispatch-skill.test.sh	SC2088
@@ -44,7 +43,7 @@ plugins/lego/scripts/pr-size-check.test.sh	SC2069
 plugins/lego/scripts/realm-gate.test.sh	SC2012
 plugins/lego/scripts/realm.sh	SC2254
 plugins/lego/scripts/scaffold-skill.test.sh	SC2016
-plugins/lego/scripts/session-context-question-gate.test.sh	SC2016
+plugins/lego/scripts/standing-rules-question-gate.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2016
 plugins/lego/scripts/wave-check.test.sh	SC2143
 plugins/lego/scripts/wave-check.test.sh	SC2295
@@ -69,14 +68,10 @@ plugins/orchestrator-handover/scripts/b01-skill.test.sh	SC2034
 plugins/privacy/scripts/structure.test.sh	SC2088
 plugins/render-doc/scripts/migration.test.sh	SC2016
 plugins/render-doc/scripts/open.test.sh	SC2034
-plugins/render-doc/scripts/open.test.sh	SC2119
-plugins/render-doc/scripts/open.test.sh	SC2120
-plugins/render-doc/scripts/render.sh	SC2015
 plugins/render-doc/scripts/render.test.sh	SC2016
 plugins/render-doc/scripts/render.test.sh	SC2088
 plugins/render-doc/scripts/server.test.sh	SC2016
 plugins/render-doc/scripts/server.test.sh	SC2034
-plugins/render-doc/scripts/structure.test.sh	SC2015
 plugins/render-doc/scripts/structure.test.sh	SC2016
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2016
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2034
@@ -90,11 +85,8 @@ plugins/statusline/lib/burn-math.test.sh	SC2016
 plugins/statusline/lib/burn-theme.test.sh	SC1007
 plugins/statusline/lib/burn-theme.test.sh	SC1090
 plugins/statusline/lib/burn-theme.test.sh	SC2016
-plugins/statusline/lib/burn-tick.test.sh	SC1090
-plugins/statusline/lib/burn-tick.test.sh	SC2016
 plugins/statusline/scripts/ccost.sh	SC1091
 plugins/statusline/scripts/ccost.test.sh	SC1091
-plugins/statusline/scripts/context.sh	SC1003
 plugins/statusline/scripts/context.sh	SC1090
 plugins/statusline/scripts/context.sh	SC1091
 plugins/statusline/scripts/context.test.sh	SC1090
@@ -113,7 +105,6 @@ plugins/tracking/scripts/compaction-wiring.test.sh	SC2016
 plugins/tracking/scripts/followups-docs.test.sh	SC2016
 plugins/tracking/scripts/followups-docs.test.sh	SC2034
 plugins/tracking/scripts/followups-lifecycle.test.sh	SC2016
-plugins/tracking/scripts/keep-working.sh	SC2015
 plugins/tracking/scripts/keep-working.sh	SC2034
 plugins/tracking/scripts/no-todo-nudge.test.sh	SC2034
 plugins/tracking/scripts/post-compact-recovery.test.sh	SC2181
@@ -122,7 +113,6 @@ plugins/tracking/scripts/workgraph-docs.test.sh	SC2016
 plugins/tracking/scripts/workgraph-docs.test.sh	SC2034
 plugins/tracking/scripts/workgraph-lifecycle.test.sh	SC2016
 plugins/tracking/scripts/workgraph-template.test.sh	SC2016
-plugins/voice/scripts/structure.test.sh	SC2016
 plugins/worktrees/scripts/b02-usage-skill.test.sh	SC2034
 plugins/worktrees/scripts/b03-per-worker-skill.test.sh	SC2016
 scripts/architecture-doc.test.sh	SC2016

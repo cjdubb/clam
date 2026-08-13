@@ -1,5 +1,5 @@
 #!/bin/bash
-# Structural/anchor test for skills/scaffold/SKILL.md against
+# Structural/anchor test for the materialization half of skills/plan/SKILL.md against
 # "Contract: B02 scaffold materialization", whose docblock lives inline in
 # SKILL.md as an HTML comment directly above "## Step 1".
 #
@@ -21,7 +21,7 @@
 # Run: bash plugins/lego/scripts/scaffold-materialization.test.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL="$SCRIPT_DIR/../skills/scaffold/SKILL.md"
+SKILL="$SCRIPT_DIR/../skills/plan/SKILL.md"
 
 FAILED=0
 
@@ -71,16 +71,16 @@ fi
 RAW=$(cat "$SKILL")
 STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 
-# Intro: everything from the "# Lego Scaffolding" title up to "## Step 1".
+# Intro: everything from the "## Materialization" heading up to "## Step 5".
 INTRO=$(awk '
-  index($0, "# Lego Scaffolding") == 1 { capture=1; print; next }
-  capture && index($0, "## Step 1") == 1 { exit }
+  index($0, "## Materialization") == 1 { capture=1; print; next }
+  capture && index($0, "## Step 5") == 1 { exit }
   capture { print }
 ' <<<"$STRIPPED")
 
-# Step 1 body: its heading up to the next top-level "## " heading.
+# Step 5 (stubs) body: its heading up to the next top-level "## " heading.
 STEP1=$(awk '
-  index($0, "## Step 1") == 1 { capture=1; print; next }
+  index($0, "## Step 5: Write the stubs") == 1 { capture=1; print; next }
   capture && index($0, "## ") == 1 { exit }
   capture { print }
 ' <<<"$STRIPPED")
@@ -96,8 +96,8 @@ check "step1: the plan's Interface drafts section is named" \
   "$(has_f "$STEP1" 'Interface drafts')" "yes"
 check "step1: stubs are transcribed from the approved drafts" \
   "$(has_any_i "$STEP1" 'transcrib')" "yes"
-check "step1: the drafts are the APPROVED ones (plan-time approval)" \
-  "$(has_any_i "$STEP1" 'approved draft' 'approved interface' 'the approved')" "yes"
+check "step1: the drafts are the AGREED ones (agreed with the engineer at Step 3)" \
+  "$(has_any_i "$STEP1" 'agreed draft' 'agreed interface' 'the agreed')" "yes"
 check "intro: the skill is framed as materializing approved interfaces" \
   "$(has_any_i "$INTRO_STEP1" 'materializ' 'materialis')" "yes"
 
@@ -114,8 +114,8 @@ check "step1: new design may not be added here" \
 # return-to-plan event, recorded in the plan Changelog, never silent -------
 check "step1: a discovery that invalidates an approved signature is addressed" \
   "$(has_any_i "$STEP1" 'invalidat')" "yes"
-check "step1: the response is a return to the planning skill" \
-  "$(has_f "$STEP1" '/lego:plan')" "yes"
+check "step1: the response is a return to Step 3 design with the engineer" \
+  "$(has_f "$STEP1" 'back to Step 3')" "yes"
 check "step1: the return-to-plan event is recorded in the plan Changelog" \
   "$(has_f "$STEP1" 'Changelog')" "yes"
 check "step1: it is never silently redesigned at scaffold time" \
@@ -161,27 +161,27 @@ check "invariant: runtime-present, deliberately unimplemented stubs survive" \
   "$(has_f "$STEP1" 'Runtime-present, deliberately unimplemented')" "yes"
 
 # --- Invariant: the downstream gate structure is present and unchanged ----
-check "invariant: Step 2 gate heading present" \
-  "$(has_f "$STRIPPED" '## Step 2: Run the scaffold gate')" "yes"
-check "invariant: Step 2a review-gating heading present" \
-  "$(has_f "$STRIPPED" '### Step 2a: Blocks with no red/green cycle')" "yes"
-check "invariant: Step 3 phase-boundary commit heading present" \
-  "$(has_f "$STRIPPED" '## Step 3: Update state and checkpoint')" "yes"
+check "invariant: Step 6 gate heading present" \
+  "$(has_f "$STRIPPED" '## Step 6: Run the scaffold gate')" "yes"
+check "invariant: Step 6a review-gating heading present" \
+  "$(has_f "$STRIPPED" '### Step 6a: Blocks with no red/green cycle')" "yes"
+check "invariant: Step 8 phase-boundary commit heading present" \
+  "$(has_f "$STRIPPED" '## Step 8: Update state and checkpoint')" "yes"
 check "invariant: rung 0 sizing lint still opens the gate" \
   "$(has_any_i "$STRIPPED" 'rung 0' 'rung zero')" "yes"
 
-S1_L=$(first_line_in "$STRIPPED" '## Step 1')
-S2_L=$(first_line_in "$STRIPPED" '## Step 2: Run the scaffold gate')
+S1_L=$(first_line_in "$STRIPPED" '## Step 5: Write the stubs')
+S2_L=$(first_line_in "$STRIPPED" '## Step 6: Run the scaffold gate')
 RUNG0_L=$(first_line_in "$STRIPPED" 'blocks-lint.sh')
 # shellcheck disable=SC2016  # literal anchor text, not an expansion
 RUNG1_L=$(first_line_in "$STRIPPED" '1. `typecheck`')
-S2A_L=$(first_line_in "$STRIPPED" '### Step 2a: Blocks with no red/green cycle')
-S3_L=$(first_line_in "$STRIPPED" '## Step 3: Update state and checkpoint')
+S2A_L=$(first_line_in "$STRIPPED" '### Step 6a: Blocks with no red/green cycle')
+S3_L=$(first_line_in "$STRIPPED" '## Step 8: Update state and checkpoint')
 
-check_before "invariant: Step 1 precedes Step 2" "$S1_L" "$S2_L"
+check_before "invariant: Step 5 precedes Step 6" "$S1_L" "$S2_L"
 check_before "invariant: rung 0 precedes the typecheck rung list" "$RUNG0_L" "$RUNG1_L"
-check_before "invariant: the rung list precedes Step 2a" "$RUNG1_L" "$S2A_L"
-check_before "invariant: Step 2a precedes Step 3" "$S2A_L" "$S3_L"
+check_before "invariant: the rung list precedes Step 6a" "$RUNG1_L" "$S2A_L"
+check_before "invariant: Step 6a precedes Step 8" "$S2A_L" "$S3_L"
 
 # --- Invariant: the removable B02 contract comment is deleted -------------
 check "B02 contract comment is gone from SKILL.md" \

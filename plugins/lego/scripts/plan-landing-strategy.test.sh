@@ -279,7 +279,7 @@ for h in "## Step 0: Establish the deliverable — a hard gate" \
          "## Step 2: Brownfield discovery (skip only in an empty repo)" \
          "## Step 3: Decompose with the engineer" \
          "## Step 4: Write the artifacts" \
-         "## Step 5: Approval gate"; do
+         "## Step 7: Approval gate"; do
   check "original heading survives: $h" "$(has_f "$RAW" "$h")" "yes"
 done
 

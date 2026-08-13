@@ -204,7 +204,7 @@ check_plugin_row_unchanged "decision-log" \
 check_plugin_row_unchanged "tracking" \
   '| [tracking](plugins/tracking/) | ✅ v__VERSION__ | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |'
 check_plugin_row_unchanged "statusline" \
-  '| [statusline](plugins/statusline/) | ✅ v__VERSION__ | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to your awake hours, context usage. One explicit global write via `/statusline:setup`. |'
+  '| [statusline](plugins/statusline/) | ✅ v__VERSION__ | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via `/statusline:setup`. |'
 check_plugin_row_unchanged "landing" \
   '| [landing](plugins/landing/) | ✅ v__VERSION__ | The landing seam: `/landing:land` lands finished work per the repo'"'"'s committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |'
 check_plugin_row_unchanged "worktrees" \

@@ -39,13 +39,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$SCRIPT_DIR/.."
 README="$PLUGIN_DIR/README.md"
 PLAN_SKILL="$PLUGIN_DIR/skills/plan/SKILL.md"
-SCAFFOLD_SKILL="$PLUGIN_DIR/skills/scaffold/SKILL.md"
+SCAFFOLD_SKILL="$PLUGIN_DIR/skills/plan/SKILL.md"
 PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 
 # Contract: "version bumps 0.16.x so installed users receive the change
 # (exact bump per the PR group landing it)". This unit lands in PR group G02
-# per the plan's landing strategy, which assigns 0.16.2.
-EXPECTED_VERSION='0.16.2'
+# per the plan's landing strategy, which assigns 0.16.2. Later bumps move
+# this anchor with them; currently 0.19.2 (plan and scaffold merged
+# into a single /lego:plan skill; approval gate follows the scaffold gate).
+EXPECTED_VERSION='0.19.2'
 
 FAILED=0
 
@@ -170,19 +172,19 @@ check "plan: a block with no draft is called out as not plan-complete" \
 # Handoff, scaffold side: scaffold materializes the approved drafts
 # ===========================================================================
 
-SCAFFOLD_INTRO=$(section_of "$SCAFFOLD_MD" '# Lego Scaffolding')
+SCAFFOLD_INTRO=$(section_of "$SCAFFOLD_MD" '## Materialization')
 
-check "scaffold: the intro states scaffold materializes approved interfaces" \
+check "scaffold: the intro states materialization transcribes agreed interfaces" \
   "$(has_any_i "$SCAFFOLD_INTRO" 'materializes')" "yes"
 check "scaffold: the intro names the plan's Interface drafts section as the source" \
   "$(has_f "$SCAFFOLD_INTRO" 'Interface drafts')" "yes"
 
-SCAFFOLD_STEP1=$(section_of "$SCAFFOLD_MD" '## Step 1: Write the stubs')
+SCAFFOLD_STEP1=$(section_of "$SCAFFOLD_MD" '## Step 5: Write the stubs')
 
-check "scaffold: Step 1 section exists" \
-  "$(has_f "$SCAFFOLD_STEP1" '## Step 1: Write the stubs')" "yes"
-check "scaffold: Step 1 says to transcribe the approved draft" \
-  "$(has_any_i_wrapped "$SCAFFOLD_STEP1" 'transcribe its approved draft')" "yes"
+check "scaffold: the stubs step exists" \
+  "$(has_f "$SCAFFOLD_STEP1" '## Step 5: Write the stubs')" "yes"
+check "scaffold: the stubs step says to transcribe the agreed draft" \
+  "$(has_any_i_wrapped "$SCAFFOLD_STEP1" 'transcribe its agreed draft')" "yes"
 check "scaffold: Step 1 names the plan's Interface drafts section as the source" \
   "$(has_f "$SCAFFOLD_STEP1" 'Interface drafts')" "yes"
 check "scaffold: Step 1 forbids new design at scaffold time" \
@@ -191,11 +193,11 @@ check "scaffold: Step 1 forbids new design at scaffold time" \
 # The return-to-plan event, named, with the Changelog as its record. This is
 # the seam's escape hatch: without it "materializes, never designs" has no
 # legitimate path for a discovery that invalidates an approved draft.
-check "scaffold: the return-to-plan event is named" \
-  "$(has_any_i "$SCAFFOLD_STEP1" 'return-to-plan')" "yes"
+check "scaffold: the return-to-design event is named" \
+  "$(has_any_i "$SCAFFOLD_STEP1" 'return-to-design')" "yes"
 check "scaffold: the return-to-plan event records in the plan document's Changelog" \
   "$(has_any_i_wrapped "$SCAFFOLD_STEP1" "plan document's Changelog")" "yes"
-check "scaffold: deviating from an approved draft with no Changelog entry is a defect" \
+check "scaffold: deviating from an agreed draft with no Changelog entry is a defect" \
   "$(has_any_i "$SCAFFOLD_STEP1" 'scaffold defect')" "yes"
 
 # ===========================================================================
@@ -211,8 +213,8 @@ check "README: the plan-and-scaffold workflow section exists" \
   "$(has_f "$README_WORKFLOW" '### Plan and scaffold a deliverable')" "yes"
 check "README workflow: plan is described as producing interface drafts" \
   "$(has_any_i "$README_WORKFLOW" 'interface draft')" "yes"
-check "README workflow: those drafts are described as approved before scaffold" \
-  "$(has_any_i_wrapped "$README_WORKFLOW" 'approved interface draft' 'approved draft' 'interface drafts the engineer' 'drafts the engineer has already approved')" "yes"
+check "README workflow: those drafts are described as agreed with the engineer" \
+  "$(has_any_i_wrapped "$README_WORKFLOW" 'agreed interface draft' 'agreed draft' 'interface drafts agreed with the engineer' 'drafts agreed with the engineer')" "yes"
 check "README workflow: scaffold is described as materializing those drafts" \
   "$(has_any_i "$README_WORKFLOW" 'materializ')" "yes"
 check "README workflow: what scaffold materializes them into is stubs" \

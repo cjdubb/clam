@@ -187,6 +187,122 @@
 # instead is that no sentence making a COLOUR claim names idle, while a
 # sentence naming `level` still does.
 #
+# --- B06 line2-docs (plan 001-statusline-glance-uplift) ---------------------
+# B06 brings this README and plugin.json into agreement with B05's new line 2
+# and its new configuration surface. Its contract is NOT a docblock in the
+# README — scripts/readme.test.sh forbids a surviving `<!-- Contract:` block in
+# a shipped plugin README (section 8), so it lives in .local/ instead. The
+# sections it owns: `## What to expect`, `### Reading the burnrate figures`,
+# `### Match the pacing to the hours you actually work`, the env-var table,
+# `## Attribution`, and plugin.json's `version` and `description`.
+#
+# What this wave changed in THIS file, and why:
+#
+#   - THE TWO HARDCODED KNOBS MOVED. Sections 2 used to pin
+#     CLAM_STATUSLINE_DAY_START default `2` and CLAM_STATUSLINE_SLEEP_HOURS
+#     default `6`, and to UNION both names into the derivation oracle by hand.
+#     B05 replaces that surface with three working-week knobs —
+#     CLAM_STATUSLINE_WORK_DAYS (`1-5`), CLAM_STATUSLINE_DAY_START (`8`, same
+#     name, changed meaning AND changed default) and CLAM_STATUSLINE_DAY_END
+#     (`18`) — and deletes CLAM_STATUSLINE_SLEEP_HOURS outright. The contract's
+#     edge case says explicitly that this move happens in the TEST wave, since
+#     B06 must not edit a test-family file. The hand-union is GONE with it: it
+#     existed only because B07 had not yet wired those names into the code, and
+#     B05 reads all three directly, so the derivation can go back to purely
+#     following the sources. What stays untouched is the BIDIRECTIONALITY —
+#     `comm -23` and `comm -13` both asserted empty. That is the contract's
+#     stated invariant (no documented row without a source read, no source read
+#     without a row), and dropping either direction is exactly the vacuity that
+#     lets a stale row or an undocumented knob ship.
+#   - THE RETIRED FIGURES flipped polarity. `%t`, `%/d`, the awake-hours
+#     passage, the `+added/-removed` pair and the drifting model rainbow all
+#     used to be REQUIRED here; B05 retires every one of them, so the same
+#     clauses now assert their absence. The trend keeps its coverage — its
+#     meaning, its sign convention and its dead band all stay, in both limit
+#     groups, which is the one reading the contract asks the section to teach.
+#   - THE EXAMPLE BLOCK stays a real character-for-character check against a
+#     live scripts/context.sh render (section 12, skeleton comparison — see the
+#     B11 note above for why a skeleton is the only faithful form of "character
+#     for character" for a line carrying live digits). B05's render does not
+#     exist yet, so this is a genuine red for this wave, and loosening it to a
+#     shape check would forfeit exactly the assertion the contract's Outputs
+#     clause names.
+#   - THE ATTRIBUTED LIBRARY LIST is now DERIVED. It used to be the literal
+#     triple burn-math/burn-tick/burn-theme; B05 deletes lib/burn-tick.sh, so
+#     the list is read off whichever lib/burn-*.sh files actually carry the
+#     upstream MIT header. Gui-Gou, the URL and the MIT notice stay required —
+#     the port is still a port even where its model changed.
+#   - NEW SECTIONS 24, 25 AND 26 cover the three passages the contract gained
+#     after this block's first test wave surfaced them: the plugin README's
+#     opening blurb, the lib/burn-tick.sh references in `## Commands` and
+#     `## Tests`, and the repo-root README's Plugins-table row. The rule the
+#     contract gives for all three is that a passage stating something B05 makes
+#     false belongs to this block wherever it sits. Section 25 is DERIVED — every
+#     plugin path either section names must exist on disk — rather than pinned to
+#     burn-tick by name, so the next deletion needs no edit here. The root row's
+#     VERSION cell is deliberately not re-asserted: section 6 already gates that
+#     equality and fails when section 23's bump lands without the row moving.
+#     Every absence check in the three is paired with a positive one that its
+#     target section still exists and still carries the claim the absence is
+#     about, because an absence check aimed at nothing passes for free.
+#   - NEW SECTIONS 22 AND 23 cover the three clauses nothing else reached: the
+#     working-week section rewritten around the three knobs and stating that
+#     every figure is computed in machine local time, the UPGRADE NOTE (a
+#     changed default AND a changed meaning for a knob users already set is a
+#     behaviour change on upgrade), and plugin.json's mandatory version bump
+#     plus a description that no longer promises the figures B05 removed.
+#
+# --- B09 line1-cache-docs (sections 27-31) ----------------------------------
+# B09 brings this README into agreement with B07 (the project dir at the head
+# of line 1, an OSC 8 file:// hyperlink, the `›` form when the current dir
+# differs) and B08 (the segment bundle keyed on session_id, and a one-day sweep
+# that bounds the cache dir). Its contract is a file rather than a docblock in
+# the README, for the reason section 8 pins: a shipped plugin README may carry
+# no surviving `<!-- Contract:` block. The sections it owns: the line-1
+# description and the example block under `## What to expect`, `### Caching and
+# staleness`, the cache-clutter paragraph under `## Uninstalling`, and the
+# `scripts/context.sh` entry under `### Scripts`.
+#
+# What is DERIVED here, and what each derivation buys:
+#
+#   - THE SEPARATOR. b09_render_line1() renders line 1 from a payload whose
+#     project_dir and current_dir DIFFER, hermetically (a plain temp dir, not a
+#     git repo, so no branch, no badge and no background refresher), strips the
+#     hyperlink and colour framing, and reads the separator off it as the one
+#     non-ASCII run in the result. The README's line-1 prose and its example
+#     block are then required to carry THAT character. A separator changed in
+#     the renderer fails the prose by character rather than leaving the README
+#     quietly describing a form nothing emits. Two guards keep it honest: the
+#     derived separator must be flanked by real path text on both sides, and it
+#     must be the `›` strip_allowed exempts — otherwise the alphabet check in
+#     section 9 would either reject correct prose or hold a hole.
+#   - THE HYPERLINK. The same render is asked, unstripped, whether it really
+#     emits an `OSC 8 file://` sequence around the path. Only then is the prose
+#     required to call the segment clickable. The claim the README makes about
+#     the render is pinned to the render, not to this file's memory of it.
+#
+# Two shapes this file deliberately does NOT reach for:
+#
+#   1. A whole-line comparison of the example's line 1 against a live render,
+#     the way section 12 compares line 2. Line 1's branch, badge files, MODE and
+#     State come from a worktree the example is free to invent, so no hermetic
+#     fixture can produce it. What IS comparable is the vocabulary the render
+#     contributes — the separator — and that is what is compared.
+#   2. A file-wide "the README no longer says transcript" check. `ccost.sh
+#     session` still takes a transcript path and still documents it, so the
+#     absence is scoped to the SENTENCES of the caching section and of the
+#     `scripts/context.sh` entry that make a cache claim. Every absence check in
+#     these sections is paired with a positive one that its target section still
+#     exists and still carries the claim the absence is about — an absence check
+#     aimed at a section someone deleted passes for free.
+#
+# The `## Uninstalling` clause rides on the same sentence scoping. The cache
+# paragraph names BOTH cache dirs, and only one of them gains a sweep: ccost's
+# cache is untouched by this unit and may legitimately still be described as
+# the reader's to delete. So what is asserted is that no sentence naming
+# `.statusline-cache` still claims nothing removes anything there, while the
+# paragraph goes on naming both directories.
+#
 # Run: bash plugins/statusline/scripts/readme.test.sh (non-zero exit on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -253,22 +369,23 @@ grep -E '^\|[[:space:]]*`[A-Z][A-Z0-9_]*`[[:space:]]*\|' <<<"$BODY" \
   | sed -E 's/^\|[[:space:]]*`([A-Z][A-Z0-9_]*)`.*/\1/' | sort -u > "$TMP/documented"
 
 # Derived: public-prefixed env reads in the non-test sources, comments
-# stripped, plus the two decided knobs B07 has not wired up yet (see header).
+# stripped. B06 drops the hand-union the old surface needed (see header): B05
+# reads all three working-week knobs directly, so the oracle follows the code
+# with nothing led by hand.
 for f in "$PLUGIN_DIR"/scripts/*.sh "$PLUGIN_DIR"/lib/*.sh; do
   case "$f" in *.test.sh) continue ;; esac
   [ -f "$f" ] || continue
   sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#[[:space:]].*$//' "$f"
 done | grep -oE '\$\{?(CLAUDE|CCOST|CLAM)_[A-Z0-9_]+' | sed -E 's/^\$\{?//' > "$TMP/derived.src"
-cat "$TMP/derived.src" > "$TMP/derived.raw"
-printf '%s\n%s\n' CLAM_STATUSLINE_DAY_START CLAM_STATUSLINE_SLEEP_HOURS >> "$TMP/derived.raw"
-sort -u "$TMP/derived.raw" > "$TMP/derived"
+sort -u "$TMP/derived.src" > "$TMP/derived"
 
 check "env-var table is present (backticked rows found)" \
   "$([ -s "$TMP/documented" ] && echo yes || echo no)" "yes"
 # Guards the derivation itself: if the source scan finds nothing (wrong
-# paths, prefixes changed), the table checks below would compare against the
-# two unioned names alone and pass vacuously. $TMP/derived.src excludes the
-# union on purpose so this check can actually fail.
+# paths, prefixes changed), both comparisons below would run against an empty
+# oracle and the "every table row names a var some script reads" direction
+# would report the WHOLE table as undocumented reads — loud, but for the wrong
+# reason. This names the real cause first.
 check "derivation found env reads in the plugin's own sources (oracle is not empty)" \
   "$([ -s "$TMP/derived.src" ] && echo yes || echo no)" "yes"
 
@@ -282,14 +399,26 @@ table_default_for() { # $1 = env var name; prints its Default cell, de-ticked
     | awk -F'|' '{ print $3 }' | sed -e 's/[[:space:]]//g' -e 's/`//g'
 }
 
-check "CLAM_STATUSLINE_DAY_START is documented with default 2" \
-  "$(table_default_for CLAM_STATUSLINE_DAY_START)" "2"
-check "CLAM_STATUSLINE_SLEEP_HOURS is documented with default 6" \
-  "$(table_default_for CLAM_STATUSLINE_SLEEP_HOURS)" "6"
+# The three working-week knobs B05 ships, each with the default the renderer's
+# contract gives it. DAY_START keeps its name and changes BOTH its meaning and
+# its default (2 -> 8), which is why the default is pinned by value here and
+# why section 22 additionally requires an upgrade note for it.
+check "CLAM_STATUSLINE_WORK_DAYS is documented with default 1-5" \
+  "$(table_default_for CLAM_STATUSLINE_WORK_DAYS)" "1-5"
+check "CLAM_STATUSLINE_DAY_START is documented with default 8" \
+  "$(table_default_for CLAM_STATUSLINE_DAY_START)" "8"
+check "CLAM_STATUSLINE_DAY_END is documented with default 18" \
+  "$(table_default_for CLAM_STATUSLINE_DAY_END)" "18"
+
+# CLAM_STATUSLINE_SLEEP_HOURS is deleted outright, not renamed. The table is
+# the documented interface, so what is asserted is that it has no ROW — prose
+# elsewhere may still legitimately tell an upgrading reader the knob is gone.
+check "CLAM_STATUSLINE_SLEEP_HOURS has no row in the env-var table any more" \
+  "$(grep -c '^CLAM_STATUSLINE_SLEEP_HOURS$' "$TMP/documented")" "0"
 
 # The bare SL_* spellings are internal locals, never the documented interface.
-check "the bare SL_DAY_START / SL_SLEEP_HOURS spellings are not documented" \
-  "$(grep -cE '(^|[^A-Za-z0-9_])SL_(DAY_START|SLEEP_HOURS)' <<<"$BODY")" "0"
+check "the bare SL_DAY_START / SL_DAY_END / SL_WORK_DAYS spellings are not documented" \
+  "$(grep -cE '(^|[^A-Za-z0-9_])SL_(DAY_START|DAY_END|WORK_DAYS|SLEEP_HOURS)' <<<"$BODY")" "0"
 
 # ---------------------------------------------------------------------------
 # 3. "What to expect": two lines, not four; no Cost line
@@ -321,19 +450,33 @@ check "the CCOST_SESSION_TTL_SECONDS caching interaction is gone from the render
 check "'What to expect' still describes the clam mode" \
   "$(has_re 'clam( session)? mode' "$WTE")" "yes"
 
-# The burnrate line's figures are explained in actionable terms.
-check "'What to expect' explains the today's-share figure (%t)" \
-  "$(has_fixed '%t' "$WTE")" "yes"
-check "'What to expect' explains the sustainable-pace figure (%/d)" \
-  "$(has_fixed '%/d' "$WTE")" "yes"
-check "'What to expect' explains the trend arrow" \
-  "$(has_re 'trend' "$WTE")" "yes"
-check "'What to expect' states the pacing counts awake hours only" \
-  "$(has_re 'awake' "$WTE")" "yes"
-check "'What to expect' describes the weekly-limit group" \
-  "$(has_re 'weekly' "$WTE")" "yes"
+# The burnrate line's figures are explained in actionable terms. B05's line 2
+# is four groups — model, context, 5-hour, weekly — and the two limit groups
+# carry the SAME three figures (used%, trend, countdown), which is the whole
+# point of the rewrite: one reading, learned once, applied twice.
+check "'What to expect' describes the model group" \
+  "$(has_re '(^|[^a-z])model' "$WTE")" "yes"
+check "'What to expect' describes the context group" \
+  "$(has_re '(^|[^a-z])(context|ctx)' "$WTE")" "yes"
 check "'What to expect' describes the 5-hour-limit group" \
   "$(has_re '5.hour' "$WTE")" "yes"
+check "'What to expect' describes the weekly-limit group" \
+  "$(has_re 'weekly' "$WTE")" "yes"
+check "'What to expect' explains the trend arrow both limit groups carry" \
+  "$(has_re 'trend' "$WTE")" "yes"
+check "'What to expect' explains the reset countdown both limit groups carry" \
+  "$(has_re 'countdown' "$WTE")" "yes"
+
+# The retired figures, from the other side. Each of these WAS required here
+# before this wave; B05 removes the figure, so describing it is now the defect.
+check "'What to expect' no longer explains the retired today's-share figure (%t)" \
+  "$(has_fixed '%t' "$WTE")" "no"
+check "'What to expect' no longer explains the retired sustainable-pace figure (%/d)" \
+  "$(has_fixed '%/d' "$WTE")" "no"
+check "'What to expect' no longer claims the pacing counts awake hours" \
+  "$(has_re 'awake' "$WTE")" "no"
+check "'What to expect' no longer describes the retired +added/-removed pair" \
+  "$(has_re '[+]added/-removed' "$WTE")" "no"
 # RETARGETED by B11. The clause is "the render's group inventory is described
 # accurately"; B09 deleted the pet group, so describing it is now the defect.
 # The whole-file version of the same clause is in section 11.
@@ -388,6 +531,9 @@ check "attribution names the MIT licence" \
 # worth asserting is the floor this block's work shipped at, plus the root
 # README agreeing with whatever the manifest currently says.
 VERSION_FLOOR="0.5.3"
+# Section 23 carries B06's own, stricter clause: the version must be strictly
+# ABOVE the one this plan started from. This floor stays as the historical one
+# so an unrelated later bump never fails here.
 PLUGIN_VERSION="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$PLUGIN_JSON" 2>/dev/null | head -1)"
 check "plugin.json version $PLUGIN_VERSION is at or above the $VERSION_FLOOR floor" \
   "$([ -n "$PLUGIN_VERSION" ] \
@@ -497,14 +643,19 @@ sep_count() { # line
   printf '%s' "$1" | grep -o '│' | wc -l | tr -d ' '
 }
 
-# The non-ASCII characters this README may legitimately hold: the five
+# The non-ASCII characters this README may legitimately hold: the six
 # ambiguous-width symbols the render still emits — which the contract requires
 # to STAY — plus ordinary typography. Anything else non-ASCII is an emoji.
 # LC_ALL=C so the byte range means bytes rather than whatever the ambient
 # locale collates into it.
+# The sixth is B09's `›`, the separator B07 puts between the project dir and
+# the current dir on line 1. It is exempt for exactly the reason the other five
+# are — the render emits it, so the prose has to be able to name it — and the
+# exemption is guarded twice in section 28: the prose must really carry it, and
+# the character the RENDERER emits must really be this one.
 strip_allowed() { # text
   local t="$1"
-  t="${t//│/}"; t="${t//▲/}"; t="${t//▼/}"; t="${t//↑/}"; t="${t//↓/}"
+  t="${t//│/}"; t="${t//▲/}"; t="${t//▼/}"; t="${t//↑/}"; t="${t//↓/}"; t="${t//›/}"
   t="${t//—/}"; t="${t//→/}"; t="${t//·/}"
   printf '%s\n' "$t"
 }
@@ -690,24 +841,29 @@ check "the example's line 2 is what scripts/context.sh actually renders" \
 # The skeleton normalises digits, which would let a mislabelled group through
 # (`9h` and `5h` both reduce to `Nh`). These pin the labels themselves, derived
 # from the same live render.
-WK_LABEL="$(group_label "$B11_LINE2" 2)"
-CTX_LABEL="$(group_label "$B11_LINE2" 3)"
-FIVE_LABEL="$(group_label "$B11_LINE2" 4)"
+# B05's group ORDER is model · context · 5-hour · weekly, and each label is
+# read off the live render at the position that group occupies, so a reordered
+# or relabelled group fails the example by name rather than sliding through
+# the skeleton's digit normalisation (`9h` and `5h` both reduce to `Nh`).
+CTX_LABEL="$(group_label "$B11_LINE2" 2)"
+FIVE_LABEL="$(group_label "$B11_LINE2" 3)"
+WK_LABEL="$(group_label "$B11_LINE2" 4)"
 check "the render's three meter labels are readable (oracle is not empty)" \
   "$([ -n "$WK_LABEL" ] && [ -n "$CTX_LABEL" ] && [ -n "$FIVE_LABEL" ] && echo yes || echo no)" "yes"
-check "the example's weekly group leads with the label the render emits" \
-  "$(group_label "$EX_L2" 2)" "$WK_LABEL"
-check "the example's session group leads with the label the render emits" \
-  "$(group_label "$EX_L2" 3)" "$CTX_LABEL"
+check "the example's context group leads with the label the render emits" \
+  "$(group_label "$EX_L2" 2)" "$CTX_LABEL"
 check "the example's 5-hour group leads with the label the render emits" \
-  "$(group_label "$EX_L2" 4)" "$FIVE_LABEL"
+  "$(group_label "$EX_L2" 3)" "$FIVE_LABEL"
+check "the example's weekly group leads with the label the render emits" \
+  "$(group_label "$EX_L2" 4)" "$WK_LABEL"
 
-# The signs in +added/-removed survive the skeleton as bare N/N, so they are
-# pinned separately — with a guard proving the render really prints them.
-check "the render prints the +added/-removed pair (guard for the next check)" \
-  "$(has_re '\+[0-9]+/-[0-9]+' "$B11_LINE2")" "yes"
-check "the example keeps that +added/-removed pair verbatim" \
-  "$(has_re '\+[0-9]+/-[0-9]+' "$EX_L2")" "yes"
+# The +added/-removed pair is retired with the rest of the diffstat segment, in
+# the render and therefore in the example. Both halves are asserted so a pair
+# that survived in one place alone still fails.
+check "the render no longer prints a +added/-removed pair" \
+  "$(has_re '\+[0-9]+/-[0-9]+' "$B11_LINE2")" "no"
+check "the example carries no +added/-removed pair either" \
+  "$(has_re '\+[0-9]+/-[0-9]+' "$EX_L2")" "no"
 
 # Line 1 is not compared whole — its path, branch, badge files, MODE and State
 # all come from a worktree the example is free to invent — but its alphabet is
@@ -778,10 +934,23 @@ check "the Context bullet names the label the render emits ($CTX_LABEL)" \
   "$(has_fixed "$CTX_LABEL" "$CTX_B")" "yes"
 check "the 5-hour bullet names the label the render emits ($FIVE_LABEL)" \
   "$(has_fixed "$FIVE_LABEL" "$FIVE_B")" "yes"
-# The mascot LIST goes; the hue families it was attached to stay, because the
-# model name still drifts through them.
-check "the Model bullet keeps the drifting hue families" \
-  "$(has_re 'rainbow|hue|drift' "$MODEL_B")" "yes"
+# The drifting rainbow goes the way the mascots went before it: B05 retires
+# burn_rainbow and burn_model_style, so a bullet still promising a colour that
+# drifts between renders describes a render that no longer exists.
+check "the Model bullet no longer promises a drifting rainbow" \
+  "$(has_re 'rainbow|drifting' "$MODEL_B")" "no"
+
+# The two limit groups carry the SAME three figures, which is the reading the
+# rewrite exists to teach. Each bullet is asked for its own trend and its own
+# countdown, so a bullet that describes only one of the pair fails by name.
+check "the 5-hour bullet names the trend it now carries" \
+  "$(has_re 'trend' "$FIVE_B")" "yes"
+check "the 5-hour bullet names its reset countdown" \
+  "$(has_re 'countdown|reset' "$FIVE_B")" "yes"
+check "the Weekly bullet names the trend it carries" \
+  "$(has_re 'trend' "$WEEK_B")" "yes"
+check "the Weekly bullet names its reset countdown" \
+  "$(has_re 'countdown|reset' "$WEEK_B")" "yes"
 
 # ---------------------------------------------------------------------------
 # 14. The states-manifest and libraries paragraphs describe what RENDERS
@@ -827,14 +996,44 @@ check "the attribution keeps the MIT licence" \
   "$(has_re '(^|[^A-Za-z])MIT([^A-Za-z]|$)' "$ATTRIB")" "yes"
 check "the attribution still states the notice is carried in full" \
   "$(has_re 'copyright notice in full' "$ATTRIB")" "yes"
-# Both halves of that claim: the prose names all three libraries, and all three
-# really do carry the same upstream notice burn-math.sh's header carries.
-for _lib in burn-math.sh burn-tick.sh burn-theme.sh; do
-  check "the attribution names lib/$_lib among the three carrying the notice" \
-    "$(has_fixed "lib/$_lib" "$ATTRIB")" "yes"
-  check "and lib/$_lib really carries it (same author burn-math.sh's header names)" \
-    "$(lib_upstream_author "$PLUGIN_DIR/lib/$_lib")" "$UPSTREAM_AUTHOR"
+# Both halves of that claim, with the LIST now DERIVED rather than the literal
+# triple it used to be: B05 deletes lib/burn-tick.sh with the interpolator, so
+# the libraries the prose must name are whichever lib/burn-*.sh files actually
+# carry the upstream MIT header. A file deleted stops being required here; a
+# file that keeps the notice stays required, in both directions.
+: > "$TMP/notice-libs"
+for _f in "$PLUGIN_DIR"/lib/burn-*.sh; do
+  case "$_f" in *.test.sh) continue ;; esac
+  [ -f "$_f" ] || continue
+  [ "$(lib_upstream_author "$_f")" = "$UPSTREAM_AUTHOR" ] || continue
+  basename "$_f" >> "$TMP/notice-libs"
 done
+# Non-vacuity: an empty list would make the loop below assert nothing at all.
+check "at least one surviving lib/burn-*.sh carries the upstream notice (oracle is not empty)" \
+  "$([ -s "$TMP/notice-libs" ] && echo yes || echo no)" "yes"
+while read -r _lib; do
+  [ -n "$_lib" ] || continue
+  check "the attribution names lib/$_lib among the libraries carrying the notice" \
+    "$(has_fixed "lib/$_lib" "$ATTRIB")" "yes"
+done < "$TMP/notice-libs"
+# The other direction: a library the attribution names must still exist. The
+# deleted interpolator is exactly the stale credit this catches.
+grep -oE 'lib/burn-[a-z-]+\.sh' <<<"$ATTRIB" | sort -u > "$TMP/attrib-libs"
+while read -r _named; do
+  [ -n "$_named" ] || continue
+  check "the attribution's '$_named' still exists in the plugin" \
+    "$([ -f "$PLUGIN_DIR/$_named" ] && echo yes || echo no)" "yes"
+done < "$TMP/attrib-libs"
+
+# The two upstream ideas B05 retires: the awake-hours pacing model and the
+# sub-tick interpolator. The credit for them goes with them; the credit to
+# Gui-Gou, the URL and the MIT notice above do not.
+check "the attribution no longer credits the retired awake-hours pacing model" \
+  "$(has_re 'awake' "$ATTRIB")" "no"
+check "the attribution no longer credits the retired sub-tick interpolator" \
+  "$(has_re 'interpolat' "$ATTRIB")" "no"
+check "the attribution still names Gui-Gou as the upstream author" \
+  "$(has_fixed "$UPSTREAM_AUTHOR" "$ATTRIB")" "yes"
 
 # scripts/architecture-lint-baseline.txt baselines an `english` reference in
 # BOTH files this block edits, and architecture-lint exits 1 on a STALE
@@ -1054,20 +1253,11 @@ done < "$TMP/trend-ahead"
 check "every trend band above the dead band really is a warm colour" \
   "$(trim "$B17_COLD_AHEAD")" ""
 
-# --- the diffstat pair -----------------------------------------------------
-
-B17_DIFF_BODY="$(b17_fn_body burn_diff_color)"
-B17_ADD_CODE="$(printf '%s\n' "$B17_DIFF_BODY" \
-  | sed -nE 's/^[[:space:]]*add\).*38;5;([0-9]+)m.*/\1/p' | head -1)"
-B17_DEL_CODE="$(printf '%s\n' "$B17_DIFF_BODY" \
-  | sed -nE 's/^[[:space:]]*del\).*38;5;([0-9]+)m.*/\1/p' | head -1)"
-B17_ADD_NAME="$(b17_colour_name "$B17_ADD_CODE")"
-B17_DEL_NAME="$(b17_colour_name "$B17_DEL_CODE")"
-B17_DIFF_UNMAPPED=""
-[ -n "$B17_ADD_NAME" ] || B17_DIFF_UNMAPPED="$B17_DIFF_UNMAPPED add=${B17_ADD_CODE:-none}"
-[ -n "$B17_DEL_NAME" ] || B17_DIFF_UNMAPPED="$B17_DIFF_UNMAPPED del=${B17_DEL_CODE:-none}"
-check "burn_diff_color's two arms are readable and named (add=$B17_ADD_NAME del=$B17_DEL_NAME)" \
-  "$(trim "$B17_DIFF_UNMAPPED")" ""
+# --- the diffstat pair, retired --------------------------------------------
+# B05 retires burn_diff_color along with the +added/-removed segment it
+# coloured, so the derivation that used to feed section 19's diffstat prose is
+# gone with it. What replaces it is the reverse assertion: no prose may still
+# document a colour scale the source no longer has.
 
 # ---------------------------------------------------------------------------
 # 18. The Context bullet: colour by occupancy alone, `level` still idle-aware
@@ -1155,14 +1345,30 @@ check "the figures section ties that colour to being behind the line" \
 check "the figures section says the allowance going unused there is not a hazard" \
   "$(b17_near "$FIGURES" "$(b17_word "$B17_BEHIND_NAME")" 'hazard|unused|nothing to act on' 140)" "yes"
 
-check "the figures section explains the +added/-removed pair" \
-  "$(has_re '[+]added/-removed' "$FIGURES")" "yes"
-check "the figures section names the diffstat convention it takes" \
-  "$(has_re '(^|[^A-Za-z])diffstat' "$FIGURES")" "yes"
-check "the figures section gives added burn_diff_color's colour for it ($B17_ADD_NAME)" \
-  "$(b17_near "$FIGURES" '(^|[^A-Za-z])added' "$(b17_word "$B17_ADD_NAME")" 60)" "yes"
-check "the figures section gives removed burn_diff_color's colour for it ($B17_DEL_NAME)" \
-  "$(b17_near "$FIGURES" '(^|[^A-Za-z])removed' "$(b17_word "$B17_DEL_NAME")" 60)" "yes"
+# The figures this section is REPLACED to stop explaining: %t, %/d, the
+# awake-hours passage and the diffstat pair all describe a render B05 no
+# longer produces.
+check "the figures section no longer explains the retired %t figure" \
+  "$(has_fixed '%t' "$FIGURES")" "no"
+check "the figures section no longer explains the retired %/d figure" \
+  "$(has_fixed '%/d' "$FIGURES")" "no"
+check "the figures section no longer carries the awake-hours passage" \
+  "$(has_re 'awake' "$FIGURES")" "no"
+check "the figures section no longer explains the retired +added/-removed pair" \
+  "$(has_re '[+]added/-removed' "$FIGURES")" "no"
+check "nor the diffstat convention that pair took" \
+  "$(has_re '(^|[^A-Za-z])diffstat' "$FIGURES")" "no"
+
+# What STAYS: the trend's meaning and its sign convention, in the section that
+# teaches the one reading both limit groups share.
+check "the figures section keeps the trend's ▲ arrow" \
+  "$(has_fixed '▲' "$FIGURES")" "yes"
+check "the figures section keeps the trend's ▼ arrow" \
+  "$(has_fixed '▼' "$FIGURES")" "yes"
+check "the figures section keeps the sign convention for ▲ (above/ahead of the line)" \
+  "$(b17_near "$FIGURES" '▲' 'above|ahead' 120)" "yes"
+check "the figures section keeps the sign convention for ▼ (below/behind the line)" \
+  "$(b17_near "$FIGURES" '▼' 'below|behind' 120)" "yes"
 
 # plan 003 constraint 2: the upstream's on-track ✓ glyph is deliberately NOT
 # adopted — the dead-band colour is what replaced it. Section 9 already fails
@@ -1216,6 +1422,437 @@ check "the figures section describes the render as it is, not as a changelog" \
   "$(has_re "$B17_CHANGELOG" "$FIGURES")" "no"
 check "the attribution describes the port as it is, not as a changelog" \
   "$(has_re "$B17_CHANGELOG" "$ATTRIB")" "no"
+
+# ===========================================================================
+# B06 line2-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 22. The working-week section, and the upgrade note it has to carry
+# ---------------------------------------------------------------------------
+# The section keeps its heading and loses its subject: the awake-hours model is
+# replaced by a working WEEK. Section 2 already pins the three knobs' names and
+# defaults in the table; what is asserted here is that the prose a reader
+# actually configures from was rewritten around the same three, that it says
+# which clock the arithmetic runs on, and that a user who already set
+# CLAM_STATUSLINE_DAY_START is told their setting now means something else.
+
+PACING="$(b17_subsection '### Match the pacing to the hours you actually work')"
+check "the working-hours workflow section survives and is identifiable" \
+  "$([ -n "$PACING" ] && echo yes || echo no)" "yes"
+
+for _knob in CLAM_STATUSLINE_WORK_DAYS CLAM_STATUSLINE_DAY_START CLAM_STATUSLINE_DAY_END; do
+  check "the working-hours section is written around $_knob" \
+    "$(has_fixed "$_knob" "$PACING")" "yes"
+done
+check "the working-hours section no longer configures the deleted CLAM_STATUSLINE_SLEEP_HOURS" \
+  "$(has_fixed 'CLAM_STATUSLINE_SLEEP_HOURS' "$PACING")" "no"
+check "the working-hours section no longer describes the retired awake-hours model" \
+  "$(has_re 'awake|sleep' "$PACING")" "no"
+
+# "Every figure is computed in machine local time" — the contract's own words,
+# and the limitation the engineer's no-timezone-knob decision documents rather
+# than works around.
+check "the working-hours section states the arithmetic runs in machine local time" \
+  "$(b17_near "$PACING" '(^|[^A-Za-z])local' '(^|[^A-Za-z])(time|timezone|time zone|clock|machine)' 60)" "yes"
+
+# The upgrade note. Scoped to the SENTENCES making an upgrade claim, so the
+# surrounding configuration prose — which legitimately describes the knob as it
+# is now — cannot satisfy the clause by accident.
+UPGRADE="$(b17_claims "$PACING" 'upgrad|chang|used to|previously')"
+check "the working-hours section carries an upgrade note at all" \
+  "$([ -n "$UPGRADE" ] && echo yes || echo no)" "yes"
+check "the upgrade note names the knob whose behaviour changed" \
+  "$(has_fixed 'CLAM_STATUSLINE_DAY_START' "$UPGRADE")" "yes"
+check "the upgrade note names the old default (2)" \
+  "$(has_re "$(b17_num 2)" "$UPGRADE")" "yes"
+check "the upgrade note names the new default (8)" \
+  "$(has_re "$(b17_num 8)" "$UPGRADE")" "yes"
+check "the upgrade note says the default changed" \
+  "$(has_re '(^|[^A-Za-z])defaults?([^A-Za-z]|$)' "$UPGRADE")" "yes"
+check "the upgrade note says the MEANING changed too, not just the number" \
+  "$(has_re '(^|[^A-Za-z])(meaning|means|meant)([^A-Za-z]|$)' "$UPGRADE")" "yes"
+
+# ---------------------------------------------------------------------------
+# 23. plugin.json: the mandatory bump, and a description that stops promising
+#     figures the render no longer has
+# ---------------------------------------------------------------------------
+# version-bump-lint reads COMMITTED state, so a plugin edit without a bump is
+# invisible to installed users — the contract calls the bump mandatory for
+# exactly that reason. Section 6's floor is historical and a bump above it
+# happened three versions ago; this is the clause with teeth: strictly above
+# the version this plan started from. That baseline is the one literal here,
+# and it cannot be derived from git without going vacuous the moment the
+# implementer commits the bump.
+
+VERSION_BASE="0.6.0"
+check "plugin.json version ($PLUGIN_VERSION) is strictly above the $VERSION_BASE this plan started from" \
+  "$([ -n "$PLUGIN_VERSION" ] && [ "$PLUGIN_VERSION" != "$VERSION_BASE" ] \
+      && [ "$(printf '%s\n%s\n' "$VERSION_BASE" "$PLUGIN_VERSION" | sort -V | head -1)" = "$VERSION_BASE" ] \
+      && echo yes || echo no)" "yes"
+
+# The description is the plugin's one-line promise, and it currently promises
+# two things B05 removes: pacing against awake hours, and the figures derived
+# from it. Asserted by name, in the same polarity the README checks use.
+check "plugin.json's description no longer promises awake-hours pacing" \
+  "$(has_re 'awake' "$PLUGIN_DESC")" "no"
+check "plugin.json's description no longer promises the retired %t figure" \
+  "$(has_fixed '%t' "$PLUGIN_DESC")" "no"
+check "plugin.json's description no longer promises the retired %/d figure" \
+  "$(has_fixed '%/d' "$PLUGIN_DESC")" "no"
+# Non-vacuity for the three above: a description emptied of everything would
+# pass them all. It still has to describe the two plan meters it does render.
+check "plugin.json's description still names the weekly and 5-hour plan limits" \
+  "$(b17_near "$PLUGIN_DESC" '(^|[^A-Za-z])weekly' '5.hour' 80)" "yes"
+
+# ---------------------------------------------------------------------------
+# 24. The opening blurb's pacing promise
+# ---------------------------------------------------------------------------
+# The blurb currently promises the plan limits are "paced against the hours you
+# are actually awake". B05 retires the awake-hours model, so that promise is
+# false documentation the moment it lands. Section 11 already asserts the blurb
+# is identifiable and reads as a sentence; what is added here is the subject.
+# The positive half is DERIVED-STYLE rather than an exact sentence: what the
+# clause requires is that the blurb name the working-week pacing, not that it
+# use one wording, so the check is a proximity check between the pacing verb
+# and the working-week vocabulary, the shape section 19 uses on the colours.
+
+check "the opening blurb no longer promises pacing against awake hours" \
+  "$(has_re 'awake' "$BLURB")" "no"
+check "the opening blurb no longer promises the retired sleep-hours exclusion" \
+  "$(has_re '(^|[^A-Za-z])sleep' "$BLURB")" "no"
+check "the opening blurb paces the limits against the working week instead" \
+  "$(b17_near "$BLURB" '(^|[^A-Za-z])(pace|paced|paces|pacing)' \
+     '(^|[^A-Za-z])(work(ing)?[- ](week|day|days|hours)|hours you( actually)? work)' 80)" "yes"
+# Non-vacuity for both absence checks above: an absence check passes trivially
+# against a blurb that no longer promises anything at all, so the promise the
+# pacing attaches to has to still be there.
+check "the opening blurb still names the two plan limits it paces" \
+  "$(b17_near "$BLURB" '(^|[^A-Za-z])weekly' '5.hour' 80)" "yes"
+
+# ---------------------------------------------------------------------------
+# 25. No section of the README names a file that does not exist
+# ---------------------------------------------------------------------------
+# `## Commands` names lib/burn-tick.sh among the libraries context.sh sources,
+# and `## Tests` lists lib/burn-tick.test.sh in the run block. B05 deletes both
+# files. The check is DERIVED — every plugin-relative path either section names
+# must exist on disk — rather than hard-coded to that one name, so the next
+# deletion is covered without anyone remembering to come back here.
+
+grep -oE '(lib|scripts)/[A-Za-z0-9._-]+\.(sh|json|tsv)' <<<"$COMMANDS" \
+  | sort -u > "$TMP/commands-paths"
+# Non-vacuity: an empty extraction (section renamed, section() cutting early)
+# would assert nothing at all and read as a clean pass.
+check "the Commands section names plugin files at all (path oracle is not empty)" \
+  "$([ -s "$TMP/commands-paths" ] && echo yes || echo no)" "yes"
+check "the Commands section still documents the renderer entry point it describes" \
+  "$(grep -c '^scripts/context\.sh$' "$TMP/commands-paths")" "1"
+while read -r _p; do
+  [ -n "$_p" ] || continue
+  check "the Commands section's '$_p' still exists in the plugin" \
+    "$([ -e "$PLUGIN_DIR/$_p" ] && echo yes || echo no)" "yes"
+done < "$TMP/commands-paths"
+
+# The libraries paragraph's own descriptions of what it names. `lib/burn-tick.sh
+# (the sub-tick interpolator behind %t)` and `lib/burn-math.sh (the awake-hours
+# pacing model)` both state something B05 makes false, which is the rule the
+# amended contract gives for what belongs to this block wherever it sits.
+check "the libraries paragraph no longer credits the retired sub-tick interpolator" \
+  "$(has_re 'interpolat' "$LIBS_P")" "no"
+check "the libraries paragraph no longer explains the retired %t figure" \
+  "$(has_fixed '%t' "$LIBS_P")" "no"
+check "the libraries paragraph no longer describes the retired awake-hours model" \
+  "$(has_re 'awake|sleep' "$LIBS_P")" "no"
+# Non-vacuity for those three: the paragraph must still name every burnrate
+# library that survives, so deleting the paragraph outright fails here. Derived
+# from the same lib/burn-*.sh scan section 15 uses.
+for _f in "$PLUGIN_DIR"/lib/burn-*.sh; do
+  case "$_f" in *.test.sh) continue ;; esac
+  [ -f "$_f" ] || continue
+  _b="$(basename "$_f")"
+  check "the libraries paragraph still names the surviving lib/$_b" \
+    "$(has_fixed "lib/$_b" "$LIBS_P")" "yes"
+done
+
+TESTS="$(section '## Tests')"
+check "the Tests section is non-empty" \
+  "$([ -n "$TESTS" ] && echo yes || echo no)" "yes"
+grep -oE 'plugins/[A-Za-z0-9._-]+/(lib|scripts)/[A-Za-z0-9._-]+\.(sh|json|tsv)' <<<"$TESTS" \
+  | sort -u > "$TMP/tests-paths"
+check "the Tests section lists runnable test paths (path oracle is not empty)" \
+  "$([ -s "$TMP/tests-paths" ] && echo yes || echo no)" "yes"
+# Non-vacuity of the right SECTION, not merely a non-empty one: the run block
+# has to still list this suite. A Tests section emptied of its burnrate entries
+# would otherwise satisfy every existence check below.
+check "the Tests section still lists this suite" \
+  "$(grep -c '/scripts/readme\.test\.sh$' "$TMP/tests-paths")" "1"
+while read -r _p; do
+  [ -n "$_p" ] || continue
+  check "the Tests section's '$_p' still exists in the repo" \
+    "$([ -e "$REPO_ROOT/$_p" ] && echo yes || echo no)" "yes"
+done < "$TMP/tests-paths"
+
+# ---------------------------------------------------------------------------
+# 26. The root README's Plugins-table row for statusline
+# ---------------------------------------------------------------------------
+# The row's DESCRIPTION carries the same "paced to your awake hours" promise the
+# blurb does, and is stale for the same reason. Its VERSION cell is deliberately
+# NOT re-asserted here: section 6 already compares it against plugin.json and
+# fails the moment section 23's mandatory bump lands without the row moving, and
+# readme-lint gates the same equality repo-wide. A second copy would be noise.
+
+ROOT_ROW="$(grep -E '^\|[[:space:]]*\[?statusline[](]' "$ROOT_README" 2>/dev/null | head -1)"
+check "the root README's Plugins-table row for statusline is identifiable" \
+  "$([ -n "$ROOT_ROW" ] && echo yes || echo no)" "yes"
+ROOT_ROW_DESC="$(trim "$(awk -F'|' '{ print $4 }' <<<"$ROOT_ROW")")"
+check "the root README row's description cell is readable (scoping oracle is not empty)" \
+  "$([ -n "$ROOT_ROW_DESC" ] && echo yes || echo no)" "yes"
+
+check "the root README row no longer paces the limits to your awake hours" \
+  "$(has_re 'awake' "$ROOT_ROW_DESC")" "no"
+check "the root README row paces them against the working week instead" \
+  "$(b17_near "$ROOT_ROW_DESC" '(^|[^A-Za-z])(pace|paced|paces|pacing)' \
+     '(^|[^A-Za-z])(work(ing)?[- ](week|day|days|hours)|hours you( actually)? work)' 80)" "yes"
+# Non-vacuity: the row must still describe the two plan limits it paces, so a
+# description gutted of the whole clause fails rather than passing the absence
+# check for free.
+check "the root README row still names the two plan limits it paces" \
+  "$(b17_near "$ROOT_ROW_DESC" '(^|[^A-Za-z])weekly' '5.hour' 80)" "yes"
+
+# ===========================================================================
+# B09 line1-cache-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 27. The line-1 render oracle: the separator and the hyperlink, derived
+# ---------------------------------------------------------------------------
+
+B09_WD="$TMP/b09-wd"; mkdir -p "$B09_WD/sub"
+
+BEL="$(printf '\007')"
+
+# b09_strip_links(): drops OSC 8 hyperlink framing (either terminator — B07
+# moves osc8_link from ST to BEL, and this has to read both) and then SGR
+# colour, leaving the visible text. Order matters: with the BEL already gone
+# there is nothing left to say where a url stops and its text starts.
+b09_strip_links() { # reads stdin
+  sed -E -e "s/${ESC}\]8;;[^${ESC}${BEL}]*(${BEL}|${ESC}\\\\)//g" \
+         -e "s/${ESC}\[[0-9;]*m//g"
+}
+
+# b09_render_line1(): scripts/context.sh's line 1 for a payload whose
+# project_dir and current_dir DIFFER, hermetic the same way b11_render is —
+# a plain temp cwd (not a git repo, no .local, so no branch, no badge, no
+# background refresher), temp cache dirs, caching disabled. Returned RAW so
+# the hyperlink check below can see the sequence; b09_strip_links strips it
+# for the text checks.
+b09_render_line1() {
+  local json
+  json="{\"workspace\":{\"current_dir\":\"$B09_WD/sub\",\"project_dir\":\"$B09_WD\"}"
+  json="$json,\"transcript_path\":\"\",\"session_id\":\"b09-fixture-session\""
+  json="$json,\"model\":{\"display_name\":\"Opus\"},\"effort\":{\"level\":\"high\"}"
+  json="$json,\"context_window\":{\"context_window_size\":1000000,\"total_input_tokens\":30000}}"
+  printf '%s' "$json" \
+    | env CLAUDE_PROJECTS_DIR="$TMP/b09-projects" CCOST_CACHE_DIR="$TMP/b09-ccost" \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 \
+        CLAM_STATUSLINE_CACHE_DIR="$TMP/b09-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 \
+        bash "$CONTEXT_SH" 2>/dev/null \
+    | sed -n '1p'
+}
+
+B09_L1_RAW="$(b09_render_line1)"
+B09_L1="$(printf '%s' "$B09_L1_RAW" | b09_strip_links)"
+check "the fixture render produced a line 1 (oracle is not empty)" \
+  "$([ -n "$B09_L1" ] && echo yes || echo no)" "yes"
+
+# The separator is the one non-ASCII run in a line 1 whose every other token is
+# an ASCII temp path. LC_ALL=C so the run comes back as whole bytes.
+B09_SEP="$(printf '%s' "$B09_L1" | LC_ALL=C grep -oE '[^ -~]+' | head -1)"
+check "the render separates the project dir from the current dir with a character the prose can name" \
+  "$([ -n "$B09_SEP" ] && echo yes || echo no)" "yes"
+# Guards the derivation: a separator with nothing on one side of it would be a
+# render that dropped one of the two directories, and every check below would
+# then be pinning the prose to a broken form.
+B09_SEP_LEFT=""; B09_SEP_RIGHT=""
+if [ -n "$B09_SEP" ]; then
+  B09_SEP_LEFT="$(trim "${B09_L1%%"$B09_SEP"*}")"
+  B09_SEP_RIGHT="$(trim "${B09_L1#*"$B09_SEP"}")"
+fi
+check "the derived separator really sits between two path components" \
+  "$([ -n "$B09_SEP_LEFT" ] && [ -n "$B09_SEP_RIGHT" ] && echo yes || echo no)" "yes"
+# And it is the character section 9's alphabet exempts. Without this the
+# exemption is a hole: a renderer emitting some other symbol would leave the
+# README free to carry a character no check ever looks at.
+check "the separator the renderer emits is the one the alphabet check exempts" \
+  "$B09_SEP" "›"
+
+# A sentinel, so the "the prose names the separator" checks below cannot pass
+# for free on an empty needle (grep -F '' matches every line).
+B09_SEP_PAT="${B09_SEP:-__no-separator-derived__}"
+
+check "the render hyperlinks the path segment as an OSC 8 file:// link" \
+  "$(printf '%s' "$B09_L1_RAW" | grep -qF "${ESC}]8;;file://" && echo yes || echo no)" "yes"
+
+# b09_pos(text ere): the byte offset of the first match of ERE in TEXT
+# flattened to one line, or "" when it does not appear. Offsets are how the
+# order of two claims in one paragraph is compared without asserting the
+# wording between them.
+b09_pos() { # text ere
+  one_line "$1" | grep -boiE "$2" | head -1 | cut -d: -f1
+}
+
+# ---------------------------------------------------------------------------
+# 28. The line-1 prose: the project dir at the head, and the `›` form
+# ---------------------------------------------------------------------------
+# LINE1_P (section 13) is the paragraph under `## What to expect` describing
+# line 1 in the order it renders. B07 puts the project directory at its head,
+# so the paragraph that enumerates that order is where the change lands.
+
+check "the 'Line 1' paragraph is still identifiable (scoping oracle is not empty)" \
+  "$([ -n "$LINE1_P" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph names the project directory the render now leads with" \
+  "$(has_re '(^|[^a-z])project dir(ectory)?' "$LINE1_P")" "yes"
+
+B09_POS_PROJECT="$(b09_pos "$LINE1_P" 'project dir')"
+B09_POS_CURRENT="$(b09_pos "$LINE1_P" 'current dir')"
+B09_POS_BRANCH="$(b09_pos "$LINE1_P" 'git branch')"
+check "the 'Line 1' paragraph still enumerates the branch after the path (order oracle is not empty)" \
+  "$([ -n "$B09_POS_BRANCH" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph puts the project dir before the current dir, as the render does" \
+  "$([ -n "$B09_POS_PROJECT" ] && [ -n "$B09_POS_CURRENT" ] \
+      && [ "$B09_POS_PROJECT" -lt "$B09_POS_CURRENT" ] && echo yes || echo no)" "yes"
+check "the 'Line 1' paragraph puts both of them before the branch, as the render does" \
+  "$([ -n "$B09_POS_PROJECT" ] && [ -n "$B09_POS_BRANCH" ] \
+      && [ "$B09_POS_PROJECT" -lt "$B09_POS_BRANCH" ] && echo yes || echo no)" "yes"
+
+check "the 'Line 1' paragraph names the separator the render emits between the two dirs" \
+  "$(has_fixed "$B09_SEP_PAT" "$LINE1_P")" "yes"
+check "the 'Line 1' paragraph says what follows that separator is relative to the project dir" \
+  "$(b17_near "$LINE1_P" "$B09_SEP_PAT" '(^|[^A-Za-z])(relative|inside|under|beneath|within)' 160)" "yes"
+check "the 'Line 1' paragraph describes the same-path case as a single segment" \
+  "$(b17_near "$LINE1_P" '(^|[^A-Za-z])(same|identical|matches|equal)' \
+     '(^|[^A-Za-z])(one|single|just|only)([^A-Za-z]|$)' 120)" "yes"
+check "the 'Line 1' paragraph keeps the ~ collapse for \$HOME" \
+  "$(has_fixed 'HOME' "$LINE1_P")" "yes"
+
+# The hyperlink, scoped to the sentences making a claim about the path segment
+# itself. The paragraph already calls the PR badge clickable, and both a
+# paragraph-wide check and one scoped to "current dir" would be satisfied by
+# that existing sentence alone — the enumeration naming the current directory
+# is the same sentence the badge's `#N` sits in.
+B09_PATH_CLAIM="$(b17_claims "$LINE1_P" '(project dir|path segment)')"
+check "the 'Line 1' paragraph makes a claim about the path segment at all (scoping oracle is not empty)" \
+  "$([ -n "$B09_PATH_CLAIM" ] && echo yes || echo no)" "yes"
+check "that claim says the path segment is a clickable link, which the render makes it" \
+  "$(has_re 'clickable|hyperlink|link' "$B09_PATH_CLAIM")" "yes"
+
+# Non-vacuity for strip_allowed's sixth exemption, the shape sections 9 uses on
+# the other five: the character is exempt because the prose has to carry it.
+check "the $B09_SEP_PAT path separator is kept in the prose" \
+  "$(has_fixed "$B09_SEP_PAT" "$BODY")" "yes"
+
+# ---------------------------------------------------------------------------
+# 29. The example block is regenerated for the new line 1
+# ---------------------------------------------------------------------------
+# Section 12 pins the example's line 2 against a live render and its line 1's
+# alphabet. What line 1 gains here is the form: an example still showing a bare
+# single path documents a render that no longer exists whenever the two dirs
+# differ, which is the case the prose above spends its sentences on.
+
+check "the example's line 1 is still identifiable (scoping oracle is not empty)" \
+  "$([ -n "$EX_L1" ] && echo yes || echo no)" "yes"
+check "the example's line 1 shows the project-dir form with the render's own separator" \
+  "$(has_fixed "$B09_SEP_PAT" "$EX_L1")" "yes"
+check "the example's line 1 still shows the segments past the path (it is a full render)" \
+  "$(b17_near "$EX_L1" "$B09_SEP_PAT" '(^|[^A-Za-z])(Build|In Progress|#[0-9])' 200)" "yes"
+
+# ---------------------------------------------------------------------------
+# 30. "Caching and staleness": the session_id key and the one-day sweep
+# ---------------------------------------------------------------------------
+
+CACHING="$(b17_subsection '### Caching and staleness')"
+check "the 'Caching and staleness' section survives and is identifiable" \
+  "$([ -n "$CACHING" ] && echo yes || echo no)" "yes"
+# Anchors: the section still documents the surface it always did, so every
+# absence check below is aimed at prose that is really there.
+check "the caching section still names the cache directory knob" \
+  "$(has_fixed 'CLAM_STATUSLINE_CACHE_DIR' "$CACHING")" "yes"
+check "the caching section still names the TTL knob" \
+  "$(has_fixed 'CLAM_STATUSLINE_SEGMENT_TTL_SECONDS' "$CACHING")" "yes"
+check "the caching section still says a cache failure degrades to a full render" \
+  "$(has_re 'degrade|freshly computed|never a broken' "$CACHING")" "yes"
+check "the caching section still says the path segment renders live, never from the bundle" \
+  "$(b17_near "$CACHING" '(^|[^A-Za-z])path' '(^|[^A-Za-z])live' 120)" "yes"
+
+# The key itself. B08 keys the bundle on session_id — the field Claude Code
+# documents as stable for a session's lifetime and unique per session.
+check "the caching section names session_id as what the bundle is keyed on" \
+  "$(has_fixed 'session_id' "$CACHING")" "yes"
+check "the caching section ties session_id to the keying, not just to the wording 'per-session'" \
+  "$(b17_near "$CACHING" 'session_id' '(^|[^A-Za-z])(key|keyed|keys|per.session|scope|scoped)' 140)" "yes"
+# The transcript path is no longer the key. Scoped to the SENTENCES of this
+# section, because ccost.sh's transcript argument is documented elsewhere in
+# the file and is untouched by this unit.
+check "no sentence of the caching section still keys the bundle on the transcript path" \
+  "$(one_line "$(b17_claims "$CACHING" '(^|[^A-Za-z])transcript')")" ""
+
+# The sweep. What the reader needs is the age bound and the fact that something
+# is removed at it; the cold-path-only detail is a render-budget invariant, not
+# a documented promise, and is deliberately not required of the prose.
+check "the caching section names the one-day age bound the sweep applies" \
+  "$(has_re '(^|[^A-Za-z])(one day|a day|24 hours|day old|daily)' "$CACHING")" "yes"
+check "the caching section says files older than that are removed" \
+  "$(b17_near "$CACHING" '(^|[^A-Za-z])(day|24 hours)' \
+     'remov|delet|sweep|swept|prun|clean|tidie|tidy|discard|age[sd]? out' 180)" "yes"
+# The caveat the sweep now handles belongs to nobody once the sweep exists —
+# section 31 pins its removal where it is actually written.
+check "the caching section does not tell the reader to delete the cache by hand" \
+  "$(has_fixed 'safe to delete by hand' "$CACHING")" "no"
+
+# The `scripts/context.sh` entry under `### Scripts` says the same things in
+# miniature, and has to agree with the section it cross-references.
+CTX_ENTRY="$(paragraph_in "$COMMANDS" '**`scripts/context.sh`**')"
+check "the scripts/context.sh entry is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$CTX_ENTRY" ] && echo yes || echo no)" "yes"
+check "the scripts/context.sh entry still cross-references the caching section" \
+  "$(has_fixed 'Caching and staleness' "$CTX_ENTRY")" "yes"
+check "the scripts/context.sh entry still says the bundle is cached per session" \
+  "$(has_re '(^|[^A-Za-z])per.session|session' "$CTX_ENTRY")" "yes"
+check "no cache claim in the scripts/context.sh entry names the transcript path" \
+  "$(one_line "$(b17_claims "$CTX_ENTRY" '(^|[^A-Za-z])transcript' | grep -iE 'cach|bundle|key')")" ""
+
+# ---------------------------------------------------------------------------
+# 31. "Uninstalling": the cache-clutter paragraph the sweep makes false
+# ---------------------------------------------------------------------------
+# The paragraph currently tells the reader NEITHER cache is removed
+# automatically and both are safe to delete by hand. B08's sweep makes the
+# first half false for the statusline cache. ccost's cache is untouched by this
+# unit, so the assertions are scoped to the sentences naming the statusline one
+# and the paragraph is required to go on naming both.
+
+UNINSTALL="$(section '## Uninstalling')"
+check "the 'Uninstalling' section is non-empty" \
+  "$([ -n "$UNINSTALL" ] && echo yes || echo no)" "yes"
+CLUTTER_P="$(paragraph_in "$UNINSTALL" '.statusline-cache')"
+check "the cache-clutter paragraph is identifiable (scoping oracle is not empty)" \
+  "$([ -n "$CLUTTER_P" ] && echo yes || echo no)" "yes"
+check "the cache-clutter paragraph still names the statusline cache directory" \
+  "$(has_fixed '.statusline-cache' "$CLUTTER_P")" "yes"
+check "the cache-clutter paragraph still names the ccost cache directory this unit does not touch" \
+  "$(has_fixed '.ccost-cache' "$CLUTTER_P")" "yes"
+
+B09_CLUTTER_CLAIM="$(b17_claims "$CLUTTER_P" 'statusline-cache')"
+check "the paragraph makes a claim about the statusline cache (scoping oracle is not empty)" \
+  "$([ -n "$B09_CLUTTER_CLAIM" ] && echo yes || echo no)" "yes"
+check "that claim no longer says nothing removes anything from the statusline cache" \
+  "$(has_re '(^|[^A-Za-z])(neither|not removed|never removed|nothing removes)' "$B09_CLUTTER_CLAIM")" "no"
+check "nor calls the statusline cache safe to delete by hand, which the sweep now handles" \
+  "$(has_fixed 'safe to delete by hand' "$B09_CLUTTER_CLAIM")" "no"
+# The positive half: an absence check on a paragraph gutted of its subject
+# passes for free, so the claim has to say what DOES happen to that cache now.
+check "that claim says the statusline cache bounds itself instead" \
+  "$(has_re 'sweep|swept|prun|tidie|tidy|bound|older than|one day|a day|itself' \
+     "$B09_CLUTTER_CLAIM")" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

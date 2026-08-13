@@ -151,7 +151,6 @@ done
 DECLARED=(
   "plugins/statusline/lib/burn-math.test.sh"
   "plugins/statusline/lib/burn-theme.test.sh"
-  "plugins/statusline/lib/burn-tick.test.sh"
   "plugins/statusline/scripts/ccost.test.sh"
   "plugins/statusline/scripts/readme.test.sh"
   "plugins/statusline/scripts/render-budget.test.sh"
@@ -206,6 +205,41 @@ case "$INTERP_VERSION" in
     ;;
 esac
 
+# Contract: B07 bash3-gate-timeout-fallback / resolve_timeout
+# Behavior:   resolves the timeout command this gate should use: prefers
+#             `timeout` (GNU coreutils, unprefixed), falls back to
+#             `gtimeout` (Homebrew coreutils default prefix). Each
+#             candidate is probed for basic usability (--version exits 0),
+#             not merely resolved on PATH.
+# Inputs:     none (reads PATH).
+# Outputs:    the resolved command name ("timeout" or "gtimeout") on
+#             stdout.
+# Errors:     returns 1 with empty stdout when neither candidate is
+#             usable; the CALLER then prints a one-line warning to stderr
+#             naming both candidates and runs suites unbounded (skipping
+#             the timeout) instead of failing every suite with rc=127.
+# Invariants: on a machine with GNU coreutils installed unprefixed, the
+#             gate's observable behavior is byte-identical to today; no
+#             globals mutated beyond the caller's chosen variable.
+# Edge cases: gtimeout present but broken (--version fails) falls through
+#             to the not-found path; both present prefers `timeout`.
+resolve_timeout() {
+  local candidate
+  for candidate in timeout gtimeout; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+      "$candidate" --version >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+TIMEOUT_CMD="$(resolve_timeout || true)"
+if [ -z "$TIMEOUT_CMD" ]; then
+  echo "bash3-gate.sh: no usable timeout command found (tried 'timeout' and 'gtimeout'); running suites unbounded" >&2
+fi
+
 FIRST_FAIL=""
 ANY_FAILED=0
 
@@ -222,7 +256,11 @@ for rel in "${DECLARED[@]}"; do
   fi
 
   OUT_FILE="$(mktemp)"
-  timeout "$TIMEOUT" "$INTERP" "$abs" >"$OUT_FILE" 2>/dev/null
+  if [ -n "$TIMEOUT_CMD" ]; then
+    "$TIMEOUT_CMD" "$TIMEOUT" "$INTERP" "$abs" >"$OUT_FILE" 2>/dev/null
+  else
+    "$INTERP" "$abs" >"$OUT_FILE" 2>/dev/null
+  fi
   rc=$?
   pass_n="$(grep -c '^PASS  ' "$OUT_FILE")"
   fail_n="$(grep -c '^FAIL  ' "$OUT_FILE")"

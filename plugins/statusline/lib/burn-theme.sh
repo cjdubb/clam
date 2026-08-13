@@ -16,7 +16,13 @@
 # fed depends on colour-emoji font coverage the terminal may not have. What
 # replaced them is nothing: the model name already names the model, and the
 # pet's mood only ever restated the worst of three meters printed beside it.
-# Colour is untouched; the rainbow still drifts.
+#
+# B05 amendment (line2-groups, plan 001-statusline-glance-uplift): the drifting
+# per-character rainbow is retired along with the animation counter and the hue
+# families that fed it, and the +added/-removed pair's fixed colours with the
+# segment they coloured. burn_frame_advance, burn_model_style, burn_rainbow and
+# burn_diff_color are deleted outright; burn_model_color's one flat colour per
+# family is what the model name takes now.
 #
 # Behavior:
 #   Every visual decision the burnrate line makes lives here, so the
@@ -31,33 +37,6 @@
 #   thresholds are unchanged, only their expression.
 #
 # Inputs / Outputs:
-#   burn_frame_advance FRAME_FILE
-#     Reads the integer in FRAME_FILE, increments it, writes it back, and
-#     echoes the new value. Absent, empty, or non-numeric content restarts
-#     at 1. Drives the rainbow drift, so a render advances the animation
-#     exactly one frame. Echoes 1 and returns 0 when the file cannot be
-#     written — the animation freezes, nothing breaks. SURVIVES the pet's
-#     removal: the rainbow is its other consumer, so deleting the counter
-#     alongside burn_pet would silently freeze the model name's colour.
-#
-#   burn_model_style MODEL
-#     Sets ONE global from the model's display name, matched
-#     case-insensitively on a substring: BURN_HUES, an 8-element array of
-#     256-colour codes. Echoes nothing.
-#       *opus*   -> warm reds and golds   (196 202 208 214 220 226 214 208)
-#       *sonnet* -> blues                 (21 27 33 39 45 51 45 39)
-#       *fable*  -> purples and magentas  (93 99 135 141 177 201 171 135)
-#       *haiku*  -> greens                (22 28 34 40 46 82 118 46)
-#       anything else -> full rainbow     (196 208 226 46 51 33 201 129)
-#     BURN_MASCOT is NOT set, and no caller may rely on it: the emoji it
-#     carried is removed, not relocated. The hue families and their match
-#     order are unchanged, so the model name colours exactly as before.
-#
-#   burn_rainbow TEXT FRAME
-#     Echoes TEXT with each character coloured from BURN_HUES, the palette
-#     offset by FRAME so the colours drift one step per render. Ends with a
-#     reset sequence. Empty TEXT echoes nothing (not a bare reset).
-#
 #   burn_effort_color EFFORT
 #     Echoes the SGR sequence for a reasoning-effort tier, cool to hot:
 #     low -> 245 grey, medium -> 39 blue, high -> 214 amber,
@@ -149,21 +128,6 @@
 #     burn_ctx_color above: a single bare opener, silently, rc 0, with no
 #     band specified.
 #
-#   burn_diff_color KIND                                [B15, plan 003]
-#     Echoes the colour for one half of the session's +added/-removed pair:
-#     "add" -> green 40, "del" -> red 196. The diffstat convention, chosen
-#     because it is the one every reader already knows. This is a FIXED
-#     colour, not a scale: the counts have no thresholds and no severity.
-#     KIND is matched CASE-SENSITIVELY: "add" and "del" are the only two
-#     recognised tokens, and "ADD" is an unrecognised kind like any other.
-#     (burn_model_style case-folds because it matches a model name a payload
-#     supplies; this one matches a literal the renderer itself passes, so
-#     there is nothing to fold.)
-#     Any other KIND, empty included, echoes the dim sequence (\033[2m) —
-#     never nothing, because an empty echo leaves the text uncoloured while
-#     the caller still emits its reset, which is exactly how colour leaks
-#     into the next segment.
-#
 #   burn_countdown_color                                [B15, plan 003]
 #     Takes NO argument and echoes the dim sequence (\033[2m) for the
 #     parenthesised reset countdown. Dim is the decision, not a fallback:
@@ -186,34 +150,26 @@
 #   the user's statusline. Unparseable numeric input takes the safest tier
 #   (the dim or green end) rather than failing, except where documented above
 #   as a non-zero return. For the functions plan 003 adds, "safest tier" is
-#   green 40 for burn_ctx_color and burn_trend_color and the dim sequence for
-#   burn_diff_color: a statusline that cannot parse a figure must never be the
-#   thing that raises an alarm about it.
+#   green 40 for burn_ctx_color and burn_trend_color: a statusline that cannot
+#   parse a figure must never be the thing that raises an alarm about it.
 #
 # Invariants:
-#   - Forks NO external process. Every function is pure bash builtins,
-#     including burn_frame_advance's read and write (`read < file`, not
-#     `cat`) — the warm-render budget in scripts/context.sh has no room for
-#     a fork here.
-#   - No function reads the environment or any file except FRAME_FILE.
-#   - Every emitted colour sequence is closed BY WHOEVER OPENED IT. Only
-#     burn_rainbow returns coloured TEXT, and it closes that text with
-#     \033[0m itself. Every burn_*_color function returns a bare OPENER with
-#     no reset and its caller closes the segment — that is the contract for
-#     all eight of them, not an exception to this clause. Either way, no
-#     colour leaks into the next segment.
+#   - Forks NO external process. Every function is pure bash builtins — the
+#     warm-render budget in scripts/context.sh has no room for a fork here.
+#   - No function reads the environment or any file at all. Since B05 retired
+#     burn_frame_advance, the animation counter it read and wrote is gone with
+#     it, so nothing here touches the filesystem.
+#   - Every emitted colour sequence is closed BY WHOEVER OPENED IT. Every
+#     burn_*_color function returns a bare OPENER with no reset and its caller
+#     closes the segment — that is the contract for all of them, not an
+#     exception to this clause, so no colour leaks into the next segment.
 #   - Thresholds are boundary-inclusive exactly as written (>=), and are
 #     locked constants, not configurable.
 #   - bash 3.2 compatible — no associative arrays, no ${var^^}.
 #
 # Edge cases:
-#   - burn_frame_advance at integer overflow: the counter is only ever used
-#     modulo 8 and modulo the hue count, so it may wrap or reset freely.
 #   - A model name with several matches ("Claude Opus Haiku"): the first
 #     match in the documented order wins, deterministically.
-#   - burn_rainbow on multi-byte or emoji text: colours are applied per
-#     character as bash counts them; the text must never be truncated or
-#     reordered, even if the colouring lands oddly.
 #   - burn_ctx_state with BUDGET <= 0: occupancy is undefined, so return
 #     "ok 40" rather than dividing by zero.
 #   - burn_ctx_state at exactly USED_TOKENS == BUDGET: cold, regardless of
@@ -231,8 +187,6 @@
 #   - burn_trend_color at exactly 8 and exactly 15: the higher tier, as
 #     above. A negative trend has ONE tier below -3, not a mirror of the
 #     three above it — asymmetry is the point, not an omission.
-#   - burn_diff_color with no argument at all, as opposed to an unrecognised
-#     one: identical handling, the dim sequence. There is no third state.
 #   - burn_countdown_color called WITH an argument: ignored entirely; the
 #     function takes none and its output never varies.
 #   - NO function in this file emits a non-ASCII character. That is the
@@ -242,64 +196,73 @@
 #     here without amending this invariant, and plan 003 chose the dead-band
 #     colour instead precisely so it does not have to be.
 
-# burn_frame_advance FRAME_FILE
-burn_frame_advance() {
-  local file="$1" val="" next
-  if [[ -f "$file" ]]; then
-    { read -r val < "$file"; } 2>/dev/null
-  fi
-  if [[ "$val" =~ ^[0-9]+$ ]]; then
-    next=$(( val + 1 ))
-    (( next < 0 )) && next=1
-  else
-    next=1
-  fi
-  if { printf '%s' "$next" > "$file"; } 2>/dev/null; then
-    echo "$next"
-    return 0
-  fi
-  echo 1
-  return 0
-}
-
-# burn_model_style MODEL  -> sets BURN_HUES
-burn_model_style() {
-  local model="$1" restore_nocasematch=0
+# Contract: B03 model-colour
+#
+# Behavior:
+#   Maps a model display name to ONE flat 256-colour SGR opener, matched
+#   case-insensitively on a substring in this fixed order:
+#     haiku  -> 117 (light blue)
+#     sonnet ->  75 (mid blue)
+#     opus   ->  33 (blue)
+#     fable  -> 141 (purple)
+#     anything else -> 245 (dim grey)
+#   Blue deepens with capability; purple sits outside the ramp. This replaces
+#   the retired burn_model_style + burn_rainbow pair, whose drifting
+#   per-character palette is the "fancy colouring" this plan removes.
+#
+# Inputs:
+#   MODEL  one string, the payload's model.display_name, possibly empty.
+#
+# Outputs:
+#   A bare SGR opener with NO reset; the caller closes it, which is the
+#   contract every burn_*_color function in this file already follows.
+#
+# Errors:
+#   None. An empty or unrecognised name takes the dim grey tier rather than
+#   failing or echoing nothing -- an empty echo would leave the text uncoloured
+#   while the caller still emits its reset, which is how colour leaks into the
+#   next segment.
+#
+# Invariants:
+#   - Forks no external process. Reads no environment and no file.
+#   - bash 3.2 compatible -- no associative arrays, no ${var^^}.
+#   - Emits no non-ASCII character, preserving the file-wide invariant a test
+#     checks mechanically.
+#   - nocasematch is saved and restored around the match, as the retired
+#     burn_model_style did.
+#
+# Edge cases:
+#   - A name matching two families ("Claude Opus Haiku"): the FIRST match in
+#     the documented order wins, deterministically.
+#   - A parenthesised suffix ("Opus 5 (1M context)") still matches -- trimming
+#     is the renderer's job, not this function's.
+#   - Colour choice does not vary with frame, time, or any other input: the
+#     same name always gives the same code. That invariance IS what "remove
+#     the fancy colouring" means, so it is a contract clause, not a detail.
+#
+# SCAFFOLD NOTE (B03): this stub could not be written at scaffold time --
+# burn-theme.test.sh pinned the file's exact function roster and count, so any
+# new function turned the suite red and blocked worktree creation. The test wave
+# has now updated the roster, so the stub lands here, in this unit worktree,
+# added by the orchestrator. Without it the red run reads as a
+# "command not found" collection error rather than a right-reason red.
+#
+# burn_model_color MODEL
+burn_model_color() {
+  local model="$1" restore_nocasematch=0 code
   if ! shopt -q nocasematch; then
     shopt -s nocasematch
     restore_nocasematch=1
   fi
   case "$model" in
-    *opus*)
-      BURN_HUES=(196 202 208 214 220 226 214 208)
-      ;;
-    *sonnet*)
-      BURN_HUES=(21 27 33 39 45 51 45 39)
-      ;;
-    *fable*)
-      BURN_HUES=(93 99 135 141 177 201 171 135)
-      ;;
-    *haiku*)
-      BURN_HUES=(22 28 34 40 46 82 118 46)
-      ;;
-    *)
-      BURN_HUES=(196 208 226 46 51 33 201 129)
-      ;;
+    *haiku*) code=117 ;;
+    *sonnet*) code=75 ;;
+    *opus*) code=33 ;;
+    *fable*) code=141 ;;
+    *) code=245 ;;
   esac
   (( restore_nocasematch )) && shopt -u nocasematch
-  return 0
-}
-
-# burn_rainbow TEXT FRAME
-burn_rainbow() {
-  local text="$1" frame="$2" len i hue
-  len=${#text}
-  (( len == 0 )) && return 0
-  for (( i = 0; i < len; i++ )); do
-    hue="${BURN_HUES[(i + frame) % 8]}"
-    printf '\033[38;5;%sm%s' "$hue" "${text:i:1}"
-  done
-  printf '\033[0m'
+  printf '\033[38;5;%sm' "$code"
   return 0
 }
 
@@ -409,26 +372,58 @@ burn_trend_color() {
   return 0
 }
 
-# burn_diff_color KIND
-burn_diff_color() {
-  local kind="$1"
-  case "$kind" in
-    add) printf '\033[38;5;40m' ;;
-    del) printf '\033[38;5;196m' ;;
-    *) printf '\033[2m' ;;
-  esac
-  return 0
-}
-
 # burn_countdown_color
 burn_countdown_color() {
   printf '\033[2m'
   return 0
 }
 
+# Contract: B04 reset-str-days (plan 001-statusline-glance-uplift)
+#
+# Behavior:
+#   Extends the existing countdown with a DAY unit, so a weekly reset reads
+#   "2d4h" rather than "163h12m". Three bands, checked in order:
+#     >= 24 hours  ->  "<D>d<H>h"
+#     >= 1 hour    ->  "<H>h<M>m"   (the existing form, unchanged)
+#     below that   ->  "<M>m"       (the existing form, unchanged)
+#
+# Inputs:
+#   RESET_EPOCH  integer epoch seconds of the next reset
+#   NOW          integer epoch seconds; a non-integer is treated as 0, as
+#                today
+#
+# Outputs:
+#   One string, no colour. The caller wraps it in parens and dims it.
+#
+# Errors:
+#   Unchanged: an empty or non-numeric RESET_EPOCH echoes nothing and returns
+#   1, so the caller omits the countdown AND its parens together — never an
+#   empty "()".
+#
+# Invariants:
+#   - Forks no external process. Pure.
+#   - Existing behaviour below 24 hours is BYTE-IDENTICAL, including the
+#     pinned "1h0m" at exactly 60 minutes. This block adds a band; it does not
+#     re-derive the two that exist.
+#   - bash 3.2 compatible.
+#
+# Edge cases:
+#   - Exactly 24 hours: "1d0h", not "24h0m".
+#   - Exactly 60 minutes: "1h0m", unchanged.
+#   - A past or equal RESET_EPOCH: "0m", never a negative.
+#   - A reset more than 9 days out (reachable only from a malformed payload):
+#     renders the day count as-is rather than clamping.
+#
+# SCAFFOLD NOTE (B04): the body below is the PREVIOUS contract's implementation,
+# left in place deliberately — same reason as B05 in scripts/context.sh. Stubbing
+# it out would leave the suite red, and `worktree.sh add` refuses to create a unit
+# worktree on a red baseline. It does not satisfy the contract above (it renders
+# 24 hours as "24h0m", not "1d0h"), which is what makes U02's tests red for the
+# right reason; the implementation wave adds the day band.
+#
 # burn_reset_str RESET_EPOCH NOW
 burn_reset_str() {
-  local reset_epoch="$1" now="$2" remaining hours minutes
+  local reset_epoch="$1" now="$2" remaining days hours minutes
   [[ "$reset_epoch" =~ ^-?[0-9]+$ ]] || return 1
   [[ "$now" =~ ^-?[0-9]+$ ]] || now=0
   remaining=$(( reset_epoch - now ))
@@ -438,10 +433,14 @@ burn_reset_str() {
   fi
   hours=$(( remaining / 3600 ))
   minutes=$(( (remaining % 3600) / 60 ))
-  if (( hours >= 1 )); then
+  if (( hours >= 24 )); then
+    days=$(( hours / 24 ))
+    echo "${days}d$(( hours % 24 ))h"
+  elif (( hours >= 1 )); then
     echo "${hours}h${minutes}m"
   else
     echo "${minutes}m"
   fi
   return 0
 }
+

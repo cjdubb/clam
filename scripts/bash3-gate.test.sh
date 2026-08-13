@@ -945,6 +945,280 @@ check "15. hermetic: the repo's own scripts/bash3-gate.sh is still readable and 
   "$([ -f "$GATE" ] && [ -r "$GATE" ] && echo yes || echo no)" "yes"
 
 # ===========================================================================
+# 16. Contract: B07 bash3-gate-timeout-fallback / resolve_timeout.
+#
+#     resolve_timeout takes no arguments and reads only PATH, so it is
+#     exercised directly: the function's source is extracted from the real
+#     gate script and evaluated in a child bash whose PATH is a fixture
+#     directory holding exactly the candidates that scenario is about. Nothing
+#     private is touched — the assertions are on stdout and the return code,
+#     which is the whole of its interface.
+#
+#     Fixture candidates are shell scripts, not binaries, so these scenarios
+#     behave identically on macOS/BSD and GNU/Linux and depend on nothing the
+#     host does or does not have installed.
+# ===========================================================================
+
+# The utilities the gate itself needs. A fixture PATH holds links to these and
+# to the chosen timeout candidates, and to nothing else — which is how "no
+# timeout binary exists" is made true for a process on a host that has one.
+PATH_UTILS="sh bash env mktemp grep sed awk cat cut tail head rm mkdir chmod
+sleep dirname basename pwd tr sort uniq git"
+
+# Resolved BEFORE any PATH override, so both the fixture candidates and this
+# suite's own outer safety net keep working inside a PATH that deliberately has
+# no timeout on it at all.
+REAL_TIMEOUT="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+
+# new_pathdir <spec> -- prints a directory to be used as an entire PATH.
+#   both        a usable `timeout` and a usable `gtimeout`
+#   timeout     only a usable `timeout`
+#   gtimeout    only a usable `gtimeout`
+#   broken      only a `gtimeout` whose --version fails
+#   none        neither candidate
+# Each candidate logs its invocations to <dir>/<name>-calls.log and, for a real
+# run, drops its duration argument and execs the command — enough for the gate
+# to run a suite under it.
+new_pathdir() {
+  local spec="$1" d u src
+  d="$(mktemp -d "$SCRATCH/pathdir.XXXXXX")"
+  for u in $PATH_UTILS; do
+    src="$(command -v "$u" 2>/dev/null || true)"
+    if [ -n "$src" ] && [ ! -e "$d/$u" ]; then
+      ln -s "$src" "$d/$u" 2>/dev/null || true
+    fi
+  done
+  case "$spec" in
+    both)     _mk_timeout "$d" timeout ok; _mk_timeout "$d" gtimeout ok ;;
+    timeout)  _mk_timeout "$d" timeout ok ;;
+    gtimeout) _mk_timeout "$d" gtimeout ok ;;
+    broken)   _mk_timeout "$d" gtimeout broken ;;
+    none)     : ;;
+  esac
+  printf '%s' "$d"
+}
+
+_mk_timeout() { # <dir> <name> ok|broken
+  local d="$1" name="$2" kind="$3"
+  rm -f "$d/$name"
+  {
+    printf '#!/bin/bash\n'
+    printf "printf '%%s\\\\n' \"\$*\" >> '%s/%s-calls.log'\n" "$d" "$name"
+    # SC2016: the `${1:-}` here is shim source text being written out, not an
+    # expansion this script should perform — single quotes are required.
+    # shellcheck disable=SC2016
+    if [ "$kind" = ok ]; then
+      printf 'case "${1:-}" in --version) echo "%s (GNU coreutils) 9.4"; exit 0 ;; esac\n' "$name"
+    else
+      printf 'case "${1:-}" in --version) echo "%s: broken" >&2; exit 1 ;; esac\n' "$name"
+    fi
+    if [ -n "$REAL_TIMEOUT" ]; then
+      # A usable candidate really enforces its duration, so a slow suite still
+      # reports the timeout's own 124.
+      printf "exec '%s' \"\$@\"\n" "$REAL_TIMEOUT"
+    else
+      printf 'shift\nexec "$@"\n'
+    fi
+  } > "$d/$name"
+  chmod +x "$d/$name"
+}
+
+# The function under test, lifted out of the real script.
+RESOLVE_FN="$SCRATCH/resolve_timeout.sh"
+: > "$RESOLVE_FN"
+if [ -f "$GATE" ]; then
+  awk '/^resolve_timeout\(\)/ { f = 1 } f { print } f && /^\}[[:space:]]*$/ { exit }' \
+    "$GATE" > "$RESOLVE_FN"
+fi
+
+R_OUT=""
+R_RC=0
+call_resolve() { # <pathdir>
+  local o
+  o="$(mktemp)"
+  # SC2016: `$1` is the inner `bash -c` script's own positional, bound below by
+  # the `_ "$RESOLVE_FN"` arguments — it must not expand here.
+  # shellcheck disable=SC2016
+  PATH="$1" "$REAL_BASH" -c '. "$1"; resolve_timeout' _ "$RESOLVE_FN" \
+    >"$o" 2>/dev/null
+  R_RC=$?
+  R_OUT="$(cat "$o")"
+  rm -f "$o"
+}
+
+check "16. fixture sanity: resolve_timeout's definition was found in the gate script" \
+  "$([ -s "$RESOLVE_FN" ] && echo yes || echo no)" "yes"
+check "16. fixture sanity: the extracted definition is parsable on its own" \
+  "$("$REAL_BASH" -n "$RESOLVE_FN" 2>/dev/null && echo yes || echo no)" "yes"
+
+PD_BOTH="$(new_pathdir both)"
+call_resolve "$PD_BOTH"
+check "16. edge case: with both candidates usable, resolve_timeout prefers 'timeout'" \
+  "$R_OUT" "timeout"
+check "16. edge case: preferring 'timeout' returns 0" "$R_RC" "0"
+
+PD_T="$(new_pathdir timeout)"
+call_resolve "$PD_T"
+check "16. behavior: with only 'timeout' usable it resolves to 'timeout'" "$R_OUT" "timeout"
+check "16. behavior: that resolution returns 0" "$R_RC" "0"
+
+PD_G="$(new_pathdir gtimeout)"
+call_resolve "$PD_G"
+check "16. behavior: with only 'gtimeout' usable it falls back to 'gtimeout'" \
+  "$R_OUT" "gtimeout"
+check "16. behavior: the gtimeout fallback returns 0" "$R_RC" "0"
+
+PD_BROKEN="$(new_pathdir broken)"
+call_resolve "$PD_BROKEN"
+check "16. edge case: a gtimeout present but broken (--version fails) is not resolved" \
+  "$R_RC" "1"
+check "16. edge case: a broken gtimeout leaves stdout empty (probed, not merely resolved on PATH)" \
+  "$R_OUT" ""
+
+PD_NONE="$(new_pathdir none)"
+call_resolve "$PD_NONE"
+check "16. errors: neither candidate usable returns 1" "$R_RC" "1"
+check "16. errors: neither candidate usable prints nothing on stdout" "$R_OUT" ""
+
+check "16. invariant: resolve_timeout mutates no global — a caller's own name is untouched" \
+  "$(
+    # SC2016: `$1` and `$TIMEOUT_CMD` belong to the inner `bash -c` script;
+    # expanding them out here would defeat the invariant under test.
+    # shellcheck disable=SC2016
+    PATH="$PD_BOTH" "$REAL_BASH" -c \
+      '. "$1"; TIMEOUT_CMD=sentinel; resolve_timeout >/dev/null 2>&1; printf "%s" "$TIMEOUT_CMD"' \
+      _ "$RESOLVE_FN" 2>/dev/null
+  )" "sentinel"
+
+# ===========================================================================
+# 17. Errors (caller half) — on a machine with NEITHER candidate, the gate
+#     warns once on stderr, naming both candidates, and still runs its suites
+#     unbounded rather than reporting rc=127 for every one of them. A gate that
+#     shells out to a `timeout` that is not there fails every suite with 127
+#     and reads as a repo-wide breakage; that is the failure this clause
+#     exists to prevent.
+# ===========================================================================
+
+run_gate_with_path() { # <root> <entire PATH> [args...]
+  local root="$1" newpath="$2"
+  shift 2
+  local out err
+  out="$(mktemp)"; err="$(mktemp)"
+  (
+    cd "$root" || exit 1
+    PATH="$newpath"; export PATH
+    if [ -n "$REAL_TIMEOUT" ]; then
+      "$REAL_TIMEOUT" 120 "$REAL_BASH" "$root/scripts/bash3-gate.sh" "$@"
+    else
+      "$REAL_BASH" "$root/scripts/bash3-gate.sh" "$@"
+    fi
+  ) >"$out" 2>"$err"
+  RUN_EXIT=$?
+  RUN_OUT="$(cat "$out")"
+  RUN_ERR="$(cat "$err")"
+  rm -f "$out" "$err"
+}
+
+stderr_line_count() { # <text> -- non-blank lines
+  printf '%s\n' "$1" | grep -c '[^[:space:]]' || true
+}
+
+# Whole words, so "gtimeout" alone cannot satisfy "names timeout".
+names_word() { # <text> <word> -- yes/no
+  if printf '%s\n' "$1" | grep -Eq "(^|[^A-Za-z0-9_-])$2([^A-Za-z0-9_-]|$)"; then
+    printf 'yes'
+  else
+    printf 'no'
+  fi
+}
+
+ROOT_NOTO="$(new_root)"
+SHIM_NOTO="$(new_shim "$BASH3_VER")"
+while IFS= read -r p; do
+  [ -n "$p" ] && write_fixture "$ROOT_NOTO" "$p" pass
+done <<< "$SRC_PATHS"
+run_gate_with_path "$ROOT_NOTO" "$PD_NONE" --bash "$SHIM_NOTO/bash"
+NOTO_OUT="$RUN_OUT"; NOTO_ERR="$RUN_ERR"; NOTO_EXIT="$RUN_EXIT"
+
+check "17. no timeout binary: the gate still exits 0 when every suite passes" \
+  "$NOTO_EXIT" "0"
+check "17. no timeout binary: the verdict is still exactly 'BASH3 PASS'" \
+  "$(last_line "$NOTO_OUT")" "BASH3 PASS"
+check "17. no timeout binary: suites run unbounded, reporting rc=0 PASS=3 FAIL=0, never rc=127" \
+  "$(all_suite_lines "$NOTO_OUT" 0 3 0)" "all"
+check "17. no timeout binary: no per-suite line reports rc=127" \
+  "$(printf '%s\n' "$NOTO_OUT" | grep -c 'rc=127' || true)" "0"
+check "17. no timeout binary: every declared suite actually executed" \
+  "$(all_ran "$ROOT_NOTO")" "all"
+check "17. no timeout binary: a warning is written to stderr" \
+  "$(nonempty "$NOTO_ERR")" "yes"
+check "17. no timeout binary: that warning is a single line" \
+  "$(stderr_line_count "$NOTO_ERR")" "1"
+check "17. no timeout binary: the warning names the 'timeout' candidate" \
+  "$(names_word "$NOTO_ERR" 'timeout')" "yes"
+check "17. no timeout binary: the warning names the 'gtimeout' candidate" \
+  "$(names_word "$NOTO_ERR" 'gtimeout')" "yes"
+check "17. no timeout binary: the exclusions are still printed" \
+  "$(contains "$NOTO_OUT" "$CONTEXT_SUITE")" "yes"
+
+# A machine with only Homebrew's prefixed coreutils: no warning at all, and the
+# gate bounds its suites with gtimeout.
+ROOT_GT="$(new_root)"
+SHIM_GT="$(new_shim "$BASH3_VER")"
+while IFS= read -r p; do
+  [ -n "$p" ] && write_fixture "$ROOT_GT" "$p" pass
+done <<< "$SRC_PATHS"
+run_gate_with_path "$ROOT_GT" "$PD_G" --bash "$SHIM_GT/bash"
+GT_ERR="$RUN_ERR"; GT_EXIT="$RUN_EXIT"
+
+check "17. gtimeout only: the gate passes" "$GT_EXIT" "0"
+check "17. gtimeout only: no warning is emitted when a candidate was resolved" \
+  "$(stderr_line_count "$GT_ERR")" "0"
+check "17. gtimeout only: the resolved gtimeout is what bounded the suites" \
+  "$([ -s "$PD_G/gtimeout-calls.log" ] && echo yes || echo no)" "yes"
+
+# ===========================================================================
+# 18. Invariant — with GNU coreutils installed unprefixed, the gate's
+#     observable behavior is byte-identical to today's. Asserted as the report
+#     from a run whose PATH holds an unprefixed `timeout` being byte-identical
+#     to the same fixture root's report on the unmodified PATH of this host,
+#     which is what "today" means for this suite.
+# ===========================================================================
+
+ROOT_BASE="$(new_root)"
+SHIM_BASE="$(new_shim "$BASH3_VER")"
+while IFS= read -r p; do
+  [ -n "$p" ] && write_fixture "$ROOT_BASE" "$p" pass
+done <<< "$SRC_PATHS"
+
+run_gate "$ROOT_BASE" "" --bash "$SHIM_BASE/bash"
+BASE_OUT="$RUN_OUT"; BASE_ERR="$RUN_ERR"; BASE_EXIT="$RUN_EXIT"
+
+PD_BOTH2="$(new_pathdir timeout)"
+run_gate_with_path "$ROOT_BASE" "$PD_BOTH2" --bash "$SHIM_BASE/bash"
+CORE_OUT="$RUN_OUT"; CORE_ERR="$RUN_ERR"; CORE_EXIT="$RUN_EXIT"
+
+check "18. unchanged: with an unprefixed timeout the exit code is today's" \
+  "$CORE_EXIT" "$BASE_EXIT"
+check "18. unchanged: with an unprefixed timeout the report is byte-identical to today's" \
+  "$CORE_OUT" "$BASE_OUT"
+check "18. unchanged: nothing new is written to stderr on that path" \
+  "$CORE_ERR" "$BASE_ERR"
+check "18. unchanged: the unprefixed timeout is the command the gate used" \
+  "$([ -s "$PD_BOTH2/timeout-calls.log" ] && echo yes || echo no)" "yes"
+check "18. unchanged: a timeout is still enforced — a slow suite reports rc=124" \
+  "$(
+    r="$(new_root)"; s="$(new_shim "$BASH3_VER")"
+    while IFS= read -r q; do
+      [ -z "$q" ] && continue
+      if [ "$q" = "$FIRST" ]; then write_fixture "$r" "$q" slow
+      else write_fixture "$r" "$q" pass; fi
+    done <<< "$SRC_PATHS"
+    run_gate_with_path "$r" "$(new_pathdir both)" --bash "$s/bash" --timeout 1
+    suite_line_ok "$RUN_OUT" "$FIRST" 124 0 0
+  )" "yes"
+
+# ===========================================================================
 echo "----"
 if [ "$FAILED" -eq 0 ]; then
   echo "ALL PASS"

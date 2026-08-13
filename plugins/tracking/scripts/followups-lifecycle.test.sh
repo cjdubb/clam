@@ -103,7 +103,7 @@ test_snapshot_list_order_preserved() {
     snap_run "$wd"
     local dir entries
     dir=$(snap_dir "$wd")
-    entries=$(find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort | tr '\n' ' ')
+    entries=$(find "$dir" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sed 's#.*/##' | sort | tr '\n' ' ')
     if [ "$entries" = "FOLLOWUPS.md IMPLEMENTATION-PLAN.md PLAN.md TODO.md TROUBLESHOOTING.md " ]; then
         pass "snapshot: TODO/PLAN/IMPLEMENTATION-PLAN/TROUBLESHOOTING still all copied alongside FOLLOWUPS.md"
     else

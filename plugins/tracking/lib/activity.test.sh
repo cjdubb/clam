@@ -17,6 +17,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$SCRIPT_DIR/activity.sh"
 
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/../../../scripts/lib/test-portability.sh"
+
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 
@@ -49,9 +52,9 @@ source "$LIB"
 echo "=== activity_prompts_since ==="
 
 REF_EPOCH=1780000000
-EQUAL_TS=$(date -u -d "@$REF_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")
-BEFORE_TS=$(date -u -d "@$((REF_EPOCH - 1))" +"%Y-%m-%dT%H:%M:%SZ")
-AFTER_TS=$(date -u -d "@$((REF_EPOCH + 1))" +"%Y-%m-%dT%H:%M:%SZ")
+EQUAL_TS=$(tp_epoch_fmt "$REF_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")
+BEFORE_TS=$(tp_epoch_fmt "$((REF_EPOCH - 1))" +"%Y-%m-%dT%H:%M:%SZ")
+AFTER_TS=$(tp_epoch_fmt "$((REF_EPOCH + 1))" +"%Y-%m-%dT%H:%M:%SZ")
 AFTER_TS_MS="${AFTER_TS%Z}.720Z"
 FAR_FUTURE_EPOCH=$((REF_EPOCH + 1000000000))
 

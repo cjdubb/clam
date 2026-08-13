@@ -304,7 +304,7 @@ line_count() { # text -> number of non-empty lines (0 for empty string)
 
 tree_snapshot() { # root -> sorted "relpath  sha256" lines
   local root="$1"
-  ( cd "$root" && find . -type f -exec sha256sum {} + ) | sort
+  ( cd "$root" && find . -type f -exec cksum {} + ) | sort
 }
 
 HAVE_PARSER="$(python3 -c "import yaml" >/dev/null 2>&1 && echo yes || echo no)"

@@ -145,7 +145,7 @@ check_pr_monitoring() {
     # The cron-presence check below applies uniformly; monitoring should
     # stay alive through both the pre-enqueue and in-queue phases.
     local pr_num=""
-    pr_num=$(cd "$cwd" && gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+    pr_num=$(cd "$cwd" 2>/dev/null || exit 0; gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
     [[ -z "$pr_num" ]] && return 0
 
     PR_NUM="$pr_num"
@@ -203,7 +203,7 @@ check_independent_review() {
     # Same open-PR detection as check_pr_monitoring; the hook's 5s managed
     # timeout is the backstop if gh hangs (no `timeout` on macOS by default).
     local pr_num=""
-    pr_num=$(cd "$cwd" && gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+    pr_num=$(cd "$cwd" 2>/dev/null || exit 0; gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
     [[ -z "$pr_num" ]] && return 0
 
     local report_file="$cwd/.local/INDEPENDENT-REVIEW-PR-${pr_num}.md"
@@ -343,7 +343,7 @@ check_no_todo_nudge() {
     fi
 
     local plugin_root
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)
+    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null || exit 0; pwd)
     local template_hint=""
     if [[ -n "$plugin_root" && -f "$plugin_root/templates/TODO.md" ]]; then
         template_hint=" A starter template is available at ${plugin_root}/templates/TODO.md."

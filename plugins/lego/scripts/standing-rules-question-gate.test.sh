@@ -1,14 +1,15 @@
 #!/bin/bash
-# Verifies the session-context hook emits a standing rule requiring every
+# Verifies the standing-rules doc (docs/standing-rules.md, read by every
+# lego skill at invocation) carries a standing rule requiring every
 # orchestrator question to be explicitly answered before proceeding, and
 # that the Owner: engineer rule states why engineer ownership exists
 # (design authorship) rather than only how it works.
 #
-# Run: bash plugins/lego/scripts/session-context-question-gate.test.sh
+# Run: bash plugins/lego/scripts/standing-rules-question-gate.test.sh
 #      (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK="$SCRIPT_DIR/session-context.sh"
+DOC="$SCRIPT_DIR/../skills/plan/SKILL.md"
 
 FAILED=0
 
@@ -31,18 +32,15 @@ has_re() { # content ere
   if grep -qiE -- "$2" <<<"$1"; then echo yes; else echo no; fi
 }
 
-if [[ ! -f "$HOOK" ]]; then
-  echo "FAIL  session-context.sh not found at $HOOK"
+if [[ ! -f "$DOC" ]]; then
+  echo "FAIL  standing-rules.md not found at $DOC"
   exit 1
 fi
 
-TMPDIR_HOOK=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_HOOK"' EXIT
-
-RAW=$(CLAUDE_PROJECT_DIR="$TMPDIR_HOOK" bash "$HOOK")
+RAW=$(cat "$DOC")
 
 if [[ -z "$RAW" ]]; then
-  echo "FAIL  hook produced no output"
+  echo "FAIL  standing-rules doc is empty"
   exit 1
 fi
 
@@ -69,7 +67,7 @@ bullet_text() { # content literal
 
 SECTION="$(standing_rules_section "$RAW")"
 
-check "## Standing rules heading found in hook output" \
+check "## Standing rules heading found in the doc" \
   "$([[ -n "$SECTION" ]] && echo yes || echo no)" "yes"
 
 # --- 1. NotImplemented placeholder replaced -------------------------------

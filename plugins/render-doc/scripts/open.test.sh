@@ -235,9 +235,9 @@ reset_openers() {
   : > "$OPEN_LOG"
 }
 
-opened_tools() { cut -f1 "${1:-$OPEN_LOG}" 2> /dev/null | tr '\n' ' ' | sed 's/ *$//'; }
+opened_tools() { cut -f1 "$OPEN_LOG" 2> /dev/null | tr '\n' ' ' | sed 's/ *$//'; }
 opened_url() { cut -f2 "${1:-$OPEN_LOG}" 2> /dev/null | head -1; }
-opened_count() { wc -l < "${1:-$OPEN_LOG}" 2> /dev/null | tr -d ' '; }
+opened_count() { wc -l < "$OPEN_LOG" 2> /dev/null | tr -d ' '; }
 
 # --- Running render.sh --open ------------------------------------------------
 RUN_RC=0
@@ -310,6 +310,7 @@ import signal
 import socket
 import sys
 import time
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -393,7 +394,17 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-ThreadingHTTPServer(('127.0.0.1', port), Handler).serve_forever()
+class QuietServer(ThreadingHTTPServer):
+    # server_bind without socket.getfqdn(): the reverse-DNS lookup hangs on
+    # hosts with a wedged resolver (GitHub's macOS runners), and the fixture
+    # serves only loopback.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
+
+QuietServer(('127.0.0.1', port), Handler).serve_forever()
 PY
 
 LAST_FAKE_PID=""

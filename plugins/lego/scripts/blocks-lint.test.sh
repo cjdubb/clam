@@ -92,7 +92,7 @@ track_tmp() {
 cleanup() {
   if [ -f "$CLEANUP_MANIFEST" ]; then
     while IFS= read -r d; do
-      [ -n "$d" ] && [ -e "$d" ] || continue
+      [ -e "$d" ] || continue
       chmod -R u+rwX -- "$d" 2>/dev/null
       rm -rf -- "$d"
     done < "$CLEANUP_MANIFEST"

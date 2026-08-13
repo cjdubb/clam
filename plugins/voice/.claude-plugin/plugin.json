@@ -1,7 +1,7 @@
 {
   "name": "voice",
-  "description": "Injects the Voice communication spec — conclusion-first, working-memory-friendly reply structure — into every session via a SessionStart hook.",
-  "version": "0.2.0",
+  "description": "Ships the Voice communication spec — conclusion-first, working-memory-friendly reply structure — as two selectable output styles, with and without Claude Code's built-in coding instructions.",
+  "version": "0.3.2",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

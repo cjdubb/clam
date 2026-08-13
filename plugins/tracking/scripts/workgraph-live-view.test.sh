@@ -638,9 +638,9 @@ assert_contains_re_i "B10 Behavior: the view is of this document" \
 # assertions are therefore anchored on "serv", which is absent from the
 # stub, so neither can pass vacuously.
 assert_contains_re_i "B10 Behavior: the markdown stays the document of record even when a view is served" \
-    "$VIEWING" 'serv.{0,300}document of record|document of record.{0,300}serv'
+    "$VIEWING" 'serv.{0,250}document of record|document of record.{0,250}serv'
 assert_contains_re_i "B10 Behavior: every served view stays derived and disposable" \
-    "$VIEWING" 'serv.{0,300}dispos|dispos.{0,300}serv'
+    "$VIEWING" 'serv.{0,250}dispos|dispos.{0,250}serv'
 
 # --- Invariants -----------------------------------------------------------
 

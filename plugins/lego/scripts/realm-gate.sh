@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # realm-gate.sh — PreToolUse hook: mechanical realm enforcement for lego workers.
 #
+# Registered in the frontmatter of agents/lego-test-writer.md and
+# agents/lego-implementer.md (not hooks/hooks.json), so it exists only inside
+# those subagents. The agent_type check below is retained as defense in depth
+# and keeps the script's contract independent of where it is registered.
+#
 # Contract: B04 realm-gate-local-readonly
 #
 # New clauses in plan 001 are marked (NEW, plan 001); every other clause is

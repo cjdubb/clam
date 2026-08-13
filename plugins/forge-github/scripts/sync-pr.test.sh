@@ -66,8 +66,11 @@ has_root_path() { # bare-filename-regex, checked against FLAT_BODY, only
   # root-level path reference (e.g. "PULL_REQUEST_TEMPLATE.md") from the
   # same filename appearing as the tail of a subpath (".github/..." or
   # "docs/..."), which would otherwise satisfy the check as a substring
-  # for the wrong reason. (Same discipline as create-pr.test.sh.)
-  printf '%s' "$FLAT_BODY" | grep -qP -- "(?<!/)$1" && echo yes || echo no
+  # for the wrong reason. (Same discipline as create-pr.test.sh.) Portable
+  # ERE rather than a PCRE lookbehind ("grep -P" is unavailable on
+  # BSD/macOS grep): require either start-of-line or a single non-'/'
+  # character before the filename.
+  printf '%s' "$FLAT_BODY" | grep -qE -- "(^|[^/])$1" && echo yes || echo no
 }
 
 check "skill file exists" "$([[ -f "$SKILL" ]] && echo yes || echo no)" "yes"

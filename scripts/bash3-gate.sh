@@ -154,6 +154,7 @@ DECLARED=(
   "plugins/statusline/scripts/ccost.test.sh"
   "plugins/statusline/scripts/readme.test.sh"
   "plugins/statusline/scripts/render-budget.test.sh"
+  "plugins/statusline/scripts/setup-skill.test.sh"
 )
 
 EXCLUDED_SUITES=(

@@ -71,8 +71,9 @@ broken in, precisely because none of them look like a dependency as you type
 them.
 
 Beware word-sense collisions in the other direction: `landing strategy` in
-`lego` is lego's own domain vocabulary, and `build` in `lego.json` is a build
-*command*. Neither is a plugin reference.
+`lego` is lego's own domain vocabulary, and `build` in one of `blocks.md`'s
+`Setup:`/`Test:` command-field lines is a build *command*. Neither is a
+plugin reference.
 
 ## Not mechanically checkable — your judgement is the only check
 

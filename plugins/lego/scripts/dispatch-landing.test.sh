@@ -21,7 +21,7 @@
 #     read verbatim out of the docblock's own vocabulary and the red run
 #     would be a false green.
 #   - Token style: identifiers the contract fixes verbatim (`pr-size-check.sh`,
-#     `--justified`, `Landing strategy`, `delivery.prSizeBudget`, exit-code
+#     `--justified`, `Landing strategy`, `--budget`, exit-code
 #     numbers, `master/main`, file paths) are asserted verbatim; clauses that
 #     describe a concept are asserted on the shortest distinguishing word or
 #     phrase a correctly-written guidance would naturally contain, not a
@@ -203,10 +203,19 @@ check "5b: an unmeasured group is not delivered" \
 check "5b: the orchestrator never waives the budget itself" \
   "$(has_f "$SECTION_5B" "waive")" "yes"
 
-# --- Inputs: the budget comes from delivery.prSizeBudget, resolved by the
-# script ------------------------------------------------------------------
-check "5b: the budget is delivery.prSizeBudget" \
-  "$(has_f "$SECTION_5B" "delivery.prSizeBudget")" "yes"
+# --- Inputs: the budget is a plan fact, passed explicitly ------------------
+# REWRITTEN for "Contract: B08 dispatch-skill-configless": the budget used to
+# be `delivery.prSizeBudget` resolved by the script out of the effective
+# config. B08 deletes the config interface — the budget is recorded in the
+# plan's Landing strategy at plan time and passed to the script via
+# `--budget` (B06 makes the flag the script's only source). So the old key
+# must be GONE from this section, and the flag must be there instead.
+check "5b: the budget is passed explicitly via --budget" \
+  "$(has_f "$SECTION_5B" "--budget")" "yes"
+check "5b: the budget value is a plan fact (Landing strategy)" \
+  "$(has_f "$SECTION_5B" "Landing strategy")" "yes"
+check "5b: the old delivery.prSizeBudget config key is gone" \
+  "$(has_f "$SECTION_5B" "delivery.prSizeBudget")" "no"
 
 # --- Errors/Outputs: escalation is a defined outcome, not a pipeline
 # failure, and is recorded in the plan Changelog and the unit status file's
@@ -287,6 +296,71 @@ for h in "### 4. Local merge" "### 5. Delivery" \
          "#### 5a. Compose PR content" "#### 5b. Write manifest and assemble" \
          "## Composition blocks"; do
   check "structure survives: $h" "$(has_f "$RAW" "$h")" "yes"
+done
+
+# ==========================================================================
+# B08 dispatch-skill-configless — the delivery half
+# (contract: the "Contract: B08 ..." HTML comment at the top of SKILL.md)
+# ==========================================================================
+# The three delivery-side clauses of B08 are checked here, where step 5's
+# anchors already live: the delivery sections pass the plan-recorded budget
+# via `--budget` (rewritten above, in §5b's Inputs), step 5 names no config
+# file, and the never-implemented delivery-mode degrade path becomes one
+# honest line ("no origin or no gh -> deliver local-only and tell the
+# engineer") — the line that used to live only in docs/config-schema.md,
+# which B10 deletes.
+#
+# Everything reads $STRIPPED (defined above): the B08 contract comment quotes
+# this clause almost verbatim, so an unstripped check would pass today
+# against the comment's own words.
+
+# Wrap-tolerant fixed-string match: SKILL.md hard-wraps prose at ~76 columns,
+# so a multi-word literal ("tell the engineer") routinely straddles a line
+# break. Same helper as the sibling suites'.
+has_fn() { # content literal
+  local flat; flat=$(tr '\n' ' ' <<<"$1" | tr -s ' ')
+  if grep -qF -- "$2" <<<"$flat"; then echo yes; else echo no; fi
+}
+
+# Concept anchor: yes when ANY of the given literals is present.
+has_any_fn() { # content literal...
+  local content="$1"; shift
+  local lit
+  for lit in "$@"; do
+    if [[ "$(has_fn "$content" "$lit")" == "yes" ]]; then echo yes; return; fi
+  done
+  echo no
+}
+
+# The whole of step 5 — intro, 5a and 5b — since the contract fixes that the
+# degrade path is stated, not which subsection states it.
+SECTION_5_ALL=$(awk '/^### 5\. Delivery$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' <<<"$STRIPPED")
+
+# --- Behavior: the degrade path is one honest line -------------------------
+check "5: the degrade path names a missing origin as a trigger" \
+  "$(has_any_fn "$SECTION_5_ALL" 'no origin' 'without an origin' \
+      'origin is absent' 'no remote')" "yes"
+# Backticked variants below are markdown, not command substitution — the
+# document writes the tool name as `gh`. Anchored on "no gh"/"without gh"
+# rather than a bare "gh", which appears as a substring of ordinary words
+# ("through", "right") and would be a false green.
+# shellcheck disable=SC2016
+check "5: the degrade path names a missing gh as the other trigger" \
+  "$(has_any_fn "$SECTION_5_ALL" 'no gh' 'no `gh`' 'without gh' \
+      'without `gh`' 'gh is unavailable' '`gh` is unavailable')" "yes"
+check "5: the degrade path delivers local-only" \
+  "$(has_f "$SECTION_5_ALL" 'local-only')" "yes"
+check "5: the degrade path tells the engineer" \
+  "$(has_any_fn "$SECTION_5_ALL" 'tell the engineer' 'tells the engineer' \
+      'inform the engineer' 'informs the engineer')" "yes"
+
+# --- Behavior: delivery reads the mode from the plan, not from a config ---
+check "5: the delivery mode is a plan fact (Landing strategy)" \
+  "$(has_f "$SECTION_5_ALL" 'Landing strategy')" "yes"
+for tok in 'lego.json' 'config.json' 'config-schema.md' 'effective config' \
+           'delivery.mode' 'delivery.prSizeBudget'; do
+  check "5: step 5 names no config artifact: $tok" \
+    "$(has_f "$SECTION_5_ALL" "$tok")" "no"
 done
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

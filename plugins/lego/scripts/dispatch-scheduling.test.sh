@@ -416,5 +416,113 @@ check "edge: unless the escalation opens an engineer question" \
 check "Dispatch order: independent units still stated to run concurrently" \
   "$(has_any_fn "$DISPATCH_ORDER" 'concurrently' 'in parallel')" "yes"
 
+# ==========================================================================
+# B08 dispatch-skill-configless — tier resolution is deleted
+# (contract: the "Contract: B08 ..." HTML comment at the top of SKILL.md)
+# ==========================================================================
+# This suite owns how waves are dispatched, so the clause about what the
+# orchestrator passes on an Agent call lives here: the "## Tier resolution"
+# section — which read `models.testWriter`/`models.implementer` out of the
+# effective config and told the orchestrator to pass the value as the `model`
+# parameter on every dispatch — is deleted outright, agent frontmatter being
+# the sole tier owner. This clause is a deletion, so it is asserted as one:
+# requiring replacement prose here would contradict the contract. That
+# frontmatter actually carries the tier is agent-defs.test.sh's business, not
+# this document's.
+check "B08: the '## Tier resolution' section is deleted" \
+  "$(grep -c '^## Tier resolution$' <<<"$STRIPPED")" "0"
+check "B08: models.testWriter is no longer read" \
+  "$(has_fn "$STRIPPED" 'models.testWriter')" "no"
+check "B08: models.implementer is no longer read" \
+  "$(has_fn "$STRIPPED" 'models.implementer')" "no"
+check "B08: no instruction to pass a config-resolved model parameter" \
+  "$(has_fn "$STRIPPED" 'the `model` parameter')" "no"
+check "B08: the agent-definition-defaults warning goes with it" \
+  "$(has_fn "$STRIPPED" 'Do not rely on agent-definition defaults')" "no"
+
+# ==========================================================================
+# B13 dispatch-responsibility-semantics — clauses 2, 6 and 7
+# (contract: the "Contract: B13 ... (remove at acceptance)" HTML comment)
+# ==========================================================================
+# Three clauses land in this suite because it already owns the material they
+# touch: the authoritative wave-check run (Behavior 7 above pins wave-check
+# per stage), the review-gated variant of the pipeline, and the non-delegable
+# verification items. Clauses 1, 3, 4, 5 and 8 are pinned in
+# dispatch-skill.test.sh.
+#
+# The contract requires each statement "once each", so clauses that could
+# defensibly live in more than one section are checked against a union of
+# those sections rather than duplicated per section — a check per section
+# would demand the repetition the contract forbids.
+
+PIPELINE=$(awk '/^## The per-unit pipeline$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' <<<"$STRIPPED")
+ACCEPTANCE_HOMES="$SECTION_2
+$SECTION_3
+$WORKER_BRIEFS"
+
+# --- Clause 2: the authoritative test run ---------------------------------
+# Only the orchestrator's own wave-check.sh run is acceptance evidence; a
+# worker's report is a notification, never a gate. The existing prose already
+# calls a final message "only a notification ... never a precondition", so
+# the anchors below are chosen to discriminate the new rule from that
+# sentence: they are all about what does or does not constitute ACCEPTANCE
+# evidence.
+check "B13: the orchestrator's own run is the acceptance evidence" \
+  "$(has_any_fn "$ACCEPTANCE_HOMES" 'acceptance evidence' \
+      'the only evidence' 'sole acceptance evidence' \
+      'the authoritative run')" "yes"
+check "B13: a worker report is never a gate" \
+  "$(has_any_fn "$ACCEPTANCE_HOMES" 'never a gate' 'never acceptance evidence' \
+      'not a gate' 'never evidence')" "yes"
+
+# --- Clause 6: the review-gated pipeline branch ---------------------------
+# The skipped-test-wave variant and its dual-acceptance gate are documented
+# in the pipeline itself — a dispatch-only session must find it here, not by
+# reading the plan skill.
+check "B13: the review-gated variant is documented in the pipeline" \
+  "$(has_fn "$PIPELINE" 'review-gated')" "yes"
+check "B13: the review-gated branch skips the test wave" \
+  "$(has_any_fn "$PIPELINE" 'test wave is skipped' 'skipped test wave' \
+      'skips the test wave' 'skip the test wave')" "yes"
+check "B13: the review-gated branch takes a dual-acceptance gate" \
+  "$(has_any_fn "$PIPELINE" 'dual-acceptance' 'dual acceptance' \
+      'explicit engineer acceptance' 'both are required' \
+      'orchestrator verification alone does not accept')" "yes"
+
+# --- Clause 7: restated orchestrator rules --------------------------------
+check "B13: the orchestrator never implements block internals" \
+  "$(has_any_fn "$STRIPPED" 'never implements block internals' \
+      'never implement block internals' 'does not implement block internals' \
+      'never writes block internals')" "yes"
+check "B13: the orchestrator never changes a contract without the engineer" \
+  "$(has_any_fn "$STRIPPED" 'never changes a contract' \
+      'never change a contract' 'contract without the engineer')" "yes"
+
+# The five named verification steps are non-delegable — as a set, not as five
+# sentences scattered through the document. "non-delegable" already appears
+# twice today (the clause-coverage and contracts-unchanged checklist items),
+# so a bare token check would be a false green; instead every occurrence gets
+# a context window and at least one must name all five. Window taken on the
+# whitespace-flattened document so a hard wrap cannot push an item out of
+# range — same technique as the batching-context scan above.
+NONDELEGABLE_NEEDLE='non-delegable'
+NONDELEGABLE_FULL_SET=0
+ND_REST="$FLAT"
+while [[ "$ND_REST" == *"$NONDELEGABLE_NEEDLE"* ]]; do
+  ND_BEFORE="${ND_REST%%"$NONDELEGABLE_NEEDLE"*}"
+  ND_AFTER="${ND_REST#*"$NONDELEGABLE_NEEDLE"}"
+  ND_WINDOW="${ND_BEFORE: -700}$NONDELEGABLE_NEEDLE${ND_AFTER:0:700}"
+  if grep -qi 'clause coverage' <<<"$ND_WINDOW" && \
+     grep -qiE 'prose[ -]contract' <<<"$ND_WINDOW" && \
+     grep -qi 'spot-review' <<<"$ND_WINDOW" && \
+     grep -qi 'size check' <<<"$ND_WINDOW" && \
+     grep -qiE 'delivery[ -]diff' <<<"$ND_WINDOW"; then
+    NONDELEGABLE_FULL_SET=1
+  fi
+  ND_REST="$ND_AFTER"
+done
+check "B13: the five named verification steps are listed as non-delegable" \
+  "$([[ "$NONDELEGABLE_FULL_SET" == "1" ]] && echo yes || echo no)" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -16,7 +16,19 @@ when the delivery mode calls for it, happens per PR group once every unit in
 that group is accepted and merged.
 
 Run every checklist below in full: the checklists are what make workers on
-the cheaper configured model tiers safe.
+the cheaper model tiers safe.
+
+**What the orchestrator never delegates, and never does.** The orchestrator
+never implements block internals — a block's body is a worker's work, or the
+engineer's — and never changes a contract without the engineer, since a
+contract defect travels the escalation loop rather than becoming a quiet edit.
+Five verification steps are non-delegable, the orchestrator's own judgment
+every time: clause coverage against each contract docblock (step 2), the
+prose-contract check on prose blocks (step 3), the implementation spot-review
+(step 3), the PR size check (step 5b), and the delivery-diff gate that proves
+the delivery branch matches the integration branch on every path it delivers
+(step 5b). No script and no worker performs any of these on the
+orchestrator's behalf.
 
 ## Vocabulary
 
@@ -27,11 +39,13 @@ the cheaper configured model tiers safe.
   checkout on that branch is the integration worktree.
 - **PR group**: the blocks delivered together as one pull request, once every
   unit in the group is accepted and locally merged.
-- **Delivery mode**: `delivery.mode` in the effective config —
-  `.claude/lego.json` merged with any `.local/config.json` override, see
-  `docs/config-schema.md` — either `main-prs` (open PRs against
-  master/main per PR group) or `local-only` (stop at the local merge; the
-  engineer delivers manually).
+- **Delivery mode**: how a PR group leaves this repo, recorded by `/lego:plan`
+  in the plan document's Landing strategy section — either `main-prs` (open
+  PRs against master/main per PR group) or `local-only` (stop at the local
+  merge; the engineer delivers manually). The plan document is the only
+  source there is: a plan whose Landing strategy section is missing entirely
+  means dispatch stops and asks the engineer which mode applies, and never
+  guesses a mode from the repo's shape.
 
 ## Preconditions
 
@@ -40,18 +54,28 @@ The scaffold gate has passed on the integration branch, every block sits at
 
 `.local/blocks.md` on the integration branch is the live block map for the
 rest of dispatch. Its state transitions happen there, in real time, as they
-occur. A unit worktree's seeded `.local/` — `unit.md`, contracts, any
-`config.json` override copy (the committed `.claude/lego.json` base arrives
-via checkout), and (once the worktree is created) `status.md` and `briefs/`
-— is a read-only reference copy scoped to that unit: orchestrator-owned
-throughout, never the thing a worker edits. `.local/reports/` is the single
-exception, and only for the file a worker writes its own report to.
+occur. A unit worktree's seeded `.local/` — `unit.md`, contracts, and (once
+the worktree is created) `status.md` and `briefs/` — is a read-only reference
+copy scoped to that unit: orchestrator-owned throughout, never the thing a
+worker edits. `.local/reports/` is the single exception, and only for the
+file a worker writes its own report to. Nothing in dispatch reads a
+configuration file: the block map carries every per-unit command, and the
+plan document carries everything else.
 
-## Tier resolution
+That plan document is `.local/plans/NNN-<slug>.md`, and its
+Landing strategy section is where dispatch reads how this work is delivered —
+which PR groups exist, what each is called, the budget the design was sized
+against, and the delivery mode — so the plan the engineer approved and the
+delivery that happens cannot drift apart.
 
-Read `models.testWriter` and `models.implementer` from the effective config
-(default both to `sonnet` when absent) and pass the value as the `model`
-parameter on every Agent call. Do not rely on agent-definition defaults alone.
+**Delivery knowledge is orchestrator-only.** The size budget, the PR
+grouping, and the delivery mode are facts the orchestrator reads from that
+plan document and acts on itself; none of them may reach a worker-visible
+artifact — not a brief, not a seeded unit `.local/`, not an agent definition.
+`worktree.sh add` holds up the seeding half mechanically, stripping
+`PR group:`, `Est:`, and `Justification:` from the `unit.md` it writes; the
+brief half is yours to keep. A worker that can see a budget starts
+optimising for the budget instead of for its contract.
 
 ## Worker briefs
 
@@ -67,20 +91,19 @@ so parallel same-wave agents in one unit get distinct `NN`s and `<blocks>`
 values). The brief itself names: the unit worktree's absolute path (workers
 do all work and run all commands there, never in the orchestrator's own
 tree), the block ID(s) this unit covers, their stub path(s) (the contract
-docblocks), the repo's commands from the effective config — when
-`commands.test` is an object of named variants, name the specific command
-this wave runs, chosen for the unit's test type and scope (construct
-scope-specific monorepo commands like `nx run mylib:unit-test` here, at
-brief-writing time), never just "the test command" — where tests
+docblocks), the commands this unit runs — taken from the recorded per-block
+`Setup:` and `Test:` fields of this unit's `blocks.md` sections, named as the
+literal command line the worker types (a scope-specific monorepo command like
+`nx run mylib:unit-test` is recorded on the block, so it reaches the brief
+verbatim), never just "the test command" — where tests
 conventionally live (test wave) or the test paths (implementation wave), the
 required report format (the agents' definitions specify it), and the report
 file the worker writes when it finishes —
 `.local/reports/NN-<wave>-<blocks>.md`, carrying this brief's own `NN`,
 `<wave>`, and `<blocks>`. State explicitly that `.local/` inside the
 worktree is a seeded copy scoped to this unit — a `unit.md` carrying only
-this unit's block-map sections, this unit's contracts, and any
-`config.json` override copy — not the live block map and not the full plan,
-and that it is orchestrator-owned and read-only for workers everywhere
+this unit's block-map sections, plus this unit's contracts — not the live
+block map and not the full plan, and that it is orchestrator-owned and read-only for workers everywhere
 except that one report file: they read the rest, they never write to it.
 
 The dispatch prompt itself is only a pointer to that file: it names the unit
@@ -107,12 +130,22 @@ report from its transcript at
 `~/.claude/projects/<project>/<session>/subagents/agent-a<name>-<hash>.jsonl`
 and archive it the same way. Never edit a report a worker wrote.
 
+However it arrives, a worker's report is a notification, never a gate. The
+sole acceptance evidence is the orchestrator's own `wave-check.sh` run,
+together with its own reading of the diff and the contracts (steps 2 and 3):
+a report's claim that the suite is green is a claim, and acceptance rests on
+the run you did yourself. That is why a missing report costs nothing an
+orchestrator cannot recover on its own.
+
 An orchestrator that finds no report file chases the worker a single
-time, then stops chasing and escalates. A resend can vanish exactly as
-the first send did, so a second chase proves nothing; and pinging a
-worker that is merely idle resumes it, which the existing rule not to
-verify concurrently with a resumed worker already treats as hazardous,
-not merely wasteful — the same caution that also keeps you from
+time — one `SendMessage` ping — then stops chasing and escalates to the
+engineer, naming the unit, the outstanding brief's `NN`, and what the
+orchestrator was able to verify without the report. A resend can vanish
+exactly as the first send did, so a second chase proves nothing; and a
+`SendMessage` ping to a worker that is merely idle IS a resume, not a free
+nudge — it resumes the worker inside the unit worktree, which the existing
+rule not to verify concurrently with a resumed worker already treats as
+hazardous, not merely wasteful — the same caution that also keeps you from
 blocking on a report in the first place, not a competing one. A report
 file that is present but malformed is an ordinary rejection at a fresh
 `NN`, the same path as any other rejected wave — not a third handling
@@ -169,22 +202,57 @@ commits against the integration worktree on a unit's behalf — the whole point
 of the worktree is that this unit's diff is never entangled with another
 unit's, or with the orchestrator's own tree.
 
+**Commit ownership.** The orchestrator makes every commit on a unit branch,
+and makes it after its own verification of the work — the phase commits in
+steps 2 and 3 are the only commits a unit branch gets. Workers never run
+`git commit`: a wave arrives as an uncommitted diff in the unit worktree, and
+that diff is what the acceptance gate reads. Worker briefs say so, and no
+brief ever asks a worker to commit, push, or branch.
+
+**The review-gated branch of this pipeline.** A block the plan marked
+review-gated — one whose contract has no executably assertable clause — runs
+the same pipeline with two differences. Its test wave is skipped — step 2
+does not run at all — and a skipped test wave is never a silent one: record
+the skip and its reason in the block map and in the unit status file's
+Timeline, then go straight to step 3. Its acceptance then takes
+a dual-acceptance gate in place of the normal one: the orchestrator's own
+verification of the artifact against every contract clause, plus the
+engineer's explicit acceptance — orchestrator verification alone does not
+accept a review-gated block, and neither does the engineer's word alone; both
+are required. Everything else — the worktree, realm rules, the commit
+subjects, the local merge, delivery — is unchanged, and an engineer-owned
+review-gated block takes this same gate, since no one accepts their own block
+unilaterally.
+
 ### 1. Create the worktree
 
 From the integration worktree, run:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh add <plan-slug> <unit-id> <unit-slug>
+${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh add <plan-slug> <unit-id> <unit-slug> [--setup-cmd <cmd>] [--test-cmd <cmd>]
 ```
 
 This creates the unit branch from the integration branch's current tip (so
 previously-accepted dependencies are present as real implementations, not
-stubs) and a seeded worktree — any `.local/config.json` override copied
-verbatim when present (the committed `.claude/lego.json` base arrives via
-checkout), a `.local/unit.md` carrying only this unit's block-map sections,
-and this unit's `.local/contracts/` files where they exist — then runs the
-effective config's default test command inside the new worktree as a
-baseline; a failing baseline fails the whole operation. The worktree's absolute path is the last line of
+stubs) and a seeded worktree — a `.local/unit.md` carrying only this unit's
+block-map sections with the delivery fields stripped, this unit's
+`.local/contracts/` files where they exist, `.local/status.md`, and empty
+`.local/briefs/` and `.local/reports/`.
+
+`add` resolves the commands it runs from the block map, not from anywhere
+else: the per-block `Setup:` (optional) and `Test:` (required) fields on the
+`blocks.md` sections whose `Unit:` matches this unit. It then runs the Setup
+phase first when one resolved, and the Test phase after it, inside the new
+worktree as the baseline; a failing baseline fails the whole operation and
+names which phase failed. Blocks sharing a unit must agree on those fields,
+and a unit with no `Test:` anywhere is an error rather than a silent skip —
+both are block-map defects to fix in the map.
+
+`--setup-cmd` and `--test-cmd` override the resolved value per key for this
+invocation only — the escape hatch for a command the map does not yet record
+correctly — and never write back to `blocks.md`. When you reach for one, fix
+the block map too, or the next invocation resolves the wrong command again.
+The worktree's absolute path is the last line of
 stdout — capture it; every worker brief for this unit names it.
 
 ### 2. Test wave
@@ -292,18 +360,22 @@ orchestrator, inside the unit worktree:
    wave), realm-pure over this wave's diff range, and — for each named
    `--stub` — that its contract docblock and signatures are unchanged from
    the scaffold commit, all in one invocation. Any FAIL rejects the wave.
-   Uncommitted-changes mode covers the common case for the realm check; if an
-   agent left committed WIP on the unit branch, pass the diff-range argument
-   explicitly from the branch point instead.
+   Uncommitted-changes mode covers the common case for the realm check — a
+   worker's wave is always an uncommitted diff, per "Commit ownership" above.
+   Where the unit branch already carries this unit's earlier phase commit (the
+   tests commit from step 2), pass the diff-range argument explicitly from the
+   branch point instead, so the range covers both.
 2. **Contracts unchanged, prose blocks** (the orchestrator's own
    non-delegable judgment — wave-check.sh's CONTRACT-DIFF reaches only the
    stub paths passed via `--stub`, i.e. executable stubs, and never an
    HTML-comment contract). A **prose block**'s contract runs the opposite
    check: the comment marked `(remove at acceptance)` at scaffold time must
-   be *gone* — the document's prose is the implementation, so a surviving
-   contract is a duplicate spec every future reader of that file loads.
-   Confirm it was deleted, and that anything inside it that must outlive the
-   block was moved into the document's own prose first. By-eye; treat any
+   end up *gone* — the document's prose is the implementation, so a surviving
+   contract is a duplicate spec every future reader of that file loads. Here
+   the orchestrator deletes it, at acceptance, as part of accepting the block:
+   check first that anything inside the comment which must outlive the block
+   was moved into the document's own prose, then remove the comment yourself
+   in the same commit as the accepted implementation. By-eye; treat any
    surface change on either kind of contract as a defect unless it went
    through the escalation loop.
 3. **Spot-review the diff for quality.** Contract clauses the tests
@@ -334,7 +406,11 @@ worktree, with subject exactly:
 lego(<unit-id>): implementation
 ```
 
-Then set `Accepted` once the engineer has seen the block-map update.
+Then the orchestrator sets `Accepted` — no one else, and never on a worker's
+word: present the engineer the verification evidence first (the
+`wave-check.sh` result, what the clause walk and the spot-review found, and
+the commit it landed as), and set `Accepted` once the engineer explicitly
+acknowledges it. Silence is not acknowledgement.
 
 ### 4. Local merge
 
@@ -375,8 +451,13 @@ the merge.
 
 ### 5. Delivery
 
-`main-prs` mode only. Once every unit in a PR group is `Accepted` and
+`main-prs` mode only — the mode the plan document's Landing strategy records.
+Once every unit in a PR group is `Accepted` and
 locally merged, compose the PR content and assemble the delivery branch.
+
+**Degrade path.** With no origin or no `gh` available, deliver this group
+`local-only` — stop at the local merge — and tell the engineer what was
+missing, rather than treating `main-prs` as satisfied.
 
 Before composing the manifest, run `git fetch origin`, then
 merge master into the integration branch before delivery.
@@ -485,7 +566,7 @@ Before writing the manifest, measure this PR group against the size budget
 point a size check can still change what gets handed off:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/pr-size-check.sh <base-branch>...<integration-branch> -- <the group's Code paths>
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-size-check.sh --budget <the recorded budget> <base-branch>...<integration-branch> -- <the group's Code paths>
 ```
 
 The range to measure is the base branch against the integration branch,
@@ -509,8 +590,11 @@ equivalent to the diff `assemble` will actually produce. Act on the result:
 
 An escalation here is a defined outcome, not a pipeline failure — record it
 in the plan Changelog and the unit status file's Timeline like any other
-escalation. The budget itself is `delivery.prSizeBudget` from the effective
-config, resolved by the script.
+escalation. The budget itself is a plan fact, not a setting: it is the figure
+the design was sized against, recorded in the plan document's Landing
+strategy section, and it reaches the script only because you pass it as
+`--budget`. Omitting the flag measures against the script's own default
+instead of against what the engineer approved.
 
 If master moved between the check and `assemble` by enough to matter, the
 step-5 sync above is what keeps the two ranges equivalent — a large move
@@ -662,8 +746,20 @@ itself instead of dispatching a `lego-implementer` agent — the handover
 needs only: the worktree's absolute path,
 `.local/status.md` for phase and blocks, and the latest brief in
 `.local/briefs/` for what's required and what's already done, all read
-straight off the worktree the same way an agent would. The same acceptance
-gate and the same delivery apply to what they commit. Sibling units — those
+straight off the worktree the same way an agent would.
+
+The engineer is the one exception to "the orchestrator makes every commit":
+they commit their own implementation on the unit branch, and that commit
+carries the exact reserved subject the orchestrator would have used —
+`lego(<unit-id>): implementation`, nothing appended, exactly as step 3 spells
+it — so delivery can still resolve the unit's commits by subject. The tests
+commit stays the orchestrator's own, as always. The same acceptance gate then
+applies to what they commit: the orchestrator runs `wave-check.sh impl` over
+the result, with the same `--scaffold-ref` and `--stub` arguments an agent
+wave would have taken, and works the judgment items itself, before
+acceptance. The same delivery applies too.
+
+Sibling units — those
 with no dependency on this one — proceed through their own pipelines
 meanwhile; this unit's own dependents wait for it exactly as they would for
 an agent-implemented unit.

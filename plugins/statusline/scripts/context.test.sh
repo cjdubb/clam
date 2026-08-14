@@ -2495,6 +2495,18 @@ rm -f "$STWD/.local/TODO.md"
 # with them), the trend appears in BOTH limit groups rather than only the
 # weekly one, and the countdown likewise. Expected values are still DERIVED by
 # calling B03's helpers rather than written out as escape codes.
+#
+# B17 plain-used-percent (plan 003) narrows that last sentence in one place and
+# one only: the `5h N%` and `wk N%` tokens are no longer coloured, so their
+# expectations are written out as PLAIN TEXT. There is no helper left to derive
+# them from -- B16 deletes burn_plan_color outright -- and an expectation that
+# still called it would stop this whole suite at collection the moment that
+# deletion lands. Every other expectation here keeps deriving its colour from
+# the theme library, burn_trend_color included: B16 rescales that function, and
+# its bands are B16's suite's clause, not this one's. What this section owns is
+# the WIRING -- which helper the renderer asks for each value, where the
+# sequence it returns opens and closes, and that the two used% tokens ask for
+# nothing at all.
 
 B16_RST=$(printf '\033[0m')
 B16_SEP=$(printf '\033[2m│\033[0m')
@@ -2555,8 +2567,8 @@ b16_static_raw=$(b16_raw_line "$b16_static_json")
 b16_static_expected=$(b16_join \
   "$(burn_model_color Opus)Opus$B16_RST $(burn_effort_color max)max$B16_RST" \
   "$(burn_ctx_color 48)ctx 48%$B16_RST" \
-  "$(burn_plan_color 1)5h 1%$B16_RST" \
-  "$(burn_plan_color 62)wk 62%$B16_RST")
+  "5h 1%" \
+  "wk 62%")
 check "26a: the whole four-group line is byte-identical to the assembled expectation, SGR included" \
   "$b16_static_raw" "$b16_static_expected"
 check "26a: and its ANSI-stripped text is exactly the four groups in contract order" \
@@ -2713,12 +2725,16 @@ b16_tr_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 40 "$B5_R5_RESET" 40 "$
 b16_tr_t1=$(date +%s)
 
 # b16_group_raw(kind used reset now): the raw bytes of a limit group, built from
-# B02/B03/B04 exactly as the contract composes them -- meter colour over label
-# and figure, then burn_trend_color over arrow and number, then the dimmed
-# countdown with its parens INSIDE the dim sequence.
+# B02/B03/B04 exactly as the contract composes them -- the PLAIN label and
+# figure (B17: no opener, no reset), then burn_trend_color over arrow and
+# number, then the dimmed countdown with its parens INSIDE the dim sequence.
+#
+# The used% token is the one part of this builder written out as literal text
+# rather than derived: after B16 there is no function to derive it from, and
+# that is the point of B17 rather than an approximation of it.
 b16_group_raw() { # kind used reset now
   local g t cd
-  g="$(burn_plan_color "$2")$1 ${2%%.*}%$B16_RST"
+  g="$1 ${2%%.*}%"
   if [ "$1" = "5h" ]; then
     t=$(burn_linear_trend "$2" "$4" "$3" 18000 2>/dev/null)
   else
@@ -2734,15 +2750,20 @@ for (( _n = b16_tr_t0; _n <= b16_tr_t1; _n++ )); do
   [ "$b16_tr_raw" = "$(b16_join "$(b16_group_raw 5h 40 "$B5_R5_RESET" "$_n")" \
                                 "$(b16_group_raw wk 40 "$B5_R7_RESET" "$_n")")" ] && b16_tr_ok=yes
 done
-check "26d: both limit groups render byte for byte -- meter colour, trend colour, dimmed countdown" \
+check "26d: both limit groups render byte for byte -- plain used%, trend colour, dimmed countdown" \
   "$b16_tr_ok" "yes"
-# The trend's colour is burn_trend_color's, not the meter's. Asserted on a
-# fixture where the two genuinely differ, so the case cannot pass by accident.
+# The trend IS coloured while the used% beside it is not. Asserted on a fixture
+# where the trend's opener is genuinely non-empty, so the equality above cannot
+# pass by every sequence on the group having gone missing together.
 b16_tr_val=$(burn_linear_trend 40 "$b16_tr_t0" "$B5_R5_RESET" 18000)
 check "26d: the trend fixture really is computable (not vacuous)" \
   "$([ -n "$b16_tr_val" ] && echo yes || echo no)" "yes"
-check "26d: and the trend's colour differs from its meter's here, so the wiring discriminates" \
-  "$([ "$(burn_trend_color "$b16_tr_val")" != "$(burn_plan_color 40)" ] && echo yes || echo no)" "yes"
+check "26d: and this trend really does carry a colour, so the equality discriminates" \
+  "$([ -n "$(burn_trend_color "$b16_tr_val")" ] && echo yes || echo no)" "yes"
+# The other half of the same statement: the used% token on that very line opens
+# the group with no sequence at all in front of it.
+check "26d: the five-hour group opens on a plain used% token, no opener before the label" \
+  "$(case "$b16_tr_raw" in "5h 40% "*) echo yes ;; *) echo no ;; esac)" "yes"
 
 # --- 26f. The countdown dims WITH its parens --------------------------------
 # `($countdown)` entire, not `(` + dim + `)`: the whole subordinate clause dims
@@ -2765,14 +2786,16 @@ check "26f: the opening paren is not left outside the dim sequence" "$b16_cd_ope
 # colour that wrapped them too, since an opener left behind by a segment that
 # did not render is exactly the leak the closing-reset convention exists to
 # stop. Byte-exact on the whole line, so a leftover dim opener shows up.
+# Under B17 that leaves a line of PURE TEXT: the used% token carries no
+# sequence of its own, so a single stray escape byte anywhere on it fails this.
 check "26f: five_hour without its reset renders the meter alone, no leftover dim opener" \
   "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 "" "" "" "" "")")" \
-  "$(burn_plan_color 20)5h 20%$B16_RST"
+  "5h 20%"
 # An UNPARSEABLE reset (a JSON string where an epoch belongs) takes the same
 # path: trend, countdown, parens and colour all drop together.
 check "26f: an unparseable reset drops the countdown, its parens and its colour alike" \
   "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 20 '"not-an-epoch"' "" "" "" "")")" \
-  "$(burn_plan_color 20)5h 20%$B16_RST"
+  "5h 20%"
 # --- 26g. No hand-typed 38;5; survives in sl_render_burn_line ---------------
 # The contract states this outright in its Invariants: every colour comes from
 # lib/burn-theme.sh, the two exceptions being the dim separator and the closing
@@ -2953,6 +2976,119 @@ check "26j: the retirement scan really sees the plugin's shell sources (not vacu
 check "26j: no shipped file in the plugin still sources burn-tick.sh or calls burn_tick_frac" \
   "${b16_tick_refs# }" ""
 unset b16_tick_root b16_tick_scanned b16_tick_refs b16_tick_f
+
+# --- 26k. B17 plain-used-percent (plan 003-angry-pace-colours) --------------
+# Contract: the `Contract: B17 plain-used-percent` docblock above group 3 in
+# sl_render_burn_line. `5h N%` and `wk N%` render PLAIN -- no colour opener and
+# no reset -- in BOTH limit groups, because a high used figure late in a window
+# is information, not an alarm. Everything else on those two groups is wired
+# exactly as it is today: the arrows still take burn_trend_color's opener and
+# the caller's reset, the countdowns still dim.
+#
+# 26a, 26d and 26f already state this byte for byte as part of whole-line
+# equalities. What this clause adds is the same statement made in the form that
+# NAMES it, so a regression here reads "the used% token got a colour back"
+# rather than "the line moved". Each case below is deliberately narrow enough
+# that only that one token can fail it.
+
+# i. The plain token, in both groups, on the static four-group fixture. Grepped
+#    for as a LITERAL run of bytes running separator-to-separator, so any
+#    sequence introduced on either side of the figure breaks the match -- an
+#    opener before `5h`, a reset after `1%`, or a colour wrapped round the
+#    label alone.
+check "26k: the five-hour used% sits between its separators with no sequence on either side" \
+  "$(printf '%s' "$b16_static_raw" | grep -qaF "$B16_SEP 5h 1% $B16_SEP" && echo yes || echo no)" "yes"
+check "26k: the weekly used% likewise, and it closes the line with no trailing reset" \
+  "$(case "$b16_static_raw" in *"$B16_SEP wk 62%") echo yes ;; *) echo no ;; esac)" "yes"
+# And said the other way round, so a renderer that merely moved the sequence
+# elsewhere on the group cannot pass: no escape byte at all falls inside the
+# span the two figures occupy.
+b17_used5=${b16_static_raw#*"$B16_SEP 5h"}; b17_used5=${b17_used5%%"$B16_SEP"*}
+b17_used7=${b16_static_raw##*"$B16_SEP wk"}
+check "26k: not one escape byte falls inside the five-hour group's used% span" \
+  "$(printf '%s' "$b17_used5" | grep -c "$ESC" | tr -d ' ')" "0"
+check "26k: nor inside the weekly group's" \
+  "$(printf '%s' "$b17_used7" | grep -c "$ESC" | tr -d ' ')" "0"
+unset b17_used5 b17_used7
+
+# ii. The call site is gone, not merely its output. burn_plan_color is deleted
+#     by B16, so a reference left behind in this function would fail at run
+#     time; 26g makes exactly this statement about the helpers B05 retired, and
+#     this is the same statement for the helper plan 003 retires.
+check "26k: sl_render_burn_line no longer calls burn_plan_color" \
+  "$(printf '%s\n' "$b16_fn_body" | grep -qF 'burn_plan_color' && echo present || echo absent)" "absent"
+# Not vacuous: the scan does see a body, and that body still names the colour
+# helpers the renderer legitimately keeps.
+check "26k: that scan still sees a body naming the helpers the renderer does keep" \
+  "$(printf '%s\n' "$b16_fn_body" | grep -qF 'burn_trend_color' && echo yes || echo no)" "yes"
+
+# iii. The plainness is the RENDERER's, not an artefact of one figure. Swept
+#      across the range, including the values every retired band boundary sat
+#      on (30, 50, 70), since a surviving threshold would show itself at
+#      exactly those.
+for b17_pct in 0 29 30 49 50 69 70 100; do
+  check "26k: five_hour at $b17_pct% renders plain" \
+    "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" "$b17_pct" "" "" "" "" "")")" \
+    "5h $b17_pct%"
+  check "26k: weekly at $b17_pct% renders plain" \
+    "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" "" "" "$b17_pct" "" "" "")")" \
+    "wk $b17_pct%"
+done
+unset b17_pct
+
+# iv. Edge case: a decimal still truncates, and the truncated figure is still
+#     plain. 23o pins the truncation on the stripped line; this pins that the
+#     token reaching the terminal is the truncated one AND carries no sequence
+#     -- the pair the retired helper used to couple.
+check "26k: a float five_hour truncates and the plain token is the truncated one" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 14.000000000000002 "" "" "" "" "")")" \
+  "5h 14%"
+check "26k: a float weekly likewise (23.5 -> 23, truncated not rounded)" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" "" "" 23.5 "" "" "")")" \
+  "wk 23%"
+
+# v. Edge case: a missing figure still drops its WHOLE group, separator and
+#    all. Stated on the raw line, where a group reduced to a bare opener would
+#    survive the stripped-text version of this check in section 23.
+check "26k: no five_hour -> that group and its separator vanish, leaving the weekly one alone" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" "" "" 62 "" "" "")")" \
+  "wk 62%"
+check "26k: no weekly -> likewise" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 1 "" "" "" "" "")")" \
+  "5h 1%"
+check "26k: neither figure -> the burnrate line carries no limit group at all" \
+  "$(b16_raw_line "$(burn_json "$B5_WD" 145230 "" "" "" "" "" "" "" "")")" \
+  "$(burn_ctx_color 48)ctx 48%$B16_RST"
+
+# vi. The arrow keeps its reset even when its opener is EMPTY. B16 makes
+#     burn_trend_color emit nothing at or below zero, and the contract calls
+#     the reset that follows "a no-op by design" -- so the wiring must not
+#     start conditionalising it. The fixture is a barely-started window against
+#     0% used, which is behind the even-burn line by construction, so the trend
+#     is non-positive whatever the clock did around the render.
+b17_neg_t0=$(date +%s)
+b17_neg_raw=$(b16_raw_line "$(burn_json "$B5_WD" "" "" "" 0 "$B5_R5_RESET" "" "" "" "")")
+b17_neg_t1=$(date +%s)
+b17_neg_ok=no
+b17_neg_closed=no
+b17_neg_signed=no
+for (( _n = b17_neg_t0; _n <= b17_neg_t1; _n++ )); do
+  _t=$(burn_linear_trend 0 "$_n" "$B5_R5_RESET" 18000 2>/dev/null) || continue
+  [ -n "$_t" ] || continue
+  [ "$_t" -le 0 ] && b17_neg_signed=yes
+  [ "$b17_neg_raw" = "$(b16_group_raw 5h 0 "$B5_R5_RESET" "$_n")" ] && b17_neg_ok=yes
+  printf '%s' "$b17_neg_raw" | grep -qaF "$(b5_trend_token "$_t")$B16_RST" && b17_neg_closed=yes
+done
+check "26k: the non-positive-trend fixture really computes a trend, and it really is <= 0" \
+  "$b17_neg_signed" "yes"
+check "26k: that group renders byte for byte -- plain used%, the arrow, its reset, the countdown" \
+  "$b17_neg_ok" "yes"
+check "26k: the arrow is closed by its reset even when its colour opener is empty" \
+  "$b17_neg_closed" "yes"
+# The used% beside a non-positive trend is plain too: the group opens on text.
+check "26k: and that group still opens on a plain used% token" \
+  "$(case "$b17_neg_raw" in "5h 0% "*) echo yes ;; *) echo no ;; esac)" "yes"
+unset b17_neg_t0 b17_neg_t1 b17_neg_raw b17_neg_ok b17_neg_closed b17_neg_signed _t
 
 # === 27. B18 statusline-bash3-payload-delimiter =============================
 # Contract: the `Contract: B18 statusline-bash3-payload-delimiter` docblock

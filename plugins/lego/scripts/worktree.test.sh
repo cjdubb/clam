@@ -5271,6 +5271,77 @@ test_add_conflicting_test_fields_exit3() {
   fi
 }
 
+# Engineer ruling (plan 001-lego-config-redesign close-out): a Setup-only
+# disagreement is exit 3 exactly like a Test disagreement — Setup is a
+# resolved unit command, not advisory.
+test_add_conflicting_setup_fields_exit3() {
+  local repo expected_wt
+  repo="$(new_git_repo)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  {
+    printf '# Block Map\n\n'
+    printf '## B01 — greet\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Setup: make deps-a\n'
+    printf -- '- Test: make test\n'
+    printf -- '- Code: src/greet.sh\n'
+    printf -- '- Contract: one half of a Setup-disagreeing unit\n\n'
+    printf '## B02 — other\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Setup: make deps-b\n'
+    printf -- '- Test: make test\n'
+    printf -- '- Code: src/other.sh\n'
+    printf -- '- Contract: the other half of a Setup-disagreeing unit\n'
+  } > "$repo/.local/blocks.md"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 3 ] || record_fail "blocks sharing a unit disagree only on Setup: expected exit 3, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_single_error_line "$RUN_ERR" "disagreeing Setup fields"
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/lego/plan1/U01-greetstuff"; then
+    record_fail "a Setup-disagreeing unit must create no branch"
+  fi
+  if [ -e "$expected_wt" ]; then
+    record_fail "a Setup-disagreeing unit must create no worktree"
+  fi
+}
+
+# Engineer ruling (same close-out): one block declaring Test: while a
+# sibling in the unit omits it is NOT a disagreement — absence resolves to
+# the single declared command.
+test_add_absent_test_beside_declared_resolves_single() {
+  local repo probe expected_wt
+  repo="$(new_git_repo)"
+  probe="$(new_probe)"
+  write_config_json "$repo" "true"
+  mkdir -p "$repo/.local"
+  {
+    printf '# Block Map\n\n'
+    printf '## B01 — greet\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Test: printf FLAG >> %s\n' "$probe"
+    printf -- '- Code: src/greet.sh\n'
+    printf -- '- Contract: the one block of the unit that declares Test\n\n'
+    printf '## B02 — other\n'
+    printf -- '- Status: Scaffolded\n'
+    printf -- '- Unit: U01\n'
+    printf -- '- Code: src/other.sh\n'
+    printf -- '- Contract: shares the unit but declares no Test of its own\n'
+  } > "$repo/.local/blocks.md"
+  write_contracts "$repo"
+  expected_wt="$(dirname "$repo")/$(basename "$repo")-U01"
+
+  run_in "$repo" add plan1 U01 greetstuff
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "absent Test beside a declared one is not a disagreement: expected exit 0, got $RUN_EXIT (stderr: $RUN_ERR)"
+  assert_eq "$expected_wt" "$RUN_OUT_LAST" "worktree path is still the last stdout line"
+  assert_eq "FLAG" "$(cat "$probe" 2>/dev/null)" "the single declared Test resolves and runs exactly once"
+}
+
 test_add_flags_override_blocks_md_per_key() {
   local repo probe blocks_before blocks_after
   repo="$(new_git_repo)"
@@ -5473,6 +5544,8 @@ run_test "add: Test failure is exit 4 naming the test phase, with a message dist
 run_test "add: no Test resolvable for the unit (no field, no flag) is exit 3 and creates nothing (B01 worktree-per-unit-commands)" test_add_no_test_command_resolves_exit3
 run_test "add: --test-cmd alone satisfies the requirement when blocks.md carries no Test field (B01 worktree-per-unit-commands)" test_add_test_cmd_flag_satisfies_missing_field
 run_test "add: blocks sharing the unit that disagree on Test is exit 3 and creates nothing (B01 worktree-per-unit-commands)" test_add_conflicting_test_fields_exit3
+run_test "add: blocks sharing the unit that disagree only on Setup is exit 3 and creates nothing (B01 ruling)" test_add_conflicting_setup_fields_exit3
+run_test "add: a block omitting Test beside a sibling that declares it resolves to the single command (B01 ruling)" test_add_absent_test_beside_declared_resolves_single
 run_test "add: --setup-cmd/--test-cmd override blocks.md per key and never write back to it (B01 worktree-per-unit-commands)" test_add_flags_override_blocks_md_per_key
 run_test "add: --setup-cmd supplies a Setup phase the blocks.md sections do not declare (B01 worktree-per-unit-commands)" test_add_setup_cmd_flag_with_no_setup_field
 run_test "add: multiple blocks in one unit with identical fields run each command exactly once (B01 worktree-per-unit-commands)" test_add_identical_fields_across_blocks_run_each_command_once

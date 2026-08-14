@@ -148,14 +148,17 @@
 #     distinguishes a correct list from a shuffled one, and it survives any
 #     phrasing that walks the scale monotonically. A band moved from 60 to 55
 #     fails by name, in both directions of the comparison.
-#   - THE TREND SCALE. burn_trend_color yields the dead-band magnitude and its
-#     colour, the bands above it, and the one below the line. The prose is
-#     asked for the dead band's number paired with its colour, the word "warm"
-#     for the bands above, and the below-the-line colour tied to running
-#     behind — which is what the contract asks that section to gain, and no
-#     more. 8 and 15 are deliberately NOT required in the prose: a threshold
-#     the README never names cannot drift, and demanding it would be this
-#     file inventing a clause.
+#   - THE TREND SCALE (reworked by B18). burn_trend_color has no dead band and
+#     no floor colour since B16: its body is three over-pace bands and nothing
+#     else. The derivation reads those three off the comparison lines, sorts
+#     them ascending so the file IS the warming order, and derives the two
+#     retired tiers (green 40, grey 245) as an ABSENCE — codes the body no
+#     longer emits. The prose is then asked for the word "warm" against ▲, the
+#     three colour words in warming order, the hottest one tied to the gap
+#     growing, an explicit "no colour" on the on-track/behind side, and no
+#     mention of either retired tier. The thresholds themselves are
+#     deliberately NOT required in the prose: a number the README never names
+#     cannot drift, and demanding it would be this file inventing a clause.
 #   - THE DIFFSTAT PAIR. burn_diff_color's two arms give the colours "add" and
 #     "del" take, and the prose has to pair each with the right half of
 #     `+added/-removed`.
@@ -165,9 +168,8 @@
 # `(( pct >= N ))` shape rewritten) is a red test rather than a green one that
 # compares nothing. Every colour code the source emits must resolve to a name
 # this file can look for, so a recoloured band fails here by code rather than
-# dropping silently out of the comparison. And every band above the trend's
-# dead band must really be a warm colour, since "warm colours" is the claim
-# the prose is made to carry.
+# dropping silently out of the comparison. And every trend band must really be
+# a warm colour, since "warm colours" is the claim the prose is made to carry.
 #
 # The one thing NOT derived is the code -> English name map (40 -> green, and
 # so on): no amount of parsing turns 208 into the word a reader sees. It is
@@ -1326,43 +1328,84 @@ B17_CTX_COLD_NUM="$(trim "$B17_CTX_COLD_NUM")"
 check "every colour code burn_ctx_color emits has a name this test can look for" \
   "$(trim "$B17_CTX_UNMAPPED")" ""
 
-# --- the trend scale -------------------------------------------------------
+# --- the trend scale (reworked by B18 for the dead-band-free body) ---------
+# B16 leaves burn_trend_color with three over-pace bands and NOTHING else: the
+# `abs <= N` dead band and the behind-the-line floor colour B14 had are both
+# gone, and the calm side falls off the end of the function emitting the empty
+# string. So the derivation reads the bands off the comparison lines exactly as
+# the ctx one does, and everything the old scale had is pinned by ABSENCE —
+# the README's claims stay checked against the delivered body rather than
+# against constants restated here.
 
 B17_TREND_BODY="$(b17_fn_body burn_trend_color)"
 check "burn_trend_color's body is readable (the trend oracle is not empty)" \
   "$([ -n "$B17_TREND_BODY" ] && echo yes || echo no)" "yes"
 
-B17_DEAD="$(printf '%s\n' "$B17_TREND_BODY" | sed -nE 's/.*abs <= ([0-9]+).*/\1/p' | head -1)"
-B17_DEAD_CODE="$(printf '%s\n' "$B17_TREND_BODY" \
-  | sed -nE 's/.*abs <= [0-9]+.*38;5;([0-9]+)m.*/\1/p' | head -1)"
+# Each band is one source line carrying its threshold and its colour:
+#   if (( trend >= 6 )); then printf '\033[38;5;208m'; return 0; fi
+# Both `>` and `>=` are read, because the top band is strict (> 10) while the
+# two below it are inclusive. Sorted ascending, so the file is the scale in
+# WARMING order — smallest coloured magnitude first, which is the order the
+# prose walks it in as the gap grows.
 printf '%s\n' "$B17_TREND_BODY" \
-  | sed -nE 's/.*trend >=? ([0-9]+).*38;5;([0-9]+)m.*/\1 \2/p' > "$TMP/trend-ahead"
-B17_BEHIND_CODE="$(printf '%s\n' "$B17_TREND_BODY" | grep -vE 'trend (>=|>|<)|abs <=' \
+  | sed -nE 's/.*trend (>|>=) ([0-9]+).*38;5;([0-9]+)m.*/\2 \3/p' \
+  | sort -n > "$TMP/trend-ahead"
+
+# What the old scale had, read the same way so its absence is a derived fact:
+# a dead band (any `abs <= N` arm) and a floor colour (any colour-emitting arm
+# with no trend comparison on it — the tier every value below the lowest
+# threshold used to fall through to).
+B18_TREND_DEAD="$(printf '%s\n' "$B17_TREND_BODY" \
+  | sed -nE 's/.*abs <= ([0-9]+).*/\1/p' | head -1)"
+B18_TREND_FLOOR="$(printf '%s\n' "$B17_TREND_BODY" | grep -vE 'trend (>=|>|<)' \
   | sed -nE 's/.*38;5;([0-9]+)m.*/\1/p' | head -1)"
-B17_DEAD_NAME="$(b17_colour_name "$B17_DEAD_CODE")"
-B17_BEHIND_NAME="$(b17_colour_name "$B17_BEHIND_CODE")"
 
-check "the trend derivation found the dead band (${B17_DEAD:-none}) and its colour (code ${B17_DEAD_CODE:-none})" \
-  "$([ -n "$B17_DEAD" ] && [ -n "$B17_DEAD_NAME" ] && echo yes || echo no)" "yes"
-check "the trend derivation found all three bands above the dead band" \
+check "the trend derivation found all three over-pace bands" \
   "$(wc -l < "$TMP/trend-ahead" | tr -d ' ')" "3"
-check "the trend derivation found the behind-the-line colour (code ${B17_BEHIND_CODE:-none})" \
-  "$([ -n "$B17_BEHIND_NAME" ] && echo yes || echo no)" "yes"
+check "burn_trend_color has no dead band left in its body (found ${B18_TREND_DEAD:-none})" \
+  "$B18_TREND_DEAD" ""
+check "burn_trend_color has no floor colour: the calm side emits nothing (found code ${B18_TREND_FLOOR:-none})" \
+  "$B18_TREND_FLOOR" ""
 
-# The prose is made to claim WARM colours above the dead band. That claim is
-# only true while every band up there really is warm, so it is pinned to the
-# source rather than taken on trust: a future band in grey or blue fails here
-# by code and sends someone back to the paragraph.
+# The prose is made to claim WARM colours for every ▲. That claim is only true
+# while every band really is warm, so it is pinned to the source rather than
+# taken on trust: a future band in grey or blue fails here by code and sends
+# someone back to the paragraph. The same walk builds the warming sequence and
+# the lookup file the figures-section checks read.
 B17_COLD_AHEAD=""
+B18_TREND_UNMAPPED=""
+B18_TREND_WARMING=""
+: > "$TMP/trend-colours"
 while read -r _trend _code; do
   [ -n "$_code" ] || continue
-  case "$(b17_colour_name "$_code")" in
+  _name="$(b17_colour_name "$_code")"
+  [ -n "$_name" ] || B18_TREND_UNMAPPED="$B18_TREND_UNMAPPED $_code"
+  case "$_name" in
     red|orange|yellow) ;;
     *) B17_COLD_AHEAD="$B17_COLD_AHEAD $_code" ;;
   esac
+  B18_TREND_WARMING="$B18_TREND_WARMING $_name"
+  printf '%s\n' "$_name" >> "$TMP/trend-colours"
 done < "$TMP/trend-ahead"
-check "every trend band above the dead band really is a warm colour" \
+B18_TREND_WARMING="$(trim "$B18_TREND_WARMING")"
+B18_TREND_TOP_NAME="$(b17_colour_name "$(awk 'END { print $2 }' "$TMP/trend-ahead")")"
+
+check "every colour code burn_trend_color emits has a name this test can look for" \
+  "$(trim "$B18_TREND_UNMAPPED")" ""
+check "every trend band really is a warm colour" \
   "$(trim "$B17_COLD_AHEAD")" ""
+
+# The two tiers B14 had and B16 retired, as codes: no arm of the function may
+# emit green 40 or grey 245 any more. This is what makes the prose checks below
+# able to say "this colour word is gone from the paragraph" and mean it.
+: > "$TMP/trend-absent"
+for _code in 40 245; do
+  if ! printf '%s\n' "$B17_TREND_BODY" | grep -qF "38;5;${_code}m"; then
+    b17_colour_name "$_code" >> "$TMP/trend-absent"; printf '\n' >> "$TMP/trend-absent"
+  fi
+done
+check "burn_trend_color emits neither the retired green nor the retired grey" \
+  "$(wc -l < "$TMP/trend-absent" | tr -d ' ')" "2"
 
 # --- the diffstat pair, retired --------------------------------------------
 # B05 retires burn_diff_color along with the +added/-removed segment it
@@ -1440,21 +1483,51 @@ check "the 'Reading the burnrate figures' section survives and is identifiable" 
 check "the figures section says what the colours mean at all" \
   "$(has_re 'colou?r' "$FIGURES")" "yes"
 
-check "the figures section names burn_trend_color's dead-band magnitude ($B17_DEAD)" \
-  "$(has_re "$(b17_num "$B17_DEAD")" "$FIGURES")" "yes"
-check "the figures section pairs that dead band with the colour it takes ($B17_DEAD_NAME)" \
-  "$(b17_near "$FIGURES" "$(b17_word "$B17_DEAD_NAME")" "$(b17_num "$B17_DEAD")" 80)" "yes"
-check "the figures section says the dead band reads as on track" \
-  "$(has_re 'on[- ]track' "$FIGURES")" "yes"
-check "the figures section calls the bands above it warm" \
-  "$(b17_near "$FIGURES" '(^|[^A-Za-z])warm' 'ahead|above' 80)" "yes"
+# B18: the reading the paragraph now teaches. Every ▲ carries a warm colour,
+# and it warms with the gap — asserted as the SEQUENCE of colour words against
+# the scale derived above, so a paragraph that names the three out of order,
+# or names one the function no longer emits, fails by name.
+check "the figures section says any ▲ carries a warm colour" \
+  "$(b17_near "$FIGURES" '(^|[^A-Za-z])warm' '▲|ahead|above' 120)" "yes"
+check "the figures section walks the trend's colours in warming order ($B18_TREND_WARMING)" \
+  "$(b17_ordered "$FIGURES" "$TMP/trend-colours")" "$B18_TREND_WARMING"
+check "the figures section ties the hottest trend colour ($B18_TREND_TOP_NAME) to the gap growing" \
+  "$(b17_near "$FIGURES" "$(b17_word "$B18_TREND_TOP_NAME")" \
+     '(gap|further|wider|widen|grows|growing|deeper)' 160)" "yes"
 
-check "the figures section names the colour for running behind the line ($B17_BEHIND_NAME)" \
-  "$(has_re "$(b17_word "$B17_BEHIND_NAME")" "$FIGURES")" "yes"
-check "the figures section ties that colour to being behind the line" \
-  "$(b17_near "$FIGURES" "$(b17_word "$B17_BEHIND_NAME")" 'behind|below' 80)" "yes"
-check "the figures section says the allowance going unused there is not a hazard" \
-  "$(b17_near "$FIGURES" "$(b17_word "$B17_BEHIND_NAME")" 'hazard|unused|nothing to act on' 140)" "yes"
+# The other side of the same rule, and the half the old prose got wrong: on the
+# line or behind it, nothing is coloured at all. Scoped to the SENTENCES making
+# that claim, because the neighbouring prose legitimately keeps explaining what
+# ▼ MEANS without saying anything about colour.
+B18_CALM_CLAIM="$(b17_claims "$FIGURES" '(▼|(^|[^A-Za-z])behind|on[- ]track|zero)')"
+check "the figures section makes a claim about the on-track / behind side (scoping oracle is not empty)" \
+  "$([ -n "$B18_CALM_CLAIM" ] && echo yes || echo no)" "yes"
+check "and that claim says the calm side carries no colour at all" \
+  "$(has_re '(no colou?r|colourless|colorless|uncolou?red|not colou?red|never colou?red|without colou?r)' \
+     "$B18_CALM_CLAIM")" "yes"
+
+# The two retired tiers, by name: the function emits neither green nor grey any
+# more (pinned above), so the paragraph may not still promise either. The words
+# come from the derivation, not from a list typed here.
+while read -r _gone; do
+  [ -n "$_gone" ] || continue
+  check "the figures section no longer promises the retired $_gone trend tier" \
+    "$(has_re "$(b17_word "$_gone")" "$FIGURES")" "no"
+done < "$TMP/trend-absent"
+
+# B18: the used percentages are deliberately plain (B17 renders both tokens
+# with no SGR), and the paragraph has to say so rather than leave a reader to
+# infer a missing colour is a bug.
+B18_USED_CLAIM="$(b17_claims "$FIGURES" '(used percentages?|percentages?)')"
+check "the figures section makes a claim about the used percentages (scoping oracle is not empty)" \
+  "$([ -n "$B18_USED_CLAIM" ] && echo yes || echo no)" "yes"
+check "and says they carry no colour" \
+  "$(has_re '(uncolou?red|colourless|colorless|no colou?r|not colou?red|never colou?red|plain)' \
+     "$B18_USED_CLAIM")" "yes"
+check "and says that is deliberate rather than an omission" \
+  "$(has_re '(deliberate|on purpose|intentional)' "$B18_USED_CLAIM")" "yes"
+check "the figures section says a high used figure is information rather than an alarm" \
+  "$(b17_near "$FIGURES" '(^|[^A-Za-z])information' '(^|[^A-Za-z])alarm' 160)" "yes"
 
 # The figures this section is REPLACED to stop explaining: %t, %/d, the
 # awake-hours passage and the diffstat pair all describe a render B05 no
@@ -1482,7 +1555,8 @@ check "the figures section keeps the sign convention for ▼ (below/behind the l
   "$(b17_near "$FIGURES" '▼' 'below|behind' 120)" "yes"
 
 # plan 003 constraint 2: the upstream's on-track ✓ glyph is deliberately NOT
-# adopted — the dead-band colour is what replaced it. Section 9 already fails
+# adopted — since B16 the on-track state emits nothing at all, which is what
+# stands in for it, and glyph coverage stays unassumable. Section 9 already fails
 # any new non-ASCII in $BODY; this names the one glyph the new prose about an
 # on-track trend is most likely to reach for.
 check "the figures section does not adopt the upstream's on-track glyph" \
@@ -2254,11 +2328,14 @@ check "the off-switch section still covers the statusLine key" \
 
 # --- the two version surfaces ----------------------------------------------
 
-B15_VERSION="0.10.0"
-check "plugin.json version is exactly $B15_VERSION" \
-  "$PLUGIN_VERSION" "$B15_VERSION"
-check "the root README row's version cell is exactly v$B15_VERSION" \
-  "$ROOT_ROW_STATUS" "✅ v$B15_VERSION"
+# B18 bumps both surfaces together, 0.10.0 -> 0.11.0: the docs change what an
+# installed user reads about the pace colours, and version-bump-lint reads
+# committed state, so an edit without the bump is invisible to them.
+B18_VERSION="0.11.0"
+check "plugin.json version is exactly $B18_VERSION" \
+  "$PLUGIN_VERSION" "$B18_VERSION"
+check "the root README row's version cell is exactly v$B18_VERSION" \
+  "$ROOT_ROW_STATUS" "✅ v$B18_VERSION"
 
 # The wording invariant, byte-for-byte and version-agnostic: field 3 (the
 # version cell) is masked out of the live row and every other byte compared
@@ -2267,6 +2344,52 @@ B15_ROW_MASKED="$(awk -F'|' 'BEGIN { OFS = "|" } { $3 = " <version> "; print }' 
 check "the root README statusline row's wording is unchanged outside the version cell" \
   "$B15_ROW_MASKED" \
   "| [statusline](plugins/statusline/) | <version> | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via \`/statusline:setup\`. |"
+
+# ===========================================================================
+# B18 pace-colour-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 37. The plan colour is retired, and the line-2 bullets agree with the
+#     figures section about used% and the trend colours
+# ---------------------------------------------------------------------------
+
+# burn_plan_color goes the way burn_pet went: deleted outright, nothing in its
+# place. Read off the SOURCE with comment lines blanked, because the file
+# header legitimately keeps a paragraph recording the removal — that is
+# documentation, not a live reference.
+B18_PLAN_HITS="$(sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#[[:space:]].*$//' \
+  "$BURN_THEME" | grep -c 'burn_plan_color' | tr -d ' ')"
+check "burn_plan_color is gone from lib/burn-theme.sh (non-comment lines)" \
+  "$B18_PLAN_HITS" "0"
+# And no prose may still document the scale it had: a README naming a function
+# the source no longer defines is a promise nothing keeps.
+check "the plugin README documents no burn_plan_color scale any more" \
+  "$(has_fixed 'burn_plan_color' "$BODY")" "no"
+
+# The two limit bullets are where a reader meets `5h used%` and `wk used%`
+# first, so they may not attach a colour to either figure — the figures section
+# says both are deliberately plain, and the bullets have to agree.
+check "the 5-hour bullet claims no colour for its used percentage" \
+  "$(b17_near "$FIVE_B" '(^|[^A-Za-z])used' 'colou?r' 100)" "no"
+check "the Weekly bullet claims no colour for its used percentage" \
+  "$(b17_near "$WEEK_B" '(^|[^A-Za-z])used' 'colou?r' 100)" "no"
+
+# And neither bullet may still name a trend tier the function retired. The
+# words come from the derivation in section 17, so this follows the source.
+while read -r _gone; do
+  [ -n "$_gone" ] || continue
+  check "the 5-hour bullet no longer names the retired $_gone trend tier" \
+    "$(has_re "$(b17_word "$_gone")" "$FIVE_B")" "no"
+  check "the Weekly bullet no longer names the retired $_gone trend tier" \
+    "$(has_re "$(b17_word "$_gone")" "$WEEK_B")" "no"
+done < "$TMP/trend-absent"
+
+# Non-vacuity for the pair above: the Context bullet KEEPS its green, because
+# burn_ctx_color still emits it. If this ever goes red, the two checks above
+# have started reading a README that dropped the ctx bands with the trend's.
+check "the Context bullet keeps documenting the ctx meter's green band" \
+  "$(has_re "$(b17_word green)" "$CTX_B")" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

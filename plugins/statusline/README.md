@@ -99,15 +99,19 @@ arrow, reset countdown — in the same order, so the reading you learn on the
 - **The countdown** — how long until that window's allowance resets, dimmed
   in parentheses (`(4h54m)`, `(2d23h)`, or `(12m)` under the hour).
 
-Within 3 points of the line the arrow colours green, reading as on track;
-the warm colours above it — yellow, orange, red — mark how far ahead you are
-running. Below the line it colours grey rather than a warning shade: running
-behind just means unused allowance, not a hazard.
+Any `▲` carries a warm colour, and it warms as the gap widens: yellow just
+over the line, orange as the gap grows, red once you are running well ahead
+of it. On the line or behind it — a `▼`, or a gap of zero — the arrow
+carries no colour at all, because running behind is unused allowance rather
+than a hazard.
 
 Both used percentages come straight from Claude Code's own payload and are
 never cached — a stale quota figure is worse than none. They are the
 server's view of your account, so parallel sessions, other machines and
-claude.ai usage all count against them without being visible here.
+claude.ai usage all count against them without being visible here. The
+percentages are also deliberately plain and carry no colour of their own: a
+high figure late in a window is information, not an alarm, and what warrants
+a change of behaviour is the gap the arrow measures.
 
 ### Subagent rows in the agent panel
 

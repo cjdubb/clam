@@ -1,7 +1,7 @@
 #!/bin/bash
 # Table-driven functional tests for burn-theme.sh: the presentation layer for
 # the burnrate line -- the flat per-model colour, the reasoning-effort colour,
-# the meter colour scales (plan, today, pace, ctx-state, ctx-fullness, trend),
+# the meter colour scales (today, pace, ctx-state, ctx-fullness, trend),
 # the fixed countdown colour and the reset countdown string. Every function is
 # a pure mapping from value to appearance (Contract: B03 burn-theme, plan
 # 001-statusline-burnrate-uplift, amended by B08 burn-theme-deemoji, plan
@@ -26,9 +26,10 @@
 #
 # What plan 003 adds, and why it leans on that same invariant: three more
 # colour mappings (ctx fullness, weekly trend, and the fixed diff/countdown
-# colours). B14's +/-3 dead band exists BECAUSE the upstream's on-track check
-# mark cannot be adopted under the no-non-ASCII invariant, so the invariant is
-# load-bearing for the new behaviour rather than merely inherited by it. All
+# colours). B14's +/-3 dead band existed BECAUSE the upstream's on-track check
+# mark cannot be adopted under the no-non-ASCII invariant; B16 retires the band
+# in favour of emitting no colour at all on the calm side, which honours the
+# same invariant without needing a tier for it. All
 # three of the file-wide scans reach the new functions: two enumerate from
 # `declare -F` and pick them up automatically, and emit_every_branch -- which
 # enumerates by hand -- lists them explicitly.
@@ -43,8 +44,24 @@
 # each one still has its own section: burn_model_color for the first three,
 # and nothing at all for the diff colour, which answered none of the seven
 # glance-items. The two roster assertions (DOCUMENTED_FUNCTIONS and the
-# parsed-body count) are re-pointed to the ten functions that survive and stay
+# parsed-body count) are re-pointed to the functions that survive and stay
 # EXACT equalities, so the retirement is asserted, not merely tolerated.
+#
+# What B16 trend-colour-rescale (plan 003-angry-pace-colours) changes:
+#
+#   GONE.  burn_plan_color, deleted outright on the burn_pet pattern. Its
+#          behaviour rows are not relaxed, they are replaced by absence
+#          assertions as sharp as the burn_pet ones, and it drops off both
+#          roster assertions, off emit_every_branch, and off the no-fork and
+#          env-isolated sweeps. The used% figures it coloured render plain.
+#
+#   RESCALED. burn_trend_color states over-pace magnitude only: >10 red 196,
+#          6..10 orange 208, 1..5 yellow 214, and <= 0 emits NOTHING. The
+#          green dead band and the grey behind-pace tier are both retired,
+#          so the calm side of the scale is colourless rather than coloured,
+#          and unparseable input is colourless too. Every row that pinned the
+#          old scale is re-pointed rather than deleted: the tier boundaries
+#          moved, the shape of the assertion did not.
 #
 # Run: bash plugins/statusline/lib/burn-theme.test.sh   (exits non-zero on failure)
 
@@ -99,13 +116,16 @@ check_silent() { # label bash_code
 }
 
 # sgr(CODE): the exact byte sequence the contract names for a colour token.
-# "dim" is the bare SGR attribute \033[2m -- NOT colour 2 -- and every other
-# token is a 256-colour opener. Openers only: none of these functions emits a
-# reset, because the caller closes the sequence, and a test that tolerated a
-# trailing reset would pass an implementation that breaks the renderer.
+# "dim" is the bare SGR attribute \033[2m -- NOT colour 2 -- "none" is the
+# empty string, which B16 makes a real expected value rather than an absence
+# of one, and every other token is a 256-colour opener. Openers only: none of
+# these functions emits a reset, because the caller closes the sequence, and a
+# test that tolerated a trailing reset would pass an implementation that
+# breaks the renderer.
 sgr() { # code
   case "$1" in
     dim) printf '%s[2m' "$ESC" ;;
+    none) printf '' ;;
     *) printf '%s[38;5;%sm' "$ESC" "$1" ;;
   esac
 }
@@ -146,18 +166,22 @@ $code" _ "$THEME" 2>/dev/null
 # burn-theme.sh and drop off this roster, leaving ten. burn_today_color and
 # burn_pace_color stay: the contract does not retire them.
 #
+# B16 trend-colour-rescale (plan 003-angry-pace-colours) takes burn_plan_color
+# off this roster: the used% meters it coloured render plain, so the function
+# has no call site and is deleted outright, leaving nine.
+#
 # The roster is still the EXACT inventory, not a subset: it is sorted and it is
 # compared for EQUALITY, never "contains". That is what makes this list a real
 # check in both directions after the shrink -- a retired function that survives
 # in the file fails just as loudly as a surviving function that goes missing,
 # and a new undocumented function still fails too.
-DOCUMENTED_FUNCTIONS="burn_countdown_color burn_ctx_color burn_ctx_state burn_effort_color burn_model_color burn_pace_color burn_plan_color burn_reset_str burn_today_color burn_trend_color"
+DOCUMENTED_FUNCTIONS="burn_countdown_color burn_ctx_color burn_ctx_state burn_effort_color burn_model_color burn_pace_color burn_reset_str burn_today_color burn_trend_color"
 
 # `declare -F` prints "declare -f NAME" per line; read the third field with
 # builtins only so this works with PATH stripped as well.
 actual_functions=$(pristine 'while read -r _ _ fn; do echo "$fn"; done < <(declare -F)' | LC_ALL=C sort | tr '\n' ' ')
 actual_functions="${actual_functions% }"
-check "burn-theme.sh defines exactly the documented functions, and burn_pet is not among them" \
+check "burn-theme.sh defines exactly the documented functions, and neither burn_pet nor burn_plan_color is among them" \
   "$actual_functions" "$DOCUMENTED_FUNCTIONS"
 
 # burn_pet is gone outright: the contract's own wording is that
@@ -171,6 +195,28 @@ check "declare -F burn_pet reports not-a-function (exit 1)" \
   "$(pristine 'declare -F burn_pet >/dev/null 2>&1; echo $?')" "1"
 check "type -t burn_pet resolves to nothing after sourcing" \
   "$(pristine 'type -t burn_pet 2>/dev/null; echo "|end"')" "|end"
+
+# B16: burn_plan_color goes the same way, and is pinned the same four ways.
+# The contract's own wording is the burn_pet wording -- `declare -f
+# burn_plan_color` must find nothing -- so a stub that survives returning an
+# empty string, or a body kept "for the other caller", fails here rather than
+# passing quietly through a relaxed behaviour row.
+plan_decl=$(pristine 'declare -f burn_plan_color')
+check "declare -f burn_plan_color finds nothing (no body)" "$plan_decl" ""
+check "declare -f burn_plan_color reports not-a-function (exit 1)" \
+  "$(pristine 'declare -f burn_plan_color >/dev/null 2>&1; echo $?')" "1"
+check "declare -F burn_plan_color reports not-a-function (exit 1)" \
+  "$(pristine 'declare -F burn_plan_color >/dev/null 2>&1; echo $?')" "1"
+check "type -t burn_plan_color resolves to nothing after sourcing" \
+  "$(pristine 'type -t burn_plan_color 2>/dev/null; echo "|end"')" "|end"
+
+# Deleted outright, not renamed or aliased: no CODE line in the file mentions
+# the name at all. The header docblock may still record the retirement in
+# prose (as it records burn_pet's), which is why this scan excludes comment
+# lines -- what it forbids is a surviving definition, a wrapper, or a caller.
+plan_code_refs=$(LC_ALL=C grep -vn '^[[:space:]]*#' "$THEME" | LC_ALL=C grep -c 'burn_plan_color')
+check "no non-comment line of burn-theme.sh mentions burn_plan_color (no wrapper, no caller, no alias)" \
+  "$plan_code_refs" "0"
 
 # The pet's face and effect arrays were function locals. Deleting the
 # function must delete them with it -- hoisting them to file scope (or to any
@@ -223,12 +269,13 @@ check_clean "no non-ASCII character in any parsed function body (bash's own pars
 # escape. Without all three, "no offenders" could mean "nothing was scanned"
 # or "the pattern matches nothing" -- and a pattern that flagged ESC would
 # make the invariant unfalsifiable in the other direction.
-# 10, not 14, since B05 retires four functions: the count moves in lockstep
-# with DOCUMENTED_FUNCTIONS above and stays an exact equality (never >=), so a
-# body that is not parsed -- or an extra one that is, including a retired
-# function left behind -- still fails the scan-is-not-vacuous control.
+# 9, not 14, since B05 retires four functions and B16 retires burn_plan_color:
+# the count moves in lockstep with DOCUMENTED_FUNCTIONS above and stays an
+# exact equality (never >=), so a body that is not parsed -- or an extra one
+# that is, including a retired function left behind -- still fails the
+# scan-is-not-vacuous control.
 check "the parsed-body scan covers exactly the documented functions (scan is not vacuous)" \
-  "$(printf '%s\n' "$parsed_bodies" | LC_ALL=C grep -c '^burn_[a-z_]* ()')" "10"
+  "$(printf '%s\n' "$parsed_bodies" | LC_ALL=C grep -c '^burn_[a-z_]* ()')" "9"
 check "the non-ASCII pattern fires on a known non-ASCII byte" \
   "$(printf 'ok\nbad \xe2\x80\x94 here\n' | LC_ALL=C grep -c "$NONASCII_RE")" "1"
 check "the non-ASCII pattern does NOT fire on an SGR escape (ESC is ASCII)" \
@@ -242,7 +289,9 @@ check "the non-ASCII pattern does NOT fire on an SGR escape (ESC is ASCII)" \
 #    the sweep unambiguous rather than merely convenient.)
 emit_every_branch() {
   for f in low medium high xhigh max critical ""; do burn_effort_color "$f"; done
-  for f in 100 70 69 50 49 30 29 0 -5 abc ""; do burn_plan_color "$f"; done
+  # B16 strikes burn_plan_color's row rather than leaving it calling into a
+  # file that no longer defines it -- the same treatment B05's four retired
+  # functions got.
   for f in 100 50 49 25 24 10 9 0 -5 abc ""; do burn_today_color "$f"; done
   for f in 20 12 11 8 7 5 4 0 12.9 7.9 -3 abc ""; do burn_pace_color "$f"; done
   burn_ctx_state 350000 300000 0
@@ -262,7 +311,7 @@ emit_every_branch() {
   # retired functions are struck from here rather than left calling into a
   # file that no longer defines them.
   for f in 200 100 61 60 59 40 39 20 19 0 -5 abc ""; do burn_ctx_color "$f"; done
-  for f in 99 15 14 8 7 4 3 0 -3 -4 -8 -15 -99 abc ""; do burn_trend_color "$f"; done
+  for f in 99 11 10 6 5 1 0 -1 -5 -99 abc "-" 1.5 ""; do burn_trend_color "$f"; done
   # B03, plan 001: the same by-hand enumeration duty applies to burn_model_color
   # -- listed across its whole documented input space (every family, a stray
   # name, an empty name, a multi-match name, a parenthesised suffix) so both
@@ -475,19 +524,16 @@ check "burn_effort_color emits only the bare colour prefix (no embedded reset)" 
   "$(burn_effort_color high | grep -c "${ESC}\\[0m")" "0"
 
 # ============================================================================
-# burn_plan_color PCT -- weekly/5-hour meter scale (high pct = hot = red).
-# Thresholds are boundary-inclusive (>=); each boundary tested at, above and
-# below.
+# burn_plan_color PCT -- RETIRED by B16 trend-colour-rescale (plan
+# 003-angry-pace-colours). Its six band rows and its no-reset row are deleted
+# here rather than relaxed, on the same principle B05 applied to its four
+# retirements: a test for a function that no longer exists cannot be made to
+# pass honestly. Nothing replaces the section, because nothing replaces the
+# function -- the weekly and 5-hour used% figures render plain, since a high
+# figure late in the window is information rather than an alarm. What the
+# retirement IS asserted by lives with the burn_pet pins near the top of this
+# file, where absence is stated four ways plus a source-text scan.
 # ============================================================================
-
-check "plan >=70 -> red 196 (exact boundary 70)" "$(burn_plan_color 70)" "${ESC}[38;5;196m"
-check "plan 69 -> orange 208 (just under 70)" "$(burn_plan_color 69)" "${ESC}[38;5;208m"
-check "plan >=50 -> orange 208 (exact boundary 50)" "$(burn_plan_color 50)" "${ESC}[38;5;208m"
-check "plan 49 -> yellow 214 (just under 50)" "$(burn_plan_color 49)" "${ESC}[38;5;214m"
-check "plan >=30 -> yellow 214 (exact boundary 30)" "$(burn_plan_color 30)" "${ESC}[38;5;214m"
-check "plan 29 -> green 40 (just under 30, else branch)" "$(burn_plan_color 29)" "${ESC}[38;5;40m"
-check "burn_plan_color emits only the bare colour prefix (no embedded reset)" \
-  "$(burn_plan_color 80 | grep -c "${ESC}\\[0m")" "0"
 
 # ============================================================================
 # burn_today_color PCT -- today's remaining share (high pct = healthy =
@@ -628,17 +674,28 @@ check "burn_ctx_color on a decimal still emits a single bare colour opener" \
   "$(burn_ctx_color 60.5 2>/dev/null | grep -cE "^${ESC}\\[(38;5;)?[0-9]+m$")" "1"
 
 # ============================================================================
-# burn_trend_color TREND  [B14, plan 003] -- the weekly trend's magnitude,
-# with a +/-3 DEAD BAND that reads as on-track. The dead band IS the feature:
-# it is this plugin's substitute for the upstream's green check-mark glyph,
-# which plan 003 declines to adopt so that the file-wide no-non-ASCII
-# invariant stands unamended.
+# burn_trend_color TREND  [B14, plan 003-statusline-meter-colour, RESCALED by
+# B16, plan 003-angry-pace-colours] -- over-pace magnitude ONLY. Warning
+# colours mean the user needs to change their behaviour, so only the side of
+# the scale that asks for a change carries a colour:
 #
-# The scale is deliberately ASYMMETRIC, off burn_metrics' fixed sign
-# convention (POSITIVE = ahead of the glide = burning too fast): three tiers
-# above the band, ONE below it, because under-use is not a hazard. A mirrored
-# implementation is the plausible wrong reading, so every tier below -3 is
-# pinned to grey individually rather than sampled once.
+#   TREND >  10        red 196
+#   6 <= TREND <= 10   orange 208
+#   1 <= TREND <= 5    yellow 214
+#   TREND <= 0         NOTHING -- the empty string
+#
+# B14's green +/-3 dead band and its grey behind-pace tier are BOTH retired.
+# The calm side is now colourless rather than differently coloured, which is
+# the whole point of the rescale: a colour on the calm side is a colour that
+# does not ask for anything. Emitting green 40 at 0, or grey 245 at -9, is
+# exactly the old behaviour and exactly what these rows now forbid.
+#
+# The scale reads off burn_metrics' FIXED sign convention (POSITIVE = ahead of
+# the even-burn line = burning too fast), so it remains asymmetric -- but the
+# asymmetry is now total: there are three tiers above zero and NO tier at or
+# below it. Every negative magnitude is pinned to the empty string
+# individually rather than sampled once, because a surviving grey tier is the
+# plausible leftover.
 # ============================================================================
 
 while read -r trend code note; do
@@ -646,60 +703,113 @@ while read -r trend code note; do
   check "trend $trend -> $code ($note)" \
     "$(burn_trend_color "$(tbl_arg "$trend")")" "$(sgr "$code")"
 done <<'TREND_ROWS'
-0       40  dead centre: exactly on the glide
-1       40  inside the dead band
-3       40  exact upper edge of the dead band, inclusive
--1      40  inside the dead band, marginally behind
--3      40  exact lower edge of the dead band, inclusive
-4       214 the smallest coloured magnitude ahead of the line
-7       214 just under 8
-8       208 exact boundary 8, inclusive
-14      208 just under 15
-15      196 exact boundary 15, inclusive
-99      196 far ahead of the line
--4      245 the smallest coloured magnitude behind the line
--8      245 asymmetry: no orange tier below the band
--15     245 asymmetry: no red tier below the band
--99     245 far behind the line is still only grey
-abc     40  non-numeric takes the on-track tier
-<empty> 40  empty takes the on-track tier
--       40  a bare sign is not a number, so the non-numeric tier
+99      196  far ahead of the line
+12      196  inside the red band
+11      196  exactly 11 opens the red tier, the smallest value above 10
+10      208  exactly 10 takes the tier below, the top of the orange band
+7       208  inside the orange band
+6       208  exactly 6 opens the orange tier
+5       214  exactly 5 takes the tier below, the top of the yellow band
+2       214  inside the yellow band
+1       214  exactly 1 opens the yellow tier: the smallest coloured magnitude
+0       none exactly 0 takes the tier below, which is no colour at all
+-1      none marginally behind the line: nothing to act on, so nothing emitted
+-5      none behind the line
+-99     none far behind the line is still colourless, never grey
+abc     none non-numeric emits nothing: the safest tier is now "no alarm"
+<empty> none empty emits nothing
+-       none a bare sign is not a number, so the unparseable path
+1.5     none a decimal is outside the integer domain, so the unparseable path
 TREND_ROWS
 
-check "trend with no argument at all -> green 40 (identical to an empty one)" \
-  "$(burn_trend_color)" "$(sgr 40)"
+check "trend with no argument at all -> nothing (identical to an empty one)" \
+  "$(burn_trend_color)" ""
 
-# Behind the line must not be warned about: grey is the tier that says
-# "nothing to act on". The failure mode this guards is an implementation that
-# mirrors the three positive tiers onto negative magnitudes, so the three
-# magnitudes that WOULD differ under a mirror are asserted to agree.
-check "the tiers are not mirrored: -8, -15 and -40 all emit the same grey 245" \
-  "$(burn_trend_color -8)$(burn_trend_color -15)$(burn_trend_color -40)" \
-  "$(sgr 245)$(sgr 245)$(sgr 245)"
+# The three coloured tiers are three DISTINCT codes. A single "warning colour"
+# reused across the bands would pass every "is it a colour" check and lose the
+# escalation the rescale exists to express.
+check "the three coloured tiers are distinct codes (11, 6 and 1 do not collide)" \
+  "$(burn_trend_color 11)$(burn_trend_color 6)$(burn_trend_color 1)" \
+  "$(sgr 196)$(sgr 208)$(sgr 214)"
 
-# The dead band's two edges resolve to the SAME colour as dead centre -- the
-# band is one tier, not three that happen to look alike.
-check "the dead band is one tier: -3, 0 and 3 all emit the same colour" \
-  "$(burn_trend_color -3)$(burn_trend_color 0)$(burn_trend_color 3)" \
-  "$(sgr 40)$(sgr 40)$(sgr 40)"
+# Every tier boundary in one assertion, in the direction the contract's Edge
+# cases clause states it: 1, 6 and 11 OPEN their tier, while 0, 5 and 10 take
+# the tier BELOW. An off-by-one at any of the three thresholds breaks this.
+check "boundaries: 1/6/11 open their tier while 0/5/10 take the tier below" \
+  "$(burn_trend_color 1)|$(burn_trend_color 0)|$(burn_trend_color 6)|$(burn_trend_color 5)|$(burn_trend_color 11)|$(burn_trend_color 10)" \
+  "$(sgr 214)||$(sgr 208)|$(sgr 214)|$(sgr 196)|$(sgr 208)"
+
+# The calm side is ONE behaviour, not several that happen to look alike: zero,
+# every negative, and every unparseable form all produce the identical empty
+# string. Pinned together because "keep a quiet colour for on-track" and "fall
+# back to a colour when parsing fails" are the two plausible leftovers from
+# B14, and either one breaks all of these at once.
+check "the calm side is colourless: 0, negatives and unparseable input all emit the same empty string" \
+  "$(burn_trend_color 0)$(burn_trend_color -1)$(burn_trend_color -99)$(burn_trend_color abc)$(burn_trend_color '')$(burn_trend_color -)" \
+  ""
+
+# Byte-exact emptiness, not merely "compares equal to empty": command
+# substitution strips a trailing newline, so a bare `echo` in the calm branch
+# would satisfy the rows above while emitting a newline into the middle of the
+# statusline.
+check "burn_trend_color emits ZERO bytes at 0 (not a newline, not a space)" \
+  "$(burn_trend_color 0 | wc -c | tr -d ' ')" "0"
+check "burn_trend_color emits ZERO bytes for unparseable input" \
+  "$(burn_trend_color abc | wc -c | tr -d ' ')" "0"
+
+# The retired tiers are gone as CODES, not merely as bands: green 40 and grey
+# 245 must appear nowhere in the function's output across its whole input
+# space. This is what a "keep the old branch, just narrow it" implementation
+# fails.
+retired_tier_hits=$(
+  for t in 99 12 11 10 7 6 5 2 1 0 -1 -5 -99 abc "" "-"; do
+    burn_trend_color "$t"
+  done 2>/dev/null | LC_ALL=C grep -cE '38;5;(40|245)m'
+)
+check "the retired green 40 and grey 245 tiers appear nowhere in burn_trend_color's output" \
+  "$retired_tier_hits" "0"
+
+# Exactly ONE bare opener on the coloured side -- one colour decision per
+# call, never a pair and never an opener plus a reset.
+for t in 1 5 6 10 11 99; do
+  check "burn_trend_color $t emits exactly one bare SGR opener" \
+    "$(burn_trend_color "$t" | grep -oE "${ESC}\\[38;5;[0-9]+m" | wc -l | tr -d ' ')" "1"
+done
 
 check "burn_trend_color emits only the bare colour prefix (no embedded reset)" \
   "$(burn_trend_color 20 | grep -c "${ESC}\\[0m")" "0"
+check "burn_trend_color emits no reset on the colourless side either" \
+  "$(burn_trend_color -9 | grep -c "${ESC}\\[0m")" "0"
 
-trend_want=$(sgr 245)
+trend_want=$(sgr 214)
 check "burn_trend_color emits exactly the opener, with no trailing newline" \
-  "$(burn_trend_color -9 | wc -c | tr -d ' ')" "${#trend_want}"
+  "$(burn_trend_color 3 | wc -c | tr -d ' ')" "${#trend_want}"
 
-check_silent "burn_trend_color 8 (in-band)" 'burn_trend_color 8'
+# Errors clause: rc 0 always, stderr empty always -- on the colourless side as
+# much as the coloured one, since "emits nothing" must not be implemented as
+# "returns non-zero and lets the caller drop the segment".
+check_silent "burn_trend_color 11 (red tier)" 'burn_trend_color 11'
+check_silent "burn_trend_color 6 (orange tier)" 'burn_trend_color 6'
+check_silent "burn_trend_color 1 (yellow tier)" 'burn_trend_color 1'
+check_silent "burn_trend_color 0 (the colourless side)" 'burn_trend_color 0'
 check_silent "burn_trend_color -12 (signed input is normal)" 'burn_trend_color -12'
 check_silent "burn_trend_color abc (non-numeric)" 'burn_trend_color abc'
+check_silent "burn_trend_color 1.5 (decimal, outside the integer domain)" 'burn_trend_color 1.5'
+check_silent "burn_trend_color - (a bare sign)" 'burn_trend_color -'
 check_silent "burn_trend_color with no argument" 'burn_trend_color'
 
-# B14's own restatement of the file-wide invariant: the on-track tier is a
-# COLOUR, never a glyph. Swept over the whole documented input space, because
-# the check mark would most plausibly be re-attached to exactly one band.
+# rc 0 stated on its own as well, because check_silent bundles it with stderr
+# and the colourless path is where a `return 1` would be most tempting.
+check "burn_trend_color returns 0 on the colourless side" \
+  "$(burn_trend_color 0 >/dev/null; echo $?)" "0"
+check "burn_trend_color returns 0 for unparseable input" \
+  "$(burn_trend_color abc >/dev/null; echo $?)" "0"
+
+# The file-wide invariant, restated where a glyph would most plausibly come
+# back: the calm side is now EMPTY, which is exactly the slot the upstream's
+# on-track check mark would fill. Swept over the whole documented input space.
 trend_glyph_offenders=$(
-  for t in 0 1 3 -1 -3 4 7 8 14 15 99 -4 -8 -15 -99 abc ""; do
+  for t in 99 12 11 10 7 6 5 2 1 0 -1 -5 -99 abc "" "-"; do
     burn_trend_color "$t"
   done 2>/dev/null | LC_ALL=C grep -n "$NONASCII_RE"
 )
@@ -882,9 +992,6 @@ no_fork() { # bash_code
 nf_out=$(no_fork 'burn_effort_color high')
 check "no-fork: burn_effort_color still maps high -> amber 214" "$nf_out" "${ESC}[38;5;214m"
 
-nf_out=$(no_fork 'burn_plan_color 80')
-check "no-fork: burn_plan_color still maps 80 -> red 196" "$nf_out" "${ESC}[38;5;196m"
-
 nf_out=$(no_fork 'burn_today_color 5')
 check "no-fork: burn_today_color still maps 5 -> red 196" "$nf_out" "${ESC}[38;5;196m"
 
@@ -912,8 +1019,23 @@ check "no-fork: burn_model_color still maps an unrecognised name -> grey 245" "$
 nf_out=$(no_fork 'burn_ctx_color 60')
 check "no-fork: burn_ctx_color still maps 60 -> red 196" "$nf_out" "$(sgr 196)"
 
-nf_out=$(no_fork 'burn_trend_color -9')
-check "no-fork: burn_trend_color still maps -9 -> grey 245" "$nf_out" "$(sgr 245)"
+# B16: both sides of the rescaled scale are pure builtins -- the colourless
+# side especially, since "emit nothing" is where a stray `printf ''` via an
+# external command would be least noticed.
+nf_out=$(no_fork 'burn_trend_color 11')
+check "no-fork: burn_trend_color still maps 11 -> red 196" "$nf_out" "$(sgr 196)"
+
+nf_out=$(no_fork 'burn_trend_color 6')
+check "no-fork: burn_trend_color still maps 6 -> orange 208" "$nf_out" "$(sgr 208)"
+
+nf_out=$(no_fork 'burn_trend_color 1')
+check "no-fork: burn_trend_color still maps 1 -> yellow 214" "$nf_out" "$(sgr 214)"
+
+nf_out=$(no_fork 'burn_trend_color -9; echo "|end"')
+check "no-fork: burn_trend_color still emits nothing at -9" "$nf_out" "|end"
+
+nf_out=$(no_fork 'burn_trend_color 0 >/dev/null; echo $?')
+check "no-fork: burn_trend_color still returns 0 on the colourless side" "$nf_out" "0"
 
 nf_out=$(no_fork 'burn_countdown_color')
 check "no-fork: burn_countdown_color still emits the dim sequence" "$nf_out" "$(sgr dim)"
@@ -929,9 +1051,6 @@ check "no-fork: burn_countdown_color still emits the dim sequence" "$nf_out" "$(
 env_isolated() { # bash_code
   env -i "$REAL_BASH" -c ". '$THEME'; $1" 2>/dev/null
 }
-
-ei_out=$(env_isolated 'burn_plan_color 80')
-check "env-isolated: burn_plan_color still maps 80 -> red 196" "$ei_out" "${ESC}[38;5;196m"
 
 ei_out=$(env_isolated 'burn_effort_color high')
 check "env-isolated: burn_effort_color still maps high -> amber 214" "$ei_out" "${ESC}[38;5;214m"
@@ -957,26 +1076,35 @@ check "env-isolated: burn_model_color still maps sonnet -> mid blue 75" "$ei_out
 ei_out=$(env_isolated 'burn_ctx_color 60')
 check "env-isolated: burn_ctx_color still maps 60 -> red 196" "$ei_out" "$(sgr 196)"
 
-ei_out=$(env_isolated 'burn_trend_color 15')
-check "env-isolated: burn_trend_color still maps 15 -> red 196" "$ei_out" "$(sgr 196)"
+ei_out=$(env_isolated 'burn_trend_color 11')
+check "env-isolated: burn_trend_color still maps 11 -> red 196" "$ei_out" "$(sgr 196)"
+
+ei_out=$(env_isolated 'burn_trend_color 0; echo "|end"')
+check "env-isolated: burn_trend_color still emits nothing at 0" "$ei_out" "|end"
 
 ei_out=$(env_isolated 'burn_countdown_color')
 check "env-isolated: burn_countdown_color still emits the dim sequence" "$ei_out" "$(sgr dim)"
 
 # Decoy threshold-shaped env vars must not change a locked-constant mapping.
-check "thresholds are locked constants: decoy env vars do not change burn_plan_color" \
-  "$(BURN_PLAN_RED=999 BURN_PLAN_COLOR_THRESHOLD=1 CLAUDE_BURN_RED=0 burn_plan_color 80)" \
+check "thresholds are locked constants: decoy env vars do not change burn_today_color" \
+  "$(BURN_TODAY_RED=999 BURN_TODAY_COLOR_THRESHOLD=1 CLAUDE_BURN_RED=0 burn_today_color 5)" \
   "${ESC}[38;5;196m"
 
 check "thresholds are locked constants: decoy env vars do not change burn_ctx_color" \
   "$(BURN_CTX_RED=999 BURN_CTX_COLOR_THRESHOLD=1 CLAUDE_CTX_RED=0 burn_ctx_color 60)" \
   "$(sgr 196)"
 
-# The dead band in particular: "+/-3, locked" is the kind of number a later
-# change would be tempted to make tunable, and the contract forbids it.
-check "the trend dead band is a locked constant: decoy env vars do not widen or narrow it" \
-  "$(BURN_TREND_DEADBAND=0 BURN_TREND_BAND=99 BURN_TREND_RED=1 burn_trend_color 3)" \
-  "$(sgr 40)"
+# The rescaled trend thresholds in particular: 1/6/11 are exactly the kind of
+# numbers a later change would be tempted to make tunable, and the contract
+# locks them. Pinned on the lowest coloured tier and on the colourless side,
+# because "let the user widen the quiet zone" is the tunable someone would
+# reach for first.
+check "the trend thresholds are locked constants: decoy env vars do not move the yellow tier" \
+  "$(BURN_TREND_DEADBAND=0 BURN_TREND_BAND=99 BURN_TREND_RED=1 BURN_TREND_YELLOW=50 burn_trend_color 1)" \
+  "$(sgr 214)"
+check "the colourless side is locked too: decoy env vars do not give 0 a colour" \
+  "$(BURN_TREND_DEADBAND=9 BURN_TREND_BAND=99 BURN_TREND_OK=40 burn_trend_color 0)" \
+  ""
 
 # B03: the per-family codes are constants, not a palette a user can retint.
 check "burn_model_color's family colours are not env-configurable" \

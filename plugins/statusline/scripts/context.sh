@@ -558,6 +558,23 @@ sl_render_burn_line() {
   fi
   _sl_burn_group "$g"
 
+  # Contract: B17 plain-used-percent (plan 003-angry-pace-colours)
+  # Behavior:  the used% tokens in groups 3 and 4 render PLAIN — no colour
+  #            opener, no reset — `5h N%` / `wk N%` in the default
+  #            foreground. burn_plan_color no longer exists (B16); its call
+  #            sites go, not just its output.
+  # Inputs:    r5/r7 percentages exactly as today.
+  # Outputs:   the line is byte-identical to today's except the two used%
+  #            tokens carry no SGR sequences. The trend arrows (via
+  #            burn_trend_color, which now emits nothing at <= 0) and the
+  #            dim countdowns are wired exactly as they are.
+  # Errors:    none new; nothing here may fail louder than today.
+  # Invariants: no colour decision lives inline in this file; group and
+  #            separator logic untouched; the two-awk fork budget holds;
+  #            an arrow whose colour function emitted nothing still gets
+  #            its reset, which is a no-op by design.
+  # Edge cases: missing r5/r7 still drop their whole group; decimal
+  #            percentages still truncate via ${r5%%.*}/${r7%%.*}.
   # --- group 3: the 5-hour limit (glance-item 6) ---------------------------
   # used% , trend, countdown -- the same three figures, in the same order, as
   # the weekly group below, so the reader learns one reading rather than two.
@@ -565,7 +582,7 @@ sl_render_burn_line() {
   # you work" cannot apply, so it is plain wall clock over 18000 seconds.
   g=""
   if [ -n "$r5" ]; then
-    g="$(_sl_burn_color burn_plan_color "${r5%%.*}")5h ${r5%%.*}%$rst"
+    g="5h ${r5%%.*}%"
     # A missing or unusable reset drops the trend AND the countdown -- both
     # need it -- while the used figure stays: it is live quota state.
     if [ -n "$r5_reset" ]; then
@@ -586,7 +603,7 @@ sl_render_burn_line() {
   # does not work as burnable.
   g=""
   if [ -n "$r7" ]; then
-    g="$(_sl_burn_color burn_plan_color "${r7%%.*}")wk ${r7%%.*}%$rst"
+    g="wk ${r7%%.*}%"
     if [ -n "$r7_reset" ]; then
       t=$(_sl_burn_week_trend) \
         && [ -n "$t" ] \

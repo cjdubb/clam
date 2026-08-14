@@ -449,6 +449,27 @@ it succeeding. For an engineer-owned block there is no implementer
 teammate to release, so this step is vacuous there — not a precondition of
 the merge.
 
+Once the merge lands, checkpoint the group's size. Run `pr-size-check.sh`
+over the merged unit's PR group's Code paths on the integration branch —
+the group's actual-so-far — against the recorded budget, and report the
+merged unit's actual changed lines beside its blocks' Est and the
+per-block ceiling. This comparison is report-only, never a gate: the unit
+is already accepted, and nothing here undoes that.
+
+When actual-so-far plus the group's remaining members' Ests exceeds the
+budget, stop and escalate to the engineer with three options: regroup,
+deliver the completed group early, or accept a justified overrun. Early
+delivery is never unilateral — it is the engineer's pick among those
+options, not the orchestrator's to decide alone.
+
+If `pr-size-check.sh` exits 2, fix the underlying problem and re-run it;
+exit 2 is never skipped silently.
+
+For the group's last unit, the projection equals the actual, and any
+escalation collapses into §5b's gate rather than opening a second one. A
+single-unit group still gets its checkpoint — there is no group size below
+which this step is skipped.
+
 ### 5. Delivery
 
 `main-prs` mode only — the mode the plan document's Landing strategy records.

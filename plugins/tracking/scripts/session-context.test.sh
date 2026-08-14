@@ -655,9 +655,19 @@ test_b21_rules_require_relative_artifact_links() {
 # a match is necessarily a plugin reference and never innocent prose.
 # Green at birth by design: it is a regression guard on the new prose, not a
 # red-until-implemented behavior assertion.
+#
+# The scan must be path-independent: the hook embeds absolute template paths
+# under this checkout's own root, so a checkout whose directory name contains
+# a plugin id (a `lego/...` unit worktree, an `orchestrate-statusline-*`
+# branch checkout) would otherwise leak that id into the scanned text and
+# fail on prose that never named any plugin. Scrub the checkout root before
+# scanning; the ids being guarded against can only appear in the injected
+# PROSE, which the scrub never touches.
 test_b21_rules_name_no_other_plugin() {
-    local ctx name found=""
+    local ctx name found="" repo_root
+    repo_root="$(cd "$PLUGIN_ROOT/../.." && pwd)"
     ctx=$(b21_flat_context b21-noplugin)
+    ctx=${ctx//"$repo_root"/[repo-root]}
     for name in lego render-doc ask-in-text orchestrator-handover session-data \
         skill-tracker statusline worktrees; do
         if printf '%s' "$ctx" | grep -qiE -- "\\b${name}\\b"; then

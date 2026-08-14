@@ -352,6 +352,60 @@
 # floor: strictly above the version this block starts from, which section 23's
 # older baseline no longer has teeth for.
 #
+# --- B15 setup-schedule-docs (section 36) -----------------------------------
+# B15 brings the `## Commands` skill entries, the "Turn the statusline off
+# without uninstalling" section and both version surfaces into agreement with
+# B14, which adds a schedule-disclosure step to the setup skill. Its contract is
+# a file rather than a docblock in the README, for the reason section 8 pins: a
+# shipped plugin README may carry no surviving `<!-- Contract:` block. The
+# passages it owns: the `/statusline:setup` entry, the `/statusline:setup
+# remove` entry, `### Turn the statusline off without uninstalling`,
+# plugin.json's version, and the root README row's version CELL.
+#
+# What is derived, and what each derivation buys:
+#
+#   - THE THREE SCHEDULE KNOB NAMES are read out of the env-var table's own row
+#     set ($TMP/documented, section 2) rather than spelled out here. Section 2
+#     already holds that set equal in BOTH directions to the names the plugin's
+#     scripts really read, so a knob renamed in the code renames it here too,
+#     and the setup entry is then required to name whatever the code and the
+#     table agree on. The extraction asserts it found exactly three, so a
+#     renamed or dropped knob fails by count instead of silently shrinking the
+#     list of names the prose has to carry.
+#   - THE FROZEN ROOT ROW. The contract's invariant is that the root README
+#     row's WORDING is byte-identical across this block while its VERSION cell
+#     moves. Both halves are asserted separately: the version cell by exact
+#     equality against 0.10.0, and the rest of the row by masking field 3 out
+#     of the live row (awk rebuilds every other byte unchanged) and comparing
+#     the result against the literal frozen row. A wording edit fails by diff;
+#     a version bump does not. Section 26's semantic checks on the description
+#     cell stay as they are — this adds the byte-level guard they cannot give,
+#     and weakening either would leave the invariant unpinned.
+#
+# THE VERSION IS PINNED EXACTLY here, not as a floor. Sections 6, 23 and 35 all
+# take floors, for the reason those sections state: an exact pin turns a later
+# unrelated bump into a failure. The contract for this block names 0.10.0 as
+# the version, and the root row's cell has to carry that same string, so the
+# equality is the clause — the two floors above stay untouched and keep doing
+# their own job.
+#
+# SCOPING. The two skill entries are scoped with b15_entry() rather than
+# paragraph_in(): the schedule step is new prose, and an implementer may
+# legitimately write it as a second paragraph of the same entry, which
+# paragraph_in() would cut off mid-clause. b15_entry() runs from the entry's
+# `**`/statusline:setup`**` line to the next entry or heading, so a
+# multi-paragraph entry is read whole. Every content check below is paired with
+# a non-vacuity check that its target passage is identifiable and still
+# describes the operation the schedule clause hangs off — section 34 already
+# holds the three statusline keys in both entries, so an entry rewritten around
+# the schedule alone fails there.
+#
+# NOT re-asserted here, deliberately: the env table's three schedule rows and
+# their defaults (section 2), and the working-week section (section 22). The
+# contract lists both as invariants, and both already have checks that go red
+# if they move; a second copy would be noise. What IS added is one guard that
+# the derivation feeding this section is not empty.
+#
 # Run: bash plugins/statusline/scripts/readme.test.sh (non-zero exit on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2089,6 +2143,130 @@ check "plugin.json's description mentions the subagent rows the plugin now rende
 check "plugin.json's description still describes the two statusline lines" \
   "$(b17_near "$PLUGIN_DESC" '(^|[^A-Za-z])(two lines|statusline|status line)' \
      '(^|[^A-Za-z])(model|context|branch|path)' 200)" "yes"
+
+# ===========================================================================
+# B15 setup-schedule-docs
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 36. The schedule step in the two skill entries, the off-switch section, and
+#     the two version surfaces
+# ---------------------------------------------------------------------------
+
+# b15_entry(text needle): one `**`…`**` entry of a Commands subsection, from the
+# line holding the fixed string NEEDLE to the next entry or heading — blank
+# lines included, so a two-paragraph entry is read whole (see the header).
+b15_entry() { # text needle
+  awk -v needle="$2" '
+    !inb { if (index($0, needle)) { inb = 1; print } ; next }
+    /^#+[[:space:]]/ { exit }
+    index($0, "**`") == 1 { exit }
+    { print }
+  ' <<<"$1"
+}
+
+# The knob names, read off the env-var table's row set (section 2's oracle,
+# which is held equal in both directions to the names the scripts read).
+grep -E '^CLAM_STATUSLINE_(WORK_DAYS|DAY_START|DAY_END)$' "$TMP/documented" \
+  | sort > "$TMP/b15-knobs"
+check "the three schedule knobs are derivable from the env-var table (oracle is not empty)" \
+  "$(wc -l < "$TMP/b15-knobs" | tr -d ' ')" "3"
+# And the same three are really read by the plugin's own sources, so the names
+# the prose is made to carry are not table-only fictions.
+check "the three schedule knobs are read by the plugin's own scripts" \
+  "$(one_line "$(comm -23 "$TMP/b15-knobs" "$TMP/derived")")" ""
+
+# --- the /statusline:setup entry -------------------------------------------
+
+B15_SETUP="$(b15_entry "$B12_SKILLS" '**`/statusline:setup`**')"
+check "the /statusline:setup entry is identifiable whole (scoping oracle is not empty)" \
+  "$([ -n "$B15_SETUP" ] && echo yes || echo no)" "yes"
+
+while read -r _k; do
+  [ -n "$_k" ] || continue
+  check "the /statusline:setup entry names $_k among the schedule keys" \
+    "$(has_fixed "$_k" "$B15_SETUP")" "yes"
+done < "$TMP/b15-knobs"
+
+check "the /statusline:setup entry says setup shows the effective working week" \
+  "$(b17_near "$B15_SETUP" '(^|[^A-Za-z])(shows?|discloses?|displays?|reports?|prints?)' \
+     '(working week|work week|schedule|working days|working hours|hours you)' 200)" "yes"
+check "the /statusline:setup entry says setup asks about that schedule" \
+  "$(b17_near "$B15_SETUP" '(^|[^A-Za-z])(asks?|asking|prompts?|confirms?)' \
+     '(working week|work week|schedule|working days|working hours|hours you)' 200)" "yes"
+check "the /statusline:setup entry says the schedule keys are written only when the schedule changes" \
+  "$(b17_near "$B15_SETUP" '(^|[^A-Za-z])(only|unless)([^A-Za-z]|$)' \
+     '(^|[^A-Za-z])(writes?|written|write)' 220)" "yes"
+# The other half of the same clause, and the one a reader acts on: accepting the
+# schedule as shown leaves the settings file alone.
+check "the /statusline:setup entry says accepting the shown schedule writes nothing" \
+  "$(b17_near "$B15_SETUP" '(accepts?|accepting|keeps?|keeping|unchanged|as shown|agrees?|the default schedule)' \
+     '(writes nothing|nothing is written|writes no|no .{0,30}(keys?|values?|settings?) (are|is) written|not written|leaves? .{0,40}(untouched|unchanged|alone)|without writing)' 200)" "yes"
+# One jq pass, still: the schedule keys join the merge the entry already
+# describes rather than adding a second write to the settings file.
+check "the /statusline:setup entry says the schedule keys join the same single jq merge" \
+  "$(b17_near "$B15_SETUP" '(^|[^A-Za-z])(same|one|single)([^A-Za-z]|$)' \
+     '(^|[^A-Za-z])jq([^A-Za-z]|$)' 160)" "yes"
+# Non-vacuity beyond section 34's: the entry still describes the write it is an
+# entry about, so an entry rewritten around the schedule alone fails here.
+check "the /statusline:setup entry still names the settings file it writes" \
+  "$(has_fixed 'settings.json' "$B15_SETUP")" "yes"
+
+# --- the /statusline:setup remove entry ------------------------------------
+
+B15_REMOVE="$(b15_entry "$B12_SKILLS" '**`/statusline:setup remove`**')"
+check "the /statusline:setup remove entry is identifiable whole (scoping oracle is not empty)" \
+  "$([ -n "$B15_REMOVE" ] && echo yes || echo no)" "yes"
+
+while read -r _k; do
+  [ -n "$_k" ] || continue
+  check "the remove entry names $_k among the keys it cleans up" \
+    "$(has_fixed "$_k" "$B15_REMOVE")" "yes"
+done < "$TMP/b15-knobs"
+
+# Scoped to the SENTENCES making a schedule-key claim: the entry's surrounding
+# prose legitimately describes deleting the three statusline keys, and that
+# sentence must not be what satisfies the schedule clause.
+B15_RM_CLAIM="$(b17_claims "$B15_REMOVE" 'CLAM_STATUSLINE_')"
+check "the remove entry makes a claim about the schedule keys at all (scoping oracle is not empty)" \
+  "$([ -n "$B15_RM_CLAIM" ] && echo yes || echo no)" "yes"
+check "that claim says the schedule keys are deleted too" \
+  "$(has_re '(delete[sd]?|remove[sd]?|clear[sd]?|drop(s|ped)?|strip(s|ped)?)' "$B15_RM_CLAIM")" "yes"
+
+# --- the off-switch section ------------------------------------------------
+
+B15_OFF="$(b17_subsection '### Turn the statusline off without uninstalling')"
+check "the 'Turn the statusline off without uninstalling' section is identifiable" \
+  "$([ -n "$B15_OFF" ] && echo yes || echo no)" "yes"
+while read -r _k; do
+  [ -n "$_k" ] || continue
+  check "the off-switch section names $_k among what remove takes back" \
+    "$(has_fixed "$_k" "$B15_OFF")" "yes"
+done < "$TMP/b15-knobs"
+check "the off-switch section says the schedule keys are removed or restored" \
+  "$(has_re '(delete[sd]?|remove[sd]?|restore[sd]?|clear[sd]?|drop(s|ped)?)' "$B15_OFF")" "yes"
+# Non-vacuity: the section still tells the reader the command to run and still
+# covers the statusline keys it has always covered.
+check "the off-switch section still names the remove command" \
+  "$(has_fixed '/statusline:setup remove' "$B15_OFF")" "yes"
+check "the off-switch section still covers the statusLine key" \
+  "$(has_fixed 'statusLine' "$B15_OFF")" "yes"
+
+# --- the two version surfaces ----------------------------------------------
+
+B15_VERSION="0.10.0"
+check "plugin.json version is exactly $B15_VERSION" \
+  "$PLUGIN_VERSION" "$B15_VERSION"
+check "the root README row's version cell is exactly v$B15_VERSION" \
+  "$ROOT_ROW_STATUS" "✅ v$B15_VERSION"
+
+# The wording invariant, byte-for-byte and version-agnostic: field 3 (the
+# version cell) is masked out of the live row and every other byte compared
+# against the frozen row.
+B15_ROW_MASKED="$(awk -F'|' 'BEGIN { OFS = "|" } { $3 = " <version> "; print }' <<<"$ROOT_ROW")"
+check "the root README statusline row's wording is unchanged outside the version cell" \
+  "$B15_ROW_MASKED" \
+  "| [statusline](plugins/statusline/) | <version> | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via \`/statusline:setup\`. |"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

@@ -21,6 +21,8 @@ Implemented → Accepted` (side-state: `Escalated`).
 - Justification: exceeds the per-block ceiling because the token-bucket
   algorithm and its concurrency-safe refill logic don't split cleanly
   without duplicating shared state between two blocks
+- Setup: npm ci
+- Test: npm test -- src/rate-limiter.spec.ts
 - Code: src/rate-limiter.ts
 - Contract: token-bucket limiter; allow/deny per key with configurable refill
 - Plan: plans/001-api-hardening.md
@@ -28,5 +30,12 @@ Implemented → Accepted` (side-state: `Escalated`).
 Justification: is optional — required only when Est exceeds the per-block
 ceiling (half the PR size budget); an under-ceiling entry needs no
 Justification: at all.
+
+Test: is required of every block: the command that runs that block's tests,
+agreed with the engineer and proved by running it at plan time. It is the
+only place a wave reads a test command from.
+
+Setup: is optional — write it only when the repo needs a preparation step
+before the tests run. Blocks sharing a Unit: must agree on both fields.
 
 -->

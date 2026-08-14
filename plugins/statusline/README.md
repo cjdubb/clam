@@ -220,8 +220,10 @@ needs to change.
 ```
 
 Restores whatever `statusLine`, `subagentStatusLine` and `refreshInterval`
-values (or absences of them) preceded the setup, without touching any other
-setting.
+values (or absences of them) preceded the setup, and deletes the three
+schedule keys — `CLAM_STATUSLINE_WORK_DAYS`, `CLAM_STATUSLINE_DAY_START` and
+`CLAM_STATUSLINE_DAY_END` — that setup may have written, without touching any
+other setting.
 
 ## Commands
 
@@ -236,10 +238,24 @@ configured), backs up the settings file, merges in the `statusLine`,
 `subagentStatusLine` and `refreshInterval` keys in one `jq` pass (preserving
 every other setting), and verifies the result still parses.
 
+It also discloses the effective working week the weekly trend arrow paces
+against — `CLAM_STATUSLINE_WORK_DAYS`, `CLAM_STATUSLINE_DAY_START` and
+`CLAM_STATUSLINE_DAY_END`, each shown as either a default or a value this
+machine already carries — and asks once whether to keep that schedule or
+change it. Accepting the schedule as shown writes nothing: no env key is
+added and the `env` block is left untouched. Values you change are validated
+against their documented domains and folded into the same single `jq` merge
+as the three statusline keys, so `~/.claude/settings.json` is still written
+once; the three schedule keys are written only when the schedule changes.
+
 **`/statusline:setup remove`** — reverses it: deletes the `statusLine`,
 `subagentStatusLine` and `refreshInterval` keys (or restores the backup),
-preserving all other settings. A settings file written by an older version
-has only the first of the three, and remove handles that.
+preserving all other settings. It also deletes the three schedule keys —
+`CLAM_STATUSLINE_WORK_DAYS`, `CLAM_STATUSLINE_DAY_START` and
+`CLAM_STATUSLINE_DAY_END` — that setup may have written, dropping the `env`
+block itself if that leaves it empty. A settings file written by an older
+version has only the first of the three statusline keys, and remove handles
+that.
 
 ### Scripts
 

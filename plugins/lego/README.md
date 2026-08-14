@@ -27,14 +27,13 @@ any global settings beyond Claude Code's own plugin-enablement entry, and
 plain `claude` in any other repo is untouched — enable it only for the
 repos where you want the workflow.
 
-Hard prerequisite before the workflow can scaffold or dispatch anything: a
-committed **`.claude/lego.json`**, the repo interface that carries
-commands, models, and delivery mode. It does not ship with the plugin. The
-first `/lego:plan` invocation in a repo detects it's missing and offers to
-create it for you; see `/lego:plan` under Commands for the full bootstrap
-flow, or copy the plugin's `templates/lego.json` to `.claude/lego.json` and
-fill in `commands.test` (the only required field) yourself. Full schema:
-`docs/config-schema.md`.
+There is no settings file to write first, and nothing to keep in sync: the
+plugin ships no repo interface of its own. The first `/lego:plan`
+invocation discovers the repo's setup and test commands from its marker
+files, agrees them with you, runs each one to prove it works, and records
+them **per block** on the block map — a `Setup:` line (optional) and a
+`Test:` line (required, one per block). See `/lego:plan` under Commands
+for the full flow.
 
 The workflow is deliberately opinionated, with no lightweight path — for
 work that doesn't warrant the full plan/scaffold/dispatch machinery, use
@@ -64,21 +63,22 @@ tree is orchestrator-owned and read-only for workers. One path is carved
 out: a worker's own report file under `.local/reports/`, which it writes
 itself and which the gate allows ahead of every other rule, for both roles.
 
-Once `/lego:plan` runs, it writes the committed `.claude/lego.json` (with
-your consent) and gitignored session state under `.local/` (block map,
-plans) — excluded from the tracked tree via `.git/info/exclude` by default;
-a team that wants the block map shared can remove that exclude entry and
-commit `.local/` deliberately.
+Once `/lego:plan` runs, everything it writes is gitignored session state
+under `.local/` (block map, plans) — excluded from the tracked tree via
+`.git/info/exclude` by default; a team that wants the block map shared can
+remove that exclude entry and commit `.local/` deliberately. Nothing lands
+in the repo's committed tree until the work itself does.
 
 ## Common workflows
 
 ### Bootstrap a repo for the workflow
 
-Run `/lego:plan` for the first time in a repo. It detects the missing
-`.claude/lego.json`, autodetects candidate test/build/typecheck/lint
-commands from marker files (`package.json`, `pyproject.toml`, `go.mod`,
-…), and asks your consent before writing and committing it — then proceeds
-straight into planning.
+Run `/lego:plan` for the first time in a repo. It autodetects candidate
+setup/test/build/typecheck/lint commands from marker files
+(`package.json`, `pyproject.toml`, `go.mod`, …), confirms them with you,
+and runs each one to see it pass before anything is recorded — then
+proceeds straight into planning. No file is committed on your behalf; the
+proved commands become per-block fields on the block map instead.
 
 ### Plan and scaffold a deliverable
 
@@ -131,43 +131,52 @@ verified, the orchestrator hands you the worktree instead of dispatching a
 **`/lego:plan`** (model-invocable) — Plan and decompose a deliverable into
 blocks with the engineer; the deliverable is always what the engineer
 states in conversation, never inferred from branch names, slugs, or code
-archaeology. Bootstraps the repo interface on first use in a repo:
+archaeology. On first use in a repo it establishes the commands the later
+waves run, then creates `.local/blocks.md` (seeded from
+`templates/blocks.md`) and `.local/plans/`.
 
-- **`.claude/lego.json`** (committed): `commands.test` (required — a
-  string, or an object of named variants with a `default` key for repos
-  with multiple test types or monorepo scopes), `commands.typecheck` /
-  `build` / `lint` (optional), `models.testWriter` / `models.implementer`
-  (default `sonnet`), `testPatterns` (extra test-family globs, unioned —
-  never replaced — with the built-in family), `delivery.mode` (`main-prs`
-  or `local-only`; absent behaves as `local-only`).
-- **`.local/config.json`** (gitignored, optional): a local override
-  deep-merged over the base — machine-specific values like
-  `delivery.worktreeDir`, or, for a repo whose conventions you don't
-  control, the whole config as a per-clone escape hatch.
-- `.local/blocks.md` (seeded from `templates/blocks.md`) and
-  `.local/plans/` are created alongside it.
+The commands are **proved by execution** before they are recorded: the
+skill autodetects candidates from marker files, agrees them with the
+engineer, and runs each one exactly once — a command that fails, hangs, or
+turns out not to exist goes back to the engineer as a question, never into
+the plan as an assumption. What survives that proof is written down at
+plan time, per block, on the block map entry:
 
-Sizes each block in changed lines against `delivery.prSizeBudget` (effective
-config, default 500), splitting anything over budget, and records the
-resulting landing strategy — branch name, PR title, member units, and
-commit sequence per PR group — in the plan document. Writes the plan
-document and block map, then materializes the agreed interface drafts as
-stubs — runtime-present, deliberately unimplemented (e.g. `throw new
-Error("NotImplemented: B<NN>")` in TypeScript) — each carrying a full
-contract docblock (Behavior, Inputs, Outputs, Errors, Invariants, Edge
-cases). Materialization is orchestrator-only, never delegated. It proves
-the design composes using the strongest available check from the effective
-config (`typecheck` > `build` > `lint` > none, deferring to the test wave's
-red run), stops for engineer approval of the verified design, and commits
-the approved scaffold as the phase boundary every unit worktree forks
-from.
+- **`Test:`** — required of every block: the command that runs this
+  block's tests. It is the only place any wave reads a test command from,
+  and a unit whose blocks record no `Test:` is a block-map defect, not a
+  silent skip.
+- **`Setup:`** — optional: the command that prepares the environment
+  before the tests run, written only where the repo needs one. Blocks
+  sharing a unit must agree on both fields.
+
+Sizes each block in changed lines against the **PR size budget** and splits
+anything over it, then records the **Landing strategy** in the plan
+document: the budget the design was sized against and the delivery mode the
+work lands under (`main-prs` or `local-only`) — the two plan facts with no
+home anywhere else — plus branch name, PR title, member units, and commit
+sequence per PR group. Budget and mode are decisions of the plan, agreed in
+conversation and read back from it at delivery, never settings resolved at
+run time. Writes the plan document and block map, then materializes the
+agreed interface drafts as stubs — runtime-present, deliberately
+unimplemented (e.g. `throw new Error("NotImplemented: B<NN>")` in
+TypeScript) — each carrying a full contract docblock (Behavior, Inputs,
+Outputs, Errors, Invariants, Edge cases). Materialization is
+orchestrator-only, never delegated. It proves the design composes using the
+strongest available check among the commands the plan proved (`typecheck` >
+`build` > `lint` > none, deferring to the test wave's red run), stops for
+engineer approval of the verified design, and commits the approved scaffold
+as the phase boundary every unit worktree forks from.
 
 **`/lego:dispatch`** (model-invocable) — Runs the per-unit pipeline
 described under Common workflows above. Notably:
 
 - Every unit gets its own worktree via `scripts/worktree.sh add`, which
-  runs the effective config's default test command as a baseline before
-  returning the worktree's path.
+  resolves the unit's `Setup:`/`Test:` commands from the block map and runs
+  them as a baseline before returning the worktree's path. `--setup-cmd`
+  and `--test-cmd` override the resolved value for one invocation — the
+  escape hatch when the map does not yet record the right command — and
+  never write back to the map.
 - Worker briefs are always written to
   `.local/briefs/NN-<wave>-<blocks>.md` before dispatch, and each worker
   writes its own report to `.local/reports/NN-<wave>-<blocks>.md` — the
@@ -201,13 +210,16 @@ hook's JSON output rather than a nonzero exit.
 **`scripts/worktree.sh`** — the unit-worktree lifecycle. Run from the
 integration worktree's repo root:
 
-- `add <plan-slug> <unit-id> <unit-slug>` — creates the unit branch
+- `add <plan-slug> <unit-id> <unit-slug> [--setup-cmd <cmd>]
+  [--test-cmd <cmd>]` — creates the unit branch
   `lego/<plan-slug>/<unit-id>-<unit-slug>` at the current HEAD and a
-  worktree at `<worktreeDir>/<repo-basename>-<unit-id>`
-  (`delivery.worktreeDir` from the effective config, default the repo
-  root's parent directory), seeds its `.local/` (a scoped `unit.md`, this
-  unit's contracts, any `.local/config.json` override), runs the baseline
-  test command, and prints the worktree's absolute path.
+  worktree at `<repo-root-parent>/<repo-basename>-<unit-id>`, seeds its
+  `.local/` (a scoped `unit.md` carrying this unit's block-map sections
+  with the delivery fields stripped, this unit's contracts), runs the
+  unit's `Setup:` command (when one is recorded) and then its `Test:`
+  command as the baseline, and prints the worktree's absolute path. Both
+  commands are resolved from the block map's own fields; the two flags
+  override them for this invocation only.
 - `merge <plan-slug> <unit-id> <unit-slug>` — merges the unit branch into
   the current branch with `--no-ff` (commit message
   `lego: merge <branch-name>`); refuses when the working tree has
@@ -241,17 +253,16 @@ integration worktree's repo root:
   branch directly (fails on a dirty tree or an unmerged branch). Unlike
   `merge` and `assemble`, this path is not best-effort: a failed archive
   exits nonzero and removes nothing.
-- `clean` — best-effort removes every fully-merged `lego/*/*` and
-  `lego/deliver/*/*` branch and its worktree; always exits 0.
+- `clean <plan-slug>` — best-effort removes every fully-merged branch of
+  that plan (`lego/<plan-slug>/*` and `lego/deliver/<plan-slug>/*`) and its
+  worktree; always exits 0. `clean --all` widens the sweep to every
+  `lego/*/*` and `lego/deliver/*/*` branch.
 
 **`scripts/realm.sh <path>`** — the single source of truth for the
 test-file family: basenames `*.spec.*`, `*.test.*`, `*_test.*`,
-`*_spec.*`, `test_*`, plus any path with a `__tests__/` segment, unioned
-with `testPatterns` from the effective config (requires `jq`; silently
-skipped without it). Prints `test` or `impl`. The gitignored override
-file's location can be redirected via `$LEGO_CONFIG` (default
-`.local/config.json`) — an internal seam used by this plugin's own test
-fixtures, not something you set by hand.
+`*_spec.*`, `test_*`, plus any path with a `__tests__/` segment. The family
+is built in and fixed — there is nothing to extend it with and nothing to
+keep in sync. Prints `test` or `impl`.
 
 **`scripts/realm-check.sh <test|impl> [diff-range]`** — the mechanical,
 post-hoc realm check the orchestrator runs at every wave boundary (catches
@@ -262,24 +273,29 @@ error.
 
 **`scripts/pr-size-check.sh [--budget <n>] [--justified] <diff-range> [--
 <pathspec>...]`** — measures a diff range's total changed lines against
-`delivery.prSizeBudget` (effective config, default 500) or an explicit
-`--budget`, and reports PASS/FAIL/WARN with a per-file breakdown when over
-budget. `--justified` turns an over-budget FAIL into a WARN and exits 0.
+`--budget` when given, else the built-in default of 500 — pass the budget
+the plan recorded — and reports PASS/FAIL/WARN with a per-file breakdown
+when over budget. `--justified` turns an over-budget FAIL into a WARN and exits 0.
 Exit 0 within budget (or over but justified), 1 over budget, 2 on a usage
 or environment error.
 
-**`scripts/wave-check.sh <test|impl> [options] [diff-range]`** — the
-mechanical half of a wave gate in one command: mode `test` proves the red
+**`scripts/wave-check.sh <test|impl> [--test-cmd "<command>"] [options]
+[diff-range]`** — the mechanical half of a wave gate in one command: mode `test` proves the red
 run is red for the right reason (never a collection/import failure) and
 realm-pure; mode `impl` proves the suite is green, realm-pure, and, with
 `--scaffold-ref` and one or more `--stub`, that contract docblocks and
-signatures are unchanged from the scaffold commit. One `WAVE-CHECK <CHECK>:
-PASS|FAIL|SKIPPED` line per check plus a summary verdict.
+signatures are unchanged from the scaffold commit. The command it runs is
+`--test-cmd` when given, else the `Test:` field of the unit worktree's
+seeded `unit.md`; when neither resolves it exits with an error rather than
+skipping silently. One `WAVE-CHECK <CHECK>: PASS|FAIL|SKIPPED` line per
+check plus a summary verdict.
 
 **`scripts/blocks-lint.sh [--budget <n>] [path/to/blocks.md]`** — the
 plan-time sizing lint: every block entry needs a bare-integer `Est:`, and
 every entry whose `Est` exceeds the **per-block ceiling** — derived, never
-configured, as `prSizeBudget / 2` — needs a non-empty `Justification:`.
+configured, as half the PR size budget — needs a non-empty
+`Justification:`. The budget is `--budget` when given, else the built-in
+default of 500.
 Run once at plan time and again as rung 0 of the scaffold gate (see
 `skills/plan/SKILL.md`), so a plan that shrank a budget after sizing its
 blocks can't slip an unjustified oversized block through to dispatch. Exit
@@ -287,13 +303,12 @@ blocks can't slip an unjustified oversized block through to dispatch. Exit
 
 ### Agents
 
-**`lego-test-writer`** (default model `sonnet`, override with
-`models.testWriter`) — writes tests against a scaffolded block's contract;
+**`lego-test-writer`** (model `sonnet`, set in the agent definition's
+frontmatter) — writes tests against a scaffolded block's contract;
 realm-restricted to test-family files only.
 
-**`lego-implementer`** (default model `sonnet`, override with
-`models.implementer`) — fills in a scaffolded block's internals to make
-the verified tests pass; may never touch a test-family file or change a
+**`lego-implementer`** (model `sonnet`, set the same way) — fills in a
+scaffolded block's internals to make the verified tests pass; may never touch a test-family file or change a
 public interface or contract.
 
 Both read their brief from `.local/briefs/` inside their unit worktree
@@ -355,13 +370,12 @@ bash plugins/lego/scripts/worktree.test.sh
 ```
 .claude-plugin/   plugin manifest
 skills/           plan, dispatch
-agents/           lego-test-writer, lego-implementer (sonnet by default);
+agents/           lego-test-writer, lego-implementer (model sonnet);
                   frontmatter registers the PreToolUse realm gate
 scripts/          realm.sh (test-family source of truth), realm-check.sh,
                   realm-gate.sh, worktree.sh (unit worktree lifecycle +
                   delivery)
-templates/        starter .claude/lego.json (lego.json) and blocks.md
-docs/             config schema / repo-interface spec
+templates/        blocks.md (the starter block map)
 ```
 
 History: ported from the clam-v2 repo at v0.3.0; skills renamed from
@@ -415,9 +429,10 @@ it's installed:
 /plugin uninstall lego@clam
 ```
 
-Before uninstalling, run `${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh clean`
-to remove any unit worktrees/branches left over from an interrupted run —
-`${CLAUDE_PLUGIN_ROOT}` stops resolving once the plugin is gone. The
-committed `.claude/lego.json` and the gitignored `.local/` (block map,
-plans) are not removed by uninstalling or by `clean`; delete them by hand
-if you want no trace.
+Before uninstalling, run
+`${CLAUDE_PLUGIN_ROOT}/scripts/worktree.sh clean --all` to remove any unit
+worktrees/branches left over from an interrupted run —
+`${CLAUDE_PLUGIN_ROOT}` stops resolving once the plugin is gone. Nothing
+committed is left behind — lego writes no settings into the repo — but the
+gitignored `.local/` (block map, plans) survives both uninstalling and
+`clean`; delete it by hand if you want no trace.

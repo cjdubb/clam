@@ -6,19 +6,28 @@
 #   - README.md               contract-level docs for background-first
 #                             dispatch scheduling, wave-check.sh,
 #                             blocks-lint.sh, and the derived per-block ceiling
-#   - docs/config-schema.md    prSizeBudget row documents the DERIVED ceiling,
-#                             introducing no new config key
 #   - templates/blocks.md      example entry carries the optional
 #                             `Justification:` line
 #   - .claude-plugin/plugin.json  version per the plan's landing strategy
 #
-# None of these four files carries a removable contract comment, so plain
-# whole-file anchors here cannot be satisfied by a contract quoting itself
-# (the trap scaffold-skill.test.sh has to work around). Two checks go beyond
-# anchors:
-#   - the field-name list of config-schema's schema table is pinned, so
-#     "introduces no new config key" is mechanically enforced rather than
-#     assumed;
+# It also carries Contract: B10 docs-and-templates (plan
+# 001-lego-config-redesign) — the closed-world gate over the config removal:
+#   - docs/config-schema.md and templates/lego.json are ABSENT;
+#   - README.md describes the blocks.md-fields interface (per-block
+#     `Setup:`/`Test:` proved by execution at plan time, budget and delivery
+#     mode as Landing-strategy plan facts, --budget/--test-cmd as the
+#     mechanical override channel) and names NO config surface;
+#   - templates/blocks.md's example entry carries `Setup:`/`Test:`;
+#   - MIGRATION.md gains an entry for the removal and keeps its history.
+#
+# Prose-block discipline: every .md assertion here runs against the
+# comment-STRIPPED view of the file (strip_comments), so a contract comment
+# quoting itself can never satisfy a check and the suite survives the
+# comment's deletion at acceptance. The one deliberate exception is
+# templates/blocks.md's example entry, which LIVES inside an HTML comment
+# ("delete once real blocks exist") and is the deliverable itself.
+#
+# One check goes beyond anchors:
 #   - blocks-lint.sh is RUN against templates/blocks.md with a tiny budget,
 #     proving the example entry's Justification actually satisfies the lint
 #     it is an example of (the contract's "justified over-ceiling block:
@@ -29,8 +38,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$SCRIPT_DIR/.."
 README="$PLUGIN_DIR/README.md"
-CONFIG_SCHEMA="$PLUGIN_DIR/docs/config-schema.md"
+CONFIG_SCHEMA="$PLUGIN_DIR/docs/config-schema.md"      # B10: must NOT exist
+CONFIG_TEMPLATE="$PLUGIN_DIR/templates/lego.json"      # B10: must NOT exist
 BLOCKS_TEMPLATE="$PLUGIN_DIR/templates/blocks.md"
+MIGRATION="$PLUGIN_DIR/../../MIGRATION.md"
 PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 BLOCKS_LINT="$SCRIPT_DIR/blocks-lint.sh"
 
@@ -88,6 +99,56 @@ has_any_i() { # content literal...
   echo no
 }
 
+# CONTENT with every HTML comment removed, including multi-line ones and the
+# text around a comment that opens or closes mid-line. Prose-block discipline:
+# a contract comment must never be able to satisfy an assertion about the
+# prose it specifies, and every check must keep passing once the comment is
+# deleted at acceptance.
+strip_comments() { # content
+  awk '
+    {
+      line = $0; out = ""
+      while (1) {
+        if (incomment) {
+          i = index(line, "-->")
+          if (i == 0) { line = ""; break }
+          incomment = 0
+          line = substr(line, i + 3)
+        } else {
+          i = index(line, "<!--")
+          if (i == 0) { out = out line; break }
+          out = out substr(line, 1, i - 1)
+          line = substr(line, i + 4)
+          incomment = 1
+        }
+      }
+      print out
+    }
+  ' <<<"$1"
+}
+
+# The neighborhood of a literal: every matching line plus <n> lines of
+# context either side. Used where the contract fixes that two facts are
+# stated TOGETHER (e.g. `Test:` and "required") without fixing the sentence.
+near() { # content literal context_lines
+  grep -F -B"$3" -A"$3" -- "$2" <<<"$1"
+}
+
+# The first "## " section of CONTENT whose body contains LITERAL (case
+# insensitive), heading included. Empty when no section matches.
+section_with_i() { # content literal
+  local content="$1" lit="$2"
+  local starts=() total i s e sec ln
+  while IFS= read -r ln; do starts+=("$ln"); done < <(grep -n '^## ' <<<"$content" | cut -d: -f1)
+  total=$(wc -l <<<"$content")
+  for (( i = 0; i < ${#starts[@]}; i++ )); do
+    s=${starts[i]}
+    if (( i + 1 < ${#starts[@]} )); then e=$(( ${starts[i+1]} - 1 )); else e=$total; fi
+    sec=$(sed -n "${s},${e}p" <<<"$content")
+    if grep -qiF -- "$lit" <<<"$sec"; then printf '%s\n' "$sec"; return; fi
+  done
+}
+
 # Extracts a section from CONTENT: the line matching <start> at column 1,
 # through to (not including) the next markdown heading of any level.
 section_of() { # content start_literal
@@ -108,7 +169,7 @@ without_h2_section() { # content start_literal
   ' <<<"$1"
 }
 
-for f in "$README" "$CONFIG_SCHEMA" "$BLOCKS_TEMPLATE" "$PLUGIN_JSON"; do
+for f in "$README" "$BLOCKS_TEMPLATE" "$PLUGIN_JSON"; do
   if [[ ! -f "$f" ]]; then
     echo "FAIL  required file not found: $f"
     exit 1
@@ -116,8 +177,21 @@ for f in "$README" "$CONFIG_SCHEMA" "$BLOCKS_TEMPLATE" "$PLUGIN_JSON"; do
 done
 
 README_RAW=$(cat "$README")
-SCHEMA_RAW=$(cat "$CONFIG_SCHEMA")
 TEMPLATE_RAW=$(cat "$BLOCKS_TEMPLATE")
+
+# The comment-stripped views every prose assertion below runs against.
+README_DOC=$(strip_comments "$README_RAW")
+
+# ===========================================================================
+# Contract: B10 — the config surface is DELETED
+# ===========================================================================
+# File absence, not "no longer referenced": the schema doc and the starter
+# config template are gone from the shipped plugin.
+
+check "B10: docs/config-schema.md is deleted ($CONFIG_SCHEMA)" \
+  "$([[ -e "$CONFIG_SCHEMA" ]] && echo present || echo absent)" "absent"
+check "B10: templates/lego.json is deleted ($CONFIG_TEMPLATE)" \
+  "$([[ -e "$CONFIG_TEMPLATE" ]] && echo present || echo absent)" "absent"
 
 # ===========================================================================
 # README.md — the new mechanisms documented at contract level
@@ -125,12 +199,12 @@ TEMPLATE_RAW=$(cat "$BLOCKS_TEMPLATE")
 
 # --- Behavior: background-first dispatch scheduling ------------------------
 check "README: dispatch scheduling is documented as background-first" \
-  "$(has_any_i "$README_RAW" 'background')" "yes"
+  "$(has_any_i "$README_DOC" 'background')" "yes"
 
 # --- Behavior: the two new scripts are documented under ### Scripts --------
 # Scoped to the Scripts section rather than the whole file: a passing
 # mention elsewhere is not "documented at contract level".
-README_SCRIPTS=$(section_of "$README_RAW" '### Scripts')
+README_SCRIPTS=$(section_of "$README_DOC" '### Scripts')
 
 check "README: ### Scripts section exists" \
   "$(has_f "$README_SCRIPTS" '### Scripts')" "yes"
@@ -140,35 +214,83 @@ check "README: blocks-lint.sh documented under ### Scripts" \
   "$(has_f "$README_SCRIPTS" 'blocks-lint.sh')" "yes"
 
 # --- Behavior: the derived per-block ceiling ------------------------------
+# B10 rewrite: the ceiling is still DERIVED and still documented, but it is
+# derived from the plan's PR size budget, not from a config key. The old
+# `prSizeBudget / 2` anchor pinned the deleted config surface and is replaced
+# by a wording-tolerant derivation check plus the forbidden-vocabulary sweep
+# below, which is what makes the replacement at least as tight.
 check "README: the per-block ceiling is named" \
-  "$(has_any_i "$README_RAW" 'ceiling')" "yes"
-check "README: the ceiling is stated as derived from prSizeBudget" \
-  "$(has_f "$README_RAW" 'prSizeBudget / 2')" "yes"
+  "$(has_any_i "$README_DOC" 'ceiling')" "yes"
+check "README: the ceiling is stated as half the PR size budget (derived, not configured)" \
+  "$(has_any_i "$README_DOC" 'half the PR size budget' 'half of the PR size budget' 'half the budget' 'half of the budget' 'PR size budget / 2' 'PR size budget divided')" "yes"
 
 # ===========================================================================
-# docs/config-schema.md — the prSizeBudget row, and no new key
+# Contract: B10 — README describes the blocks.md-fields interface
 # ===========================================================================
+# The interface that REPLACES the deleted config: per-block `Setup:`
+# (optional) / `Test:` (required) recorded on the block map at plan time
+# after proof by execution; budget and delivery mode as plan facts in the
+# Landing strategy; --budget/--test-cmd as the mechanical override channel.
 
-# The schema's field table row for delivery.prSizeBudget, matched on the
-# row's first cell so the assertion lands on the row itself, not the file.
-BUDGET_ROW=$(grep -F -- '| `delivery.prSizeBudget`' "$CONFIG_SCHEMA")
+check "README: the block map's per-block Test: field is documented" \
+  "$(has_f "$README_DOC" 'Test:')" "yes"
+check "README: the block map's per-block Setup: field is documented" \
+  "$(has_f "$README_DOC" 'Setup:')" "yes"
+check "README: Test: is documented as required" \
+  "$(has_any_i "$(near "$README_DOC" 'Test:' 3)" 'required' 'every block')" "yes"
+check "README: Setup: is documented as optional" \
+  "$(has_any_i "$(near "$README_DOC" 'Setup:' 3)" 'optional')" "yes"
+check "README: the commands are documented as proved by execution" \
+  "$(has_any_i "$README_DOC" 'proved by execution' 'proven by execution' 'proof by execution' 'proved by running' 'proven by running')" "yes"
+check "README: the commands are documented as recorded at plan time" \
+  "$(has_any_i "$README_DOC" 'at plan time' 'plan time')" "yes"
 
-check "config-schema: delivery.prSizeBudget row exists" \
-  "$([[ -n "$BUDGET_ROW" ]] && echo yes || echo no)" "yes"
-check "config-schema: the prSizeBudget row documents the per-block ceiling" \
-  "$(has_any_i "$BUDGET_ROW" 'ceiling')" "yes"
-check "config-schema: the prSizeBudget row shows the derivation prSizeBudget / 2" \
-  "$(has_f "$BUDGET_ROW" 'prSizeBudget / 2')" "yes"
+# Budget and delivery mode as plan facts in the Landing strategy: both facts
+# must live in the Landing-strategy neighborhood, not merely somewhere in the
+# file, so "recorded in the plan" is pinned rather than assumed.
+README_LANDING=$(near "$README_DOC" 'Landing strategy' 6)
+check "README: a Landing strategy is documented" \
+  "$([[ -n "$README_LANDING" ]] && echo yes || echo no)" "yes"
+check "README: the budget is a plan fact in the Landing strategy" \
+  "$(has_any_i "$README_LANDING" 'budget')" "yes"
+check "README: the delivery mode is a plan fact in the Landing strategy" \
+  "$(has_any_i "$README_LANDING" 'delivery mode')" "yes"
 
-# --- Invariant: the ceiling introduces NO new config key ------------------
-# The schema table's first column, in order. A row added or removed here is
-# a config-surface change, which this block's contract forbids: the ceiling
-# is derived, never configured.
-SCHEMA_FIELDS=$(grep -oE '^\| `[^`]+`' "$CONFIG_SCHEMA" | sed 's/^| //' | tr -d '`' | paste -sd, -)
-EXPECTED_FIELDS='commands.test,commands.typecheck,commands.build,commands.lint,models.testWriter,models.implementer,testPatterns,delivery.mode,delivery.worktreeDir,delivery.prSizeBudget'
+# The mechanical override channel: flags, not files.
+check "README: the --budget override flag is documented" \
+  "$(has_f "$README_DOC" '--budget')" "yes"
+check "README: the --test-cmd override flag is documented" \
+  "$(has_f "$README_DOC" '--test-cmd')" "yes"
 
-check "config-schema: config keys unchanged (no new key for the ceiling)" \
-  "$SCHEMA_FIELDS" "$EXPECTED_FIELDS"
+# ===========================================================================
+# Contract: B10 — closed world over the deleted config surface
+# ===========================================================================
+# Invariant: no surviving doc describes a config file as part of lego's
+# interface. Every literal below is vocabulary of the deleted surface; a
+# single surviving mention in README.md or templates/blocks.md is a FAIL.
+# Edge case: MIGRATION.md's historical entries are EXEMPT — history is
+# preserved verbatim there, and MIGRATION.md is deliberately not swept here.
+DEAD_CONFIG_REFS=(
+  '.claude/lego.json' '.local/config.json' 'lego.json' 'config.json'
+  'config-schema' 'effective config' 'layered config'
+  'testPatterns' 'prSizeBudget'
+  'models.testWriter' 'models.implementer'
+  'delivery.mode' 'delivery.worktreeDir'
+)
+for ref in "${DEAD_CONFIG_REFS[@]}"; do
+  check "README closed world: no reference to the deleted config surface '$ref'" \
+    "$(has_any_i "$README_DOC" "$ref")" "no"
+  check "templates/blocks.md closed world: no reference to the deleted config surface '$ref'" \
+    "$(has_any_i "$TEMPLATE_RAW" "$ref")" "no"
+done
+
+# Any OTHER backticked `models.<key>` / `delivery.<key>` / `commands.<key>`
+# config key, so a renamed or newly invented config key cannot slip past the
+# literal list above.
+check "README closed world: no backticked config key of the deleted surface survives" \
+  "$(grep -qE '`(models|delivery|commands)\.[A-Za-z]' <<<"$README_DOC" && echo yes || echo no)" "no"
+check "templates/blocks.md closed world: no backticked config key of the deleted surface survives" \
+  "$(grep -qE '`(models|delivery|commands)\.[A-Za-z]' <<<"$TEMPLATE_RAW" && echo yes || echo no)" "no"
 
 # ===========================================================================
 # templates/blocks.md — the example entry's optional Justification line
@@ -191,6 +313,23 @@ check "templates/blocks.md: the Justification line carries a non-empty value" \
   "$(grep -qE '^[[:space:]]*- Justification:[[:space:]]*[^[:space:]]' <<<"$EXAMPLE_ENTRY" && echo yes || echo no)" "yes"
 check "templates/blocks.md: the field is documented as optional" \
   "$(has_any_i "$TEMPLATE_RAW" 'optional')" "yes"
+
+# --- Contract: B10 — the example entry gains Setup:/Test: -----------------
+# Adjacent block-entry fields in the same example, so a fresh repo inherits
+# the interface that replaced the config: `Test:` required, `Setup:`
+# optional, both carrying a real command as their value.
+check "templates/blocks.md: example entry carries a Test: line" \
+  "$(grep -qE '^[[:space:]]*- Test:' <<<"$EXAMPLE_ENTRY" && echo yes || echo no)" "yes"
+check "templates/blocks.md: the Test: line carries a non-empty command" \
+  "$(grep -qE '^[[:space:]]*- Test:[[:space:]]*[^[:space:]]' <<<"$EXAMPLE_ENTRY" && echo yes || echo no)" "yes"
+check "templates/blocks.md: example entry carries a Setup: line" \
+  "$(grep -qE '^[[:space:]]*- Setup:' <<<"$EXAMPLE_ENTRY" && echo yes || echo no)" "yes"
+check "templates/blocks.md: the Setup: line carries a non-empty command" \
+  "$(grep -qE '^[[:space:]]*- Setup:[[:space:]]*[^[:space:]]' <<<"$EXAMPLE_ENTRY" && echo yes || echo no)" "yes"
+check "templates/blocks.md: Test: is documented as required" \
+  "$(has_any_i "$(near "$TEMPLATE_RAW" 'Test:' 3)" 'required' 'every block')" "yes"
+check "templates/blocks.md: Setup: is documented as optional" \
+  "$(has_any_i "$(near "$TEMPLATE_RAW" 'Setup:' 3)" 'optional')" "yes"
 
 # --- Edge case (end to end): a justified over-ceiling block passes lint ----
 # Budget 2 gives ceiling 1, so the example's Est is over ceiling whatever it
@@ -289,16 +428,76 @@ for name in "${FOREIGN_NAMES[@]}"; do
   FOREIGN_REFS+=("$name plugin")
 done
 
-README_SANS_REL=$(without_h2_section "$README_RAW" '## Relationships to other plugins')
+README_SANS_REL=$(without_h2_section "$README_DOC" '## Relationships to other plugins')
 
 for ref in "${FOREIGN_REFS[@]}"; do
   check "README layering: no reference to '$ref' outside Relationships" \
     "$(has_f "$README_SANS_REL" "$ref")" "no"
-  check "config-schema layering: no reference to '$ref'" \
-    "$(has_f "$SCHEMA_RAW" "$ref")" "no"
   check "templates/blocks.md layering: no reference to '$ref'" \
     "$(has_f "$TEMPLATE_RAW" "$ref")" "no"
 done
+
+# ===========================================================================
+# Contract: B10 — MIGRATION.md gains the config-removal entry
+# ===========================================================================
+# MIGRATION.md lives in the marketplace repo root, so it is present only in a
+# checkout — a standalone plugin install SKIPs here rather than failing, the
+# same rule the root-README version agreement uses above.
+if [[ ! -f "$MIGRATION" ]]; then
+  echo "SKIP  MIGRATION.md not found at $MIGRATION — standalone plugin install, migration entry not checked"
+else
+  MIGRATION_DOC=$(strip_comments "$(cat "$MIGRATION")")
+
+  # The entry is located by its subject (the config removal at 0.20.x), not
+  # by a fixed heading, so the wording stays the author's.
+  CONFIG_ENTRY=$(section_with_i "$MIGRATION_DOC" '0.20')
+
+  check "MIGRATION: an entry for the 0.20.x config removal exists" \
+    "$([[ -n "$CONFIG_ENTRY" ]] && echo yes || echo no)" "yes"
+  check "MIGRATION: the entry names the removal as its subject" \
+    "$(has_any_i "$CONFIG_ENTRY" 'config')" "yes"
+
+  # What was deleted.
+  for gone in 'config-schema.md' 'lego.json' 'config.json'; do
+    check "MIGRATION: the entry names '$gone' among what was deleted" \
+      "$(has_any_i "$CONFIG_ENTRY" "$gone")" "yes"
+  done
+
+  # What replaces it: the blocks.md fields, the Landing-strategy plan facts,
+  # and the flag override channel.
+  check "MIGRATION: the entry names the blocks.md Test: field as the replacement" \
+    "$(has_f "$CONFIG_ENTRY" 'Test:')" "yes"
+  check "MIGRATION: the entry names the blocks.md Setup: field as the replacement" \
+    "$(has_f "$CONFIG_ENTRY" 'Setup:')" "yes"
+  check "MIGRATION: the entry names the Landing strategy as the home of budget and delivery mode" \
+    "$(has_any_i "$CONFIG_ENTRY" 'Landing strategy')" "yes"
+  check "MIGRATION: the entry names the flag override channel" \
+    "$(has_any_i "$CONFIG_ENTRY" '--budget' '--test-cmd')" "yes"
+
+  # --- Invariant: history is preserved verbatim, never edited -------------
+  # Append-only: the pre-existing lego entry's own sentences — including its
+  # historical mentions of the now-deleted config files, which the exemption
+  # above deliberately allows — must survive unchanged.
+  MIGRATION_LEGO=$(section_with_i "$MIGRATION_DOC" '## lego — ported (from clam-v2)')
+  check "MIGRATION: the pre-existing lego entry survives" \
+    "$([[ -n "$MIGRATION_LEGO" ]] && echo yes || echo no)" "yes"
+  for kept in \
+    '## lego — ported (from clam-v2)' \
+    'Skills renamed to drop the redundant prefix' \
+    'templates/lego.json` (renamed from clam-v2'"'"'s `config.json`)' \
+    'The status stays **ported' \
+    'superseded by this plugin.'
+  do
+    check "MIGRATION history preserved verbatim: '$kept'" \
+      "$(has_f "$MIGRATION_DOC" "$kept")" "yes"
+  done
+
+  # The exemption itself is stated in prose where the closed-world sweep is
+  # defined ("Edge case: MIGRATION.md's historical entries are EXEMPT ..."),
+  # per the contract's edge case. It is deliberately not re-asserted by a
+  # check here: a grep of this file for its own sentence would be satisfied
+  # by the check line itself, which proves nothing.
+fi
 
 # ===========================================================================
 # Contract: B03 handoff wiring + docs + version

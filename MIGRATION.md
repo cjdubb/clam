@@ -39,6 +39,52 @@ The v1 lego agents in clam-code (`lego-builder`, `lego-stub-builder`,
 `lego-test-writer`) and the `lego-dispatch-guard.sh` hook are **dropped** —
 superseded by this plugin.
 
+### 0.20.x — the config interface is removed
+
+Appended, not a rewrite: everything above records the port as it happened,
+including the config surface that existed then and is described there in the
+past tense from here on. At lego 0.20.x that surface is deleted outright, so
+a reader arriving from an older install knows where each piece went. This
+subsection lives inside the lego entry rather than as an entry of its own —
+one section per plugin is this file's own invariant.
+
+Deleted, with no successor file and nothing to migrate by hand:
+
+- `plugins/lego/docs/config-schema.md`, the repo-interface schema doc.
+- `plugins/lego/templates/lego.json`, the starter config a repo copied to
+  `.claude/lego.json`.
+- The layered pair the scripts read at run time: a repo's committed
+  `.claude/lego.json` base and its gitignored `.local/config.json`
+  override, together with the `$LEGO_CONFIG` seam that redirected the
+  latter. No code path reads either file any more. A repo that still has
+  them can delete them; they are inert, and leaving them changes nothing.
+
+What replaces each thing that config carried:
+
+- **Test and setup commands** move onto the block map, per block, as the
+  `Test:` field (required of every block) and the `Setup:` field
+  (optional). `/lego:plan` agrees them with the engineer and proves each by
+  execution before recording it, so a command is written down only after it
+  has been seen to run — which the old `commands.test` key could never
+  guarantee. Per-block fields also replace the named test-command variants:
+  a monorepo scope is now just a different block's `Test:` value.
+- **The PR size budget and the delivery mode** (`main-prs` or `local-only`)
+  become plan facts, recorded in the plan document's **Landing strategy**
+  section alongside the branch names, PR titles, and commit sequences
+  already kept there. The per-block ceiling stays derived from the budget —
+  half of it — and was never a config key.
+- **The mechanical override channel is flags, not files.** `--budget` on
+  `pr-size-check.sh` and `blocks-lint.sh`, `--test-cmd` on `wave-check.sh`,
+  and `--setup-cmd`/`--test-cmd` on `worktree.sh add` override a resolved
+  value for one invocation and never write back. Omitted, the sizing
+  scripts fall back to their built-in default of 500.
+- **The extra test-family globs** (the old `testPatterns` union) are gone
+  with no replacement: `scripts/realm.sh`'s built-in family is all of it.
+- **Worker model selection** is the agent definitions' own frontmatter
+  (`sonnet` for both), not a config key.
+- **The unit-worktree location** is always the repo root's parent
+  directory.
+
 ## pr-workflow — planned
 
 - Skills: `create-pr`, `address-pr-feedback`, `get-pr-comments`,

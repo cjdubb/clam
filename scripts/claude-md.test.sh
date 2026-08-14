@@ -120,11 +120,33 @@ assert_re "reference-forms table: Filesystem path -> plugins/tracking/lib/…" "
   '\|[[:space:]]*Filesystem path[[:space:]]*\|[[:space:]]*`plugins/tracking/lib/…`[[:space:]]*\|'
 
 # ===========================================================================
-# Behavior 4 — the word-sense caution, unchanged from current.
+# Behavior 4 — the word-sense caution, post-B11-migration wording. B11
+# deletes this repo's own .claude/lego.json and rewrites the caveat to
+# reference blocks.md's command-field context (Setup:/Test: command lines
+# on block-map entries) instead of the now-deleted config file; CLAUDE.md
+# must not mention lego.json anywhere once that migration lands.
+#
+# The $DOC strip above only removes a "Contract: B02" comment, which no
+# longer exists in this file (B02 was accepted and its comment removed long
+# ago), so $DOC here is effectively the raw file — including THIS unit's
+# own "Contract: B11" comment at the top, which narrates "lego.json" and
+# "blocks.md" as part of describing the migration itself. Testing the two
+# assertions below against $DOC would go green against the unmodified stub
+# for the wrong reason (matching the contract comment's narration, not the
+# rewritten body prose), and the negative assertion would go green forever
+# just from the contract comment mentioning lego.json descriptively even
+# after the real migration lands. So both strip the B11 contract comment
+# first, the same way the B02 strip above does for its own comment.
 # ===========================================================================
+DOC_NO_B11_CONTRACT="$(sed '/<!-- Contract: B11/,/^-->$/d' "$CLAUDE_MD")"
+
 assert_re "word-sense caution: 'landing strategy' is lego's own vocabulary" "$DOC" 'landing strategy'
-assert_re "word-sense caution: 'build' in lego.json is a command, not a reference" "$DOC" 'lego\.json'
+assert_re "word-sense caution: 'build' in blocks.md's command-field context is a command, not a reference" \
+  "$DOC_NO_B11_CONTRACT" 'blocks\.md'
 assert_re "word-sense caution states neither is a plugin reference" "$DOC" 'neither is a plugin reference'
+
+lego_json_mentions=$(printf '%s' "$DOC_NO_B11_CONTRACT" | grep -c 'lego\.json' || true)
+check "CLAUDE.md no longer mentions lego.json anywhere (contract comment excluded)" "${lego_json_mentions:-0}" "0"
 
 # ===========================================================================
 # Behavior 5 — pointers to ARCHITECTURE.md (normative, read before

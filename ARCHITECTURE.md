@@ -290,8 +290,9 @@ exceptions to the rule.
 Word-sense collisions run the other way: a plugin's own domain vocabulary
 can coincide with another plugin's name without being a reference at all.
 `lego`'s own "landing strategy" is lego's domain vocabulary, not a nod to
-the `landing` plugin, and `build` in a `lego.json` config is a build
-*command*, not the `build` composite. Neither is a hit.
+the `landing` plugin, and `build` in one of `blocks.md`'s `Setup:`/`Test:`
+command-field lines is a build *command*, not the `build` composite.
+Neither is a hit.
 
 `scripts/architecture-lint.sh` mechanically enforces these four forms
 inside `plugins/*/` — a plugin naming a sibling in its own tracked files.

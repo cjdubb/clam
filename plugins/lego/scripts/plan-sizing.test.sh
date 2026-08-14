@@ -49,10 +49,27 @@
 #     keeps the red run red; a check written against $RAW would pass today
 #     off the comment and keep passing after the comment is removed with no
 #     prose ever written.
+#
+# Sections 16-onward extend the same approach to Contract: B14 —
+# plan-skill-split-estimates: Step 3a item 1 gains an Est-impl:/Est-tests:
+# pair per block (Est-tests defaulting to 3x Est-impl unless overridden per
+# block with a stated reason), with Est: recorded as their bare-integer sum;
+# Step 4's block-entry template and templates/blocks.md's example entry both
+# carry the pair above Est:. Two notes specific to this contract:
+#   - The docblock for B14 sits directly under the "## Step 3a" heading, so
+#     it is excluded from every $STRIPPED slice the same way B03/B08's
+#     docblocks are — a check written against $RAW would false-green off the
+#     comment's own vocabulary.
+#   - templates/blocks.md carries no contract docblock of its own (its
+#     "Example entry; delete once real blocks exist" comment is a permanent
+#     template device, not a contract docblock removed at acceptance), so
+#     its checks below read the file's raw content directly, and the
+#     Est-equals-sum check is arithmetic, not a token match.
 # Run: bash plugins/lego/scripts/plan-sizing.test.sh   (exits non-zero on failure)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL="$SCRIPT_DIR/../skills/plan/SKILL.md"
+BLOCKS_TEMPLATE="$SCRIPT_DIR/../templates/blocks.md"
 
 FAILED=0
 
@@ -118,11 +135,18 @@ if [[ ! -f "$SKILL" ]]; then
   echo "FAIL  SKILL.md not found at $SKILL"
   exit 1
 fi
+if [[ ! -f "$BLOCKS_TEMPLATE" ]]; then
+  echo "FAIL  templates/blocks.md not found at $BLOCKS_TEMPLATE"
+  exit 1
+fi
 
 RAW=$(cat "$SKILL")
 # Comment-stripped view — see the header note. Every section below is sliced
 # out of THIS, never out of $RAW.
 STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
+# templates/blocks.md carries no contract docblock (see header note) — read
+# raw, with no stripping.
+TEMPLATE_RAW=$(cat "$BLOCKS_TEMPLATE")
 
 # Step 3's decomposition body: the leaf definition and the per-block
 # agreement bullets, sliced short of the "### Every deliverable yields..."
@@ -415,6 +439,122 @@ check "invariant: the per-block ceiling rules still live in item 2" \
   "$(has_re "$STEP3A_ITEM2" "[Cc]eiling")" "yes"
 check "invariant: the Justification: path still lives in item 2" \
   "$(has_f "$STEP3A_ITEM2" "Justification:")" "yes"
+
+# === Contract: B14 — plan-skill-split-estimates ============================
+# Line number of the first occurrence of a literal string within CONTENT
+# (1-indexed), empty when absent. Used for "field X sits above field Y"
+# ordering checks the existing near_all/has_f helpers don't express.
+field_line() { # content literal
+  grep -nF -- "$2" <<<"$1" | head -1 | cut -d: -f1
+}
+
+# The observed default multiple (3x). Several spellings are equally correct
+# prose, matching the style of B08's TEST_MULTIPLE_RE above.
+DEFAULT_MULTIPLE_RE='(3[^0-9]{1,6}(x|X|×|times)|[Tt]hree[^0-9]{1,8}times)'
+
+# --- 16. Behavior: item 1 directs recording an Est-impl:/Est-tests: pair,
+# with Est-tests defaulting to 3x Est-impl -----------------------------------
+check "item 1 names an Est-impl: field" \
+  "$(has_f "$STEP3A_ITEM1" "Est-impl:")" "yes"
+check "item 1 names an Est-tests: field" \
+  "$(has_f "$STEP3A_ITEM1" "Est-tests:")" "yes"
+check "item 1 states the 3x default multiple" \
+  "$(has_re "$STEP3A_ITEM1" "$DEFAULT_MULTIPLE_RE")" "yes"
+check "item 1 states the default in terms of Est-impl/Est-tests" \
+  "$(near_all 6 "$STEP3A_ITEM1" "$DEFAULT_MULTIPLE_RE" "Est-impl:" "Est-tests:")" "yes"
+
+# --- 17. Behavior, cont.: the default is overridable per block with a
+# stated reason --------------------------------------------------------------
+check "item 1 allows overriding the default" \
+  "$(has_re "$STEP3A_ITEM1" "[Oo]verrid")" "yes"
+check "item 1 requires a stated reason for an override" \
+  "$(has_re "$STEP3A_ITEM1" "[Rr]eason")" "yes"
+check "the override and its stated reason are stated together" \
+  "$(near_all 6 "$STEP3A_ITEM1" "[Oo]verrid" "[Rr]eason")" "yes"
+check "the override is recorded per block, in the entry" \
+  "$(near_all 8 "$STEP3A_ITEM1" "[Oo]verrid" "[Ee]ntry")" "yes"
+
+# --- 18. Behavior, cont.: Est: is recorded as the pair's sum, still a bare
+# integer — no new unit, no split field --------------------------------------
+check "item 1 records Est: as the sum of the pair" \
+  "$(has_re "$STEP3A_ITEM1" "[Ss]um")" "yes"
+check "item 1 keeps Est: a single, bare integer" \
+  "$(has_re "$STEP3A_ITEM1" "([Bb]are integer|single integer|still an integer)")" "yes"
+check "the sum and the bare-integer statement are stated together" \
+  "$(near_all 8 "$STEP3A_ITEM1" "[Ss]um" "([Bb]are integer|single integer|still an integer)")" "yes"
+
+# --- 19. Edge case: a prose/config block may argue Est-tests down to 0 with
+# a stated reason -------------------------------------------------------------
+check "item 1 allows arguing Est-tests down to 0" \
+  "$(has_re "$STEP3A_ITEM1" "down to 0")" "yes"
+check "the down-to-0 edge case carries a stated reason" \
+  "$(near_all 8 "$STEP3A_ITEM1" "down to 0" "[Rr]eason")" "yes"
+
+# --- 20. Edge case: an entry without the pair stays valid — Est: alone is
+# still a complete estimate ---------------------------------------------------
+check "item 1 allows a pair-less entry to stay valid" \
+  "$(has_re "$STEP3A_ITEM1" "([Ww]ithout the pair|no pair|pair-less)")" "yes"
+check "a pair-less entry's Est: alone is still a complete estimate" \
+  "$(near_all 8 "$STEP3A_ITEM1" "([Ww]ithout the pair|no pair|pair-less)" "([Vv]alid|complete)")" "yes"
+
+# --- 21. Invariants: item 1's pre-existing content survives (the suite
+# already pins these in section 15 for B08 — repeated here only as an
+# explicit B14 trace point, not weakened) -------------------------------------
+check "invariant (B14 trace): item 1 still calls the estimates rough" \
+  "$(has_re "$STEP3A_ITEM1" "[Rr]ough")" "yes"
+check "invariant (B14 trace): item 1 still estimates in changed lines" \
+  "$(has_f "$STEP3A_ITEM1" "changed lines")" "yes"
+check "invariant (B14 trace): item 1 still points at pr-size-check.sh" \
+  "$(has_f "$STEP3A_ITEM1" "pr-size-check.sh")" "yes"
+check "invariant (B14 trace): the ceiling rule still lives in item 2" \
+  "$(has_re "$STEP3A_ITEM2" "[Cc]eiling")" "yes"
+check "invariant (B14 trace): the Justification: path still lives in item 2" \
+  "$(has_f "$STEP3A_ITEM2" "Justification:")" "yes"
+
+# --- 22. Placement: the new field pair is introduced in item 1, not item 2 -
+check "Est-impl: is not introduced in item 2" \
+  "$(has_f "$STEP3A_ITEM2" "Est-impl:")" "no"
+check "Est-tests: is not introduced in item 2" \
+  "$(has_f "$STEP3A_ITEM2" "Est-tests:")" "no"
+
+# --- 23. Output: Step 4's block-entry template carries the two new field
+# lines above Est: -------------------------------------------------------
+check "Step 4 template shows an Est-impl: field" \
+  "$(has_f "$STEP4_SECTION" "- Est-impl:")" "yes"
+check "Step 4 template shows an Est-tests: field" \
+  "$(has_f "$STEP4_SECTION" "- Est-tests:")" "yes"
+
+STEP4_ESTIMPL_LINE="$(field_line "$STEP4_SECTION" "- Est-impl:")"
+STEP4_ESTTESTS_LINE="$(field_line "$STEP4_SECTION" "- Est-tests:")"
+STEP4_EST_LINE="$(field_line "$STEP4_SECTION" "- Est: <estimated changed lines>")"
+
+check "Step 4 template: Est-impl: sits above Est:" \
+  "$([[ -n "$STEP4_ESTIMPL_LINE" && -n "$STEP4_EST_LINE" && "$STEP4_ESTIMPL_LINE" -lt "$STEP4_EST_LINE" ]] && echo yes || echo no)" "yes"
+check "Step 4 template: Est-tests: sits above Est:" \
+  "$([[ -n "$STEP4_ESTTESTS_LINE" && -n "$STEP4_EST_LINE" && "$STEP4_ESTTESTS_LINE" -lt "$STEP4_EST_LINE" ]] && echo yes || echo no)" "yes"
+check "Step 4 template: Est-impl: sits above Est-tests:" \
+  "$([[ -n "$STEP4_ESTIMPL_LINE" && -n "$STEP4_ESTTESTS_LINE" && "$STEP4_ESTIMPL_LINE" -lt "$STEP4_ESTTESTS_LINE" ]] && echo yes || echo no)" "yes"
+check "the pair sits together, immediately above Est:" \
+  "$(near_all 2 "$STEP4_SECTION" "^[[:space:]]*- Est-impl:" "^[[:space:]]*- Est-tests:" "^[[:space:]]*- Est: <estimated changed lines>")" "yes"
+
+# --- 24. Cross-file: templates/blocks.md's example entry shows the pair,
+# and its Est: equals the pair's sum ------------------------------------------
+check "templates/blocks.md example entry shows an Est-impl: field" \
+  "$(has_f "$TEMPLATE_RAW" "- Est-impl:")" "yes"
+check "templates/blocks.md example entry shows an Est-tests: field" \
+  "$(has_f "$TEMPLATE_RAW" "- Est-tests:")" "yes"
+
+TEMPLATE_EST_IMPL_VAL="$(grep -oE -- '- Est-impl:[[:space:]]*[0-9]+' <<<"$TEMPLATE_RAW" | grep -oE '[0-9]+$' | head -1)"
+TEMPLATE_EST_TESTS_VAL="$(grep -oE -- '- Est-tests:[[:space:]]*[0-9]+' <<<"$TEMPLATE_RAW" | grep -oE '[0-9]+$' | head -1)"
+TEMPLATE_EST_VAL="$(grep -oE -- '- Est:[[:space:]]*[0-9]+' <<<"$TEMPLATE_RAW" | grep -oE '[0-9]+$' | head -1)"
+
+check "templates/blocks.md example: Est-impl: carries a numeric value" \
+  "$([[ -n "$TEMPLATE_EST_IMPL_VAL" ]] && echo yes || echo no)" "yes"
+check "templates/blocks.md example: Est-tests: carries a numeric value" \
+  "$([[ -n "$TEMPLATE_EST_TESTS_VAL" ]] && echo yes || echo no)" "yes"
+check "templates/blocks.md example: Est: equals Est-impl: + Est-tests:" \
+  "$(( ${TEMPLATE_EST_IMPL_VAL:-0} + ${TEMPLATE_EST_TESTS_VAL:-0} ))" \
+  "${TEMPLATE_EST_VAL:-__missing_Est__}"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

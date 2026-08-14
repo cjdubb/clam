@@ -4,6 +4,12 @@
 # at #### 5a. Compose PR content, "the size gate" at #### 5b. Write manifest
 # and deliver). This is a documentation block, not executable code, so the
 # tests here are:
+#
+# Also covers Contract: B16 dispatch-size-checkpoint (the docblock at
+# ### 4. Local merge) — the post-merge size checkpoint that runs
+# pr-size-check.sh over the group's actual-so-far after each unit lands,
+# distinct from §5b's delivery-time gate. Same anchor/absence/ordering
+# style as the §5a/§5b checks below, scoped to §4's own section text.
 #   - "Section tokens": each contract-required literal token or short concept
 #     anchor must appear verbatim (fixed-string grep) WITHIN the relevant
 #     section's own text — from its own "#### " heading up to the next
@@ -87,6 +93,10 @@ STRIPPED=$(perl -0777 -pe 's/<!--.*?-->//gs' "$SKILL")
 SECTION_5A=$(awk '/^#### 5a\. Compose PR content$/{flag=1; next} /^#### 5b\. Write manifest and assemble$/{flag=0} flag' <<<"$STRIPPED")
 SECTION_5B=$(awk '/^#### 5b\. Write manifest and assemble$/{flag=1; next} /^## Composition blocks$/{flag=0} flag' <<<"$STRIPPED")
 SECTION_5AB="$SECTION_5A"$'\n'"$SECTION_5B"
+
+# §4 — the post-merge size checkpoint (Contract: B16 dispatch-size-checkpoint),
+# from its own heading to the next top-level heading ("### 5. Delivery").
+SECTION_4=$(awk '/^### 4\. Local merge$/{flag=1; next} /^### 5\. Delivery$/{flag=0} flag' <<<"$STRIPPED")
 
 # ==========================================================================
 # §5a — read the recorded strategy
@@ -361,6 +371,96 @@ for tok in 'lego.json' 'config.json' 'config-schema.md' 'effective config' \
            'delivery.mode' 'delivery.prSizeBudget'; do
   check "5: step 5 names no config artifact: $tok" \
     "$(has_f "$SECTION_5_ALL" "$tok")" "no"
+done
+
+# ==========================================================================
+# §4 — dispatch-size-checkpoint (Contract: B16, docblock at
+# "### 4. Local merge"). Post-merge checkpoint, distinct from §5b's
+# delivery-time gate: runs pr-size-check.sh over the group's actual-so-far
+# right after each unit's local merge lands, reports actual-vs-Est/ceiling,
+# and escalates on a projected overrun — report-only, never a gate.
+# ==========================================================================
+
+# --- Behavior: pr-size-check.sh runs after each merge, over the merged
+# unit's PR group's Code paths on the integration branch — the group's
+# actual-so-far — against the recorded budget --------------------------------
+check "4: pr-size-check.sh is invoked" \
+  "$(has_f "$SECTION_4" "pr-size-check.sh")" "yes"
+check "4: measured against the group's actual-so-far" \
+  "$(has_f "$SECTION_4" "actual-so-far")" "yes"
+check "4: scoped to the group's Code paths" \
+  "$(has_f "$SECTION_4" "Code paths")" "yes"
+# Anchored on the combined phrase, not the bare "integration branch" —
+# that phrase already appears in §4 today for an unrelated reason (the
+# `worktree.sh merge` paragraph: "folds the accepted unit branch into the
+# integration branch"), so a bare match would be a false green.
+check "4: measured on the integration branch" \
+  "$(has_fn "$SECTION_4" "Code paths on the integration branch")" "yes"
+check "4: measured against the recorded budget" \
+  "$(has_f "$SECTION_4" "budget")" "yes"
+
+# Ordering: the checkpoint runs after the merge lands, not before — the
+# worktree.sh merge invocation must precede the pr-size-check.sh mention
+# within §4.
+MERGE_CALL_LINE=$(first_line "$SECTION_4" "worktree.sh merge")
+CHECKPOINT_LINE=$(first_line "$SECTION_4" "pr-size-check.sh")
+check_before "4: the checkpoint runs after the worktree.sh merge call" \
+  "$MERGE_CALL_LINE" "$CHECKPOINT_LINE"
+
+# --- Outputs: the checkpoint reports the unit's actual changed lines beside
+# its blocks' Est and the per-block ceiling -----------------------------------
+check "4: the checkpoint reports actual changed lines" \
+  "$(has_f "$SECTION_4" "actual changed lines")" "yes"
+check "4: the checkpoint reports blocks' Est" \
+  "$(has_f "$SECTION_4" "Est")" "yes"
+check "4: the checkpoint reports the per-block ceiling" \
+  "$(has_f "$SECTION_4" "ceiling")" "yes"
+
+# --- Behavior/Outputs: projected overrun stops and escalates with the three
+# named options ---------------------------------------------------------------
+check "4: a projected overrun stops and escalates" \
+  "$(has_f "$SECTION_4" "escalat")" "yes"
+check "4: escalation option: regroup" \
+  "$(has_f "$SECTION_4" "regroup")" "yes"
+check "4: escalation option: deliver the completed group early" \
+  "$(has_fn "$SECTION_4" "deliver the completed group early")" "yes"
+check "4: escalation option: accept a justified overrun" \
+  "$(has_fn "$SECTION_4" "justified overrun")" "yes"
+
+# --- Errors: pr-size-check.sh exit 2 is fixed and re-run, never skipped
+# silently ----------------------------------------------------------------
+check "4: exit 2 is handled" \
+  "$(has_f "$SECTION_4" "exit 2")" "yes"
+check "4: exit 2 is never skipped silently" \
+  "$(has_fn "$SECTION_4" "skipped silently")" "yes"
+
+# --- Invariants -------------------------------------------------------------
+# The actual-vs-Est/ceiling comparison is report-only, never a gate — the
+# unit is already accepted.
+check "4: the comparison is report-only, not a gate" \
+  "$(has_any_fn "$SECTION_4" "report-only" "reports only")" "yes"
+# The orchestrator never delivers early unilaterally — early delivery is the
+# engineer's pick among the escalation options.
+check "4: early delivery is never unilateral" \
+  "$(has_f "$SECTION_4" "unilateral")" "yes"
+
+# --- Edge cases --------------------------------------------------------------
+# The group's last unit: the escalation collapses into §5b's gate.
+check "4: the last-unit edge case collapses into §5b's gate" \
+  "$(has_any_fn "$SECTION_4" "collapses into" "collapse into")" "yes"
+# A single-unit group still gets its checkpoint.
+check "4: a single-unit group still checkpoints" \
+  "$(has_fn "$SECTION_4" "single-unit group")" "yes"
+
+# --- Invariant: §5b's own delivery-time gate section is unaffected by this
+# addition — its pins (checked earlier in this file) must still be green,
+# and §4 itself must not have grown a second, competing size-gate heading ---
+check "4: §4 does not duplicate the #### 5b heading" \
+  "$(has_f "$SECTION_4" "#### 5b")" "no"
+
+# --- Invariant: structure around §4 survives ---------------------------------
+for h in "### 4. Local merge" "### 5. Delivery"; do
+  check "structure survives: $h" "$(has_f "$RAW" "$h")" "yes"
 done
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi

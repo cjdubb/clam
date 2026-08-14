@@ -1,7 +1,7 @@
 {
   "name": "lego",
   "description": "Technology-agnostic lego workflow: plan and decompose with the engineer, scaffold interface stubs with behavioral contracts, then dispatch realm-restricted test-writer and implementer agents per work unit in dedicated worktrees under orchestrator verification, assembling accepted work into gated delivery branches ready to land.",
-  "version": "0.20.5",
+  "version": "0.20.6",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

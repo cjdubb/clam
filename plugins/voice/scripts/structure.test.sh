@@ -23,9 +23,9 @@
 #     files (one canonical text, two delivery configurations) and open
 #     with the "# Voice (voice plugin)" heading
 #
-# Also covers the styles-only-plugin invariant (no hooks/ or skills/
-# directory) and that every *.test.sh file in this directory is
-# executable on disk.
+# Also covers the no-hooks invariant, that skills/ contains exactly the
+# re-pitch skill (user-invoked only), and that every *.test.sh file in
+# this directory is executable on disk.
 #
 # Tests only the public artifacts (JSON fields, file presence/mode,
 # frontmatter fields) — never how the implementation produces them.
@@ -98,9 +98,10 @@ pj_name=$(jq -r '.name // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .name is 'voice'" "$pj_name" "voice"
 
 # The pin tracks the CURRENT version, so every legitimate bump retargets it.
-# Retargeted 0.3.1 -> 0.3.2 by the echo-clause addition.
+# Retargeted 0.3.2 -> 0.4.0 by the STE-word-discipline rewrite and the
+# re-pitch skill addition.
 pj_version=$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json .version is exactly '0.3.2'" "$pj_version" "0.3.2"
+check "plugin.json .version is exactly '0.4.0'" "$pj_version" "0.4.0"
 
 pj_description=$(jq -r '.description // empty' "$PLUGIN_JSON" 2>/dev/null)
 check "plugin.json .description is non-empty" \
@@ -168,13 +169,19 @@ check "canonical body opens with the '# Voice (voice plugin)' heading" \
   "$first_body_line" "# Voice (voice plugin)"
 
 # ---------------------------------------------------------------------------
-# 5. Styles-only plugin: no hooks/ or skills/ directory
+# 5. No hooks; skills/ contains exactly the re-pitch skill
 # ---------------------------------------------------------------------------
 
-check "plugins/voice/hooks/ does not exist (styles-only plugin)" \
+check "plugins/voice/hooks/ does not exist (no hooks)" \
   "$([ -d "$HOOKS_DIR" ] && echo exists || echo absent)" "absent"
-check "plugins/voice/skills/ does not exist (styles-only plugin)" \
-  "$([ -d "$SKILLS_DIR" ] && echo exists || echo absent)" "absent"
+
+skill_files=$(find "$SKILLS_DIR" -type f 2>/dev/null | sed "s|^$SKILLS_DIR/||" | LC_ALL=C sort | tr '\n' ' ' | sed -E 's/ $//')
+check "skills/ contains exactly re-pitch/SKILL.md" \
+  "$skill_files" "re-pitch/SKILL.md"
+
+check "re-pitch skill sets disable-model-invocation: true" \
+  "$(sed -n 's/^disable-model-invocation:[[:space:]]*//p' "$SKILLS_DIR/re-pitch/SKILL.md" | head -n1)" \
+  "true"
 
 # ---------------------------------------------------------------------------
 # 6. Executability on disk

@@ -153,7 +153,7 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 - **Needs the user (stopped):** \`Blocked\` (a human must act; populate
   \`Blocked Reason:\`) and \`Waiting For Decision\` (user must choose between
   approaches; first write the analysis to \`.local/decisions/NNN-<slug>.md\`
-  per the /decision-log:rundown template — options, evidence, recommendation,
+  — options, evidence, recommendation,
   if-deferred path — then populate \`Decision Needed:\` with the question, the
   recommended option, and the file path). Every artifact a decision document
   references — a plan, a graph, another decision, a piece of code — is carried

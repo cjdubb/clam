@@ -418,18 +418,13 @@ assert_contains_f "B09 Invariant: B03's [needs: N<NN>] dep annotation survives" 
 assert_contains_re_i "B09 Invariant: B03's status glyph and Focus arrow survive" \
     "$ZONE_TEXT" 'glyph.{0,120}arrow|arrow.{0,120}glyph'
 
-# --- Invariant: no NEW plugin reference anywhere in session-context.sh ----
+# --- Invariant: no plugin reference anywhere in session-context.sh --------
 #
-# The file already carries exactly one plugin reference, baselined in
-# scripts/architecture-lint-baseline.txt: the decision-log skill invocation
-# in the Waiting-For-Decision rule, which predates this plan and which B09
-# must leave alone. Asserting the SET rather than emptiness is
-# what makes this a real check on B09's addition: introduce any reference
-# and the set changes.
-EXPECTED_SC_REFS="skill-invocation:decision-log"
+# The file must carry zero plugin references. The former decision-log skill
+# invocation in the Waiting-For-Decision rule was removed (#403).
 sc_refs=$(plugin_ref_forms "$(cat "$HOOK")" "tracking")
-check "B09 Invariant: session-context.sh's plugin-reference set is unchanged (one baselined entry)" \
-    "$(flat "$sc_refs")" "$EXPECTED_SC_REFS"
+check "B09 Invariant: session-context.sh carries no plugin references" \
+    "$(flat "$sc_refs")" ""
 
 # --- Inputs / Outputs / Errors --------------------------------------------
 #
@@ -578,13 +573,13 @@ done
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "B09 version: tracking plugin.json is exactly 0.11.1" "$plugin_version" "0.11.1"
+check "B09 version: tracking plugin.json is exactly 0.11.2" "$plugin_version" "0.11.2"
 
 tracking_row=$(LC_ALL=C grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "B09 version: the root README.md tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.11.1" \
-    "$tracking_row" 'v0\.11\.1'
+assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.11.2" \
+    "$tracking_row" 'v0\.11\.2'
 
 # ===========================================================================
 # B10 — docs/protocols/work-graph.md "## Viewing"

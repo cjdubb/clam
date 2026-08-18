@@ -48,7 +48,7 @@ The two modes are not interchangeable:
 
 A document already being served is re-`--open`ed when a new checkpoint lands on it — after substantive edits to a parked plan or decision, open it again rather than assuming the earlier view is still in front of the user.
 
-Automatic rendering at checkpoints is gated by plugin presence: callers check whether the `render-doc:render` skill is available and skip silently when it is not. `/decision-log:rundown` renders the decision file with `--open` after writing it at park time when this plugin is installed.
+Automatic rendering at checkpoints is gated by plugin presence: callers check whether the `render-doc:render` skill is available and skip silently when it is not.
 
 Callers fall back to the plain-markdown flow with a one-line notice when a render fails.
 

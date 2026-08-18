@@ -118,16 +118,16 @@ auto-update doesn't refresh the recorded install path
 | [privacy](plugins/privacy/) | ✅ v0.2.4 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |
-| [build](plugins/build/) | ✅ v0.6.0 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle, providing delivery workflow context. |
+| [build](plugins/build/) | ✅ v0.6.1 | High-level software build lifecycle framework: composites landing, lego, and tracking into a cohesive delivery lifecycle, providing delivery workflow context. |
 | [render-doc](plugins/render-doc/) | ✅ v0.13.1 | Renders a markdown document into a self-contained HTML view via `/render-doc:render <file>`, with an annotation server that writes feedback back into the source markdown. Ported from clam-code. |
 | [ask-in-text](plugins/ask-in-text/) | ✅ v0.1.3 | Blocks the AskUserQuestion picker via a PreToolUse deny and injects a SessionStart convention to ask numbered plain-text questions in the conversation instead. |
 | [notifications](plugins/notifications/) | ✅ v0.1.2 | The summoning stack: terminal bell, desktop notification, tmux pane highlight, and ntfy phone push, driven by tracking states — rings on Blocked/Waiting For Decision/Awaiting User Review, silent for sessions that resume on their own. |
 | [session-data](plugins/session-data/) | ✅ v0.1.3 | Locate the current session's conversation data files — transcript JSONL, subagent transcripts, file-history snapshots, session metadata — via `/session-data:paths`, with sensitivity annotations. |
 | [skill-tracker](plugins/skill-tracker/) | ✅ v0.1.2 | Skill invocation telemetry: logs every `/skill` trigger to `~/.claude/skill-triggers.jsonl` and reports usage stats via `/skill-tracker:stats`. |
-| [management](plugins/management/) | ✅ v0.6.2 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
+| [management](plugins/management/) | ✅ v0.6.3 | Guided plugin lifecycle: `/management:install` offers the catalog's uninstalled plugins as themed multi-select picks and installs them at one chosen scope; `/management:update` diffs installed vs latest versions and applies confirmed updates. |
 | [voice](plugins/voice/) | ✅ v0.4.0 | Voice communication spec: two selectable output styles apply conclusion-first, working-memory-friendly reply structure, with or without Claude Code's built-in coding instructions, plus a user-invoked re-pitch skill. Ported from clam-code. |
 | [forge-github](plugins/forge-github/) | ✅ v0.2.1 | GitHub forge implementation: `/forge-github:create-pr` opens PRs, `/forge-github:sync-pr` keeps their descriptions current, and `/forge-github:address-pr-feedback` triages review comments behind an approval gate, all via the `gh` CLI with flowing-prose descriptions. |
-| [debugging](plugins/debugging/) | ✅ v0.2.6 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
+| [debugging](plugins/debugging/) | ✅ v0.2.7 | Root-cause debugging guidance for orchestrators: reproduction, what-changed archaeology, differential diagnosis, binary-search isolation, log/DB evidence gathering with engineer paste-back, and class-level recurrence prevention. |
 
 <!-- Editing the Plugins table: every plugin in .claude-plugin/marketplace.json
      has exactly one row here, and its status cell must read "✅ vX.Y.Z" matching

@@ -162,6 +162,11 @@ FINDINGS=()
 declare -A SEEN_IDS
 BLOCK_COUNT=0
 
+# Group headroom (B15): Est sums per PR group:, dropped blocks excluded.
+declare -A GROUP_SUM
+GROUP_ORDER=()
+THRESHOLD=$((BUDGET * 7 / 10))
+
 i=0
 while [ "$i" -lt "$N" ]; do
   line="${LINES[$i]}"
@@ -191,6 +196,13 @@ while [ "$i" -lt "$N" ]; do
   est_present=0
   est_raw=""
   just_satisfied=0
+  status_val=""
+  group_val=""
+  have_group=0
+  estimpl_present=0
+  estimpl_raw=""
+  esttests_present=0
+  esttests_raw=""
 
   while [ "$i" -lt "$N" ]; do
     eline="${LINES[$i]}"
@@ -214,9 +226,28 @@ while [ "$i" -lt "$N" ]; do
     esac
 
     case "$field_name" in
+      Status)
+        status_val="$field_value"
+        i=$((i + 1))
+        ;;
+      "PR group")
+        group_val="$field_value"
+        have_group=1
+        i=$((i + 1))
+        ;;
       Est)
         est_present=1
         est_raw="$field_value"
+        i=$((i + 1))
+        ;;
+      Est-impl)
+        estimpl_present=1
+        estimpl_raw="$field_value"
+        i=$((i + 1))
+        ;;
+      Est-tests)
+        esttests_present=1
+        esttests_raw="$field_value"
         i=$((i + 1))
         ;;
       Justification)
@@ -256,6 +287,50 @@ while [ "$i" -lt "$N" ]; do
   else
     FINDINGS+=("LINT $id: Est value '$est_raw' is not a bare non-negative integer")
   fi
+
+  # -------------------------------------------------------------------------
+  # B15: Est-impl:/Est-tests: pair — both present and summing to Est, or
+  # both absent. A lone field, or a present pair that disagrees with Est, is
+  # a finding.
+  # -------------------------------------------------------------------------
+  if [ "$estimpl_present" -eq 1 ] && [ "$esttests_present" -eq 1 ]; then
+    if [[ "$estimpl_raw" =~ ^[0-9]+$ ]] && [[ "$esttests_raw" =~ ^[0-9]+$ ]]; then
+      pair_sum="$((10#$estimpl_raw + 10#$esttests_raw))"
+      if [ "$est_present" -eq 1 ] && [[ "$est_raw" =~ ^[0-9]+$ ]]; then
+        if [ "$pair_sum" -ne "$((10#$est_raw))" ]; then
+          FINDINGS+=("LINT $id: Est-impl ($estimpl_raw) + Est-tests ($esttests_raw) = $pair_sum, which does not match Est ($est_raw)")
+        fi
+      fi
+    else
+      FINDINGS+=("LINT $id: Est-impl and Est-tests must each be a bare non-negative integer")
+    fi
+  elif [ "$estimpl_present" -eq 1 ] || [ "$esttests_present" -eq 1 ]; then
+    FINDINGS+=("LINT $id: Est-impl and Est-tests must both be present or both absent (only one is set)")
+  fi
+
+  # -------------------------------------------------------------------------
+  # B15: accumulate this entry's Est into its PR group: sum, unless the
+  # entry is Dropped or carries no PR group: field.
+  # -------------------------------------------------------------------------
+  if [ "$have_group" -eq 1 ] && [ "$status_val" != "Dropped" ] && [ "$est_present" -eq 1 ] && [[ "$est_raw" =~ ^[0-9]+$ ]]; then
+    if [ -z "${GROUP_SUM[$group_val]+set}" ]; then
+      GROUP_SUM[$group_val]=0
+      GROUP_ORDER+=("$group_val")
+    fi
+    GROUP_SUM[$group_val]=$((GROUP_SUM[$group_val] + 10#$est_raw))
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# B15: one WARN line per PR group: whose Est sum strictly exceeds the
+# headroom threshold floor(budget * 7 / 10). Never affects the exit code or
+# the FAILURES count.
+# ---------------------------------------------------------------------------
+WARNINGS=()
+for group_val in "${GROUP_ORDER[@]}"; do
+  if [ "${GROUP_SUM[$group_val]}" -gt "$THRESHOLD" ]; then
+    WARNINGS+=("WARN: PR group $group_val sums to ${GROUP_SUM[$group_val]}, over the headroom threshold $THRESHOLD (budget $BUDGET)")
+  fi
 done
 
 if [ "$BLOCK_COUNT" -eq 0 ]; then
@@ -269,6 +344,10 @@ fi
 # ---------------------------------------------------------------------------
 for f in "${FINDINGS[@]}"; do
   printf '%s\n' "$f"
+done
+
+for w in "${WARNINGS[@]}"; do
+  printf '%s\n' "$w"
 done
 
 printf '\n'

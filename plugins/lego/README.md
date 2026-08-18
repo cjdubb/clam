@@ -295,7 +295,12 @@ plan-time sizing lint: every block entry needs a bare-integer `Est:`, and
 every entry whose `Est` exceeds the **per-block ceiling** — derived, never
 configured, as half the PR size budget — needs a non-empty
 `Justification:`. The budget is `--budget` when given, else the built-in
-default of 500.
+default of 500. An entry may also carry `Est-impl:`/`Est-tests:` — a bare
+integer each, either both present and summing to `Est` or both absent —
+and entries are further summed by their shared `PR group:` value (Dropped
+entries excluded); a group whose sum strictly exceeds the **headroom
+threshold** — floor(budget * 7/10) — gets a `WARN` line naming the group,
+its sum, the threshold and the budget, without affecting the exit code.
 Run once at plan time and again as rung 0 of the scaffold gate (see
 `skills/plan/SKILL.md`), so a plan that shrank a budget after sizing its
 blocks can't slip an unjustified oversized block through to dispatch. Exit

@@ -238,6 +238,40 @@ block_j() {
   printf -- '- Plan: plans/001-x.md\n'
 }
 
+# entry <id> <status> <group> <est> <impl> <tests> <just> — fully general
+# block entry for B15 (blocks-lint-group-headroom) coverage. Sentinels:
+# group=NO_GROUP omits "PR group:" entirely; est=NO_EST omits "Est:";
+# impl/tests/just=NO_FIELD omits Est-impl:/Est-tests:/Justification:
+# respectively. Mirrors block()/block_j()'s real-shape fixture, just with
+# every B15-relevant field independently controllable.
+entry() {
+  local id="$1" status="$2" group="$3" est="$4" impl="$5" tests="$6" just="$7"
+  printf '## %s — %s widget\n' "$id" "$id"
+  printf -- '- Status: %s\n' "$status"
+  printf -- '- Owner: agent\n'
+  printf -- '- Kind: leaf\n'
+  printf -- '- Deps: none\n'
+  printf -- '- Unit: U01\n'
+  if [ "$group" != "NO_GROUP" ]; then
+    printf -- '- PR group: %s\n' "$group"
+  fi
+  if [ "$est" != "NO_EST" ]; then
+    printf -- '- Est: %s\n' "$est"
+  fi
+  if [ "$impl" != "NO_FIELD" ]; then
+    printf -- '- Est-impl: %s\n' "$impl"
+  fi
+  if [ "$tests" != "NO_FIELD" ]; then
+    printf -- '- Est-tests: %s\n' "$tests"
+  fi
+  if [ "$just" != "NO_FIELD" ]; then
+    printf -- '- Justification: %s\n' "$just"
+  fi
+  printf -- '- Code: src/%s.ts\n' "$id"
+  printf -- '- Contract: does a thing\n'
+  printf -- '- Plan: plans/001-x.md\n'
+}
+
 MAP_HEADER='# Block Map
 
 The contract-level view of this system.
@@ -306,16 +340,28 @@ out_line() {
 # of findings are what is pinned.
 assert_clean_structure() {
   local expected="$1" label="$2"
-  case "$RUN_OUT_LINES" in
+  local n="$RUN_OUT_LINES"
+  # Skip past any leading WARN lines (B15 may emit them before the summary
+  # block on an otherwise clean map); the "alone" pinning below then applies
+  # only to what remains.
+  local i=1
+  while [ "$i" -le "$n" ]; do
+    case "$(out_line "$i")" in
+      "WARN: "*) i=$((i + 1)) ;;
+      *) break ;;
+    esac
+  done
+  local rest=$((n - i + 1))
+  case "$rest" in
     1)
-      assert_eq "$expected" "$(out_line 1)" "$label: summary line"
+      assert_eq "$expected" "$(out_line "$n")" "$label: summary line"
       ;;
     2)
-      assert_eq "" "$(out_line 1)" "$label: the line before the summary must be the contract's blank separator"
-      assert_eq "$expected" "$(out_line 2)" "$label: summary line"
+      assert_eq "" "$(out_line "$((n - 1))")" "$label: the line before the summary must be the contract's blank separator"
+      assert_eq "$expected" "$(out_line "$n")" "$label: summary line"
       ;;
     *)
-      record_fail "$label: expected the summary line alone (optionally preceded by the blank separator), got $RUN_OUT_LINES stdout line(s): [$RUN_OUT]"
+      record_fail "$label: expected the summary line alone (optionally preceded by the blank separator and WARN lines), got $RUN_OUT_LINES stdout line(s): [$RUN_OUT]"
       ;;
   esac
   case "$RUN_OUT" in
@@ -340,6 +386,7 @@ assert_findings_structure() {
     line="$(out_line "$i")"
     case "$line" in
       "LINT "*) : ;;
+      "WARN: "*) : ;;
       *) record_fail "$label: stdout line $i is neither a finding nor part of the summary block: [$line]" ;;
     esac
   done
@@ -385,6 +432,72 @@ assert_usage_error() {
   [ "$RUN_EXIT" -eq 2 ] || record_fail "$label: expected exit 2, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
   [ -n "$RUN_ERR" ] || record_fail "$label: expected a diagnostic on stderr"
   assert_no_summary "$label"
+}
+
+# ---------------------------------------------------------------------------
+# B15 (blocks-lint-group-headroom) assertions: WARN lines and the summary
+# line, checked without assuming any particular interleaving with LINT
+# finding lines (the contract pins the summary text and the finding-line
+# form, but not where WARN lines sit relative to either).
+# ---------------------------------------------------------------------------
+
+# assert_warn_for_group <group> <sum> <threshold> <budget> <label> — exactly
+# one line mentions "warn" (case-insensitively) and the group id, and that
+# line names the sum, the threshold and the budget.
+assert_warn_for_group() {
+  local group="$1" sum="$2" threshold="$3" budget="$4" label="$5"
+  local matches count line
+  matches="$(printf '%s\n' "$RUN_OUT" | grep -i 'warn' | grep -F "$group")"
+  count=0
+  [ -z "$matches" ] || count="$(printf '%s\n' "$matches" | grep -c '')"
+  if [ "$count" -eq 0 ]; then
+    record_fail "$label: expected a WARN line naming group $group, got stdout: [$RUN_OUT]"
+    return
+  fi
+  if [ "$count" -gt 1 ]; then
+    record_fail "$label: expected exactly one WARN line for group $group, got $count: [$matches]"
+  fi
+  line="$(printf '%s\n' "$matches" | head -1)"
+  case "$line" in
+    *"$sum"*) : ;;
+    *) record_fail "$label: WARN line for $group does not mention its sum $sum: [$line]" ;;
+  esac
+  case "$line" in
+    *"$threshold"*) : ;;
+    *) record_fail "$label: WARN line for $group does not mention the threshold $threshold: [$line]" ;;
+  esac
+  case "$line" in
+    *"$budget"*) : ;;
+    *) record_fail "$label: WARN line for $group does not mention the budget $budget: [$line]" ;;
+  esac
+}
+
+# assert_no_warn_for_group <group> <label>
+assert_no_warn_for_group() {
+  local group="$1" label="$2" line
+  line="$(printf '%s\n' "$RUN_OUT" | grep -i 'warn' | grep -F "$group" | head -1)"
+  if [ -n "$line" ]; then
+    record_fail "$label: expected no WARN line for group $group, got: [$line]"
+  fi
+}
+
+# assert_no_warn_lines_at_all <label>
+assert_no_warn_lines_at_all() {
+  local label="$1"
+  if printf '%s\n' "$RUN_OUT" | grep -qi 'warn'; then
+    record_fail "$label: expected no WARN line at all, got stdout: [$RUN_OUT]"
+  fi
+}
+
+# assert_summary_line_present <expected-summary-line> <label> — the exact
+# summary line appears somewhere in stdout (WARN lines may sit anywhere
+# around it, so this does not pin position the way assert_clean_structure /
+# assert_findings_structure do).
+assert_summary_line_present() {
+  local expected="$1" label="$2"
+  if ! printf '%s\n' "$RUN_OUT" | grep -qxF "$expected"; then
+    record_fail "$label: expected summary line [$expected] present in stdout, got: [$RUN_OUT]"
+  fi
 }
 
 # ===========================================================================
@@ -1229,13 +1342,196 @@ test_output_findings_on_stdout_one_per_line() {
   run_in "$dir"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "two defective entries: expected exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_findings_structure "FAILURES: 2 — fix the block map before scaffolding" "two findings"
-  [ "$RUN_OUT_LINES" -eq 4 ] || record_fail "two findings: expected 2 finding lines + blank + summary = 4 stdout lines, got $RUN_OUT_LINES (stdout: $RUN_OUT)"
+  local non_warn non_warn_count=0
+  non_warn="$(printf '%s\n' "$RUN_OUT" | grep -v '^WARN: ')"
+  [ -z "$non_warn" ] || non_warn_count="$(printf '%s\n' "$non_warn" | grep -c '')"
+  [ "$non_warn_count" -eq 4 ] || record_fail "two findings: expected 2 finding lines + blank + summary = 4 non-WARN stdout lines, got $non_warn_count (stdout: $RUN_OUT)"
   assert_block_finding B01 "est" "missing Est"
   assert_block_finding B02 "justif" "unjustified over-ceiling Est"
   assert_no_block_finding B03 "the well-formed entry"
   case "$RUN_ERR" in
     *"LINT "*) record_fail "findings must be reported on stdout, not stderr (stderr: $RUN_ERR)" ;;
   esac
+}
+
+# ===========================================================================
+# B15 blocks-lint-group-headroom: Est-impl/Est-tests pair validation
+# (Behavior clause 1)
+# ===========================================================================
+
+# Both pair fields present and their sum equals Est: valid, no finding.
+test_pair_sum_matches_est_is_valid() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 100 60 40 NO_FIELD)" "$(entry B02 Planned G02 10 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "Est-impl 60 + Est-tests 40 = Est 100: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_block_finding B01 "a matching Est-impl/Est-tests pair"
+  assert_no_warn_lines_at_all "no group is anywhere near the headroom threshold"
+}
+
+# Both pair fields present but their sum differs from Est: a finding, exit 1.
+test_pair_sum_mismatch_is_a_finding() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 100 60 30 NO_FIELD)" "$(entry B02 Planned G02 10 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "Est-impl 60 + Est-tests 30 = 90 != Est 100: expected exit 1, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B01 "sum|impl|tests" "Est-impl/Est-tests sum mismatch against Est"
+  assert_no_block_finding B02 "the well-formed sibling entry"
+}
+
+# A lone pair field — Est-impl present without Est-tests, or the reverse —
+# is a finding, exit 1, in both directions.
+test_lone_pair_field_is_a_finding() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 100 60 NO_FIELD NO_FIELD)" "$(entry B02 Planned G02 10 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "Est-impl without Est-tests: expected exit 1, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B01 "est-impl|est-tests|pair" "Est-impl present without Est-tests"
+  assert_no_block_finding B02 "the well-formed sibling entry"
+
+  local dir2
+  dir2="$(new_map_dir "$(entry B01 Planned G01 100 NO_FIELD 60 NO_FIELD)" "$(entry B02 Planned G02 10 NO_FIELD NO_FIELD NO_FIELD)")"
+  run_in "$dir2"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "Est-tests without Est-impl: expected exit 1, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B01 "est-impl|est-tests|pair" "Est-tests present without Est-impl"
+  assert_no_block_finding B02 "the well-formed sibling entry"
+}
+
+# Est-impl: 0 with Est-tests: 0 and Est: 0 is valid.
+test_pair_zero_values_valid() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 0 0 0 NO_FIELD)" "$(entry B02 Planned G02 10 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "Est-impl 0 + Est-tests 0 = Est 0: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_block_finding B01 "an all-zero pair"
+}
+
+# Entries without the pair fields, and entries without a PR group: field at
+# all, both stay valid (Invariant).
+test_entries_without_pair_or_group_stay_valid() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 10 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned NO_GROUP 10 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "no pair fields, and no PR group field: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_block_finding B01 "an entry with no Est-impl/Est-tests pair"
+  assert_no_block_finding B02 "an entry with no PR group: field at all"
+}
+
+# ===========================================================================
+# B15 blocks-lint-group-headroom: group sums and the headroom WARN
+# (Behavior clause 2; Outputs; Invariants; Edge cases)
+# ===========================================================================
+
+# A group sum exactly at floor(budget*7/10) (default budget 500 -> 350) does
+# not warn.
+test_group_sum_exactly_at_threshold_no_warn() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 200 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 150 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "group sum exactly at the threshold: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_warn_for_group G01 "group sum 350 == threshold 350 (budget 500): no warning"
+  assert_no_warn_lines_at_all "no other group exists to warn about either"
+  assert_summary_line_present "ALL PASS (2 blocks, ceiling 250)" "no findings, so the usual clean summary still prints"
+}
+
+# A group sum strictly over the threshold gets exactly one WARN line naming
+# the group, its sum, the threshold and the budget — and the WARN does not
+# itself become a LINT finding (neither entry is individually over ceiling).
+test_group_sum_strictly_over_threshold_warns() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 200 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 151 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "group sum one over the threshold: expected exit 0 (a warning is not a finding), got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_warn_for_group G01 351 350 500 "group sum 351 strictly over threshold 350, budget 500"
+  case "$RUN_OUT" in
+    *"LINT "*) record_fail "group sum over threshold: expected no LINT finding line, got: [$RUN_OUT]" ;;
+  esac
+  assert_summary_line_present "ALL PASS (2 blocks, ceiling 250)" "a warning alone still prints the clean summary"
+}
+
+# The headroom threshold floors like the ceiling does, but off a different
+# divisor (7/10, not 1/2) — an odd --budget proves the two are computed
+# independently. Budget 101: ceiling floor(101/2)=50, threshold
+# floor(101*7/10)=floor(70.7)=70.
+test_group_headroom_threshold_floors_with_odd_budget() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 35 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 35 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir" --budget 101
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 101, group sum 70 (== floored threshold): expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_warn_for_group G01 "--budget 101: group sum 70 == floored threshold 70, no warning"
+
+  local dir2
+  dir2="$(new_map_dir "$(entry B01 Planned G01 35 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 36 NO_FIELD NO_FIELD NO_FIELD)")"
+  run_in "$dir2" --budget 101
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "--budget 101, group sum 71: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_warn_for_group G01 71 70 101 "--budget 101: group sum 71 strictly over the floored threshold 70"
+}
+
+# A single-entry group over the threshold warns just like any other group
+# (it needs a Justification too, since 351 also exceeds the per-block
+# ceiling of 250 at the default budget — that finding is orthogonal to the
+# warning and is silenced here so the WARN is isolated).
+test_single_entry_group_over_threshold_warns() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 351 NO_FIELD NO_FIELD "single generated block, cannot be split")")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "single-entry group over threshold, justified: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_warn_for_group G01 351 350 500 "a group of exactly one entry warns like any other"
+}
+
+# A map whose only findings-eligible output is warnings still exits 0 —
+# warnings never alter the exit code, whether one group or several are over
+# threshold.
+test_warn_only_map_exits_zero() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 200 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 151 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B03 Planned G02 200 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B04 Planned G02 151 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "two over-threshold groups, no other findings: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_warn_for_group G01 351 350 500 "first over-threshold group still warns"
+  assert_warn_for_group G02 351 350 500 "second over-threshold group still warns"
+  assert_summary_line_present "ALL PASS (4 blocks, ceiling 250)" "warnings alone print the clean summary, not FAILURES"
+}
+
+# Warnings never change the FAILURES count either: a real finding elsewhere
+# in the map still yields FAILURES: 1, not 2, alongside the WARN line.
+test_warnings_do_not_affect_failure_count() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Planned G01 200 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B02 Planned G01 151 NO_FIELD NO_FIELD NO_FIELD)" "$(entry B03 Planned G02 NO_EST NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "one real finding alongside an over-threshold group: expected exit 1, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_block_finding B03 "est" "the real finding: missing Est"
+  assert_warn_for_group G01 351 350 500 "the warning survives alongside the real finding"
+  assert_summary_line_present "FAILURES: 1 — fix the block map before scaffolding" "FAILURES counts only the real finding, not the warning"
+}
+
+# Dropped blocks are excluded from group sums: a Dropped entry with a large
+# Est does not push its group over the threshold, while the identical Est on
+# a non-Dropped entry does.
+test_dropped_blocks_excluded_from_group_sums() {
+  local dir
+  dir="$(new_map_dir "$(entry B01 Dropped G01 400 NO_FIELD NO_FIELD "kept for history, no longer built")" "$(entry B02 Planned G01 50 NO_FIELD NO_FIELD NO_FIELD)")"
+
+  run_in "$dir"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "Dropped Est 400 excluded, sum is just 50: expected exit 0, got $RUN_EXIT (stdout: $RUN_OUT / stderr: $RUN_ERR)"
+  assert_no_warn_for_group G01 "a Dropped entry's Est does not count toward its group's sum"
+
+  # Same numbers, but the large entry is Planned instead of Dropped: now it
+  # counts, and the group warns.
+  local dir2
+  dir2="$(new_map_dir "$(entry B01 Planned G01 400 NO_FIELD NO_FIELD "generated, cannot be split")" "$(entry B02 Planned G01 50 NO_FIELD NO_FIELD NO_FIELD)")"
+  run_in "$dir2"
+  assert_warn_for_group G01 450 350 500 "the same Est, not Dropped, does count toward the group's sum"
 }
 
 # ===========================================================================
@@ -1288,6 +1584,20 @@ run_test "invariant: read-only" test_invariant_read_only
 run_test "invariant: exit status only ever 0, 1 or 2" test_invariant_exit_status_only_0_1_2
 
 run_test "output: findings on stdout, one per line, LINT B<NN>: form" test_output_findings_on_stdout_one_per_line
+
+run_test "B15 pair: Est-impl + Est-tests summing to Est is valid" test_pair_sum_matches_est_is_valid
+run_test "B15 pair: Est-impl + Est-tests != Est is a finding" test_pair_sum_mismatch_is_a_finding
+run_test "B15 pair: a lone pair field (either direction) is a finding" test_lone_pair_field_is_a_finding
+run_test "B15 pair: Est-impl 0 + Est-tests 0 == Est 0 is valid" test_pair_zero_values_valid
+run_test "B15: entries without the pair or without PR group: stay valid" test_entries_without_pair_or_group_stay_valid
+
+run_test "B15 headroom: group sum exactly at threshold does not warn" test_group_sum_exactly_at_threshold_no_warn
+run_test "B15 headroom: group sum strictly over threshold warns once" test_group_sum_strictly_over_threshold_warns
+run_test "B15 headroom: threshold floors independently of the ceiling (odd budget)" test_group_headroom_threshold_floors_with_odd_budget
+run_test "B15 headroom: a single-entry group over threshold warns too" test_single_entry_group_over_threshold_warns
+run_test "B15 headroom: warnings-only map exits 0" test_warn_only_map_exits_zero
+run_test "B15 headroom: warnings never change the FAILURES count" test_warnings_do_not_affect_failure_count
+run_test "B15 headroom: Dropped blocks excluded from group sums" test_dropped_blocks_excluded_from_group_sums
 
 echo "---"
 echo "Passed: $TOTAL_PASS  Failed: $TOTAL_FAIL  Total: $((TOTAL_PASS + TOTAL_FAIL))"

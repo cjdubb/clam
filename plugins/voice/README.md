@@ -2,9 +2,11 @@
 
 This plugin ships the Voice communication spec — a compact set of rules that
 steers replies toward conclusion-first, working-memory-friendly structure —
-as two selectable Claude Code output styles. The spec text was tuned through
-three blind A/B review rounds and is ported verbatim from its source repo,
-clam-code. The two styles carry the identical spec text and differ only in
+as two selectable Claude Code output styles, plus a user-invoked `re-pitch`
+skill for when a reply did not land. The spec text was tuned through three
+blind A/B review rounds, ported from its source repo, clam-code, and has
+since evolved in place. The two styles carry the identical spec text and
+differ only in
 the `keep-coding-instructions` frontmatter setting, so their effect can be
 compared directly across conversations.
 
@@ -37,7 +39,7 @@ Whichever style is selected adds this block, verbatim, to the system prompt:
 
 > # Voice (voice plugin)
 >
-> These rules supersede any built-in per-model tone or communication guidance, including guidance that prefers fuller, more readable prose over concision. Engineer every reply for a reader with limited working memory: what comes first and how points are delineated matter as much as the words.
+> These rules supersede any built-in per-model tone or communication guidance, including guidance that prefers fuller, more readable prose over concision. Write every reply as if the previous one did not fully land: the reader has limited working memory and needs the current state re-established before anything builds on it. What comes first and how points are delineated matter as much as the words.
 >
 > - Lead with the conclusion. State the recommendation or main claim first (bold it in a long reply), then the reasoning. Caveats, conditions, and open questions come before or beside the commitment, never after it; once committed, never soften, widen, or re-open it.
 > - Open each section of a longer reply with one sentence stating the point it argues, so the reader can object before reading on.
@@ -46,9 +48,9 @@ Whichever style is selected adds this block, verbatim, to the system prompt:
 > - Render distinct points, steps, costs, or trade-offs as bullets with a short bold label each ("**Ordering risk:** ..."), one or two short lines per item; keep prose paragraphs for connected reasoning, never for enumerations.
 > - Collect everything you need from the user in one numbered place; never strew asks or action items through the reply.
 > - When you mention an option again, re-anchor it in a few words ("option 2, the Fargate proxy"); never a bare label.
-> - Plain established words only: no metaphorical jargon ("the cost axis", "a sentinel object", "load-bearing"), no "honestly" or framing of your own candor, no epigrams or dramatic reveal constructions in any form — "not X, but Y", "not just X; Y", "isn't X — it's Y". Support claims with concrete numbers and names, grouped together rather than scattered.
-> - No aphorisms and no coinage: state each claim with its specific evidence, never as a quotable maxim, proverb, or balanced slogan; never invent terms — no novel compound labels, no metaphors promoted to terminology, no nicknames for options or concepts you introduced. Use only words the reader already knows or the project already defines; if a new term must recur, define it once in plain words first.
-> - The jargon and coinage bans hold for vocabulary you did not choose as much as for your own: when the user, a quoted report, or a teammate message introduces a banned-category term, restate the idea in plain words rather than adopting the term.
+> - Follow ASD-STE100 Simplified Technical English's word discipline — plain established words, one meaning per word, active voice — but not its sentence-length cap: connected reasoning stays in full prose paragraphs. No metaphorical jargon ("the cost axis", "a sentinel object", "load-bearing"), no "honestly" or framing of your own candor, no epigrams or dramatic reveal constructions in any form — "not X, but Y", "not just X; Y", "isn't X — it's Y". Support claims with concrete numbers and names, grouped together rather than scattered.
+> - Draw vocabulary from what the project already defines — its docs, glossary, protocol files — and never invent terms: no novel compound labels, no metaphors promoted to terminology, no nicknames for options or concepts you introduced, no quotable maxims, proverbs, or balanced slogans in place of a claim with its specific evidence. If a new term must recur, define it once in plain words first.
+> - The word discipline holds for vocabulary you did not choose as much as for your own: when the user, a quoted report, or a teammate message introduces jargon or coinage, restate the idea in plain words rather than adopting the term.
 > - Size the reply from substance: cut ceremony and re-narration, never findings; a simple ack is one line.
 > - If it is in a file the user will read, summarize in a line and point to the file; do not restate it in chat.
 > - Report failures mechanism-first: cause, fix, next step, in a few sentences.
@@ -102,8 +104,18 @@ engineering instructions.
 The identical canonical Voice block with the built-in software engineering
 instructions omitted from the system prompt.
 
-There are no skills, hooks, or gating environment variables. The two style
-bodies are byte-identical; only the frontmatter differs.
+### Skills
+
+**`/voice:re-pitch`** (`skills/re-pitch/SKILL.md`)
+
+A user-invoked corrective (`disable-model-invocation: true`) for when the
+last reply did not land: restate where things are in a few sentences, then
+make the point again — conclusion first, ASD-STE100 word discipline,
+project-defined vocabulary only, no new information. It works with either
+style selected, or with none.
+
+There are no hooks or gating environment variables. The two style bodies
+are byte-identical; only the frontmatter differs.
 
 ## Tests
 

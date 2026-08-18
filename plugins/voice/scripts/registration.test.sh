@@ -128,11 +128,11 @@ VOICE_ROW="$(grep -F '[voice](plugins/voice/)' <<<"$README_BODY" | head -n1)"
 STATUS_CELL="$(awk -F'|' '{print $3}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 DESC_CELL="$(awk -F'|' '{print $4}' <<<"$VOICE_ROW" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-# Retargeted v0.3.0 -> v0.3.2 by the echo-clause addition,
-# in lockstep with structure.test.sh's plugin.json pin
-# (readme-lint pairs the row's version cell with plugin.json, so the two
-# must never disagree).
-check "voice row status cell is exactly '✅ v0.3.2'" "$STATUS_CELL" "✅ v0.3.2"
+# Retargeted v0.3.2 -> v0.4.0 by the STE-word-discipline rewrite and the
+# re-pitch skill addition, in lockstep with structure.test.sh's plugin.json
+# pin (readme-lint pairs the row's version cell with plugin.json, so the
+# two must never disagree).
+check "voice row status cell is exactly '✅ v0.4.0'" "$STATUS_CELL" "✅ v0.4.0"
 check "voice row status cell version matches plugin.json (v$VERSION)" \
   "$(grep -qF "v$VERSION" <<<"$STATUS_CELL" && echo yes || echo no)" "yes"
 check "voice row description is non-empty" \

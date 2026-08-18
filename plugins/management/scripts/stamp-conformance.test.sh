@@ -326,7 +326,7 @@ for name in "${PLUGINS[@]}"; do
     landing)
       check "$name: stamp scope is 'project'" \
         "$(grep -qiE '"project"|\bproject\b.{0,10}scope|scope.{0,10}\bproject\b' <<< "$block" && echo yes || echo no)" "yes"
-      check "$name: stamp target is the repo's .claude/clam-profile.jsonc" \
+      check "$name: stamp target references clam-profile.jsonc" \
         "$(grep -qF 'clam-profile.jsonc' <<< "$block" && echo yes || echo no)" "yes"
       check "$name: has no remove subcommand (stale stamps for deleted profiles are documented as acceptable)" \
         "$(grep -qi '/landing:init remove' <<< "$raw" && echo no || echo yes)" "yes"

@@ -114,6 +114,14 @@ frontmatter keys) to `.claude/clam-profile.jsonc` (JSON with `//` comments)
 alongside the **build** plugin's introduction (plan 001) — see
 **build** below.
 
+v0.4.0 change: the profile moved from a committed `.claude/clam-profile.jsonc`
+to user-local storage at `~/.claude/projects/<sanitized-cwd>/clam-profile.jsonc`.
+The SessionStart hook was removed — the skill catalog handles discovery, and
+`/landing:land` reads the profile at invocation time. This eliminates the
+friction of committing clam-specific files in repos where not all team members
+use clam plugins. Repos with an existing committed profile can delete it at
+their convenience; nothing reads it.
+
 Couplings to honor at later ports:
 
 - **pr-workflow**: `create-pr` slots in behind the github-pr strategy (the
@@ -122,7 +130,7 @@ Couplings to honor at later ports:
   remove work worktrees — keep conventions aligned when that plugin lands.
 - **issue-tracker** (inside pr-workflow): its jira/github/none provider knob
   is the natural second resident of the profile file — namespaced keys in
-  `.claude/clam-profile.jsonc`, not a new file.
+  `clam-profile.jsonc`, not a new file.
 
 ## build — new (not a port)
 
@@ -146,8 +154,8 @@ PR-description-freshness concern that would otherwise have landed in
 `pr-workflow` belongs to build instead.
 
 Shipped alongside the `.claude/clam-profile.md` → `.claude/clam-profile.jsonc`
-profile format change (see **landing**), since build's session-start
-context and `/build:sync-pr` both read repo-declared policy.
+profile format change (see **landing**). The profile has since moved to
+user-local storage (landing v0.4.0).
 
 ## tracking — ported (from clam-code)
 

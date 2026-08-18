@@ -133,10 +133,10 @@ process happens — GitHub, GitLab, Bitbucket. Each offers the same broad shape
 (a pull or merge request, review, CI, merge) behind a different CLI and
 vocabulary.
 
-Landing takes a finished branch and lands it, per the policy committed in
-`.claude/clam-profile.jsonc`. Landing is responsible for the whole path from
-finished branch to merged commit, which is a good deal more than opening a
-PR:
+Landing takes a finished branch and lands it, per the repo's landing policy
+(user-local, detected and cached by `/landing:init`). Landing is responsible
+for the whole path from finished branch to merged commit, which is a good
+deal more than opening a PR:
 
 - Creating the pull or merge request.
 - Monitoring CI progress on it.

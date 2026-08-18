@@ -1,9 +1,9 @@
 #!/bin/bash
-# Structural test for the B02 documentation surfaces of the landing plugin
+# Structural test for the documentation surfaces of the landing plugin
 # (init/SKILL.md, land/SKILL.md, plugin.json, README.md). These are
 # markdown instructions and metadata, not executable code, so this test
 # checks structural properties rather than behavior: each file references
-# the new .claude/clam-profile.jsonc format, none references the legacy
+# the clam-profile.jsonc format, none references the legacy
 # .claude/clam-profile.md path, README.md documents JSONC (not YAML
 # frontmatter), and README.md carries the required section headings.
 # Run: bash plugins/landing/scripts/landing-docs.test.sh   (exits non-zero on failure)
@@ -33,23 +33,27 @@ has_pattern_ci() { # file extended-regex
   grep -qiE -- "$2" "$1" 2>/dev/null && echo yes || echo no
 }
 
-# 1. init/SKILL.md references the new JSONC profile path, not the legacy one.
+# 1. init/SKILL.md references the JSONC profile format, not the legacy one.
 check "init/SKILL.md references clam-profile.jsonc" \
-  "$(has_literal "$INIT_SKILL" '.claude/clam-profile.jsonc')" "yes"
+  "$(has_literal "$INIT_SKILL" 'clam-profile.jsonc')" "yes"
+check "init/SKILL.md does not reference the committed .claude/ path" \
+  "$(has_literal "$INIT_SKILL" '.claude/clam-profile.jsonc')" "no"
 check "init/SKILL.md does not reference legacy clam-profile.md" \
   "$(has_literal "$INIT_SKILL" '.claude/clam-profile.md')" "no"
 
-# 2. land/SKILL.md references the new JSONC profile path, not the legacy one.
+# 2. land/SKILL.md references the JSONC profile format, not the legacy one.
 check "land/SKILL.md references clam-profile.jsonc" \
-  "$(has_literal "$LAND_SKILL" '.claude/clam-profile.jsonc')" "yes"
+  "$(has_literal "$LAND_SKILL" 'clam-profile.jsonc')" "yes"
+check "land/SKILL.md does not reference the committed .claude/ path" \
+  "$(has_literal "$LAND_SKILL" '.claude/clam-profile.jsonc')" "no"
 check "land/SKILL.md does not reference legacy clam-profile.md" \
   "$(has_literal "$LAND_SKILL" '.claude/clam-profile.md')" "no"
 
-# 3. plugin.json's description references the JSONC format and is valid JSON.
+# 3. plugin.json is valid JSON and does not reference legacy paths.
 check "plugin.json is valid JSON" \
   "$(jq -e . "$PLUGIN_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
-check "plugin.json description references .jsonc" \
-  "$(has_literal "$PLUGIN_JSON" '.jsonc')" "yes"
+check "plugin.json does not reference the committed .claude/ path" \
+  "$(has_literal "$PLUGIN_JSON" '.claude/clam-profile')" "no"
 check "plugin.json does not reference legacy clam-profile.md" \
   "$(has_literal "$PLUGIN_JSON" '.claude/clam-profile.md')" "no"
 
@@ -73,7 +77,7 @@ line_of_exact() { # file exact-line-text
 check "README.md has H1 '# landing'" \
   "$(head -1 "$README" 2>/dev/null)" "# landing"
 check "README.md documents the clam-profile.jsonc format" \
-  "$(has_literal "$README" '.claude/clam-profile.jsonc')" "yes"
+  "$(has_literal "$README" 'clam-profile.jsonc')" "yes"
 
 REQUIRED_H2_ORDER=$'Getting started\nWhat to expect\nCommon workflows\nCommands\nRelationships to other plugins\nUninstalling'
 ACTUAL_H2_ORDER="$(grep -E '^## (Getting started|What to expect|Common workflows|Commands|Relationships to other plugins|Uninstalling)$' "$README" 2>/dev/null | sed 's/^## //')"

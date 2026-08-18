@@ -1,19 +1,25 @@
 ---
 name: land
-description: Land finished work onto the repo's main branch by following the landing policy declared in .claude/clam-profile.jsonc (github-pr or local-merge). Use when implementation is complete and verified and it is time to "land this", "ship it", "open the PR", or "merge to master", or when the tracking plan reaches its landing step.
+description: Land finished work onto the repo's main branch by following the landing policy (github-pr or local-merge). Use when implementation is complete and verified and it is time to "land this", "ship it", "open the PR", or "merge to master", or when the tracking plan reaches its landing step.
 ---
 
 # Land
 
 One verb for "get finished work onto the main branch", identical across
-repos. The mechanism comes from the repo's committed profile
-(`.claude/clam-profile.jsonc`), never from guesswork: the plugin supplies
-the mechanism, and each repo's committed profile declares the policy.
+repos. The mechanism comes from the repo's landing profile, never from
+guesswork: the plugin supplies the mechanism, and each repo's profile
+declares the policy.
 
 ## Step 0 — read the policy
 
-Read `.claude/clam-profile.jsonc` at the repo root (it is committed, so
-every worktree has its own checkout). JSONC: strip `//` line comments
+Resolve the profile path:
+
+```bash
+sanitized_cwd="${PWD//\//-}"
+profile="$HOME/.claude/projects/$sanitized_cwd/clam-profile.jsonc"
+```
+
+Read `clam-profile.jsonc` from that path. JSONC: strip `//` line comments
 before parsing as JSON. The relevant keys, under `merge`:
 
 | Key | Values | Default |
@@ -36,10 +42,7 @@ notes that qualify every step below (same role the markdown body played in
 the v1 format).
 
 **No profile file** → stop. Offer to run `/landing:init` (or ask the user
-how work lands here). Never guess a strategy. A repo with only the legacy
-`clam-profile.md` (previously committed under `.claude/`) and no `.jsonc`
-counts as no profile: offer migration via `/landing:init` rather than
-reading the legacy file.
+how work lands here). Never guess a strategy.
 
 **Unsupported policy** → stop with an error naming the offending value.
 v0.1 supports exactly two combinations:

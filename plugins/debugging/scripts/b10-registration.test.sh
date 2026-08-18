@@ -206,7 +206,7 @@ check_plugin_row_unchanged "tracking" \
 check_plugin_row_unchanged "statusline" \
   '| [statusline](plugins/statusline/) | ✅ v__VERSION__ | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via `/statusline:setup`. |'
 check_plugin_row_unchanged "landing" \
-  '| [landing](plugins/landing/) | ✅ v__VERSION__ | The landing seam: `/landing:land` lands finished work per the repo'"'"'s committed policy in `.claude/clam-profile.jsonc` (github-pr or local-merge); `/landing:init` detects and records it. |'
+  '| [landing](plugins/landing/) | ✅ v__VERSION__ | The landing seam: `/landing:land` lands finished work per the repo'"'"'s landing policy (github-pr or local-merge); `/landing:init` detects and records it in user-local storage. |'
 check_plugin_row_unchanged "worktrees" \
   '| [worktrees](plugins/worktrees/) | ✅ v__VERSION__ | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |'
 

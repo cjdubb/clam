@@ -12,8 +12,6 @@
 #     forge-github)
 #   - No references to the removed .claude/clam-profile.md path in the
 #     repo (cross-plugin coherence check)
-#   - .claude/clam-profile.jsonc exists and is valid JSON (after comment
-#     stripping)
 #   - build plugin is registered in .claude-plugin/marketplace.json
 #
 # Contract: B06 build-cleanup
@@ -56,8 +54,6 @@ SYNC_PR_DIR="$PLUGIN_ROOT/skills/sync-pr"
 CONTEXT_SKILL="$PLUGIN_ROOT/skills/context/SKILL.md"
 CONTEXT_SKILL_BUILD="$PLUGIN_ROOT/skills/build/SKILL.md"
 MARKETPLACE="$REPO_ROOT/.claude-plugin/marketplace.json"
-CLAM_PROFILE_JSONC="$REPO_ROOT/.claude/clam-profile.jsonc"
-
 FAILED=0
 
 check() { # label got expected
@@ -137,16 +133,6 @@ if [[ -n "$LEGACY_REFS" ]]; then
   echo "  offending files:" >&2
   sed 's/^/    /' <<<"$LEGACY_REFS" >&2
 fi
-
-# ---------------------------------------------------------------------------
-# 7. .claude/clam-profile.jsonc exists and is valid JSON after stripping //
-#    comments
-# ---------------------------------------------------------------------------
-
-check ".claude/clam-profile.jsonc exists" \
-  "$([ -f "$CLAM_PROFILE_JSONC" ] && echo yes || echo no)" "yes"
-check ".claude/clam-profile.jsonc is valid JSON after stripping // comments" \
-  "$(sed 's#//.*##' "$CLAM_PROFILE_JSONC" 2>/dev/null | jq -e . >/dev/null 2>&1 && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # 8. build plugin is registered in .claude-plugin/marketplace.json

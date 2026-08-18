@@ -17,6 +17,8 @@ Implemented → Accepted` (side-state: `Escalated`).
 - Deps: none
 - Unit: U01
 - PR group: G01
+- Est-impl: 45
+- Est-tests: 135
 - Est: 180
 - Justification: exceeds the per-block ceiling because the token-bucket
   algorithm and its concurrency-safe refill logic don't split cleanly

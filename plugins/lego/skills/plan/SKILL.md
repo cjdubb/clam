@@ -331,6 +331,18 @@ strategy behind it. Three things happen here, in order, with the engineer:
    implementation's size is a common multiple for behavioral or anchor-style
    suites — so weigh estimates accordingly.
 
+   Record the estimate as two fields per block: `Est-impl:` (the
+   implementation's own changed lines) and `Est-tests:` (the block's own
+   tests' changed lines), with `Est-tests:` defaulting to 3 times
+   `Est-impl:` unless you override the default for that block with a stated
+   reason recorded in the block's entry. `Est:` is then recorded as the sum
+   of `Est-impl:` and `Est-tests:` — still a single, bare integer, not a new
+   unit or a split field.
+
+   Edge cases: a prose or config block may argue `Est-tests:` down to 0 with
+   a stated reason, the same as any other override; an entry written
+   without the pair stays valid — `Est:` alone is still a complete estimate.
+
 2. **Feed the estimates back into decomposition.** Compare each block against
    the PR size budget. The budget is a plan fact, not a setting: agree it
    with the engineer here — 500 changed lines unless they say otherwise —
@@ -435,6 +447,8 @@ a PR.
    - Deps: B<NN>, ... | none
    - Unit: U<NN>
    - PR group: G<NN>
+   - Est-impl: <estimated implementation changed lines>
+   - Est-tests: <estimated test changed lines; 3x Est-impl unless overridden with a stated reason>
    - Est: <estimated changed lines>
    - Justification: <optional; required only when Est is strictly over the per-block ceiling from Step 3a>
    - Setup: <optional; the command that prepares the environment, when the repo needs one>

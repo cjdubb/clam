@@ -162,7 +162,13 @@ subsequent Bash commands directly — e.g. `npm test`, not
 `cd /path/to/worktree && npm test`. Include this instruction in every worker
 brief. Bash permission allowlists match bare commands; compound
 `cd <path> && <command>` forms do not match, causing unnecessary permission
-prompts.
+prompts. Some harness configurations reset the shell's working directory
+between commands, making cd-once impossible; briefs must name the fallback
+for that case too — absolute paths in file tools, and `cd <worktree> &&
+<command>` for commands that must run from the worktree root, accepting the
+permission-prompt cost over the risk of running against the wrong tree. A
+worker whose cwd keeps resetting reports that in its report's hygiene notes
+rather than silently adapting.
 
 Group only independent blocks within the unit into one wave — see
 "Scheduling" below for how that wave is actually dispatched (background by

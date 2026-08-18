@@ -228,16 +228,14 @@ ctx_json() { # current_dir tokens transcript_path
 }
 
 # Set a file's mtime to N seconds in the past, so the render sees a known
-# idle age from the transcript mtime. Uses bash's own strftime builtin
-# (printf '%(fmt)T') instead of forking `date` twice per call (once for
-# "now", once — BSD/GNU-fallback-style — to format the target epoch): same
-# localtime-based formatting, one process fewer, and no BSD-vs-GNU branch
-# needed since it isn't shelling out to either.
+# idle age from the transcript mtime. Uses `date` for bash 3.2 portability,
+# with a BSD/GNU fallback for epoch formatting.
 set_mtime_ago() { # file seconds_ago
   local f="$1" secs="$2" now epoch stamp
-  printf -v now '%(%s)T' -1
+  now=$(date +%s)
   epoch=$(( now - secs ))
-  printf -v stamp '%(%Y%m%d%H%M.%S)T' "$epoch"
+  stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null) \
+    || stamp=$(date -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null)
   touch -t "$stamp" "$f"
 }
 
@@ -386,11 +384,11 @@ mk_wt() { # dir
 # already-stale bundle (age TTL) look fresh, since clocks do not run backward.
 settle_to_second() {
   local t0 tnow
-  printf -v t0 '%(%s)T' -1
-  printf -v tnow '%(%s)T' -1
+  t0=$(date +%s)
+  tnow=$(date +%s)
   while [ "$tnow" = "$t0" ]; do
     sleep 0.02
-    printf -v tnow '%(%s)T' -1
+    tnow=$(date +%s)
   done
 }
 
@@ -401,9 +399,10 @@ settle_to_second() {
 backdate_all() { # dir seconds_ago
   local dir="$1" secs="$2" now epoch stamp
   settle_to_second
-  printf -v now '%(%s)T' -1
+  now=$(date +%s)
   epoch=$(( now - secs ))
-  printf -v stamp '%(%Y%m%d%H%M.%S)T' "$epoch"
+  stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null) \
+    || stamp=$(date -d "@$epoch" +%Y%m%d%H%M.%S 2>/dev/null)
   find "$dir" -type f -exec touch -t "$stamp" {} + 2>/dev/null
 }
 
@@ -492,15 +491,14 @@ shim_count() { # log_file [tool]
     grep -cxF "$2" "$1" 2>/dev/null
   else
     # Every line the shim appends is `echo "$tool" >> "$SHIM_LOG"`, always
-    # newline-terminated, so a builtin `mapfile` line count is exactly `wc
-    # -l`'s count here — without forking wc AND tr (tr only existed to strip
-    # the leading padding `wc -l < file` prints). Missing file -> empty
-    # output, same as before (wc's failed redirection produced nothing for
-    # tr to strip either).
+    # newline-terminated, so a line count matches `wc -l` here. Uses a
+    # while-read loop for bash 3.2 portability.
     [ -f "$1" ] || return 0
-    local -a _lines
-    mapfile -t _lines < "$1"
-    printf '%s' "${#_lines[@]}"
+    local _n=0
+    while IFS= read -r _; do
+      _n=$(( _n + 1 ))
+    done < "$1"
+    printf '%s' "$_n"
   fi
 }
 # ------------------------------------------------------------------------
@@ -866,8 +864,10 @@ printf '%s' "$defjson" \
 check "default CLAM_STATUSLINE_CACHE_DIR is \$HOME/.claude/.statusline-cache (created on demand)" \
   "$([ -d "$FAKE_HOME/.claude/.statusline-cache" ] && echo yes || echo no)" "yes"
 
-# 13b. Default TTL is 5s: a 4s-old bundle is still warm, a 5s-old bundle is
+# 13b. Default TTL is 5s: a 2s-old bundle is still warm, a 5s-old bundle is
 #      stale. Driven by whether a MODE-file change (a CACHED segment) shows.
+#      The warm check uses 2s (not 4s) for a 3s margin, since wall-clock slack
+#      under load can cross a 1s margin and flake the assertion.
 DEFTTL_DIR="$TMPROOT/def-ttl-cache"
 DEFTTL_WD="$TMPROOT/def-ttl-wd"; mk_wt "$DEFTTL_WD"
 printf 'Build\n' > "$DEFTTL_WD/.local/MODE"
@@ -881,9 +881,9 @@ render_default_ttl() { # json  (CLAM_STATUSLINE_SEGMENT_TTL_SECONDS deliberately
 }
 render_default_ttl "$ttljson" >/dev/null   # cold: bundle written with MODE=Build
 printf 'Debug\n' > "$DEFTTL_WD/.local/MODE"
-backdate_all "$DEFTTL_DIR" 4
+backdate_all "$DEFTTL_DIR" 2
 out=$(render_default_ttl "$ttljson")
-check "default TTL (5s): a 4s-old bundle is still warm ('Build' cached value kept)" \
+check "default TTL (5s): a 2s-old bundle is still warm ('Build' cached value kept)" \
   "$(mode_cached_value "$out" 'Build')" "yes"
 backdate_all "$DEFTTL_DIR" 5
 out=$(render_default_ttl "$ttljson")
@@ -919,7 +919,7 @@ check "TTL<=0 disables caching: an un-aged bundle is still rebuilt ('Debug' refl
   "$(mode_cached_value "$out" 'Debug')" "yes"
 
 # 13e. Non-integer TTL falls back to the 5s default (not "always cold", not
-#      "never expires") -- same 4s-warm/5s-stale boundary as 13b, reached via
+#      "never expires") -- same 2s-warm/5s-stale boundary as 13b, reached via
 #      an explicit garbage value instead of an unset variable.
 BAD_DIR="$TMPROOT/bad-ttl-cache"
 BAD_WD="$TMPROOT/bad-ttl-wd"; mk_wt "$BAD_WD"
@@ -927,9 +927,9 @@ printf 'Build\n' > "$BAD_WD/.local/MODE"
 badjson="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$BAD_WD\"},$ctx,\"transcript_path\":\"\"}"
 render_cached "$badjson" "$BAD_DIR" "not-a-number" >/dev/null
 printf 'Debug\n' > "$BAD_WD/.local/MODE"
-backdate_all "$BAD_DIR" 4
+backdate_all "$BAD_DIR" 2
 out=$(render_cached "$badjson" "$BAD_DIR" "not-a-number")
-check "non-integer TTL falls back to 5s: a 4s-old bundle is still warm ('Build' kept)" \
+check "non-integer TTL falls back to 5s: a 2s-old bundle is still warm ('Build' kept)" \
   "$(mode_cached_value "$out" 'Build')" "yes"
 backdate_all "$BAD_DIR" 5
 out=$(render_cached "$badjson" "$BAD_DIR" "not-a-number")
@@ -1195,6 +1195,24 @@ check "no git worktree / no .local: warm render stays within the 12-command budg
   "$([ "${plain_total:-99}" -le 12 ] && echo yes || echo no)" "yes"
 check "no ctx-status.json written when cwd has no .local dir (still gated exactly as legacy, cache layer notwithstanding)" \
   "$([ -e "$WD/.local/.ctx-status.json" ] && echo present || echo absent)" "absent"
+
+# 20c. A cwd that is a slash-less relative path (e.g. "max") must not loop
+#      forever in the git-root walk. The %/* strip is a no-op on such a string,
+#      so without a no-progress guard the loop never advances. The 3-second
+#      timeout ensures a regression fails rather than hangs.
+SLASHLESS_JSON="{\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"max\"},$ctx,\"transcript_path\":\"\"}"
+SLASHLESS_TIMEOUT_CMD=""
+for _t_cmd in timeout gtimeout; do
+  command -v "$_t_cmd" >/dev/null 2>&1 && SLASHLESS_TIMEOUT_CMD="$_t_cmd" && break
+done
+if [ -n "$SLASHLESS_TIMEOUT_CMD" ]; then
+  "$SLASHLESS_TIMEOUT_CMD" 3 bash -c 'printf "%s" "$1" | CLAUDE_PROJECTS_DIR="'"$TMPROOT"'/projects" CCOST_CACHE_DIR="'"$TMPROOT"'/cache" CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 CLAM_STATUSLINE_CACHE_DIR="'"$TMPROOT"'/slashless-cache" CLAM_STATUSLINE_SEGMENT_TTL_SECONDS=0 bash "'"$CONTEXT"'" 2>/dev/null' _ "$SLASHLESS_JSON" >/dev/null
+  slashless_rc=$?
+  check "slash-less relative cwd terminates (rc=0, not rc=124 timeout)" \
+    "$([ "$slashless_rc" -eq 0 ] && echo yes || echo no)" "yes"
+else
+  check "slash-less relative cwd (SKIPPED: no timeout command)" "skip" "skip"
+fi
 
 # === 21. Concurrency smoke: no reader ever sees a partial/corrupt bundle ===
 SMOKE_DIR="$TMPROOT/smoke-cache"
@@ -3504,6 +3522,19 @@ check "27g: and says what 3.2 does with the byte (sentinel / CTLESC)" \
   "$(printf '%s\n' "$b18_fn_comment" | grep -qiE 'sentinel|ctlesc|quoting' && echo yes || echo no)" "yes"
 check "27g: while still explaining the ORIGINAL tab/whitespace reason" \
   "$(printf '%s\n' "$b18_fn_comment" | grep -qiE 'whitespace|tab' && echo yes || echo no)" "yes"
+
+# The same four substrings must also appear in sl_parse_burn_fields's docblock:
+# it names the delimiter too, and a stale docblock actively misleads.
+b18_bf_docblock=$(sed -n '/^# Contract: B04 payload-parse/,/^sl_parse_burn_fields() {$/p' "$CONTEXT" \
+  | grep -E '^#')
+check "27g: sl_parse_burn_fields docblock names the byte actually in use (0x1f)" \
+  "$(printf '%s\n' "$b18_bf_docblock" | grep -qiE '\\x1f|\\u001f|0x1f|001f' && echo yes || echo no)" "yes"
+check "27g: sl_parse_burn_fields docblock explains the bash 3.2 reason" \
+  "$(printf '%s\n' "$b18_bf_docblock" | grep -qE 'bash 3|3\.2' && echo yes || echo no)" "yes"
+check "27g: sl_parse_burn_fields docblock names sentinel/CTLESC" \
+  "$(printf '%s\n' "$b18_bf_docblock" | grep -qiE 'sentinel|ctlesc|quoting' && echo yes || echo no)" "yes"
+check "27g: sl_parse_burn_fields docblock explains the tab/whitespace reason" \
+  "$(printf '%s\n' "$b18_bf_docblock" | grep -qiE 'whitespace|tab' && echo yes || echo no)" "yes"
 
 # --- 27h. Neither byte appears anywhere else in the plugin ------------------
 # Two scans, because the byte can arrive two ways. The first is over ESCAPE

@@ -1032,8 +1032,10 @@ if [ -n "$cwd" ]; then
       break
     fi
     [ "$_sl_dir" = "/" ] && break
+    _sl_prev="$_sl_dir"
     _sl_dir="${_sl_dir%/*}"
     [ -z "$_sl_dir" ] && _sl_dir="/"
+    [ "$_sl_dir" = "$_sl_prev" ] && break
   done
   unset _sl_dir
 fi

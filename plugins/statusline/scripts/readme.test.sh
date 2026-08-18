@@ -2328,10 +2328,9 @@ check "the off-switch section still covers the statusLine key" \
 
 # --- the two version surfaces ----------------------------------------------
 
-# B18 bumps both surfaces together, 0.10.0 -> 0.11.0: the docs change what an
-# installed user reads about the pace colours, and version-bump-lint reads
-# committed state, so an edit without the bump is invisible to them.
-B18_VERSION="0.11.0"
+# B18 bumps both surfaces together; version-bump-lint reads committed state,
+# so an edit without the bump is invisible to installed users.
+B18_VERSION="0.12.0"
 check "plugin.json version is exactly $B18_VERSION" \
   "$PLUGIN_VERSION" "$B18_VERSION"
 check "the root README row's version cell is exactly v$B18_VERSION" \

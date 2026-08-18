@@ -33,10 +33,8 @@
 # pointing into plugins/statusline/. Tests therefore copy the REAL script into
 # a fake repo root under mktemp, git-init that root, and plant fixture suites
 # at exactly the paths the script names. The gate under test is the real one;
-# the suites it runs are this file's. It never runs
-# plugins/statusline/scripts/context.test.sh — which does not terminate under
-# bash 3.2 (F44) and is the excluded suite the contract pins — or any other
-# real suite, at any point, in any scenario. Section 14 asserts that.
+# the suites it runs are this file's. It never runs the real suites — only
+# fixture suites planted at matching paths. Section 14 asserts that.
 #
 # The declared set is LEARNED from the gate's own per-suite lines rather than
 # hardcoded, because the contract fixes that line's format
@@ -551,32 +549,16 @@ check "3. accept: every declared suite was run under the interpreter given to --
 check "3. accept: scripts/ci.sh was not invoked" "$(ci_sh_ran "$ROOT_OK")" "no"
 
 # ===========================================================================
-# 4. Invariant — every exclusion is printed on every run, with its reason,
-#    INCLUDING on the pass path. A gate that mentions its exclusions only when
-#    something fails is exactly the silent narrowing this clause forbids: it
-#    reads as coverage it does not have.
-#
-#    context.test.sh is the exclusion the contract itself pins — it does not
-#    terminate under bash 3.2 (F44), which is also why the per-suite timeout
-#    exists at all.
+# 4. Invariant — context.test.sh is now declared (bash-4-only constructs
+#    removed), and the exclusion set is empty.
 # ===========================================================================
 
 CONTEXT_SUITE="plugins/statusline/scripts/context.test.sh"
 
-check "4. exclusions: context.test.sh is NOT in the declared set" \
-  "$(printf '%s\n' "${DECLARED[@]+"${DECLARED[@]}"}" | grep -Fxq -- "$CONTEXT_SUITE" && echo yes || echo no)" "no"
-check "4. exclusions: context.test.sh is recorded in the script as an exclusion" \
-  "$(printf '%s\n' "${EXCLUDED[@]+"${EXCLUDED[@]}"}" | grep -Fxq -- "$CONTEXT_SUITE" && echo yes || echo no)" "yes"
-check "4. exclusions: at least one exclusion is declared" \
-  "$([ "${#EXCLUDED[@]}" -ge 1 ] && echo yes || echo no)" "yes"
-
-check "4. exclusions: the PASS run names context.test.sh on stdout" \
-  "$(contains "$OK_OUT" "$CONTEXT_SUITE")" "yes"
-check "4. exclusions: its line on the PASS run carries a reason, not just the path" \
-  "$([ "$(exclusion_reason_len "$OK_OUT" "$CONTEXT_SUITE")" -ge 15 ] && echo yes || echo no)" "yes"
-check "4. exclusions: the exclusion is printed BEFORE the verdict" \
-  "$(before_verdict "$OK_OUT" "$CONTEXT_SUITE")" "yes"
-check "4. exclusions: no excluded suite was executed" "$(none_excluded_ran "$ROOT_OK")" "none"
+check "4. context.test.sh IS in the declared set" \
+  "$(printf '%s\n' "${DECLARED[@]+"${DECLARED[@]}"}" | grep -Fxq -- "$CONTEXT_SUITE" && echo yes || echo no)" "yes"
+check "4. no exclusions remain" \
+  "${#EXCLUDED[@]}" "0"
 
 # ===========================================================================
 # 5. Outputs / Errors — a failing suite: exit 1, and a verdict naming the FIRST
@@ -929,7 +911,7 @@ check "14. zero suites: no suite is globbed up off the filesystem to fill the ga
 # ===========================================================================
 # 15. Hermeticity of this suite itself: no real plugin suite was ever executed,
 #     which is what keeps this file's runtime independent of another block's
-#     suite and clear of the non-terminating context.test.sh.
+#     suite.
 # ===========================================================================
 
 check "15. hermetic: no interpreter was ever asked to run a suite inside this repo" \

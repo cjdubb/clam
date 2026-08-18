@@ -47,8 +47,7 @@
 #   - A declared suite whose file is absent: a FAILURE, not a skip. A gate that
 #     skips what it cannot find reports green on a repo that moved the file.
 #   - A suite that exceeds the timeout: a FAILURE, reported as one, and named
-#     in the verdict. This is not hypothetical — see the exclusion note for
-#     context.test.sh below.
+#     in the verdict.
 #
 # Invariants:
 #   - The gate never falls back to a newer bash. Its entire value is that the
@@ -152,16 +151,13 @@ DECLARED=(
   "plugins/statusline/lib/burn-math.test.sh"
   "plugins/statusline/lib/burn-theme.test.sh"
   "plugins/statusline/scripts/ccost.test.sh"
+  "plugins/statusline/scripts/context.test.sh"
   "plugins/statusline/scripts/readme.test.sh"
   "plugins/statusline/scripts/render-budget.test.sh"
   "plugins/statusline/scripts/setup-skill.test.sh"
 )
 
-EXCLUDED_SUITES=(
-  "plugins/statusline/scripts/context.test.sh"
-)
-
-CONTEXT_EXCLUDE_REASON="does not terminate under bash 3.2, see F44 -- printf -v with a percent-T time format at seven call sites, two inside a polling loop"
+EXCLUDED_SUITES=()
 
 if [ "${#DECLARED[@]}" -eq 0 ]; then
   echo "bash3-gate.sh: zero declared suites, refusing a vacuous pass" >&2
@@ -278,14 +274,7 @@ for rel in "${DECLARED[@]}"; do
 done
 
 for excluded in "${EXCLUDED_SUITES[@]}"; do
-  case "$excluded" in
-    "plugins/statusline/scripts/context.test.sh")
-      echo "$excluded  $CONTEXT_EXCLUDE_REASON"
-      ;;
-    *)
-      echo "$excluded  excluded, no reason recorded"
-      ;;
-  esac
+  echo "$excluded  excluded, no reason recorded"
 done
 
 if [ "$ANY_FAILED" -eq 0 ]; then

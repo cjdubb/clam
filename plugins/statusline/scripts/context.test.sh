@@ -1871,8 +1871,9 @@ check "23h: and the two functions genuinely disagree on this fixture, so that di
 # helper reports as negative must render with ▼ and keep its minus, exactly as
 # the contract's example line ("▼-25") shows.
 b5_neg=$(burn_week_trend 5 "$B5_NOW" "$B5_R7_RESET" "$B5_MIDNIGHT" "$B5_WDAY" "$B5_MASK" "$B5_SS" "$B5_ES")
+case "$b5_neg" in -*) _23h_neg=yes ;; *) _23h_neg=no ;; esac
 check "23h: the fixture for the sign test really is negative (not vacuous)" \
-  "$(case "$b5_neg" in -*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_23h_neg" "yes"
 check "23h: a negative trend renders as ▼ followed by the signed number" \
   "$(printf '%s' "$(burn_only "$(burn_json "$B5_WD" "" "" "" "" "" 5 "$B5_R7_RESET" "" "")")" \
      | grep -qF "▼$b5_neg" && echo yes || echo no)" "yes"
@@ -2780,8 +2781,9 @@ check "26d: and this trend really does carry a colour, so the equality discrimin
   "$([ -n "$(burn_trend_color "$b16_tr_val")" ] && echo yes || echo no)" "yes"
 # The other half of the same statement: the used% token on that very line opens
 # the group with no sequence at all in front of it.
+case "$b16_tr_raw" in "5h 40% "*) _26d_open=yes ;; *) _26d_open=no ;; esac
 check "26d: the five-hour group opens on a plain used% token, no opener before the label" \
-  "$(case "$b16_tr_raw" in "5h 40% "*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_26d_open" "yes"
 
 # --- 26f. The countdown dims WITH its parens --------------------------------
 # `($countdown)` entire, not `(` + dim + `)`: the whole subordinate clause dims
@@ -3016,8 +3018,9 @@ unset b16_tick_root b16_tick_scanned b16_tick_refs b16_tick_f
 #    label alone.
 check "26k: the five-hour used% sits between its separators with no sequence on either side" \
   "$(printf '%s' "$b16_static_raw" | grep -qaF "$B16_SEP 5h 1% $B16_SEP" && echo yes || echo no)" "yes"
+case "$b16_static_raw" in *"$B16_SEP wk 62%") _26k_close=yes ;; *) _26k_close=no ;; esac
 check "26k: the weekly used% likewise, and it closes the line with no trailing reset" \
-  "$(case "$b16_static_raw" in *"$B16_SEP wk 62%") echo yes ;; *) echo no ;; esac)" "yes"
+  "$_26k_close" "yes"
 # And said the other way round, so a renderer that merely moved the sequence
 # elsewhere on the group cannot pass: no escape byte at all falls inside the
 # span the two figures occupy.
@@ -3104,8 +3107,9 @@ check "26k: that group renders byte for byte -- plain used%, the arrow, its rese
 check "26k: the arrow is closed by its reset even when its colour opener is empty" \
   "$b17_neg_closed" "yes"
 # The used% beside a non-positive trend is plain too: the group opens on text.
+case "$b17_neg_raw" in "5h 0% "*) _26k_open=yes ;; *) _26k_open=no ;; esac
 check "26k: and that group still opens on a plain used% token" \
-  "$(case "$b17_neg_raw" in "5h 0% "*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_26k_open" "yes"
 unset b17_neg_t0 b17_neg_t1 b17_neg_raw b17_neg_ok b17_neg_closed b17_neg_signed _t
 
 # === 27. B18 statusline-bash3-payload-delimiter =============================
@@ -3739,12 +3743,16 @@ check "28b: and a path outside \$HOME carries no stray ~" \
 # segment, so the sequence opens before the first visible byte and closes after
 # the last. The terminator is BEL, which is the half of this clause osc8_link
 # carries and every other hyperlink in the render moves with.
+case "$b07_same" in "$ESC"']8;;'*) _28c_osc=yes ;; *) _28c_osc=no ;; esac
 check "28c: the segment opens with an OSC 8 hyperlink" \
-  "$(case "$b07_same" in "$ESC"']8;;'*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_28c_osc" "yes"
+_28c_urlval=$(b07_url "$b07_same")
+case "$_28c_urlval" in 'file://'*) _28c_url=yes ;; *) _28c_url=no ;; esac
 check "28c: whose URL is a file:// URL" \
-  "$(case "$(b07_url "$b07_same")" in 'file://'*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_28c_url" "yes"
+case "$b07_same" in *"$ESC"']8;;'"$B07_BEL") _28c_close=yes ;; *) _28c_close=no ;; esac
 check "28c: and it closes with the empty-URL closer, BEL-terminated" \
-  "$(case "$b07_same" in *"$ESC"']8;;'"$B07_BEL") echo yes ;; *) echo no ;; esac)" "yes"
+  "$_28c_close" "yes"
 check "28c: exactly two BEL bytes in the whole segment -- the two terminators, no more" \
   "$(b18_count_byte "$b07_same" "$B07_BEL")" "2"
 check "28c: and no ST terminator survives anywhere in it" \
@@ -3817,8 +3825,9 @@ b07_line1_vis() { # json cache_dir ttl
 b07_wired_diff=$(b07_line1_vis "$(b07_json "$B07_PROJ" "$B07_SUB")" "$TMPROOT/b07-wired-cache" 0)
 check "28e: a payload whose project_dir and current_dir differ renders both, joined by '›'" \
   "$(b07_has "$b07_wired_diff" '›')" "yes"
+case "$b07_wired_diff" in '~/proj'*) _28e_open=yes ;; *) _28e_open=no ;; esac
 check "28e: line 1 opens on the project dir, \$HOME collapsed" \
-  "$(case "$b07_wired_diff" in '~/proj'*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_28e_open" "yes"
 check "28e: and the current dir rides it relative, not absolute" \
   "$([ "$(b07_has "$b07_wired_diff" 'sub/dir')" = yes ] \
      && [ "$(b07_has "$b07_wired_diff" "$B07_SUB")" = no ] && echo yes || echo no)" "yes"
@@ -3878,8 +3887,9 @@ check "28g: control -- the tail really carries the branch, mode and State segmen
      && [ "$(b07_has "$b07_tail_without" 'In Progress')" = yes ] && echo yes || echo no)" "yes"
 check "28g: every segment past the path is byte-identical with and without a project_dir" \
   "$b07_tail_with" "$b07_tail_without"
+case "$b07_tail_with" in "  "*) _28g_space=no ;; " ${ESC}["*) _28g_space=yes ;; *) _28g_space=no ;; esac
 check "28g: and the branch segment still carries exactly one leading space" \
-  "$(case "$b07_tail_with" in "  "*) echo no ;; " ${ESC}["*) echo yes ;; *) echo no ;; esac)" "yes"
+  "$_28g_space" "yes"
 check "28g: the block still ends on the burnrate line, not on the path line" \
   "$(printf '%s\n' "$(b07_raw "$(b07_json "$B07_PROJ" "$B07_SUB")" "$TMPROOT/b07-tail-c" 0)" \
      | sed -E "s/${ESC}\\[[0-9;]*m//g" | tail -n1 | grep -qE '^Opus' && echo yes || echo no)" "yes"

@@ -19,15 +19,15 @@ situation and hands the session to the right next step.
 
 ## Step 1 — detect the companions
 
-Check, by directory presence relative to the current working directory's
-repo root, which companions are installed: `plugins/landing`,
-`plugins/lego`, and `plugins/tracking`. Detection is directory-based only.
-Companion code is never sourced, imported, or executed — an empty or broken
-companion directory still counts as present, since the plugin system owns
-broken-plugin handling, not this skill.
+Check the session's skill catalog for which companions are installed: a
+companion is present exactly when its entry skills are offered —
+`landing:land` for landing, `lego:plan` for lego — and tracking counts as
+present when its session-start tracking instructions are active. Detection
+is catalog-based only. Companion code is never sourced, imported, or
+executed — the plugin system owns broken-plugin handling, not this skill.
 
-If there is no plugins/ directory at all, that is simply no companions
-present — not an error. Every companion is optional and this skill
+If none of those catalog entries are present, that is simply no companions
+installed — not an error. Every companion is optional and this skill
 degrades gracefully: it works with any subset present, including none.
 
 ## Step 2 — detect in-flight work
@@ -84,7 +84,7 @@ Ask the user what they want to build. Then route on the detected subset:
 - On-demand only; no hooks are registered by this plugin.
 - Detect-and-degrade: every companion is optional, any subset works,
   including none present.
-- Companion detection is directory-based only; companion code is never
+- Companion detection is skill-catalog-based only; companion code is never
   sourced, imported, or executed.
 - No companion artifact parsing — file existence only.
 - References point downward only: this skill names companion entry points

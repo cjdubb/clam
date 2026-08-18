@@ -147,18 +147,18 @@ check "new work: no companions -> proceed with direct implementation" \
   "$(has_pattern_ci 'direct implementation')" "yes"
 
 # ---------------------------------------------------------------------------
-# 4. Companion detection -- by directory presence, all three companions,
-#    never sourcing or importing companion code.
+# 4. Companion detection -- by skill-catalog presence, all three
+#    companions, never sourcing or importing companion code.
 # ---------------------------------------------------------------------------
 
-check "detection: checks for plugins/landing directory presence" \
-  "$(has_literal 'plugins/landing')" "yes"
-check "detection: checks for plugins/lego directory presence" \
-  "$(has_literal 'plugins/lego')" "yes"
-check "detection: checks for plugins/tracking directory presence" \
-  "$(has_literal 'plugins/tracking')" "yes"
-check "detection: directory-based only" \
-  "$(has_pattern_ci 'director(y|ies).{0,30}presence|presence.{0,20}director|directory.based')" "yes"
+check "detection: landing detected via landing:land catalog entry" \
+  "$(has_literal 'landing:land')" "yes"
+check "detection: lego detected via lego:plan catalog entry" \
+  "$(has_literal 'lego:plan')" "yes"
+check "detection: tracking detected via its session-start instructions" \
+  "$(has_pattern_ci 'tracking.{0,60}session.start|session.start.{0,60}tracking')" "yes"
+check "detection: catalog-based only" \
+  "$(has_pattern_ci 'catalog.based|skill catalog')" "yes"
 check "detection: never sources/imports/executes companion code" \
   "$(has_pattern_ci 'never (source|import|execut)|not (source|import|execut)ed|without (sourcing|importing|executing)')" "yes"
 
@@ -196,16 +196,16 @@ check "invariant: no 'deliver' reference in user-visible text" \
 # 7. Edge cases.
 # ---------------------------------------------------------------------------
 
-check "edge case: no plugins/ directory treated as no companions present" \
-  "$(has_pattern_ci 'no plugins/? directory')" "yes"
+check "edge case: no catalog entries treated as no companions present" \
+  "$(has_pattern_ci 'none of those catalog entries|no (companion )?catalog entries')" "yes"
 check "edge case: no .local/ directory -> no in-flight state, new-work path" \
   "$(has_pattern_ci 'no \.local/? director|\.local/? (is )?(missing|absent)')" "yes"
 check "edge case: .local/ exists but no TODO.md -> new-work path" \
   "$(has_pattern_ci 'only system files|no TODO\.md|without (a )?TODO\.md')" "yes"
 check "edge case: TODO.md present but plans/ empty -> resume path" \
   "$(has_pattern_ci 'plans/? (is )?empty|empty plans')" "yes"
-check "edge case: empty/broken companion directory still treated as present" \
-  "$(has_pattern_ci 'empty.{0,20}(companion )?director|broken.{0,20}(companion )?director|present.but.broken')" "yes"
+check "edge case: broken-plugin handling owned by the plugin system" \
+  "$(has_pattern_ci 'plugin system owns|broken.plugin handling')" "yes"
 check "edge case: mid-session invocation re-routes without discarding work" \
   "$(has_pattern_ci 'mid.session|does not restart|never discard|without (restarting|discarding)')" "yes"
 check "edge case: both lego and landing present -> lego first for new work" \

@@ -19,8 +19,8 @@ context as companion plugins become available.
 
 No configuration required. Run `/build:context` whenever you want the
 framing; build detects companion plugins (landing, lego, tracking)
-automatically by checking for their directories under `plugins/` — there's
-no setup step to enable that.
+automatically from the session's skill catalog — there's no setup step to
+enable that.
 
 ## What to expect
 
@@ -38,8 +38,8 @@ session is and hands off to the right next step.
 `/build:context` is the orientation skill: you invoke it when you want to
 be oriented in the delivery framework this repo runs under.
 
-Running `/build:context` checks for companion plugin directories under `plugins/` (a
-directory-based check, not an import of their code) and frames the
+Running `/build:context` checks the session's skill catalog for companion
+entries (a catalog check, not an import of their code) and frames the
 installed subset:
 
 1. **Plan and dispatch work** — owned by lego when installed (plan,
@@ -110,9 +110,8 @@ installed version until you run the update command yourself
 
 ## Relationships to other plugins
 
-build detects landing, lego, and tracking by checking for their
-directories under `plugins/` in the current repo — a directory-based
-check, not an import of their code. Each one that is present adds its own
+build detects landing, lego, and tracking by their entries in the
+session's skill catalog — a catalog check, not an import of their code. Each one that is present adds its own
 section to the framing presented by `/build:context` (see What to expect
 for what each section says):
 

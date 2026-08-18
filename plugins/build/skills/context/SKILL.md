@@ -10,11 +10,10 @@ Behavior:
   On-demand replacement for the removed SessionStart hook
   (build-context.sh): invoked as /build:context, it presents the
   delivery-framework framing instead of injecting it into every session.
-  1. Detect companion plugins by directory presence relative to the
-     repo root of the current working directory: plugins/landing,
-     plugins/lego, plugins/tracking. Detection is directory-based only —
-     never source or import companion code; a present-but-broken
-     companion directory still counts as present.
+  1. Detect companion plugins by skill-catalog presence: landing:land
+     for landing, lego:plan for lego, and active session-start tracking
+     instructions for tracking. Detection is catalog-based only —
+     never source or import companion code.
   2. Present the framing, adapted to the installed subset:
      - landing present: it governs merge policy — how and where finished
        work lands (local merge vs. PR creation).
@@ -36,15 +35,15 @@ Outputs:
   changed, no hooks registered.
 
 Errors:
-  None. Degrades gracefully: no plugins/ directory means no companions
-  detected, which is the "none present" case, not an error.
+  None. Degrades gracefully: no companion catalog entries means no
+  companions detected, which is the "none present" case, not an error.
 
 Invariants:
   - Purely on-demand: the build plugin registers no hooks; nothing about
     this skill fires automatically at session start.
   - No injected standing instructions; companion descriptions are
     conceptual.
-  - Directory-based detection only; companion code is never executed.
+  - Skill-catalog-based detection only; companion code is never executed.
   - All user-visible text references "build" (the plugin name), never
     "deliver".
   - Works with any subset of companions present, including none.
@@ -63,14 +62,13 @@ and the build plugin registers no hooks at all.
 
 ## What it does
 
-Check, by directory presence only, whether each companion plugin is
-installed in the current repo: `plugins/landing`, `plugins/lego`, and
-`plugins/tracking`. This is directory-based detection — companion code is
-never sourced or imported, and a present-but-empty or broken companion
-directory still counts as present (the plugin system owns broken-plugin
-handling, not this skill). If there is no `plugins/` directory at all,
-treat that as no companions present, not an error — this skill has no
-error cases; it degrades gracefully.
+Check the session's skill catalog for whether each companion plugin is
+installed: `landing:land` for landing, `lego:plan` for lego, and active
+session-start tracking instructions for tracking. This is catalog-based
+detection — companion code is never sourced or imported (the plugin
+system owns broken-plugin handling, not this skill). If none of those
+catalog entries are present, treat that as no companions present, not an
+error — this skill has no error cases; it degrades gracefully.
 
 For whichever subset is present, adapt the framing:
 
@@ -103,10 +101,8 @@ touched by running this skill.
 
 ## Edge cases
 
-- No plugins/ directory in the repo at all: treated as no companions
+- No companion catalog entries at all: treated as no companions
   present, the same as the none-present case above.
-- An empty or broken companion directory: still treated as present —
-  detection only checks that the directory exists, it never inspects or
-  executes what's inside.
-- Multiple repos or worktrees: always resolve companion presence against
-  the current working directory's repo root, not any other checkout.
+- A companion whose skills are listed but broken: still treated as
+  present — detection only checks the catalog, it never inspects or
+  executes what's behind an entry.

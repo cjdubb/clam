@@ -416,7 +416,11 @@ Then the orchestrator sets `Accepted` — no one else, and never on a worker's
 word: present the engineer the verification evidence first (the
 `wave-check.sh` result, what the clause walk and the spot-review found, and
 the commit it landed as), and set `Accepted` once the engineer explicitly
-acknowledges it. Silence is not acknowledgement.
+acknowledges it. Silence is not acknowledgement. When that evidence rests on
+a document — a report file, the plan, a findings write-up — the standing
+rule from `/lego:plan` applies: present the document (open it via a
+catalog-advertised render skill when one is available) and name its path,
+rather than citing the path alone.
 
 ### 4. Local merge
 

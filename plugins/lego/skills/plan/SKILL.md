@@ -39,6 +39,17 @@ alike:
   engineer. A question the engineer explicitly declines or skips counts as
   answered; a bare "go" accepting the recommended defaults counts as
   answering all open questions.
+- **A gate presents its artifact; a path alone is not a presentation.**
+  Whenever a gate stops for the engineer to read an artifact — the Step 7
+  approval, a Step 2a closure, a re-presentation after revision, a
+  dispatch-time acceptance or escalation that rests on a document — end the
+  turn by presenting that artifact: check the skill catalog for a skill
+  that renders a markdown document to an HTML view opened in the engineer's
+  browser, and when one is available, open the document through it before
+  stopping. Name the document's path in the closing message either way.
+  When no such skill is available, the path is the fallback — skip the
+  render silently, never block the gate on it. Registering a document on a
+  background server without opening it does not present it.
 - **Delivery knowledge is orchestrator-only.** The PR size budget, the
   delivery mode, and the PR grouping are plan facts the orchestrator holds
   and acts on: they shape how work is dispatched and landed, never how a
@@ -677,7 +688,11 @@ verifies it against every clause before the block can move to `Accepted`.
 ## Step 7: Approval gate
 
 Present the verified design to the engineer and stop: the plan document, the
-block map, the stub docblocks, and which gate rung ran. This is the single
+block map, the stub docblocks, and which gate rung ran. Presenting means the
+standing rule applies — open the plan document via a catalog-advertised
+render skill when one is available, and name its path in the closing message
+regardless; a summons that cites the path without presenting the document is
+a defective summons. This is the single
 approval of the whole design — annotations and objections route back to
 Step 3 for design changes or Step 5 for materialization defects, the gate
 re-runs, and the design is re-presented. A rejected design's stubs are

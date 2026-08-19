@@ -405,5 +405,8 @@ notes_section="$(awk '/^## Notes/{found=1} found' <<<"$instructions")"
 check "Notes section managed-keys list includes CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
   "$(grep -qiF 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' <<<"$notes_section" && echo yes || echo no)" "yes"
 
+check "verify step checks for lost keys after the write (key-preservation guard)" \
+  "$(grep -qiE 'key.*missing|key.*lost|enabledPlugins.*victim|restore.*backup' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

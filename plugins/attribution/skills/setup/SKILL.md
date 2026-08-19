@@ -59,8 +59,15 @@ itself; only running this skill writes anything.
 
    If `jq` is not available, report that and stop before touching the file.
 5. **Verify.** Run `jq empty <target>` to confirm the result is still valid
-   JSON. Then tell the user exactly what was written, to which settings
-   file, and at which scope (user, project, or local).
+   JSON. Then compare the set of top-level keys in the written file against
+   the set that was present before the write (captured in step 3). If any
+   pre-existing key is missing from the result — `enabledPlugins` is the
+   most likely victim, but check all keys — the merge was not a merge:
+   restore the backup file (`mv <backup> <target>`), report which keys were
+   lost, and stop. A correct jq merge never drops keys it does not name.
+   Once the key-preservation check passes, tell the user exactly what was
+   written, to which settings file, and at which scope (user, project, or
+   local).
 6. **Record the setup stamp.** After the verify step succeeds, record this
    setup in the shared stamp file so the update flow can tell this plugin's
    setup is current with the installed version:

@@ -1,7 +1,7 @@
 {
   "name": "attribution",
   "description": "Suppress Claude Code's co-author attribution on commits and PRs. Install changes nothing; /attribution:setup writes the setting at the plugin's installation scope, /attribution:setup remove undoes it.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

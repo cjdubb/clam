@@ -616,6 +616,37 @@
   .node-panel-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
   .node-panel-foot .btn { flex: 1; text-align: center; }
 
+  /* ---------- Split view: graph left, full node detail right ----------
+     Opening a node from the graph docks the panel as a full-height right
+     column and shifts the graph canvas left beside it, so the graph and
+     the node's full detail are read side by side. */
+  body.wg-split #node-panel {
+    top: 64px; right: 0; bottom: 0;
+    width: min(46vw, 720px);
+    max-height: none;
+    border-radius: 0;
+    border-top: none; border-right: none; border-bottom: none;
+    box-shadow: -18px 0 60px rgba(0, 0, 0, 0.45);
+  }
+  body.wg-split .graph-view { margin-right: calc(min(46vw, 720px) + 14px); }
+  .np-title { font-size: 16px; font-family: var(--display); font-weight: 700; margin-bottom: 10px; }
+  .np-ref { display: inline-block; margin: 0 6px 6px 0; padding: 2px 10px;
+    border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.04);
+    color: var(--text); font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
+  .np-ref:hover { border-color: var(--border-glow); color: var(--teal-soft); }
+  .np-v a { color: var(--teal-soft); text-decoration: underline dotted; }
+  .np-doc { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .np-doc-src { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--muted-2); margin-bottom: 6px; }
+  .np-doc-src a { color: var(--teal-soft); text-decoration: none; }
+  .np-doc h1, .np-doc h2, .np-doc h3 { font-size: 14px; margin: 10px 0 6px; }
+  .np-doc ul { padding-left: 18px; margin: 6px 0; }
+  .np-doc li { margin: 3px 0; }
+  .np-doc code { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.06);
+    padding: 1px 5px; border-radius: 5px; }
+  .np-doc pre { overflow-x: auto; background: rgba(0,0,0,0.35); padding: 10px 12px;
+    border-radius: 8px; }
+
   /* Auto-linked cross-document references keep the surrounding text's look. */
   a.doc-ref { color: var(--teal, #2dd4bf); text-decoration: underline dotted; }
   a.doc-ref.code-ref { font-family: var(--mono); }
@@ -1471,6 +1502,18 @@ __CYTOSCAPE_DAGRE_SPLICE__
       panel.hidden = true;
       var body = document.getElementById("panel-body");
       if (body) body.replaceChildren();
+      document.body.classList.remove("wg-split");
+      wgResizeGraph();
+    }
+
+    /* The docked panel changes the graph container's width; cytoscape must be
+       told, or the canvas keeps its stale size and taps mis-hit. */
+    function wgResizeGraph() {
+      requestAnimationFrame(function () {
+        if (cyInstance) {
+          try { cyInstance.resize(); } catch (err) { /* mid-teardown */ }
+        }
+      });
     }
 
     /* One label/value row, both set as text — model data never becomes
@@ -1489,8 +1532,37 @@ __CYTOSCAPE_DAGRE_SPLICE__
       return row;
     }
 
-    /* Paint the panel for one model node. Returns false when the node is not
-       in the model, so the caller can fall back to the card view. */
+    /* One node-reference chip; clicking it repaints the panel for that node,
+       so Parent/Deps are navigable without leaving the split view. */
+    function panelNodeRef(id) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "np-ref";
+      var target = (workGraphModel && workGraphModel.byId) ? workGraphModel.byId[id] : null;
+      btn.textContent = target ? id + " — " + target.title : id;
+      btn.addEventListener("click", function () {
+        try { openNodePanel(id); } catch (err) { /* keep current panel */ }
+      });
+      return btn;
+    }
+
+    /* A row whose value is arbitrary DOM rather than text. */
+    function panelRowNode(label, valueEl) {
+      var row = document.createElement("div");
+      row.className = "np-row";
+      var k = document.createElement("span");
+      k.className = "np-k";
+      k.textContent = label;
+      row.appendChild(k);
+      valueEl.classList.add("np-v");
+      row.appendChild(valueEl);
+      return row;
+    }
+
+    /* Paint the panel for one model node and enter the split view: graph
+       docked left, this panel a full-height right column with the node's
+       complete detail. Returns false when the node is not in the model, so
+       the caller can fall back to the card view. */
     function openNodePanel(id) {
       var node = (workGraphModel && workGraphModel.byId) ? workGraphModel.byId[id] : null;
       var panel = document.getElementById("node-panel");
@@ -1498,18 +1570,131 @@ __CYTOSCAPE_DAGRE_SPLICE__
       if (!node || !panel || !body) return false;
       document.getElementById("panel-title").textContent = node.id;
       body.replaceChildren();
-      body.appendChild(panelRow("Title", node.title));
-      body.appendChild(panelRow("Status", node.statusKind === "dropped"
+
+      var title = document.createElement("div");
+      title.className = "np-title";
+      title.textContent = node.title;
+      body.appendChild(title);
+
+      var pill = document.createElement("span");
+      pill.className = "wg-status-pill wg-status-" + node.statusKind;
+      pill.textContent = node.statusKind === "dropped"
         ? "dropped (" + node.statusReason + ")"
-        : node.statusKind.replace("-", " ")));
+        : node.statusKind.replace("-", " ");
+      var pillWrap = document.createElement("span");
+      pillWrap.appendChild(pill);
+      body.appendChild(panelRowNode("Status", pillWrap));
+
       if (node.goal) body.appendChild(panelRow("Goal", node.goal));
-      body.appendChild(panelRow("Parent", node.parent || "none"));
-      body.appendChild(panelRow("Deps", (node.deps && node.deps.length) ? node.deps.join(", ") : "none"));
-      if (node.notes) body.appendChild(panelRow("Notes", node.notes));
+
+      if (node.parent) {
+        var pv = document.createElement("span");
+        pv.appendChild(panelNodeRef(node.parent));
+        body.appendChild(panelRowNode("Parent", pv));
+      } else {
+        body.appendChild(panelRow("Parent", "none"));
+      }
+
+      if (node.deps && node.deps.length) {
+        var dv = document.createElement("span");
+        node.deps.forEach(function (dep) { dv.appendChild(panelNodeRef(dep)); });
+        body.appendChild(panelRowNode("Deps", dv));
+      } else {
+        body.appendChild(panelRow("Deps", "none"));
+      }
+
+      if (node.notesHtml) {
+        var nv = document.createElement("span");
+        nv.className = "np-notes";
+        nv.innerHTML = node.notesHtml; /* sanitized in wgFieldHtml */
+        body.appendChild(panelRowNode("Notes", nv));
+        hydrateLinkedDoc(body, nv);
+      } else if (node.notes) {
+        body.appendChild(panelRow("Notes", node.notes));
+      }
+
       panelNodeId = node.id;
       panel.hidden = false;
       panel.scrollTop = 0;
+      document.body.classList.add("wg-split");
+      wgResizeGraph();
       return true;
+    }
+
+    /* ---------- Linked-artifact hydration ----------
+       When a node's Notes link to a served markdown file (possibly with a
+       #section fragment), fetch that file over the server's /raw route and
+       render the referenced section inline below the rows, so the panel
+       carries the linked detail, not just the link. Served pages only;
+       any failure is a silent skip — the panel is complete without it. */
+    function wgGhSlug(text) {
+      return text.toLowerCase()
+        .replace(/[^\p{L}\p{N}_ -]/gu, "")
+        .replace(/ /g, "-");
+    }
+
+    /* The fragment's section of a markdown string: from the heading whose
+       GitHub-style slug matches, up to the next heading of the same or a
+       shallower level. No fragment => the whole document. Null when the
+       fragment matches no heading. */
+    function wgExtractSection(md, frag) {
+      if (!frag) return md;
+      var lines = md.split("\n");
+      var out = null;
+      var lvl = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var m = /^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(lines[i]);
+        if (m) {
+          if (out !== null && m[1].length <= lvl) break;
+          if (out === null && wgGhSlug(m[2]) === frag.toLowerCase()) {
+            out = [lines[i]];
+            lvl = m[1].length;
+            continue;
+          }
+        }
+        if (out !== null) out.push(lines[i]);
+      }
+      return out ? out.join("\n") : null;
+    }
+
+    function hydrateLinkedDoc(body, notesEl) {
+      if (location.protocol !== "http:" && location.protocol !== "https:") return;
+      var link = null;
+      var anchors = notesEl.querySelectorAll("a[href]");
+      for (var i = 0; i < anchors.length; i++) {
+        var p = anchors[i].pathname || "";
+        if (p.indexOf("/doc/") === 0 && /\.md$/i.test(p)) { link = anchors[i]; break; }
+      }
+      if (!link) return;
+      var mdPath = link.pathname.slice("/doc".length);
+      var frag = (link.hash || "").replace(/^#/, "");
+      var forNode = panelNodeId;
+      fetch("/raw" + mdPath)
+        .then(function (res) { return res.ok ? res.text() : null; })
+        .then(function (md) {
+          if (md === null || panelNodeId !== forNode || !body.isConnected) return;
+          var section = wgExtractSection(md, frag);
+          if (section === null || !section.replace(/\s/g, "").length) return;
+          var block = document.createElement("div");
+          block.className = "np-doc";
+          var src = document.createElement("div");
+          src.className = "np-doc-src";
+          src.textContent = "From " + decodeURIComponent(mdPath).split("/").pop() + " ";
+          var open = document.createElement("a");
+          open.href = link.href;
+          open.textContent = "open ↗";
+          src.appendChild(open);
+          block.appendChild(src);
+          var content = document.createElement("div");
+          try {
+            content.innerHTML = marked.parse(section);
+          } catch (err) {
+            content.textContent = section;
+          }
+          block.appendChild(content);
+          body.appendChild(block);
+        })
+        .catch(function () { /* silent skip */ });
     }
 
     /* Contract: B01 workgraph-transform (plan 001-render-doc-workgraph-transform)
@@ -1804,6 +1989,47 @@ __CYTOSCAPE_DAGRE_SPLICE__
         .join("").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "");
     }
 
+    /* The same field kept as sanitized HTML, so the split-view panel can show
+       the node's links live. Only a small whitelist survives: anchors (href
+       re-checked to http/https/relative — no javascript: etc.), code, em,
+       strong; everything else is flattened to its text. */
+    function wgFieldHtml(nodes) {
+      if (!nodes || !nodes.length) return "";
+      var holder = document.createElement("div");
+      nodes.forEach(function (n) { holder.appendChild(n.cloneNode(true)); });
+      var out = document.createElement("div");
+      (function sanitize(src, dst) {
+        Array.prototype.forEach.call(src.childNodes, function (child) {
+          if (child.nodeType === Node.TEXT_NODE) {
+            dst.appendChild(document.createTextNode(child.textContent));
+            return;
+          }
+          if (child.nodeType !== Node.ELEMENT_NODE) return;
+          var tag = child.tagName.toLowerCase();
+          if (tag === "a") {
+            var href = child.getAttribute("href") || "";
+            if (/^\s*(javascript|data|vbscript):/i.test(href)) {
+              dst.appendChild(document.createTextNode(child.textContent));
+              return;
+            }
+            var a = document.createElement("a");
+            a.setAttribute("href", href);
+            sanitize(child, a);
+            dst.appendChild(a);
+            return;
+          }
+          if (tag === "code" || tag === "em" || tag === "strong") {
+            var el = document.createElement(tag);
+            sanitize(child, el);
+            dst.appendChild(el);
+            return;
+          }
+          sanitize(child, dst); /* unknown element: keep its content, drop the tag */
+        });
+      })(holder, out);
+      return out.innerHTML;
+    }
+
     function captureWorkGraphModel(doc) {
       var byId = {};
       var nodes = [];
@@ -1816,6 +2042,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
           var parsed = parseWorkGraphNode(clone, heading);
           var goalText = wgFieldPlainText(parsed.goalNodes);
           var notesText = wgFieldPlainText(parsed.notesNodes);
+          var notesHtml = wgFieldHtml(parsed.notesNodes);
           decorateWorkGraphNode(parsed);
           var node = {
             id: parsed.id,
@@ -1824,6 +2051,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
             statusReason: parsed.statusReason,
             goal: goalText,
             notes: notesText,
+            notesHtml: notesHtml,
             parent: parsed.parent,
             deps: parsed.deps,
             sec: sec

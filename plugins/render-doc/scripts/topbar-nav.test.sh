@@ -293,7 +293,9 @@ fi
 
 # Errors: plain navigation means no new request and no dialog — a failure on
 # the target URL is the server's JSON error in the browser, not page breakage.
-pinned 'fetch\(|XMLHttpRequest' 2 \
+# Baseline 2 (/annotate POST, /raw live-update poll) plus the split-view
+# panel's /raw hydration fetch — the topbar links themselves add none.
+pinned 'fetch\(|XMLHttpRequest' 3 \
   "errors: the links navigate rather than fetch (no new request is issued)"
 pinned '\balert\(|\bconfirm\(' 0 "errors: no user-facing dialog is introduced"
 pinned '/annotate' 1 "same-server invariant: /annotate is still the only route the page POSTs to"

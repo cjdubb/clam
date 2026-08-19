@@ -762,7 +762,7 @@ sep_count() { # line
 strip_allowed() { # text
   local t="$1"
   t="${t//│/}"; t="${t//▲/}"; t="${t//▼/}"; t="${t//↑/}"; t="${t//↓/}"; t="${t//›/}"
-  t="${t//—/}"; t="${t//→/}"; t="${t//·/}"
+  t="${t//—/}"; t="${t//→/}"
   printf '%s\n' "$t"
 }
 # emoji_hits(text): the first offending lines, or "" when the text is clean.
@@ -2331,7 +2331,7 @@ check "the off-switch section still covers the statusLine key" \
 
 # B18 bumps both surfaces together; version-bump-lint reads committed state,
 # so an edit without the bump is invisible to installed users.
-B18_VERSION="0.12.1"
+B18_VERSION="0.12.2"
 check "plugin.json version is exactly $B18_VERSION" \
   "$PLUGIN_VERSION" "$B18_VERSION"
 check "the root README row's version cell is exactly v$B18_VERSION" \

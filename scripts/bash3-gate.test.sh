@@ -265,6 +265,10 @@ ci_sh_ran() { # <root> -- yes/no
 # Invocation. Wrapped in `timeout` as a suite-level safety net: a gate that
 # forgets its own per-suite timeout must not hang the repo's whole test stage.
 # ---------------------------------------------------------------------------
+HARNESS_TIMEOUT=""
+for _ht in timeout gtimeout; do
+  command -v "$_ht" >/dev/null 2>&1 && HARNESS_TIMEOUT="$_ht" && break
+done
 RUN_OUT=""
 RUN_ERR=""
 RUN_EXIT=0
@@ -285,7 +289,11 @@ run_gate() { # <root> <PATH prefix dir or ""> [args...]
       export BASH3_GATE_SUITES=/dev/null BASH3_GATE_TIMEOUT=1
       export GATE_TIMEOUT=1 GATE_BASH=/nonexistent BASH_PATH=/nonexistent
     fi
-    timeout 120 "$REAL_BASH" "$root/scripts/bash3-gate.sh" "$@"
+    if [ -n "$HARNESS_TIMEOUT" ]; then
+      "$HARNESS_TIMEOUT" 120 "$REAL_BASH" "$root/scripts/bash3-gate.sh" "$@"
+    else
+      "$REAL_BASH" "$root/scripts/bash3-gate.sh" "$@"
+    fi
   ) >"$out" 2>"$err"
   RUN_EXIT=$?
   RUN_OUT="$(cat "$out")"

@@ -4,7 +4,7 @@ Hands a discrete sub-effort off from an active orchestrator session to a
 fresh one: writes a handover document, scaffolds the recipient orchestrator
 worktree, and populates its `.local/` — all before the user ever starts the
 new session. The orchestrator only ever scaffolds; a worktree becomes a live
-orchestrator when a human runs `clam` there and picks `Build`.
+orchestrator when a human starts a `claude` session there.
 
 ## Getting started
 
@@ -28,8 +28,7 @@ no background behavior. When the skill runs, in the current worktree it:
   `.local/handover-{slug}.md` with no issue tracker in use) — a provenance
   copy that stays behind in the current worktree;
 - creates a sibling worktree with `newtree` and writes into its `.local/`: a
-  copy of the handover, a `MODE` file set to `Build`, and an empty
-  `.orchestrator` marker;
+  copy of the handover and an empty `.orchestrator` marker;
 - writes a placeholder tracking document into that sibling worktree's
   `.local/`, so the new session has a starting pointer;
 - reports the created path back to you and stops — it never starts a
@@ -51,8 +50,8 @@ the recipient worktree, and reports back a path plus the one remaining
 step:
 
 > Scaffolded `orchestrate-{ISSUE-KEY}-{short-description}` with the
-> handover in its `.local/`. Run `cd <path> && clam`, pick `Build`, and the
-> new orchestrator will read the handover and proceed from Gate 1.
+> handover in its `.local/`. Run `cd <path> && claude` and the new
+> orchestrator will read the handover and proceed from Gate 1.
 
 You then relay that to the user — the skill never starts a session in the
 recipient worktree itself, and never delegates any of its own steps to a
@@ -60,7 +59,7 @@ subagent.
 
 ### Pick up a handover as the recipient
 
-1. `cd` into the scaffolded worktree and run `clam`; pick `Build`.
+1. `cd` into the scaffolded worktree and run `claude`.
 2. If a session-modes plugin is installed, its `/start` may detect and read
    the handover document automatically; without it, read
    `.local/handover-*.md` yourself as your first move.
@@ -88,7 +87,7 @@ sub-effort is tracked, its issue key.
 Guarantees that hold regardless of session:
 
 - never starts a session in the recipient worktree — only the user runs
-  `clam` and picks `Build`;
+  `claude`;
 - never writes content into the recipient's `.local/.orchestrator` — only
   an empty marker; the recipient fills it in at its own Gate 1;
 - never pre-populates `PLAN.md` or `IMPLEMENTATION-PLAN.md` in the
@@ -155,7 +154,7 @@ installed version until you run the update command yourself
 ```
 
 Nothing else to revert — the skill only ever writes plain files into
-worktrees' `.local/` directories (handover documents, `MODE`,
-`.orchestrator` markers, the placeholder tracking document), and
+worktrees' `.local/` directories (handover documents, `.orchestrator`
+markers, the placeholder tracking document), and
 uninstalling the plugin doesn't touch those. Clean them up by hand if you no
 longer need them.

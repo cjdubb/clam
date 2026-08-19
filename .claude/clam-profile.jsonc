@@ -1,0 +1,20 @@
+{
+  "profile-version": 2,
+
+  // Merge policy
+  "merge": {
+    "strategy": "github-pr",
+    "target": "master",
+    "merged-by": "user",
+    "verify": "bash scripts/ci.sh"
+  },
+
+  // Deploy policy
+  "deploy": {
+    "trigger": "none"
+  }
+
+  // PRs are the established landing mechanism. No branch protection on
+  // master. The orchestrator pushes the branch and opens the PR; the user
+  // reviews and merges via the GitHub UI (--auto flag, never --admin).
+}

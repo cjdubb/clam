@@ -112,18 +112,21 @@ check "no NotImplemented marker in skill body" \
   "$(printf '%s' "$GATE_FLAT_BODY" | grep -qiE -- 'NotImplemented' && echo yes || echo no)" "no"
 
 # ---------------------------------------------------------------------------
-# 2. Behavior clause 1 -- companion detection by directory presence, for
-#    all three companion plugins, never sourcing/importing companion code.
+# 2. Behavior clause 1 -- companion detection by skill-catalog presence,
+#    for all three companion plugins, never sourcing/importing companion
+#    code.
 # ---------------------------------------------------------------------------
 
-check "detection: checks for plugins/landing directory presence" \
-  "$(has_literal 'plugins/landing')" "yes"
-check "detection: checks for plugins/lego directory presence" \
-  "$(has_literal 'plugins/lego')" "yes"
-check "detection: checks for plugins/tracking directory presence" \
-  "$(has_literal 'plugins/tracking')" "yes"
-check "detection: directory-based, never sources/imports companion code" \
+check "detection: landing detected via landing:land catalog entry" \
+  "$(has_literal 'landing:land')" "yes"
+check "detection: lego detected via lego:plan catalog entry" \
+  "$(has_literal 'lego:plan')" "yes"
+check "detection: tracking detected via its session-start instructions" \
+  "$(has_pattern_ci 'tracking.{0,60}session.start|session.start.{0,60}tracking')" "yes"
+check "detection: catalog-based, never sources/imports companion code" \
   "$(has_pattern_ci 'never (source|import)|not (source|import)ed|without (sourcing|importing)')" "yes"
+check "detection: catalog-based only" \
+  "$(has_pattern_ci 'catalog.based|skill catalog')" "yes"
 
 # ---------------------------------------------------------------------------
 # 3. Behavior clause 2 -- adaptive framing per companion, including the
@@ -197,10 +200,10 @@ check "outputs: no files written / no settings changed" \
 # 9. Edge cases.
 # ---------------------------------------------------------------------------
 
-check "edge case: no plugins/ directory treated as no companions present" \
-  "$(has_pattern_ci 'no plugins/? directory')" "yes"
-check "edge case: empty/broken companion directory still treated as present" \
-  "$(has_pattern_ci 'empty.{0,20}(companion )?director|broken.{0,20}(companion )?director')" "yes"
+check "edge case: no catalog entries treated as no companions present" \
+  "$(has_pattern_ci 'none of those catalog entries|no (companion )?catalog entries')" "yes"
+check "edge case: listed-but-broken companion still treated as present" \
+  "$(has_pattern_ci 'listed but broken|broken.{0,40}still treated as present|never inspects or executes')" "yes"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

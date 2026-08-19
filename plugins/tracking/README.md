@@ -78,13 +78,17 @@ Concretely, once enabled:
   entry is still open — once per session epoch, same marker scheme as the
   other nudges; see [Commands](#commands) for the mechanics and the
   `CLAM_FOLLOWUPS_GATE` escape hatch.
-- **`.local/WORKGRAPH.md`** is the lazily-created work graph for recursive
-  problem decomposition — format per `docs/protocols/work-graph.md`: one
-  node per problem or subproblem, each with `Goal:`, `Status:`, `Parent:`,
-  and `Deps:` fields, plus a file-level `Focus:` pointer naming the node
-  currently being worked. It is created from `templates/WORKGRAPH.md` the
-  moment a problem genuinely decomposes — never ahead of need, and never
-  by a hook. Every open node and the Focus node are surfaced at every
+- **`.local/WORKGRAPH.md`** is the work graph, the primary record of the
+  work's structure and progress — format per
+  `docs/protocols/work-graph.md`: one node per problem or subproblem, each
+  with `Goal:`, `Status:` (`open | in progress | done | dropped`),
+  `Parent:`, and `Deps:` fields, plus a file-level `Focus:` pointer naming
+  the node currently being worked. A node owned by another artifact links
+  to it from `Notes:` and duplicates only `Status:`, updated in the same
+  edit as the owning artifact's transition so live views show progress in
+  real time. It is created eagerly from `templates/WORKGRAPH.md` at the
+  start of tracked work (a single root node is the normal starting state)
+  — by the session, never by a hook. Every open node and the Focus node are surfaced at every
   SessionStart, and two Stop-hook gates police the file — a creation gate
   blocks the first park after a decomposition artifact (`.local/PLAN.md`,
   `blocks.md`, `IMPLEMENTATION-PLAN.md`, or `plans/*.md`) exists while
@@ -129,12 +133,12 @@ Concretely, once enabled:
 Create `.local/TODO.md` from `templates/TODO.md` (SessionStart auto-creates
 it the moment `.local/` exists, or copy the template by hand). Set `State:`
 as you go — `Not Started` → `In Progress` while working — and keep `Current
-Task:` and the Implementation Log current in real time, not just at session
+Task:` and the graph's node statuses current in real time, not just at session
 end: compaction can happen at any point, and state that lives only in
 conversation is lost. Park unresolved conversation threads (a question
 asked but never answered, a naming/design thread left hanging) in the
 template's `## Open Questions` section as they come up, and remove each
-entry once it's answered, recording the answer in the Implementation Log,
+entry once it's answered, recording the answer on the relevant graph node,
 `PLAN.md`'s Changelog, or a decisions file.
 
 ### Resume after a restart, `/clear`, or compaction

@@ -1,8 +1,10 @@
 # Work Graph
 
-One node per problem or subproblem, added at the moment it surfaces. A
-node's disposition — `open`, `done`, or `dropped (<reason>)` — is
-edited in place as work resolves; entries are never deleted, and a
+This file is the primary record of the work's structure and progress:
+one node per problem or subproblem, added at the moment it surfaces,
+starting with a single root node for the deliverable. A node's status —
+`open`, `in progress`, `done`, or `dropped (<reason>)` — is edited in
+place as work starts and resolves; entries are never deleted, and a
 dropped disposition always requires a reason. Focus, below, is edited
 in place as attention moves from one node to the next.
 
@@ -10,10 +12,10 @@ Focus: none
 
 ## N01 — [short title]
 - Goal: [what done looks like for this node]
-- Status: open | done | dropped ([reason])
+- Status: open | in progress | done | dropped ([reason])
 - Parent: none | N<NN>
 - Deps: none | N<NN>[, N<NN>...]
-- Notes: [optional context]
+- Notes: [optional context; a relative markdown link to the artifact that owns this node's detail — a plan section, a ledger entry — rather than a copy of it]
 
 `N<NN>` is a zero-padded sequence number scoped to this file (N01, N02,
 …); ids are assigned once and never reused, even for a node that is
@@ -40,6 +42,11 @@ already started — is still authored this way, top-down with per-phase
 nodes and Parent edges, never transcribed as a flat summary of a unit
 table.
 
-The `- Status: open` line above is a machine-read marker, matched
-literally, modulo trailing whitespace. Reword it and a consumer stops
-seeing the node as open.
+Nodes owned by another artifact link to it from `Notes:` and duplicate
+only `Status:` — status is what live views display, so it is updated in
+the same edit as the owning artifact's own transition: `in progress` the
+moment work on the node starts, `done`/`dropped` at its resolution.
+
+The `- Status: open` / `- Status: in progress` lines are machine-read
+markers, matched literally, modulo trailing whitespace. Reword one and a
+consumer stops seeing the node as live.

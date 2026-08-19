@@ -233,10 +233,10 @@ wte_wg_bullet=$(bullet_containing "$STRIPPED_README" "$wte_heading_line" "$wte_e
 check "'## What to expect' names a .local/WORKGRAPH.md bullet" \
     "$([ -n "$wte_wg_bullet" ] && echo yes || echo no)" "yes"
 
-assert_contains_re_i "What to expect bullet: WORKGRAPH.md is lazily created" "$wte_wg_bullet" \
-    'lazy|lazily'
-assert_contains_re_i "What to expect bullet: it is a work graph for recursive problem decomposition" "$wte_wg_bullet" \
-    'recursive[^.]{0,40}decompos|decompos[^.]{0,40}recursive'
+assert_contains_re_i "What to expect bullet: WORKGRAPH.md is created at the start of tracked work" "$wte_wg_bullet" \
+    'start of tracked work|eager'
+assert_contains_re_i "What to expect bullet: it is the primary record of structure and progress" "$wte_wg_bullet" \
+    'primary record[^.]{0,60}structure|structure and progress'
 assert_contains_re_i "What to expect bullet: names the work-graph protocol document" "$wte_wg_bullet" \
     'docs/protocols/work-graph\.md'
 assert_contains_re_i "What to expect bullet: node fields include Goal" "$wte_wg_bullet" '\bGoal\b'
@@ -463,7 +463,7 @@ assert_contains_re_i "Uninstalling: .local/WORKGRAPH.md is in the not-removed li
 # a literal retarget only — no assertion added, removed, or weakened, and the
 # frozen PASS count is unchanged.
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "plugin.json version is exactly 0.12.0" "$plugin_version" "0.12.0"
+check "plugin.json version is exactly 0.13.0" "$plugin_version" "0.13.0"
 
 plugin_description=$(jq -r '.description' "$PLUGIN_JSON" 2>/dev/null)
 assert_contains_re_i "plugin.json description: gains the work-graph feature" "$plugin_description" \

@@ -1,9 +1,12 @@
 # TODO-format protocol
 
 `.local/TODO.md`, at the root of a session's worktree, is the session
-tracking document: the single place a session records what it is doing,
-what state it is in, and what remains. This document is the normative
-spec for its shape. It is owned by the repository's architecture and
+tracking document: where a session records what state it is in and what
+has its attention. The structure of the work itself — its decomposition,
+per-item progress, and the log of what happened — lives in the work
+graph (docs/protocols/work-graph.md), the primary structural record;
+this document's `Current Task:` cites the graph's Focus node. This
+document is the normative spec for the tracking document's shape. It is owned by the repository's architecture and
 names no plugin. `.local/` is gitignored, so the document is per-worktree
 session state rather than a tracked artifact.
 
@@ -29,21 +32,27 @@ The `## Status` section carries five fields, each on its own line:
 
 ## Required sections
 
-Eight sections appear, in this order: `## Status`, `## Tasks` (a
-checkbox list of outstanding work), `## Testing`, `## Pre-PR`,
-`## Implementation Log`, `## Blockers/Notes`, `## Open Questions`, and
+Six sections appear, in this order: `## Status`, `## Testing`,
+`## Pre-PR`, `## Blockers/Notes`, `## Open Questions`, and
 `## Discovered Tasks`.
+
+Two sections earlier revisions of this protocol required — `## Tasks`
+and `## Implementation Log` — are superseded by the work graph: work
+items and their breakdown are graph nodes, and what happened to an item
+is recorded on its node. A document still carrying those sections stays
+valid (readers tolerate them; writers stop adding to them), so existing
+worktrees need no migration.
 
 ## Real-time discipline
 
 State is written as it changes, not at session end. The document must
-survive compaction and session restarts as the single source of truth
-for the work: a reader should be able to resume the work from this file
-alone, with nothing else to consult.
+survive compaction and session restarts: together with the work graph it
+cites, a reader should be able to resume the work with nothing else to
+consult.
 
 ## Edge cases
 
 A field with no current value stays present and empty — `Blocked
 Reason:` with nothing after the colon — and is never deleted. Extra
-repo-specific sections may follow the required eight, but they may never
+repo-specific sections may follow the required six, but they may never
 reorder or replace them.

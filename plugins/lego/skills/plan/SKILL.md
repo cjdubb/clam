@@ -507,6 +507,21 @@ a PR.
    phase that resolves it. Update the map in real time at every transition so the
    engineer always reads current state.
 
+3. **Work-graph nodes** for the decomposition, in `.local/WORKGRAPH.md` at
+   the worktree root, shaped per `docs/protocols/work-graph.md` where that
+   protocol is present. When no artifact has created the file yet, create
+   it now: an H1 `# Work Graph`, one `Focus:` line, then one
+   `## N<NN> — <title>` entry per node carrying `- Goal:`, `- Status:`,
+   `- Parent:`, `- Deps:`, and `- Notes:` lines, in that order. Write one
+   node per block, each parented under a node for its unit (units under the
+   deliverable's root node), each at `- Status: open`, with the node's
+   `Deps:` mirroring the block's `Deps:` edges and its `Notes:` carrying a
+   relative markdown link to the block's entry in `.local/blocks.md` — a
+   link, never a copy of the entry. Node titles are the block names in plain
+   language; `B<NN>`/`U<NN>` ids belong in `Notes:`, not in titles. The
+   graph is the structural record live views render; the block map remains
+   the ledger that owns each block's lifecycle detail.
+
 ## Materialization
 
 The scaffold **materializes** the interfaces agreed with the engineer in

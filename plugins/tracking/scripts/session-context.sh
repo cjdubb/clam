@@ -88,15 +88,23 @@ All work tracking uses \`.local/\` files in the current worktree as the single
 source of truth. Do NOT use the built-in TaskCreate/TaskUpdate/TaskList/TaskGet
 tools; they write to ~/.claude/tasks/, which is not visible or discoverable.
 
-Update \`.local/TODO.md\` in real time — write state as you go, not at session
-end. Compaction can happen at any time; state that lives only in conversation
-is lost. Create it from the template at \`$PLUGIN_ROOT/templates/TODO.md\` when
-starting tracked work. Persist immediately: decisions and plan changes to
-\`.local/PLAN.md\` (append to its Changelog after creation), task changes to
-\`TODO.md\`, failed fix attempts to \`.local/TROUBLESHOOTING.md\` before trying
-the next approach.
+Two documents split the tracking concern. \`.local/WORKGRAPH.md\` is the
+primary record of the work itself — its decomposition into nodes, per-node
+status, and the Focus pointer naming what has attention now. \`.local/TODO.md\`
+is the session's own state surface — the State lifecycle field, Current Task
+(citing the graph's Focus node id), blockers, and open questions — and
+carries no work items of its own: no task checklists, no implementation log.
+What happened to a work item is recorded on its node.
 
-Park unresolved conversation threads (a question asked but never answered, a naming/design thread left hanging) in \`TODO.md\`'s Open Questions section in real time, and clear each entry once it is resolved, recording the answer where it belongs (Implementation Log, PLAN.md's Changelog, or a decisions/ file).
+Update both in real time — write state as you go, not at session end.
+Compaction can happen at any time; state that lives only in conversation is
+lost. Create TODO.md from the template at \`$PLUGIN_ROOT/templates/TODO.md\`
+when starting tracked work. Persist immediately: decisions and plan changes
+to \`.local/PLAN.md\` (append to its Changelog after creation), work-item
+progress to the item's graph node, failed fix attempts to
+\`.local/TROUBLESHOOTING.md\` before trying the next approach.
+
+Park unresolved conversation threads (a question asked but never answered, a naming/design thread left hanging) in \`TODO.md\`'s Open Questions section in real time, and clear each entry once it is resolved, recording the answer where it belongs (the relevant graph node, PLAN.md's Changelog, or a decisions/ file).
 
 Capture every follow-up or deferred-work item surfaced in conversation —
 "worth filing later", a separate decision, "X should grow Y", a defect
@@ -107,20 +115,23 @@ ahead of need). Append one entry per item, in the template's entry format,
 and mark each entry's outcome in place as it is addressed — filed <ref>,
 resolved, or dropped (<reason>) — rather than deleting it.
 
-When a problem genuinely decomposes into subproblems, capture that
-decomposition in \`.local/WORKGRAPH.md\`, created lazily from the template at
-\`$PLUGIN_ROOT/templates/WORKGRAPH.md\` — never ahead of need — the moment it
-first happens. That moment is observable, not a judgement call: writing any
-artifact that enumerates two or more work items — a plan, a block or unit
-table, a task breakdown — IS the decomposition, whichever workflow produced
-it, and the graph exists before the turn that wrote such an artifact ends.
-Those artifacts do not substitute for the graph; they are what the graph
-mirrors. Add one node per subproblem at the moment it surfaces, each
-with a Goal, a Parent decomposition edge, and Deps ordering edges. Move the
-file-level Focus pointer in real time as attention shifts between nodes, and
-cite the Focus node's id in TODO.md's Current Task field. Mark each node
-done or dropped (<reason>) in place — rather than delete them; entries are
-never removed. When asked to show the work graph, render it as an indented
+Create \`.local/WORKGRAPH.md\` from the template at
+\`$PLUGIN_ROOT/templates/WORKGRAPH.md\` at the start of tracked work — eagerly,
+alongside TODO.md; a single root node for the deliverable is the normal
+starting state. Structure is recorded in the graph once, by whoever
+decomposes: when any workflow writes an artifact that enumerates work items —
+a plan, a block or unit table, a task breakdown — each item gets a graph
+node in the same turn, with the node's Notes carrying a relative markdown
+link to the artifact entry that owns its detail. Link, never transcribe: the
+graph holds identity, Goal, Parent and Deps edges, and Status; the owning
+artifact keeps everything else. Status is the one deliberately duplicated
+field — it is what live views display — so a node's Status is updated in the
+same edit as the owning artifact's own transition: \`in progress\` the moment
+work on it starts (parallel workers mean several nodes in progress at once),
+\`done\`/\`dropped (<reason>)\` at resolution. Move the file-level Focus
+pointer in real time as attention shifts between nodes, and cite the Focus
+node's id in TODO.md's Current Task field. Mark nodes done or dropped in
+place — rather than delete them; entries are never removed. When asked to show the work graph, render it as an indented
 ASCII tree: children nested under their parents, \`[needs: N<NN>]\` dependency
 annotations, a status glyph per node, and an arrow marking the Focus node.
 

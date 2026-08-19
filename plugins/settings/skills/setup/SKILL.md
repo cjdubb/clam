@@ -31,6 +31,18 @@ itself; only running this skill writes anything.
    - If there are multiple installation entries, present the list (scope and
      project path for each) and ask the user which scope to configure. Do
      not default silently.
+   - **Repo-identity guard** (applies to the chosen entry when its scope is
+     `project` or `local`): before using the entry's `projectPath`, confirm
+     it belongs to this repository by comparing `git rev-parse
+     --git-common-dir` in the current working directory against `git -C
+     <projectPath> rev-parse --git-common-dir`. If they resolve to the same
+     directory, the record is in a worktree of this repo and is the correct
+     target. If they differ — or if either command fails — stop and report
+     which repo the record points to, which repo the user is in, and that
+     the two do not match. Do not prompt to proceed; a record belonging to
+     a different repository is never the right target. `user`-scope entries
+     skip this check — they write to `~/.claude/settings.json`, which is
+     repo-independent.
 2. **Map scope to a target settings file.**
    - `user` → `~/.claude/settings.json`
    - `project` → `<projectPath>/.claude/settings.json`, where `projectPath`

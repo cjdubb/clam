@@ -114,7 +114,7 @@ auto-update doesn't refresh the recorded install path
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
 | [worktrees](plugins/worktrees/) | ✅ v0.1.5 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
 | [attribution](plugins/attribution/) | ✅ v0.2.4 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
-| [settings](plugins/settings/) | ✅ v0.2.4 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
+| [settings](plugins/settings/) | ✅ v0.2.5 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
 | [privacy](plugins/privacy/) | ✅ v0.2.4 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |
 | agent-dash | planned | Hooks integrating sessions with [clam-agent-dashboard](https://github.com/cjdubb/clam-agent-dashboard). |

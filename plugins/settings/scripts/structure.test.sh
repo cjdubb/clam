@@ -270,6 +270,15 @@ check "instructions mention the 'env' key/object in settings" \
 check "instructions mention scope detection via installed_plugins.json" \
   "$(grep -qiF 'installed_plugins.json' <<<"$instructions" && echo yes || echo no)" "yes"
 
+check "instructions describe a repo-identity guard for project/local scopes" \
+  "$(grep -qiF 'repo-identity guard' <<<"$instructions" && echo yes || echo no)" "yes"
+check "repo-identity guard uses git rev-parse --git-common-dir as the comparison key" \
+  "$(grep -qiF 'git-common-dir' <<<"$instructions" && echo yes || echo no)" "yes"
+check "repo-identity guard stops on mismatch (does not prompt to proceed)" \
+  "$(grep -qiE 'do not prompt to proceed|never the right target' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+check "repo-identity guard skips user-scope entries" \
+  "$(grep -qiE 'user.*skip this check|user.*repo-independent' <<<"$instructions_flat" && echo yes || echo no)" "yes"
+
 check "instructions mention the 'user' scope" \
   "$(grep -qiw 'user' <<<"$instructions" && echo yes || echo no)" "yes"
 check "instructions mention the 'project' scope" \

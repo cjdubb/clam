@@ -47,10 +47,12 @@ that session — they never write back to the settings file, so what
 
 Run `/settings:setup`. It detects your installation scope from
 `~/.claude/plugins/installed_plugins.json` (asking you to pick if the
-plugin is installed at more than one scope), prompts you for `model`,
-`effortLevel`, and `permissions.defaultMode`, shows you the settings file
-change before making it, and asks for confirmation before overwriting any
-key that's already set to something else.
+plugin is installed at more than one scope), confirms the install record
+belongs to the current repository (for `project` and `local` scopes, via
+`git rev-parse --git-common-dir`), prompts you for `model`, `effortLevel`,
+and `permissions.defaultMode`, shows you the settings file change before
+making it, and asks for confirmation before overwriting any key that's
+already set to something else.
 
 ### Bound context growth with an auto-compact window
 
@@ -85,9 +87,11 @@ verifies the result with `jq empty`; reports what was written, to which
 file, and at which scope.
 
 Stops without writing if: the plugin isn't found in
-`installed_plugins.json`; the target settings file exists but isn't valid
-JSON; the `env` or `permissions` key exists but isn't a JSON object; or
-`jq` isn't available.
+`installed_plugins.json`; the install record's `projectPath` belongs to a
+different repository than the current working directory (checked via `git
+rev-parse --git-common-dir`); the target settings file exists but isn't
+valid JSON; the `env` or `permissions` key exists but isn't a JSON object;
+or `jq` isn't available.
 
 ### `/settings:setup remove`
 

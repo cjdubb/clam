@@ -83,8 +83,9 @@ from `installed_plugins.json`; prompts for `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
 `effortLevel`, and `permissions.defaultMode` (all required, no defaults);
 shows the pending change and asks before overwriting any already-set key;
 backs up the target file and applies the merge with a single `jq` pass;
-verifies the result with `jq empty`; reports what was written, to which
-file, and at which scope.
+verifies the result with `jq empty` and confirms that every pre-existing
+top-level key survived the write (restores the backup and stops if any
+were lost); reports what was written, to which file, and at which scope.
 
 Stops without writing if: the plugin isn't found in
 `installed_plugins.json`; the install record's `projectPath` belongs to a

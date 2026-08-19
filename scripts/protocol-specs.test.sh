@@ -599,16 +599,17 @@ check "todo-format: Blocked Reason: field (populated iff State is Blocked)" \
 check "todo-format: Decision Needed: field (populated iff Waiting For Decision)" \
   "$(contains "$tf_flat" "Decision Needed:")" "yes"
 
-# --- 4. Eight required sections, in order ---
+# --- 4. Six required sections, in order (Tasks and Implementation Log are
+#     superseded by the work graph; readers tolerate them, writers stop) ---
 TF_SECTIONS=(
-  "## Status" "## Tasks" "## Testing" "## Pre-PR" "## Implementation Log"
+  "## Status" "## Testing" "## Pre-PR"
   "## Blockers/Notes" "## Open Questions" "## Discovered Tasks"
 )
 for s in "${TF_SECTIONS[@]}"; do
   check "todo-format: section '$s' present" \
     "$(contains "$tf_flat" "$s")" "yes"
 done
-check "todo-format: eight required sections in order" \
+check "todo-format: six required sections in order" \
   "$(in_order "$tf_flat" "${TF_SECTIONS[@]}")" "yes"
 
 # --- 5. State vocabulary by reference only, never restated ---
@@ -626,8 +627,8 @@ check "todo-format: state written as it changes, not at session end" \
   "$(contains_ci "$tf_flat" "not at session end")" "yes"
 check "todo-format: document survives compaction and session restarts" \
   "$(word_present "$tf_flat" "compaction")" "yes"
-check "todo-format: single source of truth, resumable from the file alone" \
-  "$(contains_ci "$tf_flat" "single source of truth")" "yes"
+check "todo-format: resumable together with the work graph it cites" \
+  "$(contains_ci "$tf_flat" "nothing else to consult")" "yes"
 
 # --- Edge cases: empty-valued fields stay present, never deleted; extra
 #     repo-specific sections may follow the required eight but never

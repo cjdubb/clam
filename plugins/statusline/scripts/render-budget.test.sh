@@ -324,12 +324,12 @@ check "clause5: README documents the CLAM_STATUSLINE_SEGMENT_TTL_SECONDS knob ou
   "$(printf '%s' "$readme_body" | grep -qF 'CLAM_STATUSLINE_SEGMENT_TTL_SECONDS' && echo yes || echo no)" "yes"
 check "clause5: README documents the CCOST_SESSION_TTL_SECONDS knob outside the contract comment" \
   "$(printf '%s' "$readme_body" | grep -qF 'CCOST_SESSION_TTL_SECONDS' && echo yes || echo no)" "yes"
-check "clause5: README documents the 5s segment-bundle TTL figure outside the contract comment" \
-  "$(printf '%s' "$readme_body" | grep -qE '\b5\b' && echo yes || echo no)" "yes"
-check "clause5: README documents the 30s session-cost TTL figure outside the contract comment" \
-  "$(printf '%s' "$readme_body" | grep -qE '\b30\b' && echo yes || echo no)" "yes"
-check "clause5: README documents the 300s day/week TTL figure outside the contract comment" \
-  "$(printf '%s' "$readme_body" | grep -qE '\b300\b' && echo yes || echo no)" "yes"
+check "clause5: README documents the 5s segment-bundle TTL figure alongside its knob" \
+  "$(printf '%s' "$readme_body" | grep -qE 'SEGMENT_TTL.*\b5\b|\b5\b.*SEGMENT_TTL|default.*5.*SEGMENT|SEGMENT.*default.*5' && echo yes || echo no)" "yes"
+check "clause5: README documents the 30s session-cost TTL figure alongside its knob" \
+  "$(printf '%s' "$readme_body" | grep -qE 'SESSION_TTL.*\b30\b|\b30\b.*SESSION_TTL|default.*30.*SESSION|SESSION.*default.*30' && echo yes || echo no)" "yes"
+check "clause5: README documents the 300s day/week cache TTL figure alongside the cache context" \
+  "$(printf '%s' "$readme_body" | grep -qE 'cached.*\b300\b|\b300\b.*cache' && echo yes || echo no)" "yes"
 
 # ============================================================================
 # Clause 7 -- per-session bundle KEYING: two renders sharing a cwd (and cache
@@ -427,6 +427,7 @@ case "$1" in
   +*%H*)
     read -r _fh _fm _fs <<< "$FAKE_LOCAL_HMS"
     _fmt="${1#+}"
+    _fmt="${_fmt//%s/$_frozen_now}"
     _fmt="${_fmt//%H/$_fh}"
     _fmt="${_fmt//%M/$_fm}"
     _fmt="${_fmt//%S/$_fs}"

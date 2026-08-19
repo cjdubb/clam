@@ -41,8 +41,9 @@
 #       here, and version-bump-lint already gates that a bump happens at all.
 #       version-bump-lint and readme-lint both gate this; checking it here
 #       fails it in the inner loop instead of in CI.
-#   (7) The contract's edge case that agent-dash and the tracking plugin keep # architecture-lint: allow naming them is the assertion the check below verifies, not a cross-plugin dependency
-#       their existing "Relationships to other plugins" entries.
+#   (7) The contract's edge case — that agent-dash and the tracking plugin # architecture-lint: allow naming them is the assertion, not a dependency
+#       keep their existing "Relationships to other plugins" entries — is
+#       the assertion the check below verifies, not a cross-plugin dependency.
 #
 # Heading presence/order/placement (the 6 required H2s plus extras confined
 # between Commands and Relationships) is already enforced repo-wide by
@@ -2330,7 +2331,7 @@ check "the off-switch section still covers the statusLine key" \
 
 # B18 bumps both surfaces together; version-bump-lint reads committed state,
 # so an edit without the bump is invisible to installed users.
-B18_VERSION="0.12.0"
+B18_VERSION="0.12.1"
 check "plugin.json version is exactly $B18_VERSION" \
   "$PLUGIN_VERSION" "$B18_VERSION"
 check "the root README row's version cell is exactly v$B18_VERSION" \

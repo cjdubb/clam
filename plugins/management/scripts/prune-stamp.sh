@@ -128,6 +128,9 @@ VERSIONS=$(jq -r '[.[].version] | join(", ")' <<<"$MATCHES")
 TODAY=$(date +%Y-%m-%d)
 BACKUP_FILE="$STAMPS_FILE.bak-$TODAY"
 
+BACKUP_EXISTED=no
+[[ -e "$BACKUP_FILE" ]] && BACKUP_EXISTED=yes
+
 # Backup, then temp file, then mv — in that order — so the stamp file's
 # inode changes on success and an interrupted run never leaves it partially
 # written. The original is left intact if any step below fails.
@@ -136,22 +139,28 @@ if ! cp "$STAMPS_FILE" "$BACKUP_FILE" 2>/dev/null; then
     exit 6
 fi
 
+cleanup_backup() {
+    [[ "$BACKUP_EXISTED" = no ]] && rm -f "$BACKUP_FILE"
+}
+
 TMP_FILE=$(mktemp "$STAMPS_FILE.tmp.XXXXXX" 2>/dev/null) || TMP_FILE=""
 if [[ -z "$TMP_FILE" ]]; then
-    rm -f "$BACKUP_FILE"
+    cleanup_backup
     echo "prune-stamp: failed to create temp file for stamp update" >&2
     exit 6
 fi
 
 if ! jq --arg p "$PLUGIN" --arg t "$TARGET" \
     '.stamps |= map(select(.plugin != $p or .target != $t))' "$STAMPS_FILE" >"$TMP_FILE" 2>/dev/null; then
-    rm -f "$TMP_FILE" "$BACKUP_FILE"
+    rm -f "$TMP_FILE"
+    cleanup_backup
     echo "prune-stamp: failed to write temp file for stamp update" >&2
     exit 6
 fi
 
 if ! mv "$TMP_FILE" "$STAMPS_FILE"; then
-    rm -f "$TMP_FILE" "$BACKUP_FILE"
+    rm -f "$TMP_FILE"
+    cleanup_backup
     echo "prune-stamp: failed to move temp file into place: $STAMPS_FILE" >&2
     exit 6
 fi

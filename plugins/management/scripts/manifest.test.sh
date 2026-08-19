@@ -22,13 +22,13 @@
 #      file: the same paragraph grows a NINTH column, stale_installs, states
 #      that the report is scoped to the repo it runs in, and states that
 #      installed is the LOWEST of that repo's versions rather than the
-#      highest. plugin.json goes 0.6.1 -> 0.6.3.
+#      highest. plugin.json goes 0.6.1 -> 0.6.4.
 #
 # Covers plugins/management/.claude-plugin/plugin.json:
 #   - valid JSON; .name "management"; .version well-formed semver and >= 0.1.0
 #     (a floor, not a pin: version-bump-lint requires a bump for ANY content
 #     change to the plugin, so an exact pin here would fail every such change)
-#   - .version is exactly 0.6.3 — a pin that deliberately coexists with the
+#   - .version is exactly 0.6.4 — a pin that deliberately coexists with the
 #     floor above; see the repo-scoped-report block at the end for why both
 #     are here
 #   - .description non-empty, names /management:update, and is a single sentence
@@ -566,7 +566,7 @@ check "the check-versions.sh entry says the stamp columns are not repo-filtered"
 
 # --- The manifest version ---------------------------------------------------
 # An exact pin, and deliberately unlike the ">= 0.1.0 floor" near the top of
-# this file. The floor cannot tell 0.6.3 from a wrong bump to 0.5.1 or 1.0.0,
+# this file. The floor cannot tell 0.6.4 from a wrong bump to 0.5.1 or 1.0.0,
 # and WHICH bump this is is itself the contract clause: MINOR, because the
 # report gains a column — a backwards-compatible addition to a public
 # contract. The repo scoping that comes with it changes what existing columns
@@ -575,7 +575,7 @@ check "the check-versions.sh entry says the stamp columns are not repo-filtered"
 # The floor stays as-is and keeps absorbing unrelated future bumps; this pin
 # is the one assertion that has to be re-pointed the next time management's
 # version moves.
-check "plugin.json .version is exactly 0.6.3" "$version" "0.6.3"
+check "plugin.json .version is exactly 0.6.4" "$version" "0.6.4"
 
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

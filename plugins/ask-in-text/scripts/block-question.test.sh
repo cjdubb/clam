@@ -79,8 +79,10 @@ check "block-question.sh exists" \
   "$([ -f "$SCRIPT" ] && echo yes || echo no)" "yes"
 check "bash interpreter resolved" \
   "$([ -n "$BASH_BIN" ] && echo yes || echo no)" "yes"
-check "timeout command available (used by completes-instantly tests)" \
-  "$(command -v timeout >/dev/null 2>&1 && echo yes || echo no)" "yes"
+TIMEOUT_CMD=""
+for _t in timeout gtimeout; do
+  command -v "$_t" >/dev/null 2>&1 && TIMEOUT_CMD="$_t" && break
+done
 
 # ---------------------------------------------------------------------------
 # Baseline run: default invocation, empty stdin. Reused as the reference
@@ -143,14 +145,18 @@ check "empty stdin (</dev/null): matches closed-stdin stderr (stdin-invariant)" 
 # I-1 / Invariant V-3 / Edge case G-1: oversized stdin (5MB) -- must not
 # hang and must behave identically to baseline. `timeout` guards against a
 # hang rather than waiting on it.
-HUGE_FILE="$(mktemp)"
-head -c 5000000 /dev/zero > "$HUGE_FILE" 2>/dev/null
-capture "timeout 5 '$BASH_BIN' '$SCRIPT' < '$HUGE_FILE'"
-check "oversized stdin (5MB): does not hang (completes within timeout)" \
-  "$([ "$RUN_EXIT" != "124" ] && echo yes || echo no)" "yes"
-check "oversized stdin (5MB): same stderr as baseline (stdin content ignored)" \
-  "$RUN_ERR" "$BASELINE_ERR"
-rm -f "$HUGE_FILE"
+if [ -n "$TIMEOUT_CMD" ]; then
+  HUGE_FILE="$(mktemp)"
+  head -c 5000000 /dev/zero > "$HUGE_FILE" 2>/dev/null
+  capture "$TIMEOUT_CMD 5 '$BASH_BIN' '$SCRIPT' < '$HUGE_FILE'"
+  check "oversized stdin (5MB): does not hang (completes within timeout)" \
+    "$([ "$RUN_EXIT" != "124" ] && echo yes || echo no)" "yes"
+  check "oversized stdin (5MB): same stderr as baseline (stdin content ignored)" \
+    "$RUN_ERR" "$BASELINE_ERR"
+  rm -f "$HUGE_FILE"
+else
+  check "oversized stdin (5MB): SKIPPED (no timeout command)" "skip" "skip"
+fi
 
 # I-2: extraneous arguments are ignored (no argv parsing).
 capture "'$BASH_BIN' '$SCRIPT' extra --flag=value ignored-arg </dev/null"
@@ -192,9 +198,13 @@ check "no files/directories created as a side effect (empty cwd stays empty)" \
 rm -rf "$SCRATCH_DIR"
 
 # V-4: completes well under the 10s hooks.json timeout.
-capture "timeout 5 '$BASH_BIN' '$SCRIPT' </dev/null"
-check "completes within 5s (comfortably under the 10s hook timeout)" \
-  "$([ "$RUN_EXIT" != "124" ] && echo yes || echo no)" "yes"
+if [ -n "$TIMEOUT_CMD" ]; then
+  capture "$TIMEOUT_CMD 5 '$BASH_BIN' '$SCRIPT' </dev/null"
+  check "completes within 5s (comfortably under the 10s hook timeout)" \
+    "$([ "$RUN_EXIT" != "124" ] && echo yes || echo no)" "yes"
+else
+  check "completes within 5s: SKIPPED (no timeout command)" "skip" "skip"
+fi
 
 # Determinism (binding clarification): two consecutive runs, captured
 # back-to-back, produce byte-identical stderr and the same exit code.

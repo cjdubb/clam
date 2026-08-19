@@ -262,5 +262,8 @@ check "instructions mention the 'remove' subcommand" \
 check "instructions mention jq as the merge tool" \
   "$(grep -qiw 'jq' <<<"$instructions" && echo yes || echo no)" "yes"
 
+check "instructions include key-preservation guard (restore backup if keys lost)" \
+  "$(grep -qiE 'key.*missing|key.*lost|enabledPlugins.*victim|restore.*backup' <<<"$instructions" && echo yes || echo no)" "yes"
+
 if [[ "$FAILED" == "0" ]]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit $FAILED

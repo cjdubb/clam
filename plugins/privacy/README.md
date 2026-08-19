@@ -105,8 +105,10 @@ frontmatter) — it only runs when you type it.
    ```
 
    Stops before touching the file if `jq` isn't on PATH.
-5. Verifies the result with `jq empty <target>`, then reports exactly what
-   was written, to which file, and at which scope.
+5. Verifies the result with `jq empty <target>`, checks that no
+   pre-existing top-level keys were lost (restores the backup if any
+   were), then reports exactly what was written, to which file, and at
+   which scope.
 
 ### `/privacy:setup remove`
 

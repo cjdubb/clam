@@ -1,6 +1,6 @@
 ---
 name: create
-description: "Spin up a fresh orchestrator for a sub-effort. Writes a handover document, creates the recipient orchestration worktree via newtree, and populates its .local/ so the user just runs clam and picks Build. Use when an orchestrator session has identified a discrete sub-effort that warrants its own coordination context, or when the user explicitly asks for a handover. The orchestrator scaffolds the worktree but never starts the new session; the user does."
+description: "Spin up a fresh orchestrator for a sub-effort. Writes a handover document, creates the recipient orchestration worktree via newtree, and populates its .local/ so the user just starts a claude session there. Use when an orchestrator session has identified a discrete sub-effort that warrants its own coordination context, or when the user explicitly asks for a handover. The orchestrator scaffolds the worktree but never starts the new session; the user does."
 ---
 
 # Orchestrator Handover
@@ -11,7 +11,7 @@ sub-effort deserves its own coordination context, invoke
 creates the recipient orchestrator worktree, and populates that worktree's
 `.local/` — then hands off to the user. It never starts the new orchestrator
 session itself: a worktree only becomes a live orchestrator once a human
-runs `clam` there and picks `Build`.
+starts a `claude` session there.
 
 ## When to invoke
 
@@ -47,7 +47,7 @@ used in one block. It resolves the worktree root, always creates the
 recipient with `newtree` (never a ticket-specific variant), runs the
 creation inside a subshell so this session's own cwd never drifts, aborts
 immediately if the create failed rather than populating a half-populated
-directory, then copies the handover and writes `MODE`:
+directory, then copies the handover:
 
 ```bash
 common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"   # absolute .../<trees-dir>/.bare
@@ -64,7 +64,6 @@ wt_dir="$trees_dir/$(printf '%s' "$branch" | tr '/' '-')"
 
 mkdir -p "$wt_dir/.local"
 cp ".local/handover-{ISSUE-KEY}.md" "$wt_dir/.local/"
-printf 'Build' > "$wt_dir/.local/MODE"
 # Empty .orchestrator marker: records coordinator topology only. The
 # recipient session fills its content (the parent issue) at its own Gate 1 —
 # never write content here yourself.
@@ -114,11 +113,11 @@ pointer, and the new orchestrator overwrites it at its own Gate 1.
 Report the created path and the one remaining step, then stop:
 
 > Scaffolded `orchestrate-{ISSUE-KEY}-{short-description}` with the
-> handover in its `.local/`. Run `cd <path> && clam`, pick `Build`, and the
-> new orchestrator will read the handover and proceed from Gate 1.
+> handover in its `.local/`. Run `cd <path> && claude` and the new
+> orchestrator will read the handover and proceed from Gate 1.
 
-The orchestrator never starts the new session: the user runs `clam` and
-picks `Build` themselves.
+The orchestrator never starts the new session: the user runs `claude`
+themselves.
 
 ## What you must not do
 
@@ -130,7 +129,7 @@ picks `Build` themselves.
 - Never file subtasks for the new orchestrator's chunks — the new
   orchestrator does that at its own Gate 1.
 - Never start a session in the recipient worktree yourself, or `cd` into it
-  for the rest of your own session — only the user runs `clam` there.
+  for the rest of your own session — only the user runs `claude` there.
 - Never delegate any step of this scaffolding to a subagent — write the
   handover, create the worktree, and populate `.local/` yourself, directly.
 
@@ -139,7 +138,7 @@ picks `Build` themselves.
 For context on what happens after you scaffold — you do not perform any of
 this yourself:
 
-1. The user runs `cd <recipient worktree> && clam` and picks `Build`.
+1. The user runs `cd <recipient worktree> && claude`.
 2. If a session-modes plugin is installed, its `/start` may detect the
    handover document under `.local/` and read it automatically; without it,
    the recipient's first move (documented in the template) is to read the

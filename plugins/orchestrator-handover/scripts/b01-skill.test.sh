@@ -100,13 +100,9 @@ check "step 1: references the companion template.md" \
   "$(has_f "$BODY" 'template.md')" "yes"
 
 # Step 2: create recipient worktree via newtree; populate .local/ (handover
-# copy, MODE=Build, empty .orchestrator marker)
+# copy, empty .orchestrator marker)
 check "step 2: uses newtree to create the recipient worktree" \
   "$(has_f "$BODY" 'newtree')" "yes"
-MODE_MENTIONED=$(has "$BODY" 'MODE')
-BUILD_MENTIONED=$(has "$BODY" 'Build')
-check "step 2: sets MODE to Build in the recipient" \
-  "$([[ "$MODE_MENTIONED" == yes && "$BUILD_MENTIONED" == yes ]] && echo yes || echo no)" "yes"
 check "step 2: creates an empty .orchestrator marker" \
   "$(has_f "$BODY" '.orchestrator')" "yes"
 
@@ -148,7 +144,7 @@ check "errors: never leaves a half-populated directory behind" \
 # --- Invariants --------------------------------------------------------------
 check "invariant: never starts a session in the recipient worktree (human-start gate)" \
   "$(has "$BODY" 'never start')" "yes"
-check "invariant: only the user runs clam / picks Build (human-start gate, phrased)" \
+check "invariant: only the user runs claude (human-start gate, phrased)" \
   "$(has "$BODY" 'user')" "yes"
 check "invariant: never writes content into .orchestrator (empty marker only)" \
   "$(has "$BODY" 'empty')" "yes"

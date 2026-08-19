@@ -457,6 +457,11 @@ ln -s "$SCRIPT_DIR/../lib/states.tsv" "$SHADOW/lib/states.tsv"
 # would break this harness the moment the implementation lands.
 ln -s "$SCRIPT_DIR/../lib/burn-math.sh" "$SHADOW/lib/burn-math.sh"
 ln -s "$SCRIPT_DIR/../lib/burn-theme.sh" "$SHADOW/lib/burn-theme.sh"
+CONTEXT_BURN_LIBS=$(sed -n 's/^for _burn_lib in //p' "$CONTEXT" | sed 's/;.*$//')
+for _lib in $CONTEXT_BURN_LIBS; do
+  [ -f "$SHADOW/lib/$_lib" ] || { echo "FATAL  shadow tree missing $SHADOW/lib/$_lib (context.sh sources it)"; exit 1; }
+done
+unset _lib
 cat > "$SHADOW/scripts/ccost.sh" <<'EOF'
 #!/bin/bash
 echo "$*" >> "${CCOST_LOG:-/dev/null}"

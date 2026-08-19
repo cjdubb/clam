@@ -306,7 +306,7 @@ ctx_for() { # cwd -> decoded additionalContext
 # opening line up to (excluding) the "State lifecycle" paragraph that
 # follows it. Everything B09 adds belongs inside this span; nothing outside
 # it is B09's business.
-ZONE_START_ANCHOR='When a problem genuinely decomposes into subproblems'
+ZONE_START_ANCHOR='Create `.local/WORKGRAPH.md` from the template at'
 workgraph_zone() { # ctx
     printf '%s\n' "$1" | awk -v start="$ZONE_START_ANCHOR" \
         'index($0, start) == 1 { f = 1 } f && /^State lifecycle/ { exit } f'
@@ -399,10 +399,10 @@ assert_contains_f "B09 Invariant: B03's .local/WORKGRAPH.md file name survives" 
     "$ZONE_TEXT" '.local/WORKGRAPH.md'
 assert_contains_f "B09 Invariant: B03's template path survives" \
     "$ZONE_TEXT" "$PLUGIN_ROOT/templates/WORKGRAPH.md"
-assert_contains_re_i "B09 Invariant: B03's lazy-creation rule survives" \
-    "$ZONE_TEXT" 'never ahead of need'
-assert_contains_re_i "B09 Invariant: B03's node-at-the-moment-it-surfaces rule survives" \
-    "$ZONE_TEXT" 'subproblem.{0,200}moment|moment.{0,200}subproblem'
+assert_contains_re_i "B09 Invariant: B03's eager-creation rule survives" \
+    "$ZONE_TEXT" 'start of tracked work|eagerly'
+assert_contains_re_i "B09 Invariant: B03's node-in-the-same-turn rule survives" \
+    "$ZONE_TEXT" 'graph node.{0,200}same turn|same turn.{0,200}graph node'
 assert_contains_re_i "B09 Invariant: B03's per-node Goal/Parent/Deps fields survive" \
     "$ZONE_TEXT" 'goal.{0,120}parent.{0,120}deps'
 assert_contains_re_i "B09 Invariant: B03's real-time Focus discipline survives" \
@@ -508,8 +508,8 @@ assert_contains_re_i "B09 README: with no such skill installed it is skipped sil
 
 # Invariant: "the bullet's existing claims (lazy creation, protocol
 # reference, gates) stand".
-assert_contains_re_i "B09 README Invariant: the bullet still says the file is lazily created" \
-    "$wg_bullet" 'lazil|lazy'
+assert_contains_re_i "B09 README Invariant: the bullet says creation at the start of tracked work" \
+    "$wg_bullet" 'start of tracked work|eager'
 assert_contains_re_i "B09 README Invariant: the bullet still names the protocol document" \
     "$wg_bullet" 'docs/protocols/work-graph\.md'
 assert_contains_re_i "B09 README Invariant: the bullet still names templates/WORKGRAPH.md" \
@@ -573,13 +573,13 @@ done
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "B09 version: tracking plugin.json is exactly 0.12.0" "$plugin_version" "0.12.0"
+check "B09 version: tracking plugin.json is exactly 0.13.0" "$plugin_version" "0.13.0"
 
 tracking_row=$(LC_ALL=C grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "B09 version: the root README.md tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.12.0" \
-    "$tracking_row" 'v0\.12\.0'
+assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.13.0" \
+    "$tracking_row" 'v0\.13\.0'
 
 # ===========================================================================
 # B10 — docs/protocols/work-graph.md "## Viewing"
@@ -655,8 +655,8 @@ assert_contains_re_i "B10 Invariant: the ASCII-tree convention is unchanged (sta
 # so B10's own Invariants section has direct coverage in its own suite).
 assert_contains_f "B10 Invariant: the Focus machine-read marker regex is stated verbatim" \
     "$(flat "$B10_BODY")" '^Focus: (N[0-9]+|none)[[:space:]]*$'
-assert_contains_f "B10 Invariant: the Status-open machine-read marker regex is stated verbatim" \
-    "$(flat "$B10_BODY")" '^- Status: open[[:space:]]*$'
+assert_contains_f "B10 Invariant: the Status-live machine-read marker regex is stated verbatim" \
+    "$(flat "$B10_BODY")" '^- Status: (open|in progress)[[:space:]]*$'
 
 # "this file continues to name no plugin ... the paragraph speaks of 'an
 # installed rendering capability', never a name". Scoped to the Viewing

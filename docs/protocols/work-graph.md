@@ -12,8 +12,20 @@ A problem decomposes into subproblems, recorded as parent/child edges
 between nodes. Subproblems may also depend on one another, recorded as
 dependency edges. Each node carries a clearly-stated goal, and a Focus
 pointer names the node being worked right now. `.local/` is gitignored,
-so the document is per-worktree session state, created lazily — only
-when work genuinely decomposes recursively, never ahead of need.
+so the document is per-worktree session state.
+
+The graph is the **primary structural record** of a session's work: the
+one place its decomposition, progress, and current attention are
+recorded. It is created eagerly, at the start of tracked work — a
+single-node graph (the deliverable as root) is a valid and normal
+starting state — and grows nodes as the work decomposes. Other
+artifacts a workflow produces (plans, ledgers, task tables) carry their
+own domain detail and are linked from nodes; they are never a
+substitute for the graph, and the graph never transcribes their
+content. Per-node `Status:` is the one deliberate exception to that
+link-don't-transcribe rule: status is duplicated from the owning
+artifact into the node because status is what live views of the graph
+display.
 
 ## Focus pointer
 
@@ -36,25 +48,38 @@ entry. Each heading is followed by these fields, one per line, in this
 order:
 
 - `Goal:` — what done looks like for this node, in one or two lines.
-- `Status:` — `open | done | dropped (<reason>)`.
+- `Status:` — `open | in progress | done | dropped (<reason>)`.
+  `in progress` marks a node someone — the session, a subagent, the
+  engineer — is actively working right now. It exists because the
+  single Focus pointer cannot show parallel work: when several workers
+  run at once, each of their nodes reads `in progress`, and a live view
+  colours them distinctly.
 - `Parent:` — `none | N<NN>`, the decomposition edge: this node is a
   subproblem of its parent, and solving all of a parent's non-dropped
   children solves the parent.
 - `Deps:` — `none | N<NN>[, N<NN>...]`, ordering edges: nodes that must
   be done before this one can start. Soft references such as issue or
   PR refs do not belong here; only node ids.
-- `Notes:` — optional context; the field may be omitted.
+- `Notes:` — optional context; the field may be omitted. When the node's
+  work is owned by another artifact — a plan section, a ledger entry, a
+  follow-up — `Notes:` carries a relative markdown link to it, resolvable
+  from this file's own directory. The link is the whole obligation: the
+  artifact's content is never copied into the node. A finer-grained phase
+  from an owning artifact's own lifecycle also rides here, never as a
+  `Status:` value.
 
-A node with `- Status: open` is OPEN; the machine-read marker is the
-literal line, matched modulo trailing whitespace:
+A node with `- Status: open` or `- Status: in progress` is LIVE; the
+machine-read marker is the literal line, matched modulo trailing
+whitespace:
 
-`^- Status: open[[:space:]]*$`
+`^- Status: (open|in progress)[[:space:]]*$`
 
 `done` and `dropped (<reason>)` are dispositions, edited in place rather
 than by deleting and re-adding the entry; entries are never deleted, and
 a dropped disposition requires a reason. An empty graph — the header and
-`Focus: none` with no node entries — is valid; entries appear only once
-decomposition genuinely begins.
+`Focus: none` with no node entries — is valid, though under eager
+creation the normal starting state is a single root node for the
+deliverable.
 
 ## Authoring defaults
 
@@ -127,8 +152,19 @@ served view stays derived and disposable.
 
 ## Relationship to other artifacts
 
+The graph is the primary record of the work's structure and progress.
 The session tracking document (per docs/protocols/todo-format.md)
-remains the state-of-record; its `Current Task:` field should cite the
-Focus node id while a work graph is in use. Follow-up collections may
-soft-reference node ids from their Refs fields, but the graph never
-carries hard edges to follow-ups.
+remains the state-of-record for the session's own lifecycle — its
+`## Status` header (State, Current Task, Blocked Reason, Decision
+Needed) is the surface other tooling parses — and its `Current Task:`
+field cites the Focus node id. Work items, their breakdown, and the log
+of what happened to each belong on nodes, not in the tracking
+document's own sections.
+
+A workflow whose artifacts carry their own status lifecycle — a task
+ledger, a block table — rewrites the corresponding node's `Status:` in
+the same edit as its own artifact's transition, so a live view of the
+graph shows progress in real time: `in progress` when work on the node
+actually starts, `done`/`dropped` at its resolution. Follow-up
+collections may soft-reference node ids from their Refs fields, but the
+graph never carries hard edges to follow-ups.

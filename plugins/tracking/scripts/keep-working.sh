@@ -561,7 +561,7 @@ check_workgraph_creation() {
     WORKGRAPH_CREATE_BLOCK_REASON="Stop hook: this session has decomposed its problem — decomposition artifact(s) exist:
 
 ${evidence}
-— but .local/WORKGRAPH.md does not. Create it now from the tracking plugin's templates/WORKGRAPH.md, mirroring the decomposition those artifacts describe: one root node for the deliverable, a Parent edge on every other node, one node per actual work item (per phase per actor, not per topic), Deps ordering edges, and the Focus pointer on the node being worked. Then park again.
+— but .local/WORKGRAPH.md does not. Create it now from the tracking plugin's templates/WORKGRAPH.md: one root node for the deliverable, a Parent edge on every other node, one node per actual work item (per phase per actor, not per topic), Deps ordering edges, each node's Notes linking to the artifact entry that owns its detail, and the Focus pointer on the node being worked. Then park again.
 
 This nudge fires at most once per session epoch."
 

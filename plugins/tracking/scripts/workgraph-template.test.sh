@@ -191,7 +191,7 @@ check "B01: the six H2 sections appear in the contracted order" "$b01_h2_order_o
 
 # The two machine-read marker regexes, stated verbatim in the prose.
 FOCUS_REGEX_LITERAL='^Focus: (N[0-9]+|none)[[:space:]]*$'
-STATUS_REGEX_LITERAL='^- Status: open[[:space:]]*$'
+STATUS_REGEX_LITERAL='^- Status: (open|in progress)[[:space:]]*$'
 
 if printf '%s' "$FLAT_B01_BODY" | grep -qF -- "$FOCUS_REGEX_LITERAL"; then
   pass "B01: states the Focus machine-read marker regex verbatim in the prose"
@@ -201,9 +201,9 @@ else
 fi
 
 if printf '%s' "$FLAT_B01_BODY" | grep -qF -- "$STATUS_REGEX_LITERAL"; then
-  pass "B01: states the Status-open machine-read marker regex verbatim in the prose"
+  pass "B01: states the Status-live machine-read marker regex verbatim in the prose"
 else
-  fail "B01: states the Status-open machine-read marker regex verbatim in the prose" \
+  fail "B01: states the Status-live machine-read marker regex verbatim in the prose" \
     "did not find literal '$STATUS_REGEX_LITERAL' in the rendered body"
 fi
 
@@ -291,10 +291,10 @@ check "B02: the Focus line's value is exactly 'none'" \
 # Example entry: heading and five field lines, exact text, contracted order.
 HEADING_TEXT_B02='## N01 — [short title]'
 GOAL_TEXT_B02='- Goal: [what done looks like for this node]'
-STATUS_TEXT_B02='- Status: open | done | dropped ([reason])'
+STATUS_TEXT_B02='- Status: open | in progress | done | dropped ([reason])'
 PARENT_TEXT_B02='- Parent: none | N<NN>'
 DEPS_TEXT_B02='- Deps: none | N<NN>[, N<NN>...]'
-NOTES_TEXT_B02='- Notes: [optional context]'
+NOTES_TEXT_B02="- Notes: [optional context; a relative markdown link to the artifact that owns this node's detail — a plan section, a ledger entry — rather than a copy of it]"
 
 b02_heading_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$HEADING_TEXT_B02")
 b02_goal_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$GOAL_TEXT_B02")
@@ -360,7 +360,7 @@ assert_contains_re_i "B02: bracketed placeholder [short title] present" "$B02_BO
 assert_contains_re_i "B02: bracketed placeholder [reason] present" "$B02_BODY" '\[reason\]'
 assert_contains_re_i "B02: bracketed placeholder [what done looks like for this node] present" \
   "$B02_BODY" '\[what done looks like for this node\]'
-assert_contains_re_i "B02: bracketed placeholder [optional context] present" "$B02_BODY" '\[optional context\]'
+assert_contains_re_i "B02: bracketed placeholder [optional context] present" "$B02_BODY" '\[optional context'
 
 # Intro entry-lifecycle content (Behavior bullets 2-3).
 assert_contains_re_i "B02: intro documents one node per problem/subproblem" \
@@ -427,7 +427,7 @@ focus_regex_extracted=$(printf '%s' "$FLAT_B01_BODY" | grep -oE '`\^Focus:[^`]*\
 focus_regex_extracted="${focus_regex_extracted#\`}"
 focus_regex_extracted="${focus_regex_extracted%\`}"
 
-status_regex_extracted=$(printf '%s' "$FLAT_B01_BODY" | grep -oE '`\^- Status: open[^`]*\$`' | head -n1)
+status_regex_extracted=$(printf '%s' "$FLAT_B01_BODY" | grep -oE '`\^- Status: \(open[^`]*\$`' | head -n1)
 status_regex_extracted="${status_regex_extracted#\`}"
 status_regex_extracted="${status_regex_extracted%\`}"
 

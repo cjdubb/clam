@@ -193,15 +193,15 @@ test_b03_capture_rule_present_in_rules() {
 
     assert_contains "B03 capture rule: names .local/WORKGRAPH.md" "$ctx" ".local/WORKGRAPH.md"
     assert_contains "B03 capture rule: names the template path to create from" "$ctx" "$PLUGIN_ROOT/templates/WORKGRAPH.md"
-    assert_contains_re_i "B03 capture rule: lazy creation, never ahead of need" "$ctx" "never ahead of need"
+    assert_contains_re_i "B03 capture rule: eager creation at the start of tracked work" "$ctx" "start of tracked work|eagerly"
 
     # These three checks combine a B03-specific anchor ("subproblem"/"Focus")
     # with the shared vocabulary word, since "moment"/"real time"/"Current
     # Task" alone already appear in the pre-existing B01/B02 rules text and
     # would pass vacuously without the anchor.
     local ok_moment=no
-    if printf '%s' "$ctx" | grep -qi 'subproblem' \
-        && printf '%s' "$ctx" | grep -qi 'moment'; then
+    if printf '%s' "$ctx" | grep -qi 'graph node' \
+        && printf '%s' "$ctx" | grep -qi 'same turn'; then
         ok_moment=yes
     fi
     if [ "$ok_moment" = yes ]; then
@@ -313,10 +313,10 @@ test_b03_capture_rule_placed_after_followups_paragraph() {
     ctx=$(ctx_of "$(run_hook "$wd")")
     idx_fu=$(str_index "$ctx" ".local/FOLLOWUPS.md")
     idx_wg=$(str_index "$ctx" ".local/WORKGRAPH.md")
-    if [ "$idx_fu" != "-1" ] && [ "$idx_wg" != "-1" ] && [ "$idx_fu" -lt "$idx_wg" ]; then
-        pass "B03 capture rule: appears after the FOLLOWUPS capture paragraph"
+    if [ "$idx_fu" != "-1" ] && [ "$idx_wg" != "-1" ] && [ "$idx_wg" -lt "$idx_fu" ]; then
+        pass "B03 capture rule: graph-primary intro precedes the FOLLOWUPS capture paragraph"
     else
-        fail "B03 capture rule: appears after the FOLLOWUPS capture paragraph" "idx_fu=$idx_fu idx_wg=$idx_wg"
+        fail "B03 capture rule: graph-primary intro precedes the FOLLOWUPS capture paragraph" "idx_fu=$idx_fu idx_wg=$idx_wg"
     fi
 }
 

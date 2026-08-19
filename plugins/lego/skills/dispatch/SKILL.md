@@ -62,6 +62,15 @@ file a worker writes its own report to. Nothing in dispatch reads a
 configuration file: the block map carries every per-unit command, and the
 plan document carries everything else.
 
+Each block-map `Status:` transition is mirrored, in the same edit, onto that
+block's node in `.local/WORKGRAPH.md` (written at plan time; shaped per
+`docs/protocols/work-graph.md` where that protocol is present): the node
+reads `in progress` from the moment the block's wave dispatches, `done` at
+acceptance, and `dropped (<reason>)` when a block is skipped — so a live
+view of the graph shows dispatch progress in real time, with several nodes
+in progress at once during a parallel wave. A missing graph or node is
+tolerated: skip the mirror silently and never block dispatch on it.
+
 That plan document is `.local/plans/NNN-<slug>.md`, and its
 Landing strategy section is where dispatch reads how this work is delivered —
 which PR groups exist, what each is called, the budget the design was sized

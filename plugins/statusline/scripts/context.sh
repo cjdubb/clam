@@ -693,7 +693,7 @@ _sl_burn_week_trend() {
   # window at all, so this one fallback is to the default PAIR.
   if [ "$en" -le "$st" ]; then st=8; en=18; fi
 
-  read -r h m s wd <<< "$(date +'%H %M %S %u')"
+  h=$_sl_local_h m=$_sl_local_m s=$_sl_local_s wd=$_sl_local_wd
   case "$h$m$s$wd" in ''|*[!0-9]*) return 1 ;; esac
   am=$(( _sl_now - (10#$h * 3600 + 10#$m * 60 + 10#$s) ))
 
@@ -1007,15 +1007,16 @@ osc8_link() {
   fi
 }
 
-# Single shared "now" (epoch + RFC3339 UTC), from ONE `date` call for the
-# whole render: the bundle-freshness check below, the Ctx line's idle-age
-# calc, and the .ctx-status.json fetched_at field all read off the same
-# instant instead of each forking their own `date` — part of what keeps a
-# warm render's process count inside the ≤10-command budget.
-_sl_now_pair=$(date -u +'%s %Y-%m-%dT%H:%M:%SZ')
-_sl_now="${_sl_now_pair%% *}"
-_sl_now_iso="${_sl_now_pair#* }"
-unset _sl_now_pair
+# Single shared "now" from ONE `date` call: epoch, local H:M:S, and weekday.
+# The epoch feeds the bundle-freshness check, the Ctx idle-age calc, and the
+# day-start anchor; the local fields feed _sl_burn_week_trend's schedule
+# arithmetic. Both come from the same call so they cannot straddle a day
+# boundary. The ISO timestamp for .ctx-status.json comes from a second
+# UTC-only call — acceptable because it is display-only, never arithmetic.
+_sl_now_pack=$(date +'%s %H %M %S %u')
+read -r _sl_now _sl_local_h _sl_local_m _sl_local_s _sl_local_wd <<< "$_sl_now_pack"
+unset _sl_now_pack
+_sl_now_iso=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
 # Resolve the git worktree root by walking up from $cwd looking for a .git
 # entry (a directory in a normal clone, a file in a worktree) instead of

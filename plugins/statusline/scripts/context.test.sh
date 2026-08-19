@@ -1502,13 +1502,8 @@ check "B04 payload, warm render: ccost.sh never invoked" \
 # single instant, which would be a rounding-boundary coin flip.
 
 # The render's own "now", its local seconds-into-day, and its local ISO
-# weekday. The contract's Inputs clause names exactly these: ONE plain `date`
-# yielding seconds-into-day AND ISO weekday together, from which B01's anchor
-# pair (midnight epoch, weekday) is derived. Derived here the same way, so an
-# anchor computed here is the anchor the render builds a fraction of a second
-# later.
-B5_NOW=$(date +%s)
-read -r _b5h _b5m _b5s _b5u <<< "$(date +'%H %M %S %u')"
+# weekday, all from ONE `date` call so they cannot straddle a day boundary.
+read -r B5_NOW _b5h _b5m _b5s _b5u <<< "$(date +'%s %H %M %S %u')"
 B5_SECS=$(( 10#$_b5h * 3600 + 10#$_b5m * 60 + 10#$_b5s ))
 B5_MIDNIGHT=$(( B5_NOW - B5_SECS ))
 B5_WDAY=$_b5u

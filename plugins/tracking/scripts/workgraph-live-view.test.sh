@@ -573,13 +573,13 @@ done
 # ===========================================================================
 
 plugin_version=$(jq -r '.version' "$PLUGIN_JSON" 2>/dev/null)
-check "B09 version: tracking plugin.json is exactly 0.11.2" "$plugin_version" "0.11.2"
+check "B09 version: tracking plugin.json is exactly 0.12.0" "$plugin_version" "0.12.0"
 
 tracking_row=$(LC_ALL=C grep -E '^\| *\[tracking\]\(plugins/tracking/\) *\|' "$ROOT_README" | head -n1)
 check "B09 version: the root README.md tracking row exists in the Plugins table" \
     "$([ -n "$tracking_row" ] && echo yes || echo no)" "yes"
-assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.11.2" \
-    "$tracking_row" 'v0\.11\.2'
+assert_contains_re_i "B09 version: the root README.md tracking row's version cell is v0.12.0" \
+    "$tracking_row" 'v0\.12\.0'
 
 # ===========================================================================
 # B10 — docs/protocols/work-graph.md "## Viewing"

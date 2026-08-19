@@ -187,6 +187,17 @@ The screen-bottom line is what the user sees first; do not assume they scroll
 up. For decisions, make each option decidable at a glance: plain-terms
 meaning, one-line trade-off, recommendation and why, the default on a bare
 "go", and the decision-file path (~10 lines for a 2-3 option decision).
+
+Every summons that asks the user to read a document — a decision file, a
+plan, a findings write-up, any artifact under review — presents that
+document, not just its path. The rule stated above for decision files
+applies to all of them: check the skill catalog for a skill that renders a
+markdown document to an HTML view opened in the engineer's browser; when
+one is available, open the document through it before ending the turn, and
+name the document's path in the closing message either way. Registering the
+document on a background server, or citing its path alone, does not present
+it. When no such skill is available, the path in the closing message is the
+fallback — skip the render silently, never block the summons on it.
 EOF
 rules=${rules%$'\n'}
 

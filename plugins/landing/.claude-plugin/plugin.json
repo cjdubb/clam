@@ -1,7 +1,7 @@
 {
   "name": "landing",
-  "description": "The landing seam: one generic /landing:land verb that lands finished work per the repo's committed policy in .claude/clam-profile.jsonc (github-pr or local-merge), /landing:init to detect and record that policy, and SessionStart injection so every session knows how work lands in this repo.",
-  "version": "0.3.1",
+  "description": "The landing seam: one generic /landing:land verb that lands finished work per the repo's landing policy (github-pr or local-merge), /landing:init to detect and record that policy in user-local storage.",
+  "version": "0.4.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

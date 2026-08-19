@@ -1,13 +1,14 @@
 ---
 name: init
-description: Detect, confirm, and record a repository's landing policy into a committed .claude/clam-profile.jsonc. Use in a repo that has no clam-profile, when asked to "set up the landing workflow" or "configure how work lands here", or right after enabling the landing plugin in a new repo.
+description: Detect, confirm, and record a repository's landing policy into a user-local clam-profile.jsonc. Use in a repo that has no landing profile recorded, when asked to "set up the landing workflow" or "configure how work lands here", or right after enabling the landing plugin in a new repo.
 ---
 
 # Landing Init
 
-Create the repo's committed landing policy. Detection informs the proposal;
-the user decides — "who merges" is a human policy choice, never derivable
-from remotes.
+Create the repo's landing policy, stored in the user's local Claude Code
+project directory (never committed to the repo). Detection informs the
+proposal; the user decides — "who merges" is a human policy choice, never
+derivable from remotes.
 
 ## Step 1 — inspect
 
@@ -50,42 +51,41 @@ otherwise.
 
 ## Step 4 — write
 
-Write `.claude/clam-profile.jsonc` from the template below with the
+Resolve the profile path:
+
+```bash
+sanitized_cwd="${PWD//\//-}"
+profile_dir="$HOME/.claude/projects/$sanitized_cwd"
+profile="$profile_dir/clam-profile.jsonc"
+```
+
+Create `$profile_dir` if it does not exist (`mkdir -p`).
+
+Write `clam-profile.jsonc` at that path from the template below with the
 confirmed values, plus JSONC comments recording the evidence and any
 repo-specific landing nuance the user mentioned.
 
-If a `.jsonc` profile already exists: change ONLY the keys being confirmed,
-leave every other key, the `deploy` section, and existing comments intact
-— other seams share this file — and show the diff before writing.
+If a profile already exists at that path: change ONLY the keys being
+confirmed, leave every other key, the `deploy` section, and existing
+comments intact — other seams share this file — and show the diff before
+writing.
 
-If only the legacy `clam-profile.md` (previously committed under
-`.claude/`) exists (no `.jsonc`): offer to migrate it. Map its flat
-frontmatter keys onto the new schema
-(`landing-strategy` → `merge.strategy`, `landing-target` → `merge.target`,
-`landing-merged-by` → `merge.merged-by`, `landing-verify` → `merge.verify`,
-`landing-merge-style` → `merge.merge-style`, `landing-cleanup` →
-`merge.cleanup`), carry the markdown body over as comments, confirm the
-mapped values with the user per Step 3, and write the `.jsonc` file. Leave
-the old `.md` file in place unless the user asks to remove it.
-
-If both `.md` and `.jsonc` exist: warn the user about the duplication and
-prefer the `.jsonc` file — it is the one every other seam reads.
-
-Remind the user to commit the file: it is repo policy, not local state.
+The profile is user-local — it is never committed to the repo.
 
 ## Step 5 — stamp
 
-After `.claude/clam-profile.jsonc` is written and confirmed, record this
-init in the shared stamp file so the update flow can tell this repo's
-landing setup is current with the installed version:
+After the profile is written and confirmed, record this init in the shared
+stamp file so the update flow can tell this repo's landing setup is current
+with the installed version:
 `${CLAUDE_CONFIG_DIR:-~/.claude}/clam-setup-stamps.json` — format defined
 in `docs/protocols/setup-stamp.md`.
 
 - Read the plugin's version from the `plugin.json` at this installation's
   `installPath` (from its `installed_plugins.json` entry) — never from the
   entry's own `version` field, which can go stale. Scope is always
-  `"project"`; target is this repo's `.claude/clam-profile.jsonc` — one
-  stamp per repo, so initializing several repos yields several records.
+  `"project"`; target is the absolute path of the `clam-profile.jsonc`
+  just written — one stamp per project directory, so initializing several
+  worktrees yields several records.
 - If the stamp file does not exist yet, create it first as
   `{"version": 1, "stamps": []}`.
 - If the existing stamp file is corrupt (not valid JSON), move it aside to
@@ -101,16 +101,16 @@ in `docs/protocols/setup-stamp.md`.
     "plugin": "landing",
     "version": "<from plugin.json>",
     "scope": "project",
-    "target": "<absolute path to this repo's .claude/clam-profile.jsonc>",
+    "target": "<absolute path to the profile just written>",
     "at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>"
   }
   ```
 
 - If the stamp write fails, report the failure but never fail the init —
   the profile write above already succeeded.
-- This skill has no `remove` subcommand: deleting a repo's profile is
-  manual, so a stale landing stamp left behind after a profile is removed
-  by hand is acceptable and harmless.
+- This skill has no `remove` subcommand: deleting a profile is manual,
+  so a stale landing stamp left behind after a profile is removed by hand
+  is acceptable and harmless.
 
 ## Template
 

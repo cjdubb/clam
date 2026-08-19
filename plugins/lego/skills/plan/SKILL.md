@@ -39,6 +39,19 @@ alike:
   engineer. A question the engineer explicitly declines or skips counts as
   answered; a bare "go" accepting the recommended defaults counts as
   answering all open questions.
+- **Ask decisions, not facts, and ask them in dependency order.** A fact
+  the orchestrator can establish itself — by reading the repo, running a
+  command, or checking an artifact — is never a question to the engineer:
+  establish it, record it, and move on. What remains are genuine decisions,
+  and those are asked in rounds ordered by dependency: when the best answer
+  to one question depends on another question still open, the dependent
+  question is held for a later round, never batched alongside the one it
+  depends on. Each question carries a recommended default with a one-line
+  rationale, so a bare "go" is always meaningful. Asking the engineer to
+  confirm a fact already established, or posing two questions where the
+  second only makes sense once the first is answered, are both question
+  defects — withdraw and re-ask in the right order rather than proceeding
+  on a muddled answer.
 - **A gate presents its artifact; a path alone is not a presentation.**
   Whenever a gate stops for the engineer to read an artifact — the Step 7
   approval, a Step 2a closure, a re-presentation after revision, a
@@ -686,6 +699,18 @@ cannot accept their own block unilaterally, and the orchestrator still
 verifies it against every clause before the block can move to `Accepted`.
 
 ## Step 7: Approval gate
+
+**Approval may be requested only when nothing is left undecided.** Before
+presenting, sweep every place an open decision can hide: questions posed in
+conversation, the plan document's risks and open-questions section, and
+`TBD`/`open`-marked items anywhere in the block design or interface drafts.
+Each one must be either resolved — answered by the engineer or established
+as fact, with the design updated to match — or explicitly deferred, with a
+written reason in the plan and no block contract depending on its answer. A
+plan presented for approval while one of its own open questions still
+shapes a block's contract is a plan defect, not a judgement call: the
+approval the engineer gives would be approval of a design that is not yet
+decided. Resolve or defer first, then present.
 
 Present the verified design to the engineer and stop: the plan document, the
 block map, the stub docblocks, and which gate rung ran. Presenting means the

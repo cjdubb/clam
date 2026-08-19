@@ -306,6 +306,7 @@ ctx_for() { # cwd -> decoded additionalContext
 # opening line up to (excluding) the "State lifecycle" paragraph that
 # follows it. Everything B09 adds belongs inside this span; nothing outside
 # it is B09's business.
+# shellcheck disable=SC2016
 ZONE_START_ANCHOR='Create `.local/WORKGRAPH.md` from the template at'
 workgraph_zone() { # ctx
     printf '%s\n' "$1" | awk -v start="$ZONE_START_ANCHOR" \

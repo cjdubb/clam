@@ -71,8 +71,10 @@ and deletes just the `attribution` key.
 4. Backs up the target file as `<file>.bak-<date>`, then patches only the
    `attribution` key with `jq` — a merge, never a full overwrite. Stops
    without writing if `jq` isn't available.
-5. Verifies the result with `jq empty` and reports exactly what was
-   written, to which file, and at which scope.
+5. Verifies the result with `jq empty` and confirms that every
+   pre-existing top-level key survived the write — if any key was lost
+   (e.g. `enabledPlugins`), restores the backup and stops. Reports
+   exactly what was written, to which file, and at which scope.
 
 **`/attribution:setup remove`** — same scope-detection flow (steps 1-2
 above). Backs up the target file, deletes the `attribution` key with

@@ -113,7 +113,7 @@ auto-update doesn't refresh the recorded install path
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.5 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |
 | team-review | planned | Multi-agent review and exploration: team code review, council, independent review, subagent orchestration; Explore and browser agents. |
 | [worktrees](plugins/worktrees/) | ✅ v0.1.5 | Git worktree workflow on top of git-helpers (`newtree`, `rmtree`, `copyenv`, `cloneBareRepo`), plus the worktree-per-worker pattern for parallel agents. |
-| [attribution](plugins/attribution/) | ✅ v0.2.4 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
+| [attribution](plugins/attribution/) | ✅ v0.2.5 | Suppress co-author attribution on commits and PRs. One explicit write via `/attribution:setup`. |
 | [settings](plugins/settings/) | ✅ v0.2.5 | Agent teams and disabled adaptive thinking. One explicit write via `/settings:setup`. |
 | [privacy](plugins/privacy/) | ✅ v0.2.4 | Opt out of telemetry, error reporting, feedback surveys, and non-essential traffic. One explicit write via `/privacy:setup`. |
 | guards | planned | Safety hooks: git guard, cron guard, permission audit, notifications. |

@@ -411,7 +411,7 @@ array_paths_of() {
           line = substr(line, RSTART + RLENGTH)
         }
       }
-      if (inarr && $0 ~ /\)/) inarr = 0
+      if (inarr && $0 ~ /^[[:space:]]*\)/) inarr = 0
     }
   ' | sort -u
 }

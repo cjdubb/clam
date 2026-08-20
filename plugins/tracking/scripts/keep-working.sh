@@ -635,7 +635,7 @@ case "$state" in
     *)
         if ! check_workgraph_live_view; then
             log_stop "block_live_view_missing" "$state" "$LIVE_VIEW_BLOCK_REASON"
-            jq -n --arg r "$LIVE_VIEW_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$LIVE_VIEW_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         ;;
@@ -682,7 +682,7 @@ case "$state" in
     "Waiting For Decision"|"Awaiting User Review")
         if ! check_summons_presentation; then
             log_stop "block_summons_url_missing" "$state" "$SUMMONS_URL_BLOCK_REASON"
-            jq -n --arg r "$SUMMONS_URL_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$SUMMONS_URL_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         ;;

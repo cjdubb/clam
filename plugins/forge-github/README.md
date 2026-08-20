@@ -11,10 +11,11 @@ Behavior: this README is scaffolded to the locked template
   implementation unchanged.
 -->
 
-GitHub forge implementation: creates pull requests and keeps their
-descriptions in sync via the `gh` CLI, applying flowing-prose formatting
-conventions so PR text renders cleanly on GitHub. Implements the forge
-interface the landing plugin delegates to, and works standalone without it.
+GitHub forge implementation: creates pull requests, keeps their
+descriptions in sync, and tracks their review, CI, and merge-queue status
+via the `gh` CLI, applying flowing-prose formatting conventions so PR text
+renders cleanly on GitHub. Implements the forge interface the landing
+plugin delegates to, and works standalone without it.
 
 ## Getting started
 
@@ -30,15 +31,26 @@ GitHub.
 
 ## What to expect
 
-Installing this plugin is inert on its own — nothing runs until you
-invoke one of its skills. Running `/forge-github:create-pr` pushes the
+Running `/forge-github:create-pr` pushes the
 current branch and opens a pull request; running `/forge-github:sync-pr`
 brings an existing open PR's description up to date with the branch. Both
 compose flowing-prose descriptions rather than hard-wrapped text, so the
 result renders cleanly on GitHub. Running
 `/forge-github:address-pr-feedback` fetches a PR's review comments,
 proposes a resolution and draft reply for each, and stops for your
-approval before changing any code or posting anything.
+approval before changing any code or posting anything. Running
+`/forge-github:pr-status` renders a live table of the PRs the current
+worktree cares about — reviews, CI, merge-queue position, and
+merge-readiness sorting.
+
+One thing runs without being invoked: a Stop hook that refreshes the
+worktree's PR-status cache (`.local/.pr-status.json` and
+`.local/PR-STATUS.md`, per the repo-level
+[PR-status cache protocol](../../docs/protocols/pr-status-cache.md)) at
+the end of each turn, so any consumer of that cache renders a current
+picture. It is silent, only writes inside a worktree that already has a
+`.local/` directory, skips entirely when the cache is under 60 seconds
+old, and never fails the session on a network or `gh` error.
 
 ## Common workflows
 
@@ -52,6 +64,13 @@ records, the commit log, and the diff), and opens the pull request with
 addressing review feedback, run `/forge-github:sync-pr` to recompose the
 description from the branch's current state and apply it with `gh pr
 edit`. It works on a PR opened by create-pr, by another tool, or by hand.
+
+**Check where everything stands.** Run `/forge-github:pr-status` for a
+sorted table of every PR the worktree cares about: state (including
+merge-queue position or ejection), reviews, pending reviewers, CI, and a
+Notes column surfacing conflicts, unreplied comments, and dependencies.
+A standalone branch shows its own PR; a coordination worktree (non-empty
+`.local/.orchestrator`) shows every PR its planning documents reference.
 
 **Work through review feedback.** When a reviewer leaves comments, run
 `/forge-github:address-pr-feedback`. It fetches every comment as
@@ -71,10 +90,13 @@ re-review request.
 - `/forge-github:address-pr-feedback` — triage a pull request's review
   comments, propose resolutions and draft replies for approval, execute
   the approved changes, and request re-review.
+- `/forge-github:pr-status` — show a live status table of the current
+  worktree's PRs (the branch's own PR, or every PR a coordination
+  worktree is shepherding), sorted by merge readiness.
 
 Their full behavioral contracts live in the skills' SKILL.md files
 (`skills/create-pr/SKILL.md`, `skills/sync-pr/SKILL.md`,
-`skills/address-pr-feedback/SKILL.md`).
+`skills/address-pr-feedback/SKILL.md`, `skills/pr-status/SKILL.md`).
 
 ## Relationships to other plugins
 
@@ -92,6 +114,9 @@ invokes landing, and works standalone whether or not landing is present.
 /plugin uninstall forge-github@clam
 ```
 
-Uninstalling removes the three skills; it does not affect any pull
-request already created, synced, or commented on by them, and does not
-touch your `gh` CLI authentication.
+Uninstalling removes the four skills and the Stop hook; it does not
+affect any pull request already created, synced, or commented on by
+them, and does not touch your `gh` CLI authentication. A
+`.local/.pr-status.json` / `.local/PR-STATUS.md` cache already written
+stays where it is — it lives in your worktree, not in the plugin — and
+simply stops refreshing.

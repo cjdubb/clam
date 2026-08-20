@@ -24,7 +24,6 @@ trap 'rm -rf "$TMPROOT"' EXIT
 
 FAILED=0
 OUT=""
-EXIT=0
 LOG=""
 LOG_SEQ=0
 
@@ -71,7 +70,6 @@ run_raw() {
         -u CLAM_SUMMONS_URL_GATE \
         CLAUDE_STOP_LOG="$LOG" \
         "$@" bash "$HOOK" 2>"$TMPROOT/stderr-last")
-    EXIT=$?
 }
 run() {
     local wt="$1"; shift

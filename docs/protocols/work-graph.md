@@ -29,10 +29,9 @@ display.
 
 ## Focus pointer
 
-Directly below the H1 `# Work Graph`, a single line names the node
-currently being worked: `Focus: N<NN>`, or `Focus: none` when no node
-currently has attention. The line is machine-read, matched literally,
-modulo trailing whitespace:
+A single line in the file names the node currently being worked:
+`Focus: N<NN>`, or `Focus: none` when no node currently has attention.
+The line is machine-read, matched literally, modulo trailing whitespace:
 
 `^Focus: (N[0-9]+|none)[[:space:]]*$`
 

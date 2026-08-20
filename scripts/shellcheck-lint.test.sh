@@ -178,8 +178,8 @@ write_baseline() {
 expected_new() {   # <path> <line> <code> <message>
   printf 'NEW  %s:%s: %s %s' "$1" "$2" "$3" "$4"
 }
-expected_stale() { # <path> <code>
-  printf 'STALE  baseline entry has no matches: %s %s' "$1" "$2"
+expected_stale() { # <path> <code> <baseline_count> <actual_count>
+  printf 'STALE  baseline count %d exceeds actual %d: %s %s' "$3" "$4" "$1" "$2"
 }
 
 WARN_LINE='WARN  shellcheck skipped (shellcheck not found)'
@@ -626,7 +626,7 @@ test_baselined_finding_is_counted_not_failed() {
   write_file "$repo" scripts/a.sh
   commit_all "$repo" "add a.sh"
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "a finding matching a baseline pair must pass, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
@@ -653,17 +653,17 @@ test_stale_rows_reported_in_baseline_order_both_mechanisms() {
   commit_all "$repo" "remove zeta.sh"
   add_finding 'scripts/alpha.sh' 2 1 warning SC2164 "$MSG_SC2164"
 
-  write_baseline "$repo" "$(printf 'scripts/zeta.sh\tSC2086\nscripts/alpha.sh\tSC2115\nscripts/alpha.sh\tSC2164\n')"
+  write_baseline "$repo" "$(printf 'scripts/zeta.sh\tSC2086\t1\nscripts/alpha.sh\tSC2115\t1\nscripts/alpha.sh\tSC2164\t1\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "stale baseline rows must fail the run, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
 
   local zeta_stale alpha_stale pos_z pos_a
-  zeta_stale="$(expected_stale 'scripts/zeta.sh' SC2086)"
-  alpha_stale="$(expected_stale 'scripts/alpha.sh' SC2115)"
+  zeta_stale="$(expected_stale 'scripts/zeta.sh' SC2086 1 0)"
+  alpha_stale="$(expected_stale 'scripts/alpha.sh' SC2115 1 0)"
   assert_contains "$RUN_OUT" "$zeta_stale" "stale: a row whose file no longer exists is reported"
   assert_contains "$RUN_OUT" "$alpha_stale" "stale: a row whose finding is gone is reported"
-  assert_not_contains "$RUN_OUT" "$(expected_stale 'scripts/alpha.sh' SC2164)" "a row that still matches is not stale"
+  assert_not_contains "$RUN_OUT" "$(expected_stale 'scripts/alpha.sh' SC2164 1 1)" "a row that still matches is not stale"
 
   pos_z="$(line_no <(printf '%s' "$RUN_OUT") "$zeta_stale")"
   pos_a="$(line_no <(printf '%s' "$RUN_OUT") "$alpha_stale")"
@@ -682,17 +682,17 @@ test_new_and_stale_both_reported_in_one_run() {
   write_file "$repo" scripts/a.sh
   commit_all "$repo" "add a.sh"
   add_finding 'scripts/a.sh' 8 1 warning SC2046 "$MSG_SC2046"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "a run with both a new finding and a stale row must exit 1, got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_contains "$RUN_OUT" "$(expected_new 'scripts/a.sh' 8 SC2046 "$MSG_SC2046")" "the new finding is reported"
-  assert_contains "$RUN_OUT" "$(expected_stale 'scripts/a.sh' SC2086)" "the stale row is reported in the SAME run"
+  assert_contains "$RUN_OUT" "$(expected_stale 'scripts/a.sh' SC2086 1 0)" "the stale row is reported in the SAME run"
 }
 
-# Inputs clause: "Duplicate findings of the same (path, code) pair are covered
-# by one entry."
-test_one_baseline_entry_covers_duplicate_findings() {
+# Inputs clause: "The count caps how many findings of that (path, code) pair
+# are excused; occurrences beyond the count are NEW."
+test_baseline_count_caps_excused_findings() {
   local repo
   new_shellcheck_shim
   repo="$(new_repo)"
@@ -701,11 +701,16 @@ test_one_baseline_entry_covers_duplicate_findings() {
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
   add_finding 'scripts/a.sh' 40 9 warning SC2086 "$MSG_SC2086"
   add_finding 'scripts/a.sh' 41 2 warning SC2086 "$MSG_SC2086"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t3\n')"
 
   run_lint "$repo"
-  [ "$RUN_EXIT" -eq 0 ] || record_fail "one entry must cover all three duplicate (path, code) findings, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
-  assert_not_contains "$RUN_OUT" "NEW  " "no duplicate may leak through as NEW"
+  [ "$RUN_EXIT" -eq 0 ] || record_fail "three findings at count 3 must pass, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  assert_not_contains "$RUN_OUT" "NEW  " "no finding may leak through as NEW when count matches"
+
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t2\n')"
+  run_lint "$repo"
+  [ "$RUN_EXIT" -eq 1 ] || record_fail "three findings at count 2 must fail (1 excess), got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  assert_contains "$RUN_OUT" "NEW  " "the excess finding is reported as NEW"
 }
 
 # Behavior clause: "Entries are line-number-free so that edits which move code
@@ -717,7 +722,7 @@ test_baseline_entries_are_line_number_free() {
   repo="$(new_repo)"
   write_file "$repo" scripts/a.sh
   commit_all "$repo" "add a.sh"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\n')"
 
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
   run_lint "$repo"
@@ -746,7 +751,7 @@ test_baseline_entry_is_scoped_to_its_path_and_code() {
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
   add_finding 'scripts/a.sh' 9 1 warning SC2115 "$MSG_SC2115"
   add_finding 'scripts/b.sh' 4 1 warning SC2086 "$MSG_SC2086"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "expected exit 1 (two findings outside the one baseline pair), got $RUN_EXIT (stderr: $RUN_ERR)"
@@ -764,7 +769,7 @@ test_baseline_comments_and_blank_lines_ignored() {
   write_file "$repo" scripts/a.sh
   commit_all "$repo" "add a.sh"
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
-  write_baseline "$repo" "$(printf '# leading comment\n\n  # indented comment\nscripts/a.sh\tSC2086\n\n# trailing comment\n')"
+  write_baseline "$repo" "$(printf '# leading comment\n\n  # indented comment\nscripts/a.sh\tSC2086\t1\n\n# trailing comment\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "comments and blank lines must be ignored, not parsed as rows, got exit $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
@@ -787,7 +792,7 @@ test_missing_baseline_file_is_treated_as_empty() {
 }
 
 # Errors clause: "A baseline row that is not a `#` comment, blank, or a
-# well-formed 2-field pair: diagnostic naming the row, exit 2."
+# well-formed 3-field triple: diagnostic naming the row, exit 2."
 test_malformed_baseline_row_is_exit_2_naming_the_row() {
   local repo
   new_shellcheck_shim
@@ -800,10 +805,20 @@ test_malformed_baseline_row_is_exit_2_naming_the_row() {
   [ "$RUN_EXIT" -eq 2 ] || record_fail "a 1-field baseline row must be exit 2, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
   assert_contains "$RUN_ERR" "this-row-has-only-one-field" "the diagnostic names the offending row, on stderr"
 
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\tthird-field-not-allowed\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\n')"
   run_lint "$repo"
-  [ "$RUN_EXIT" -eq 2 ] || record_fail "a 3-field baseline row must be exit 2, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
-  assert_contains "$RUN_ERR" "third-field-not-allowed" "the diagnostic names the offending 3-field row, on stderr"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "a 2-field baseline row must be exit 2, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  assert_contains "$RUN_ERR" "scripts/a.sh" "the diagnostic names the offending 2-field row, on stderr"
+
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\tnot-a-number\n')"
+  run_lint "$repo"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "a non-numeric count must be exit 2, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  assert_contains "$RUN_ERR" "not-a-number" "the diagnostic names the offending non-numeric row, on stderr"
+
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t0\n')"
+  run_lint "$repo"
+  [ "$RUN_EXIT" -eq 2 ] || record_fail "a zero count must be exit 2, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
+  assert_contains "$RUN_ERR" "positive integer" "the diagnostic mentions positive integer, on stderr"
 }
 
 # ===========================================================================
@@ -840,7 +855,7 @@ test_absence_does_not_stale_the_baseline() {
   repo="$(new_repo)"
   write_file "$repo" scripts/a.sh
   commit_all "$repo" "add a.sh"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\nscripts/a.sh\tSC2164\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\nscripts/a.sh\tSC2164\t1\n')"
 
   run_lint_no_shellcheck "$repo"
   [ "$RUN_EXIT" -eq 0 ] || record_fail "a non-empty baseline with shellcheck absent must still exit 0, got $RUN_EXIT (stdout: $RUN_OUT, stderr: $RUN_ERR)"
@@ -860,13 +875,14 @@ test_summary_line_reports_new_stale_and_baselined_counts() {
   write_file "$repo" scripts/c.sh
   commit_all "$repo" "add a.sh b.sh c.sh"
 
-  # 3 baselined (two of them the same pair), 2 new, 1 stale.
+  # 3 baselined (a.sh SC2086 x2 at count 2, b.sh SC2115 x1 at count 1),
+  # 2 new (b.sh SC2046, c.sh SC2181), 1 stale (ghost.sh SC2001).
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
   add_finding 'scripts/a.sh' 9 1 warning SC2086 "$MSG_SC2086"
   add_finding 'scripts/b.sh' 4 1 warning SC2115 "$MSG_SC2115"
   add_finding 'scripts/b.sh' 7 1 warning SC2046 "$MSG_SC2046"
   add_finding 'scripts/c.sh' 2 1 info SC2181 "$MSG_SC2181"
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\nscripts/b.sh\tSC2115\nscripts/ghost.sh\tSC2001\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t2\nscripts/b.sh\tSC2115\t1\nscripts/ghost.sh\tSC2001\t1\n')"
 
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "mixed new+stale must fail, got exit $RUN_EXIT (stderr: $RUN_ERR)"
@@ -994,7 +1010,7 @@ test_invariant_read_only_tree_and_baseline_unchanged() {
   add_finding 'scripts/a.sh' 9 1 warning SC2115 "$MSG_SC2115"
   # A baseline holding one matching row and one stale row: an implementation
   # tempted to "fix" the baseline would rewrite exactly this file.
-  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\nscripts/gone.sh\tSC2164\n')"
+  write_baseline "$repo" "$(printf 'scripts/a.sh\tSC2086\t1\nscripts/gone.sh\tSC2164\t1\n')"
 
   before="$(tree_hash "$repo")"
   run_lint "$repo"
@@ -1074,7 +1090,7 @@ test_invariant_ignores_environment_and_stray_config() {
   add_finding 'scripts/a.sh' 3 1 warning SC2086 "$MSG_SC2086"
 
   # Decoy baselines that WOULD excuse the finding if any of them were read.
-  decoy="$(printf 'scripts/a.sh\tSC2086\n')"
+  decoy="$(printf 'scripts/a.sh\tSC2086\t1\n')"
   write_file "$repo" .claude/shellcheck-baseline.txt "$decoy"
   write_file "$repo" .claude/settings.json '{"shellcheckBaseline": "scripts/a.sh SC2086"}'
   write_file "$repo" .local/shellcheck-baseline.txt "$decoy"
@@ -1214,7 +1230,7 @@ run_test "edge case: multiple findings of one code are each reported individuall
 run_test "baseline: a matched finding is counted, not failed" test_baselined_finding_is_counted_not_failed
 run_test "baseline: stale rows fail, in baseline order, for both stale mechanisms" test_stale_rows_reported_in_baseline_order_both_mechanisms
 run_test "baseline: a new finding and a stale row are both reported in one run" test_new_and_stale_both_reported_in_one_run
-run_test "baseline: one entry covers all duplicate (path, code) findings" test_one_baseline_entry_covers_duplicate_findings
+run_test "baseline: count caps how many duplicate findings are excused" test_baseline_count_caps_excused_findings
 run_test "baseline: entries are line-number-free (a finding that moves does not churn it)" test_baseline_entries_are_line_number_free
 run_test "baseline: an entry excuses only its own (path, code) pair" test_baseline_entry_is_scoped_to_its_path_and_code
 run_test "baseline: comment and blank lines are ignored" test_baseline_comments_and_blank_lines_ignored

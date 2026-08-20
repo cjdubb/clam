@@ -13,11 +13,12 @@
 #   at scripts/shellcheck-baseline.txt. Reports each finding and exits nonzero
 #   unless it is excused by the baseline.
 #
-#   Baseline semantics mirror architecture-lint.sh deliberately, so the two
-#   gates behave identically for a reader who has learned either one:
-#     - A finding present in the baseline is counted, not failed.
-#     - A baseline entry with ZERO current findings is STALE and fails the
-#       run: the baseline can only shrink or hold, never silently rot.
+#   Baseline semantics:
+#     - Each baseline entry carries a count. Findings up to that count are
+#       excused; findings beyond it are NEW and fail the run.
+#     - A baseline entry whose count exceeds the current finding count is
+#       STALE and fails the run: the baseline can only shrink or hold,
+#       never silently absorb new violations of an already-baselined code.
 #     - Both failure kinds can be reported in a single run.
 #
 #   Entries are line-number-free so that edits which move code do not churn
@@ -27,8 +28,9 @@
 #   - The working tree (git ls-files '*.sh'); requires git and bash.
 #     The shellcheck binary itself is OPTIONAL — see Invariants.
 #   - scripts/shellcheck-baseline.txt — one entry per line:
-#     `<path>\t<shellcheck-code>` (e.g. `scripts/ci.sh\tSC2086`). Duplicate
-#     findings of the same (path, code) pair are covered by one entry.
+#     `<path>\t<shellcheck-code>\t<count>` (e.g. `scripts/ci.sh\tSC2086\t3`).
+#     The count caps how many findings of that (path, code) pair are excused;
+#     a current count exceeding it is NEW, a current count below it is STALE.
 #     `#`-comment lines and blank lines are ignored. Missing file = empty
 #     baseline.
 #   - No environment variables, no config files beyond the baseline. Reads
@@ -88,9 +90,9 @@
 # Edge cases:
 #   - Repo with no tracked *.sh files: clean pass, exit 0, "no files to
 #     check".
-#   - Baseline entry for a file that no longer exists: STALE, exit 1.
-#   - A file with multiple findings of the same code: covered by one baseline
-#     entry; each occurrence is reported individually when not baselined.
+#   - Baseline entry for a file that no longer exists: STALE (count 0 < baseline), exit 1.
+#   - A file with multiple findings of the same code: the baseline count
+#     caps how many are excused; occurrences beyond the count are NEW.
 #   - shellcheck present but erroring on its own (bad install, unreadable
 #     file): treated as an environment error, exit 2 — never a silent pass.
 # -->
@@ -127,14 +129,14 @@ if [ "${#FILES[@]}" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Parse the baseline: line-number-free (path, code) pairs, one per line.
-# Missing file = empty baseline. `#`-comments and blank lines are ignored.
-# Anything else must be a well-formed 2-field pair. Mirrors
-# architecture-lint.sh's baseline parsing deliberately.
+# Parse the baseline: line-number-free (path, code, count) triples, one per
+# line. Missing file = empty baseline. `#`-comments and blank lines are
+# ignored. Anything else must be a well-formed 3-field triple.
 # ---------------------------------------------------------------------------
 BASE_PATHS=()
 BASE_CODES=()
-declare -A BASELINE_SET=()
+BASE_COUNTS=()
+declare -A BASELINE_COUNT=()
 
 if [ -f "$BASELINE_FILE" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
@@ -142,19 +144,24 @@ if [ -f "$BASELINE_FILE" ]; then
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
     nf="$(awk -F'\t' '{print NF}' <<< "$line")"
-    if [ "$nf" -ne 2 ]; then
-      err "malformed baseline row (expected 2 tab-separated fields): $line"
+    if [ "$nf" -ne 3 ]; then
+      err "malformed baseline row (expected 3 tab-separated fields): $line"
       exit 2
     fi
-    IFS=$'\t' read -r bpath bcode <<< "$line"
-    if [ -z "$bpath" ] || [ -z "$bcode" ]; then
+    IFS=$'\t' read -r bpath bcode bcount <<< "$line"
+    if [ -z "$bpath" ] || [ -z "$bcode" ] || [ -z "$bcount" ]; then
       err "malformed baseline row (empty field): $line"
+      exit 2
+    fi
+    if ! [[ "$bcount" =~ ^[0-9]+$ ]] || [ "$bcount" -eq 0 ]; then
+      err "malformed baseline row (count must be a positive integer): $line"
       exit 2
     fi
 
     BASE_PATHS+=("$bpath")
     BASE_CODES+=("$bcode")
-    BASELINE_SET["${bpath}"$'\x1f'"${bcode}"]=1
+    BASE_COUNTS+=("$bcount")
+    BASELINE_COUNT["${bpath}"$'\x1f'"${bcode}"]="$bcount"
   done < "$BASELINE_FILE"
 fi
 
@@ -229,7 +236,7 @@ if [ "${#F_PATH[@]}" -gt 0 ]; then
   )
 fi
 
-declare -A REACHED=()
+declare -A CURRENT_COUNT=()
 NEW_LINES=()
 NEW_COUNT=0
 BASELINED_COUNT=0
@@ -240,9 +247,11 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
   c="${F_CODE[$i]}"
   m="${F_MSG[$i]}"
   key="${p}"$'\x1f'"${c}"
-  REACHED["$key"]=1
+  prev="${CURRENT_COUNT[$key]:-0}"
+  CURRENT_COUNT["$key"]=$((prev + 1))
 
-  if [ -n "${BASELINE_SET[$key]+x}" ]; then
+  cap="${BASELINE_COUNT[$key]:-0}"
+  if [ "$cap" -gt 0 ] && [ "${CURRENT_COUNT[$key]}" -le "$cap" ]; then
     BASELINED_COUNT=$((BASELINED_COUNT + 1))
     continue
   fi
@@ -252,18 +261,20 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
 done
 
 # ---------------------------------------------------------------------------
-# Stale baseline rows: entries with zero matching findings, in baseline
-# order. The baseline can only shrink or hold, never silently rot.
+# Stale baseline rows: entries whose baselined count exceeds the current
+# finding count, in baseline order. The baseline can only shrink or hold.
 # ---------------------------------------------------------------------------
 STALE_LINES=()
 STALE_COUNT=0
 for i in "${!BASE_PATHS[@]}"; do
   bpath="${BASE_PATHS[$i]}"
   bcode="${BASE_CODES[$i]}"
+  bcap="${BASE_COUNTS[$i]}"
   key="${bpath}"$'\x1f'"${bcode}"
-  if [ -z "${REACHED[$key]+x}" ]; then
+  actual="${CURRENT_COUNT[$key]:-0}"
+  if [ "$actual" -lt "$bcap" ]; then
     STALE_COUNT=$((STALE_COUNT + 1))
-    STALE_LINES+=("$(printf 'STALE  baseline entry has no matches: %s %s' "$bpath" "$bcode")")
+    STALE_LINES+=("$(printf 'STALE  baseline count %d exceeds actual %d: %s %s' "$bcap" "$actual" "$bpath" "$bcode")")
   fi
 done
 

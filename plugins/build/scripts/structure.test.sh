@@ -23,9 +23,10 @@
 # Contract: B09 build-skill-conversion
 #
 # Behavior:
-#   The SessionStart hook is removed entirely: hooks/hooks.json and
-#   scripts/build-context.sh no longer exist, and the plugin registers no
-#   hooks at all. In its place, plugins/build/skills/context/SKILL.md
+#   The B09 framing hook (scripts/build-context.sh) stays removed; the
+#   F06 routing fix reintroduces hooks/hooks.json with a single
+#   SessionStart entry pointing at scripts/routing-context.sh (routing
+#   pointer only, no framing). plugins/build/skills/context/SKILL.md
 #   exists (skills/ is reintroduced, superseding B06's incidental
 #   "skills/ itself is gone" observation — B06's actual contract, sync-pr
 #   absence, remains asserted below).
@@ -87,17 +88,25 @@ check "README.md is non-empty" \
   "$([ -s "$README" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
-# 3. hooks removed entirely (B09): the plugin registers no hooks at all
+# 3. hooks (B09 framing hook removed; F06 routing hook present)
 # ---------------------------------------------------------------------------
 
-check "hooks/hooks.json does not exist (B09: hook removed, no replacement hook)" \
-  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "absent"
+check "hooks/hooks.json exists (F06: SessionStart routing pointer)" \
+  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "present"
+check "hooks.json is valid JSON" \
+  "$(jq -e . "$HOOKS_JSON" >/dev/null 2>&1 && echo yes || echo no)" "yes"
+# shellcheck disable=SC2016  # the literal ${CLAUDE_PLUGIN_ROOT} token is the expected value
+check "hooks.json registers exactly one SessionStart command: routing-context.sh" \
+  "$(jq -r '[.hooks | to_entries[] | .key as $k | .value[].hooks[] | "\($k):\(.command)"] | join(",")' "$HOOKS_JSON" 2>/dev/null)" \
+  'SessionStart:${CLAUDE_PLUGIN_ROOT}/scripts/routing-context.sh'
+check "routing-context.sh exists and is executable" \
+  "$([ -x "$PLUGIN_ROOT/scripts/routing-context.sh" ] && echo yes || echo no)" "yes"
 
 # ---------------------------------------------------------------------------
 # 4. build-context.sh does not exist (B09: hook script removed with the hook)
 # ---------------------------------------------------------------------------
 
-check "build-context.sh does not exist (B09: hook removed, no replacement script)" \
+check "build-context.sh does not exist (B09: framing hook stays removed)" \
   "$([ -f "$HOOK_SCRIPT" ] && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------

@@ -10,8 +10,11 @@ description: >-
 
 This skill is the session's entry point. It works out where the session
 already is — mid-flight on recorded work, or at a standing start — and
-routes accordingly. Run it on demand: the build plugin registers no hooks,
-and nothing here ever fires automatically.
+routes accordingly. Run it whenever the engineer asks to build, implement,
+add, or create something — a bare "Build X" prompt included — or when
+starting a session. The skill body itself runs on demand only — the
+plugin's one SessionStart hook injects a routing pointer naming this
+skill as the front door, and nothing more.
 
 Routing is conversational only. This skill writes no files, changes no
 settings, and does not write to `.local/` or anywhere else; it presents the
@@ -81,7 +84,9 @@ Ask the user what they want to build. Then route on the detected subset:
 
 ## Invariants
 
-- On-demand only; no hooks are registered by this plugin.
+- The plugin's only hook is the SessionStart routing pointer
+  (scripts/routing-context.sh); it injects a few fixed lines and nothing
+  else — no state, no framing, no companion names.
 - Detect-and-degrade: every companion is optional, any subset works,
   including none present.
 - Companion detection is skill-catalog-based only; companion code is never

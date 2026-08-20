@@ -32,15 +32,16 @@ Behavior:
 
 Outputs:
   Conversational orientation only. No files written, no settings
-  changed, no hooks registered.
+  changed, no hooks registered by this skill.
 
 Errors:
   None. Degrades gracefully: no companion catalog entries means no
   companions detected, which is the "none present" case, not an error.
 
 Invariants:
-  - Purely on-demand: the build plugin registers no hooks; nothing about
-    this skill fires automatically at session start.
+  - Purely on-demand: nothing about this skill fires automatically at
+    session start (the plugin's only hook is the separate routing
+    pointer, which never invokes this skill).
   - No injected standing instructions; companion descriptions are
     conceptual.
   - Skill-catalog-based detection only; companion code is never executed.
@@ -57,8 +58,9 @@ Edge cases:
 -->
 
 This skill orients you in the delivery framework this repo runs under.
-Run it on demand — nothing about it fires automatically at session start,
-and the build plugin registers no hooks at all.
+Run it on demand — nothing about it fires automatically at session start.
+(The plugin's only hook is the SessionStart routing pointer for
+`build:build`; it never invokes this skill.)
 
 ## What it does
 

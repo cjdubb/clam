@@ -24,9 +24,12 @@ enable that.
 
 ## What to expect
 
-build ships two on-demand skills, `/build:build` and `/build:context`.
-Nothing fires automatically — you invoke either one when you want it, and
-both present a conversational summary, not a file or setting change.
+build ships two on-demand skills, `/build:build` and `/build:context`,
+plus one session-start hook that injects a short routing pointer naming
+`/build:build` as the front door for new build/implement asks (silence it
+with `CLAM_BUILD_ROUTING=disabled`). The skills themselves never fire
+automatically — you invoke either one when you want it, and both present
+a conversational summary, not a file or setting change.
 
 `/build:build` is the lifecycle front door. It detects which companion
 plugins are installed and whether the current worktree carries in-flight
@@ -84,12 +87,11 @@ composite purpose, without any of them.
 - **`/build:build`** — on-demand skill that acts as the lifecycle front
   door: it detects companion plugins and in-flight work state, then routes
   the session to resume work already in progress or to start new work.
-  Conversational only: no files written, no settings changed, no hooks
-  registered.
+  Conversational only: no files written, no settings changed.
 - **`/build:context`** — on-demand skill that detects companion plugins
   and presents the delivery framework framing described above under What
   to expect. Purely conceptual and conversational: no files written, no
-  settings changed, no hooks registered.
+  settings changed.
 
 ## Update
 
@@ -134,4 +136,5 @@ that another clam plugin consumes.
 ```
 
 No cleanup needed beyond uninstalling — build writes no settings, config
-files, or `.local/` state of its own, and registers no hooks to stop.
+files, or `.local/` state of its own; its only hook (the session-start
+routing pointer) is removed with the plugin.

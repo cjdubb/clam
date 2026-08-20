@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Epoch markers reset on every session boundary.
-[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" "$cwd/.local/.workgraph-nudge-fired" "$cwd/.local/.workgraph-create-nudge-fired" 2>/dev/null
+[ -n "$cwd" ] && rm -f "$cwd/.local/.decision-nudge-fired" "$cwd/.local/.no-todo-nudge-fired" "$cwd/.local/.flush-nudge-fired" "$cwd/.local/.freshness-nudge-fired" "$cwd/.local/.followups-nudge-fired" "$cwd/.local/.workgraph-nudge-fired" "$cwd/.local/.workgraph-create-nudge-fired" "$cwd/.local/.live-view-nudge-fired" "$cwd/.local/.summons-url-nudge-fired" 2>/dev/null
 
 # --- Auto-create TODO.md (B01: auto-create-todo) ---
 #
@@ -153,10 +153,11 @@ of a unit table.
 The moment \`.local/WORKGRAPH.md\` is created, check the skill catalog for a
 skill that can serve a markdown document as a live, self-updating HTML view
 without opening a browser; when one is available, serve
-\`.local/WORKGRAPH.md\` through it and tell the engineer the resulting URL
-once, in conversation. When no such skill is available, skip silently — no
-error, no mention of the missing capability — and the graph itself is never
-blocked on it.
+\`.local/WORKGRAPH.md\` through it, tell the engineer the resulting URL
+once in conversation, and record it in TODO.md's Status section as a line
+\`Live view: <url>\`. When no such skill is available, record
+\`Live view: none\` and move on — no error, no mention of the missing
+capability — and the graph itself is never blocked on it.
 
 State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 (bell, dashboard flag, push — once on the transition in, not on every turn):

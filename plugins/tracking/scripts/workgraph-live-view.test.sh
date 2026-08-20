@@ -375,12 +375,12 @@ assert_contains_re_i "B09 Behavior: the resulting URL is told to the engineer" \
     "$ZONE_TEXT" '(^|[^a-z])urls?([^a-z]|$)'
 assert_contains_re_i "B09 Behavior: the URL is surfaced once, not repeatedly" \
     "$ZONE_TEXT" 'url.{0,100}once|once.{0,100}url'
-assert_contains_re_i "B09 Behavior: when nothing offers the capability, this is skipped" \
-    "$ZONE_TEXT" 'skip'
-assert_contains_re_i "B09 Behavior: the skip is silent" \
-    "$ZONE_TEXT" 'silent'
-assert_contains_re_i "B09 Behavior: a silent skip means no error and no mention of the absence" \
-    "$ZONE_TEXT" 'silent.{0,120}(error|mention|announc|report|complain)|(error|mention|announc|report|complain).{0,120}silent'
+assert_contains_re_i "B09 Behavior: the served URL is recorded in TODO.md as a Live view line" \
+    "$ZONE_TEXT" 'Live view:.{0,40}url|Live view: <url>'
+assert_contains_re_i "B09 Behavior: when nothing offers the capability, Live view: none is recorded and work moves on" \
+    "$ZONE_TEXT" 'Live view: none'
+assert_contains_re_i "B09 Behavior: the absence is never surfaced as an error or complaint" \
+    "$ZONE_TEXT" 'no error|no.{0,40}mention'
 
 # --- Edge cases -----------------------------------------------------------
 

@@ -144,8 +144,10 @@ check "Getting started: documents authentication as a prerequisite" \
   "$(has_pattern_ci "$GS_BODY" 'authenticat')" "yes"
 
 WTE_BODY="$(section_body_of "$BODY" '## What to expect')"
-check "What to expect: installing is inert until a skill is run" \
-  "$(has_pattern_ci "$WTE_BODY" 'inert')" "yes"
+check "What to expect: documents the Stop-hook cache refresh" \
+  "$(has_pattern_ci "$WTE_BODY" 'stop hook')" "yes"
+check "What to expect: names the PR-status cache file" \
+  "$(has_literal "$WTE_BODY" '.pr-status.json')" "yes"
 
 CW_BODY="$(section_body_of "$BODY" '## Common workflows')"
 check "Common workflows: covers a create-pr recipe" \

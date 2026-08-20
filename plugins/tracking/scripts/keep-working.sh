@@ -79,6 +79,12 @@ PLATFORM_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)/p
 
 LOG_FILE="${CLAUDE_STOP_LOG:-$HOME/.claude/stop-log.jsonl}"
 
+# Appended to EVERY block reason at emission (not into the stop log). A block
+# fires after the agent has already written an end-of-turn message; without
+# this note the post-hook closing message tends to cover only the blocker and
+# point the user back at content buried behind the hook output.
+SELF_CONTAINED_NOTE="This hook fired after your end-of-turn message was already written; that message has scrolled away behind hook output, and the user reads from the bottom without scrolling up. After any remedial work, end the turn with a closing message that is complete on its own: restate the substance of what you already told the user this turn — the actual answer or analysis, not a pointer to it — along with any blocker or decision."
+
 input=$(cat)
 
 session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
@@ -365,7 +371,7 @@ todo="$cwd/.local/TODO.md"
 # is needed), the no-todo early-exit proceeds normally.
 if ! check_no_todo_nudge; then
     log_stop "block_no_todo_nudge" "" "$NO_TODO_BLOCK_REASON"
-    jq -n --arg r "$NO_TODO_BLOCK_REASON" '{decision: "block", reason: $r}'
+    jq -n --arg r "$NO_TODO_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
     exit 0
 fi
 
@@ -491,7 +497,7 @@ This nudge fires at most once per session epoch."
 # decision-logs/HOOKS-DECISIONS.md.
 if ! check_plan_block_design "$cwd"; then
     log_stop "block_plan_block_design" "$state" "$PLAN_GATE_BLOCK_REASON"
-    jq -n --arg r "$PLAN_GATE_BLOCK_REASON" '{decision: "block", reason: $r}'
+    jq -n --arg r "$PLAN_GATE_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
     exit 0
 fi
 
@@ -506,7 +512,7 @@ case "$state" in
         check_tracking_freshness || freshness_rc=$?
         if [[ "$freshness_rc" -eq 1 ]]; then
             log_stop "block_freshness" "$state" "$FRESHNESS_BLOCK_REASON"
-            jq -n --arg r "$FRESHNESS_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$FRESHNESS_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         ;;
@@ -573,7 +579,7 @@ case "$state" in
     *)
         if ! check_workgraph_creation; then
             log_stop "block_workgraph_missing" "$state" "$WORKGRAPH_CREATE_BLOCK_REASON"
-            jq -n --arg r "$WORKGRAPH_CREATE_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$WORKGRAPH_CREATE_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         ;;
@@ -771,7 +777,7 @@ case "$state" in
         # turn before the (repeating) IR/PR-cron reasons would otherwise mask it.
         if ! check_followups_disposition; then
             log_stop "block_followups_open" "$state" "$FOLLOWUPS_BLOCK_REASON"
-            jq -n --arg r "$FOLLOWUPS_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$FOLLOWUPS_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         # Work-graph closeout gate (B04) runs SECOND, after follow-ups and
@@ -780,7 +786,7 @@ case "$state" in
         # (repeating) IR/PR-cron reasons would otherwise mask it.
         if ! check_workgraph_closeout; then
             log_stop "block_workgraph_open" "$state" "$WORKGRAPH_BLOCK_REASON"
-            jq -n --arg r "$WORKGRAPH_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$WORKGRAPH_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         # Two independent backstops compose: both must pass to allow Complete.
@@ -788,7 +794,7 @@ case "$state" in
         # are unsatisfied (it is the earlier semantic deadline).
         if ! check_independent_review; then
             log_stop "block_independent_review_missing" "$state" "$IR_BLOCK_REASON"
-            jq -n --arg r "$IR_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$IR_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         if check_pr_monitoring; then
@@ -796,7 +802,7 @@ case "$state" in
             exit 0
         fi
         log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
-        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        jq -n --arg r "$PR_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
         exit 0
         ;;
     Blocked)
@@ -825,7 +831,7 @@ case "$state" in
             exit 0
         fi
         log_stop "block_wfd_decision_file_missing" "$state" "$WFD_BLOCK_REASON"
-        jq -n --arg r "$WFD_BLOCK_REASON" '{decision: "block", reason: $r}'
+        jq -n --arg r "$WFD_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
         exit 0
         ;;
     "Awaiting CI"|"Awaiting Bot Review")
@@ -840,7 +846,7 @@ case "$state" in
             exit 0
         fi
         log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
-        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        jq -n --arg r "$PR_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
         exit 0
         ;;
     "Awaiting Reviewer Assignment"|"Awaiting Human Review"|"Awaiting Merge Queue")
@@ -855,7 +861,7 @@ case "$state" in
         # checks are no-ops when their flag is off or there is no open PR.
         if ! check_independent_review; then
             log_stop "block_independent_review_missing" "$state" "$IR_BLOCK_REASON"
-            jq -n --arg r "$IR_BLOCK_REASON" '{decision: "block", reason: $r}'
+            jq -n --arg r "$IR_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
             exit 0
         fi
         if check_pr_monitoring; then
@@ -863,7 +869,7 @@ case "$state" in
             exit 0
         fi
         log_stop "block_pr_no_cron" "$state" "$PR_BLOCK_REASON"
-        jq -n --arg r "$PR_BLOCK_REASON" '{decision: "block", reason: $r}'
+        jq -n --arg r "$PR_BLOCK_REASON" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'
         exit 0
         ;;
 esac
@@ -894,4 +900,4 @@ If you need the user: set Blocked or Waiting For Decision (with a reason in Bloc
 Otherwise the work is not done: continue working. Do NOT invent work just because this reminder fired."
 
 log_stop "block" "$state" "$reason"
-jq -n --arg r "$reason" '{decision: "block", reason: $r}'
+jq -n --arg r "$reason" --arg n "$SELF_CONTAINED_NOTE" '{decision: "block", reason: ($r + "\n\n" + $n)}'

@@ -195,7 +195,11 @@ A turn ending in a summoning state must END with a user-facing message that
 restates the blocker or decision in plain terms — what is needed, from whom,
 what actions to take — mirrored into \`Blocked Reason:\`/\`Decision Needed:\`.
 The screen-bottom line is what the user sees first; do not assume they scroll
-up. For decisions, make each option decidable at a glance: plain-terms
+up. Update State BEFORE composing that closing message, so the Stop gate does
+not fire after it is written; when a Stop hook does interrupt a turn whose
+user-facing message was already written, the replacement closing message
+restates that message's substance in full — the answer or analysis itself,
+not a reference to it. For decisions, make each option decidable at a glance: plain-terms
 meaning, one-line trade-off, recommendation and why, the default on a bare
 "go", and the decision-file path (~10 lines for a 2-3 option decision).
 

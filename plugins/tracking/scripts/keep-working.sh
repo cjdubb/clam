@@ -552,6 +552,18 @@ check_workgraph_creation() {
             [[ -f "$f" ]] && evidence="${evidence}  - .local/plans/$(basename "$f")"$'\n'
         done
     fi
+    # A TODO.md Current Task citing a graph node id is itself decomposition
+    # evidence: a node id with no graph on disk is the exact drift this gate
+    # exists to stop, and it can appear before any plan artifact does
+    # (round-3 checkpoint 1: Current Task "N01", no WORKGRAPH.md, no plan
+    # yet — the artifact-only evidence set above stayed silent).
+    if [[ -f "$todo" && -r "$todo" ]]; then
+        local ct
+        ct=$(todo_field "$todo" "Current Task")
+        if [[ "$ct" =~ (^|[^A-Za-z0-9_])(N[0-9]+)([^0-9]|$) ]]; then
+            evidence="${evidence}  - TODO.md Current Task cites graph node ${BASH_REMATCH[2]}"$'\n'
+        fi
+    fi
     [[ -z "$evidence" ]] && return 0
 
     if ! : > "$marker" 2>/dev/null; then
@@ -574,6 +586,97 @@ case "$state" in
         if ! check_workgraph_creation; then
             log_stop "block_workgraph_missing" "$state" "$WORKGRAPH_CREATE_BLOCK_REASON"
             jq -n --arg r "$WORKGRAPH_CREATE_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        ;;
+esac
+
+# Work-graph live-view nudge. Once per session epoch, prevent parking while
+# .local/WORKGRAPH.md exists but TODO.md records no live view for it. The
+# serve-on-creation instruction has been prose in the SessionStart context
+# since the graph-primary redesign and demonstrably does not fire (round 3:
+# graph created at plan time, engineer never given a URL) — the same
+# prose-without-a-gate failure the creation gate above was built for. The
+# recorded line is the anchor: "Live view: <url>" once served, or
+# "Live view: none" when no serving skill is installed, and either satisfies
+# this check for the rest of the effort. Capability-phrased throughout —
+# the nudge names what a serving skill does, never a plugin.
+check_workgraph_live_view() {
+    LIVE_VIEW_BLOCK_REASON=""
+
+    [[ "${CLAM_WORKGRAPH_GATE:-enabled}" == "enabled" ]] || return 0
+    [[ -f "$cwd/.local/WORKGRAPH.md" ]] || return 0
+    [[ -f "$todo" && -r "$todo" ]] || return 0
+    grep -qiE '^Live [Vv]iew:' "$todo" && return 0
+
+    local marker="$cwd/.local/.live-view-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    LIVE_VIEW_BLOCK_REASON="Stop hook: .local/WORKGRAPH.md exists but .local/TODO.md records no live view for it.
+
+Check the skill catalog for a skill that can serve a markdown document as a live, self-updating HTML view without opening a browser. If one is available: serve .local/WORKGRAPH.md with it, tell the engineer the resulting URL once in conversation, and add a line to TODO.md's Status section: Live view: <url>. If no such skill is installed, add: Live view: none — and this check stays quiet for the rest of the effort.
+
+This nudge fires at most once per session epoch."
+
+    return 1
+}
+
+case "$state" in
+    "Not Started"|"In Progress") : ;;
+    *)
+        if ! check_workgraph_live_view; then
+            log_stop "block_live_view_missing" "$state" "$LIVE_VIEW_BLOCK_REASON"
+            jq -n --arg r "$LIVE_VIEW_BLOCK_REASON" '{decision: "block", reason: $r}'
+            exit 0
+        fi
+        ;;
+esac
+
+# Summons-presentation gate. Once per session epoch, prevent a summons park
+# (Waiting For Decision / Awaiting User Review) whose TODO.md Status section
+# carries no URL while a rendered HTML view exists under .local/ — the
+# round-3 approval summons cited a bare .md path with the rendered sibling
+# sitting on disk (F09), after the presentation rule had already shipped as
+# prose twice. Evidence gating keeps this quiet for markdown-only flows: no
+# .html under .local/, no gate. The URL can be any http(s) link in the
+# Status section (Decision Needed, Current Task, or a Live view line all
+# count) — the point is that the summons the engineer reads contains a
+# clickable rendered view, not which field carries it.
+check_summons_presentation() {
+    SUMMONS_URL_BLOCK_REASON=""
+
+    [[ "${CLAM_SUMMONS_URL_GATE:-enabled}" == "enabled" ]] || return 0
+    [[ -f "$todo" && -r "$todo" ]] || return 0
+
+    local html
+    html=$(find "$cwd/.local" -maxdepth 2 -name '*.html' -print -quit 2>/dev/null)
+    [[ -n "$html" ]] || return 0
+
+    awk '/^## Status/{f=1;next}/^## /{f=0}f' "$todo" | grep -qE 'https?://' && return 0
+
+    local marker="$cwd/.local/.summons-url-nudge-fired"
+    [[ -f "$marker" ]] && return 0
+    if ! : > "$marker" 2>/dev/null; then
+        return 0
+    fi
+
+    SUMMONS_URL_BLOCK_REASON="Stop hook: State is ${state} — a summons — but TODO.md's Status section contains no URL, while a rendered HTML view exists under .local/ (e.g. $(basename "$html")).
+
+A summons must present the document it is asking the engineer to read: serve or open the rendered view and put its URL in the Status section (Decision Needed, Current Task, or a Live view line), so the engineer lands on the document, not on a bare file path.
+
+This nudge fires at most once per session epoch."
+
+    return 1
+}
+
+case "$state" in
+    "Waiting For Decision"|"Awaiting User Review")
+        if ! check_summons_presentation; then
+            log_stop "block_summons_url_missing" "$state" "$SUMMONS_URL_BLOCK_REASON"
+            jq -n --arg r "$SUMMONS_URL_BLOCK_REASON" '{decision: "block", reason: $r}'
             exit 0
         fi
         ;;

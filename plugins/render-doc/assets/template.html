@@ -1568,6 +1568,9 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var panel = document.getElementById("node-panel");
       var body = document.getElementById("panel-body");
       if (!node || !panel || !body) return false;
+      /* Set before the Notes block: hydrateLinkedDoc snapshots this id as its
+         staleness guard, so it must already name the node being painted. */
+      panelNodeId = node.id;
       document.getElementById("panel-title").textContent = node.id;
       body.replaceChildren();
 
@@ -1613,7 +1616,6 @@ __CYTOSCAPE_DAGRE_SPLICE__
         body.appendChild(panelRow("Notes", node.notes));
       }
 
-      panelNodeId = node.id;
       panel.hidden = false;
       panel.scrollTop = 0;
       document.body.classList.add("wg-split");

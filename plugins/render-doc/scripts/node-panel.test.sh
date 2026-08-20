@@ -351,11 +351,15 @@ else
 fi
 
 # --- Outputs: panel markup rendered from model data only, HTML-escaped -------
-# The app script assigns innerHTML exactly once today (marked's own output
-# into the render scratch element). Node data reaching the panel through a
-# second innerHTML assignment is the escaping hole the contract forbids;
-# textContent is the file's established idiom.
-pinned 'innerHTML[[:space:]]*=' 1 "escaping: no new innerHTML assignment (panel content is set as text, not markup)"
+# The app script assigns innerHTML three times: marked's own output into the
+# render scratch element, the split-view panel's Notes value (whitelist-
+# sanitized in wgFieldHtml before assignment), and the panel's hydrated
+# linked-doc section (marked's output again). Node data must never reach the
+# panel unsanitized; the guards below pin the two panel paths to their
+# sanitizer and to marked respectively.
+pinned 'innerHTML[[:space:]]*=' 3 "escaping: innerHTML assignments limited to marked output and the sanitized Notes value"
+pinned 'nv\.innerHTML = node\.notesHtml' 1 "escaping: the Notes assignment consumes only the wgFieldHtml-sanitized value"
+pinned 'content\.innerHTML = marked\.parse' 1 "escaping: the hydrated section is marked's own output, nothing hand-built"
 pinned 'https?://' 0 "no new external resources: the app script introduces no absolute URL"
 
 # --- Errors: opening the panel degrades to today's tap-to-card behavior ------
@@ -525,7 +529,9 @@ grew 'servedOverNetwork|SAVE_ENABLED|location\.protocol' 7 \
 # and the only routes the page requests remain /annotate and /raw. (/doc
 # appears as an anchor href, never as a request.)
 pinned '/docs\.json|/health' 0 "no existence check: the page calls no inventory or health route"
-pinned 'fetch\(' 2 "no existence check: no new fetch is introduced by linkification"
+# Baseline 2 (/annotate POST, /raw live-update poll) plus the split-view
+# panel's /raw hydration fetch — still none issued by linkification itself.
+pinned 'fetch\(' 3 "no existence check: no new fetch is introduced by linkification"
 absent 'method:[[:space:]]*(["'"'"'])HEAD\1' "no existence check: no HEAD probe of a link target"
 
 # --- Errors: linkification never breaks rendering ----------------------------

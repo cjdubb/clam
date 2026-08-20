@@ -327,7 +327,9 @@ fi
 
 # "Polls nothing but /raw on the page's own origin, no new external resources."
 pinned '/annotate' 1 "same-server invariant: /annotate is still the only other route the page calls"
-pinned '/doc/|/docs\.json|/health' 0 "same-server invariant: the page calls no other server route"
+# The one "/doc/" occurrence is the split-view panel's pathname check on an
+# existing anchor (hydration keys on it before fetching /raw) — not a request.
+pinned '/doc/|/docs\.json|/health' 1 "same-server invariant: the page calls no other server route"
 pinned 'https?://' 0 "same-origin invariant: no absolute/external URL is introduced"
 
 # Invariant: the annotation write-back path is untouched by this block.

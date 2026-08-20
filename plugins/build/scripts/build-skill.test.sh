@@ -175,8 +175,8 @@ check "outputs: conversational routing only, no files written" \
 
 check "invariant: on-demand only, never fires automatically" \
   "$(has_pattern_ci 'on.demand')" "yes"
-check "invariant: build plugin registers no hooks" \
-  "$(has_pattern_ci 'no hooks|registers no hooks|without (any )?hooks')" "yes"
+check "invariant: only the routing pointer fires automatically (F06)" \
+  "$(has_pattern_ci 'routing pointer')" "yes"
 check "invariant: detect-and-degrade, every companion optional" \
   "$(has_pattern_ci 'degrade|optional')" "yes"
 check "invariant: works with any subset of companions, including none" \

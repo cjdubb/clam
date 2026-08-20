@@ -43,7 +43,7 @@
 #   - description has no reference to the removed sync-pr skill (B06)
 #
 # Covers hooks removal (B09):
-#   - plugins/build/hooks/hooks.json does not exist
+#   - plugins/build/hooks/hooks.json exists (F06 routing hook)
 #   - plugins/build/scripts/build-context.sh does not exist
 #
 # Covers plugins/build/README.md:
@@ -54,7 +54,7 @@
 #     plugins, Uninstalling) appear, in that order
 #   - (B06) no reference to sync-pr, PR description syncing, the gh CLI
 #     prerequisite, or standing-instruction language anywhere in the body
-#   - (B09) no reference to hooks.json, build-context.sh, or SessionStart
+#   - (B09) no reference to build-context.sh; (F06) routing pointer described
 #     as current behavior; names /build:context instead
 #   - no hard-dependency wording on companion plugins (invariant: companions
 #     are optional enhancers)
@@ -120,9 +120,9 @@ check "plugin.json .author matches the marketplace .owner (single source of trut
 # hooks removal (B09): the plugin registers no hooks at all
 # ---------------------------------------------------------------------------
 
-check "hooks/hooks.json does not exist (B09: hook removed, replaced by /build:context skill)" \
-  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "absent"
-check "scripts/build-context.sh does not exist (B09: hook removed, replaced by /build:context skill)" \
+check "hooks/hooks.json exists (F06: SessionStart routing pointer)" \
+  "$([ -f "$HOOKS_JSON" ] && echo present || echo absent)" "present"
+check "scripts/build-context.sh does not exist (B09: framing hook stays removed)" \
   "$([ -f "$HOOK_SCRIPT" ] && echo present || echo absent)" "absent"
 
 # ---------------------------------------------------------------------------
@@ -180,10 +180,8 @@ check "README has no gh CLI prerequisite mention (B06: tied to the removed sync-
 
 check "README has no reference to build-context.sh (B09: hook removed)" \
   "$(has "$readme_body_facts" 'build-context.sh')" "no"
-check "README has no reference to hooks.json (B09: hook removed)" \
-  "$(has "$readme_body_facts" 'hooks.json')" "no"
-check "README does not describe a SessionStart hook as current behavior (B09)" \
-  "$(has "$readme_body_facts" 'SessionStart')" "no"
+check "README describes the session-start routing pointer (F06)" \
+  "$(has "$readme_body_facts" 'routing pointer')" "yes"
 check "README names /build:context (B09: on-demand skill replacement)" \
   "$(has "$readme_body_facts" '/build:context')" "yes"
 

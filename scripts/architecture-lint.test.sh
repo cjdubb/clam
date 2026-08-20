@@ -783,7 +783,8 @@ test_scan_uses_git_ls_files_staged_counts_untracked_does_not() {
   run_lint "$repo"
   [ "$RUN_EXIT" -eq 1 ] || record_fail "expected exit 1 (the staged hit is unexcused), got $RUN_EXIT (stderr: $RUN_ERR)"
   assert_contains "$RUN_OUT" "$(expected_new "plugins/alpha/STAGED.md" "$l" "path" "beta" "$staged_line")" "a staged-but-uncommitted reference must be scanned (git ls-files includes it)"
-  assert_not_contains "$RUN_OUT" "UNTRACKED.md" "an untracked file must never be scanned (git ls-files excludes it)"
+  assert_not_contains "$RUN_OUT" "NEW  plugins/alpha/UNTRACKED.md" "an untracked file must never be scanned (no NEW hit)"
+  assert_contains "$RUN_OUT" "WARN" "the untracked file under plugins/ produces a WARN"
 }
 
 # ===========================================================================

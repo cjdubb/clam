@@ -270,8 +270,8 @@ BEGIN {
 #   without amendment.
 #
 # Errors:
-#   Non-numeric input, RESET <= NOW, a non-positive window of usable seconds,
-#   or B01 failing: echo nothing, return 1. The caller then omits the trend and
+#   Non-numeric input, RESET <= NOW, or B01 failing: echo nothing, return 1.
+#   The caller then omits the trend and
 #   still renders the used percentage — quota state must survive a pacing
 #   failure. Nothing is ever written to stderr.
 #

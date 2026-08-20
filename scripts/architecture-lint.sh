@@ -85,7 +85,8 @@
 #     from there; all reported paths are repo-relative.
 #   - Scan scope is EXACTLY tracked files under plugins/*/ — repo-root
 #     docs (ARCHITECTURE.md, CLAUDE.md, docs/, scripts/) are never
-#     scanned and may name plugins freely.
+#     scanned and may name plugins freely. Untracked files under
+#     plugins/ are not scanned but produce a WARN listing them.
 #   - Self-references (P referencing P) are never hits in any form.
 #   - Plugin names are matched with word boundaries: a plugin whose name
 #     is a substring of another's never matches the longer name's text.
@@ -171,6 +172,14 @@ for f in "${ALL_TRACKED[@]}"; do
     plugins/*/*) SCAN_FILES+=("$f") ;;
   esac
 done
+
+mapfile -t UNTRACKED_PLUGIN_FILES < <(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- 'plugins/*' 2>/dev/null)
+if [ "${#UNTRACKED_PLUGIN_FILES[@]}" -gt 0 ]; then
+  printf 'WARN  %d untracked file(s) under plugins/ not scanned (stage them to include):\n' "${#UNTRACKED_PLUGIN_FILES[@]}"
+  for uf in "${UNTRACKED_PLUGIN_FILES[@]}"; do
+    printf '       %s\n' "$uf"
+  done
+fi
 
 declare -A VOCAB_SET=()
 for f in "${SCAN_FILES[@]}"; do

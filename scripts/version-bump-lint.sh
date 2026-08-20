@@ -29,12 +29,14 @@
 #   - One line per plugin with changes in the range:
 #       PASS  <name> (version <old> -> <new>)
 #       FAIL  <name> -> files changed but version unchanged (<version>)
+#       WARN  <name> -> plugin.json description changed but marketplace.json did not (or vice versa)
 #   - Plugins with no changes in the range produce no line.
 #   - No plugin changes at all: "no plugin changes to check" and exit 0
 #     (vacuous pass).
 #   - Blank line, then "ALL PASS" (exit 0) or "FAILURES — fix before merging"
 #     plus a remediation hint naming each offending plugins/<name>/
-#     .claude-plugin/plugin.json (exit 1).
+#     .claude-plugin/plugin.json (exit 1). Description WARNs do not fail
+#     the run.
 #
 # Errors:
 #   - Not inside a git repository: diagnostic on stderr, exit 2.
@@ -54,8 +56,10 @@
 #     usage/environment error — never anything else.
 #   - "Version changed" means the JSON string values differ; no semver
 #     ordering is enforced (a decrease still counts as changed).
-#   - Only plugins/<name>/** participates; changes elsewhere (scripts/,
-#     README.md, .claude-plugin/marketplace.json) are ignored.
+#   - Only plugins/<name>/** participates in the version check; changes
+#     elsewhere (scripts/, README.md) are ignored. The description
+#     cross-check also reads .claude-plugin/marketplace.json at both
+#     endpoints to detect one-sided description changes.
 #
 # Edge cases:
 #   - New plugin (no plugin.json at merge-base): PASS provided plugin.json
@@ -209,6 +213,45 @@ for name in "${PLUGIN_ORDER[@]}"; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# Description cross-check: when a plugin's plugin.json description changed,
+# marketplace.json's entry for that plugin should also change (and vice
+# versa). A WARN, not a FAIL — descriptions are deliberately different
+# across surfaces, but forgetting to update one is the common mistake.
+# ---------------------------------------------------------------------------
+MKT_FILE=".claude-plugin/marketplace.json"
+head_mkt="$(git -C "$ROOT" show "$HEAD_SHA:$MKT_FILE" 2>/dev/null || true)"
+base_mkt="$(git -C "$ROOT" show "$MB:$MKT_FILE" 2>/dev/null || true)"
+DESC_WARN_COUNT=0
+
+for name in "${PLUGIN_ORDER[@]}"; do
+  head_pj_desc=""
+  base_pj_desc=""
+  head_mkt_desc=""
+  base_mkt_desc=""
+
+  hc="$(git -C "$ROOT" show "$HEAD_SHA:plugins/$name/.claude-plugin/plugin.json" 2>/dev/null || true)"
+  bc="$(git -C "$ROOT" show "$MB:plugins/$name/.claude-plugin/plugin.json" 2>/dev/null || true)"
+  [ -n "$hc" ] && head_pj_desc="$(printf '%s' "$hc" | jq -r '.description // empty' 2>/dev/null)"
+  [ -n "$bc" ] && base_pj_desc="$(printf '%s' "$bc" | jq -r '.description // empty' 2>/dev/null)"
+
+  [ -n "$head_mkt" ] && head_mkt_desc="$(printf '%s' "$head_mkt" | jq -r --arg n "$name" '.plugins[] | select(.name==$n) | .description // empty' 2>/dev/null)"
+  [ -n "$base_mkt" ] && base_mkt_desc="$(printf '%s' "$base_mkt" | jq -r --arg n "$name" '.plugins[] | select(.name==$n) | .description // empty' 2>/dev/null)"
+
+  pj_changed=0; mkt_changed=0
+  [ "$head_pj_desc" != "$base_pj_desc" ] && pj_changed=1
+  [ "$head_mkt_desc" != "$base_mkt_desc" ] && mkt_changed=1
+
+  if [ "$pj_changed" -eq 1 ] && [ "$mkt_changed" -eq 0 ] && [ -n "$head_mkt_desc" ]; then
+    echo "WARN  $name -> plugin.json description changed but marketplace.json did not"
+    DESC_WARN_COUNT=$((DESC_WARN_COUNT + 1))
+  fi
+  if [ "$mkt_changed" -eq 1 ] && [ "$pj_changed" -eq 0 ] && [ -n "$head_pj_desc" ]; then
+    echo "WARN  $name -> marketplace.json description changed but plugin.json did not"
+    DESC_WARN_COUNT=$((DESC_WARN_COUNT + 1))
+  fi
+done
+
 if [ "$VERDICTS" -eq 0 ]; then
   echo "no plugin changes to check"
   exit 0
@@ -220,5 +263,8 @@ if [ "$FAILED" -eq 0 ]; then
 else
   echo "FAILURES — fix before merging"
   echo "  bump the version in: ${FAIL_PATHS[*]}"
+fi
+if [ "$DESC_WARN_COUNT" -gt 0 ]; then
+  echo "  ($DESC_WARN_COUNT description-sync warning(s) above — update marketplace.json or plugin.json to match)"
 fi
 exit "$FAILED"

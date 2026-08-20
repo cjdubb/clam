@@ -1,9 +1,12 @@
 # shellcheck-lint baseline — the shrink-only inventory of pre-existing
 # shellcheck findings (see scripts/shellcheck-lint.sh for semantics).
-# Format: one entry per line, two TAB-separated fields:
-#   <repo-relative-path>	<shellcheck-code>
-# Entries may only be REMOVED (after the finding is fixed); a row with no
-# matching finding fails the lint as stale. Never add rows for new findings.
+# Format: one entry per line, three TAB-separated fields:
+#   <repo-relative-path>	<shellcheck-code>	<count>
+# The count is the number of findings of that (path, code) pair that are
+# baselined. A current count exceeding the baselined count fails as NEW;
+# a current count below the baselined count fails as STALE (the baseline
+# can only shrink or hold). Never add rows or raise counts for new
+# findings.
 #
 # Seeded from CI, not from a developer machine: shellcheck is not installed
 # where this check was written, so the first push shipped an empty baseline
@@ -21,103 +24,101 @@
 # at the invocation rather than listed here — baselining it would fail every
 # new test file for no real defect, and this baseline's own rule forbids
 # adding rows to fix that.
-#
-# What remains deduplicates to the 114 (path, code) pairs below.
-plugins/ask-in-text/scripts/structure.test.sh	SC2016
-plugins/attribution/scripts/structure.test.sh	SC2088
-plugins/build/scripts/structure.test.sh	SC2001
-plugins/debugging/scripts/b01-root-cause-skill.test.sh	SC2016
-plugins/debugging/scripts/b02-reproduce-ref.test.sh	SC2034
-plugins/debugging/scripts/b09-debug-session.test.sh	SC2034
-plugins/debugging/scripts/b10-registration.test.sh	SC2016
-plugins/debugging/scripts/structure.test.sh	SC2016
-plugins/decision-log/scripts/rundown-render-seam.test.sh	SC2088
-plugins/landing/scripts/landing-docs.test.sh	SC2155
-plugins/lego/scripts/dispatch-scheduling.test.sh	SC2016
-plugins/lego/scripts/dispatch-skill.test.sh	SC2016
-plugins/lego/scripts/dispatch-skill.test.sh	SC2088
-plugins/lego/scripts/gate-wiring-docs.test.sh	SC2016
-plugins/lego/scripts/plan-sizing.test.sh	SC2034
-plugins/lego/scripts/pr-size-check.test.sh	SC2069
-plugins/lego/scripts/realm-gate.test.sh	SC2012
-plugins/lego/scripts/scaffold-skill.test.sh	SC2016
-plugins/lego/scripts/standing-rules-question-gate.test.sh	SC2016
-plugins/lego/scripts/wave-check.test.sh	SC2016
-plugins/lego/scripts/wave-check.test.sh	SC2143
-plugins/lego/scripts/wave-check.test.sh	SC2295
-plugins/lego/scripts/worktree.sh	SC2181
-plugins/lego/scripts/worktree.test.sh	SC2012
-plugins/management/scripts/manifest.test.sh	SC2016
-plugins/management/scripts/prune-stamp.test.sh	SC2088
-plugins/management/scripts/prune-stamp.test.sh	SC2295
-plugins/management/scripts/registration.test.sh	SC2016
-plugins/management/scripts/run-skill.test.sh	SC2016
-plugins/management/scripts/stamp-conformance.test.sh	SC2016
-plugins/management/scripts/stamp-conformance.test.sh	SC2088
-plugins/notifications/lib/desktop-notify.test.sh	SC1091
-plugins/notifications/lib/desktop-notify.test.sh	SC2015
-plugins/notifications/lib/notify.test.sh	SC1091
-plugins/notifications/scripts/notify.sh	SC1091
-plugins/notifications/scripts/push-notify.sh	SC1091
-plugins/notifications/scripts/stop-notify.sh	SC1091
-plugins/orchestrator-handover/scripts/b01-skill.test.sh	SC2034
-plugins/privacy/scripts/structure.test.sh	SC2088
-plugins/render-doc/scripts/migration.test.sh	SC2016
-plugins/render-doc/scripts/open.test.sh	SC2034
-plugins/render-doc/scripts/render.test.sh	SC2016
-plugins/render-doc/scripts/render.test.sh	SC2088
-plugins/render-doc/scripts/server.test.sh	SC2016
-plugins/render-doc/scripts/server.test.sh	SC2034
-plugins/render-doc/scripts/structure.test.sh	SC2016
-plugins/render-doc/scripts/workgraph-docs.test.sh	SC2016
-plugins/render-doc/scripts/workgraph-docs.test.sh	SC2034
-plugins/session-data/scripts/resolve-paths.test.sh	SC2034
-plugins/session-data/scripts/resolve-paths.test.sh	SC2088
-plugins/session-data/scripts/structure-meta.test.sh	SC2016
-plugins/settings/scripts/structure.test.sh	SC2088
-plugins/skill-tracker/scripts/structure.test.sh	SC2016
-plugins/statusline/lib/burn-math.test.sh	SC1090
-plugins/statusline/lib/burn-math.test.sh	SC2016
-plugins/statusline/lib/burn-theme.test.sh	SC1007
-plugins/statusline/lib/burn-theme.test.sh	SC1090
-plugins/statusline/lib/burn-theme.test.sh	SC2016
-plugins/statusline/scripts/ccost.sh	SC1091
-plugins/statusline/scripts/ccost.test.sh	SC1091
-plugins/statusline/scripts/context.sh	SC1090
-plugins/statusline/scripts/context.sh	SC1091
-plugins/statusline/scripts/context.test.sh	SC1090
-plugins/statusline/scripts/context.test.sh	SC1091
-plugins/statusline/scripts/context.test.sh	SC2016
-plugins/statusline/scripts/context.test.sh	SC2088
-plugins/statusline/scripts/context.test.sh	SC2154
-plugins/statusline/scripts/readme.test.sh	SC2016
-plugins/statusline/scripts/render-budget.test.sh	SC1091
-plugins/statusline/scripts/render-budget.test.sh	SC2016
-plugins/tracking/lib/activity.test.sh	SC1091
-plugins/tracking/lib/activity.test.sh	SC2016
-plugins/tracking/scripts/capture.sh	SC1091
-plugins/tracking/scripts/capture.test.sh	SC2012
-plugins/tracking/scripts/compaction-wiring.test.sh	SC2016
-plugins/tracking/scripts/followups-docs.test.sh	SC2016
-plugins/tracking/scripts/followups-docs.test.sh	SC2034
-plugins/tracking/scripts/followups-lifecycle.test.sh	SC2016
-plugins/tracking/scripts/keep-working.sh	SC2034
-plugins/tracking/scripts/no-todo-nudge.test.sh	SC2034
-plugins/tracking/scripts/post-compact-recovery.test.sh	SC2181
-plugins/tracking/scripts/session-context.test.sh	SC2155
-plugins/tracking/scripts/workgraph-docs.test.sh	SC2016
-plugins/tracking/scripts/workgraph-docs.test.sh	SC2034
-plugins/tracking/scripts/workgraph-lifecycle.test.sh	SC2016
-plugins/tracking/scripts/workgraph-template.test.sh	SC2016
-plugins/worktrees/scripts/b02-usage-skill.test.sh	SC2034
-plugins/worktrees/scripts/b03-per-worker-skill.test.sh	SC2016
-scripts/architecture-doc.test.sh	SC2016
-scripts/architecture-lint.sh	SC2207
-scripts/architecture-lint.sh	SC2295
-scripts/claude-md.test.sh	SC2016
-scripts/dispatch-issues-skill.test.sh	SC2016
-scripts/marketplace-lint.test.sh	SC2034
-scripts/migration-audit-surfaces.test.sh	SC2016
-scripts/protocol-specs.test.sh	SC2016
-scripts/setup-hooks.test.sh	SC2086
-scripts/version-bump-lint.sh	SC2181
+plugins/ask-in-text/scripts/structure.test.sh	SC2016	2
+plugins/attribution/scripts/structure.test.sh	SC2088	1
+plugins/build/scripts/structure.test.sh	SC2001	1
+plugins/debugging/scripts/b01-root-cause-skill.test.sh	SC2016	1
+plugins/debugging/scripts/b02-reproduce-ref.test.sh	SC2034	1
+plugins/debugging/scripts/b09-debug-session.test.sh	SC2034	1
+plugins/debugging/scripts/b10-registration.test.sh	SC2016	6
+plugins/debugging/scripts/structure.test.sh	SC2016	1
+plugins/decision-log/scripts/rundown-render-seam.test.sh	SC2088	2
+plugins/landing/scripts/landing-docs.test.sh	SC2155	1
+plugins/lego/scripts/dispatch-scheduling.test.sh	SC2016	3
+plugins/lego/scripts/dispatch-skill.test.sh	SC2016	7
+plugins/lego/scripts/dispatch-skill.test.sh	SC2088	1
+plugins/lego/scripts/gate-wiring-docs.test.sh	SC2016	1
+plugins/lego/scripts/plan-sizing.test.sh	SC2034	1
+plugins/lego/scripts/pr-size-check.test.sh	SC2069	1
+plugins/lego/scripts/realm-gate.test.sh	SC2012	2
+plugins/lego/scripts/scaffold-skill.test.sh	SC2016	1
+plugins/lego/scripts/standing-rules-question-gate.test.sh	SC2016	1
+plugins/lego/scripts/wave-check.test.sh	SC2016	1
+plugins/lego/scripts/wave-check.test.sh	SC2143	1
+plugins/lego/scripts/wave-check.test.sh	SC2295	1
+plugins/lego/scripts/worktree.sh	SC2181	3
+plugins/lego/scripts/worktree.test.sh	SC2012	1
+plugins/management/scripts/manifest.test.sh	SC2016	5
+plugins/management/scripts/prune-stamp.test.sh	SC2088	1
+plugins/management/scripts/prune-stamp.test.sh	SC2295	1
+plugins/management/scripts/registration.test.sh	SC2016	1
+plugins/management/scripts/run-skill.test.sh	SC2016	4
+plugins/management/scripts/stamp-conformance.test.sh	SC2016	5
+plugins/management/scripts/stamp-conformance.test.sh	SC2088	1
+plugins/notifications/lib/desktop-notify.test.sh	SC1091	1
+plugins/notifications/lib/desktop-notify.test.sh	SC2015	19
+plugins/notifications/lib/notify.test.sh	SC1091	1
+plugins/notifications/scripts/notify.sh	SC1091	1
+plugins/notifications/scripts/push-notify.sh	SC1091	2
+plugins/notifications/scripts/stop-notify.sh	SC1091	1
+plugins/orchestrator-handover/scripts/b01-skill.test.sh	SC2034	1
+plugins/privacy/scripts/structure.test.sh	SC2088	1
+plugins/render-doc/scripts/migration.test.sh	SC2016	1
+plugins/render-doc/scripts/open.test.sh	SC2034	1
+plugins/render-doc/scripts/render.test.sh	SC2016	1
+plugins/render-doc/scripts/render.test.sh	SC2088	2
+plugins/render-doc/scripts/server.test.sh	SC2016	1
+plugins/render-doc/scripts/server.test.sh	SC2034	1
+plugins/render-doc/scripts/structure.test.sh	SC2016	7
+plugins/render-doc/scripts/workgraph-docs.test.sh	SC2016	1
+plugins/render-doc/scripts/workgraph-docs.test.sh	SC2034	1
+plugins/session-data/scripts/resolve-paths.test.sh	SC2034	1
+plugins/session-data/scripts/resolve-paths.test.sh	SC2088	1
+plugins/session-data/scripts/structure-meta.test.sh	SC2016	1
+plugins/settings/scripts/structure.test.sh	SC2088	1
+plugins/skill-tracker/scripts/structure.test.sh	SC2016	2
+plugins/statusline/lib/burn-math.test.sh	SC1090	1
+plugins/statusline/lib/burn-math.test.sh	SC2016	2
+plugins/statusline/lib/burn-theme.test.sh	SC1007	1
+plugins/statusline/lib/burn-theme.test.sh	SC1090	1
+plugins/statusline/lib/burn-theme.test.sh	SC2016	5
+plugins/statusline/scripts/ccost.sh	SC1091	1
+plugins/statusline/scripts/ccost.test.sh	SC1091	1
+plugins/statusline/scripts/context.sh	SC1090	2
+plugins/statusline/scripts/context.sh	SC1091	1
+plugins/statusline/scripts/context.test.sh	SC1090	3
+plugins/statusline/scripts/context.test.sh	SC1091	7
+plugins/statusline/scripts/context.test.sh	SC2016	24
+plugins/statusline/scripts/context.test.sh	SC2088	8
+plugins/statusline/scripts/context.test.sh	SC2154	4
+plugins/statusline/scripts/readme.test.sh	SC2016	8
+plugins/statusline/scripts/render-budget.test.sh	SC1091	1
+plugins/statusline/scripts/render-budget.test.sh	SC2016	1
+plugins/tracking/lib/activity.test.sh	SC1091	1
+plugins/tracking/lib/activity.test.sh	SC2016	1
+plugins/tracking/scripts/capture.sh	SC1091	1
+plugins/tracking/scripts/capture.test.sh	SC2012	1
+plugins/tracking/scripts/compaction-wiring.test.sh	SC2016	1
+plugins/tracking/scripts/followups-docs.test.sh	SC2016	4
+plugins/tracking/scripts/followups-docs.test.sh	SC2034	1
+plugins/tracking/scripts/followups-lifecycle.test.sh	SC2016	1
+plugins/tracking/scripts/keep-working.sh	SC2034	1
+plugins/tracking/scripts/no-todo-nudge.test.sh	SC2034	1
+plugins/tracking/scripts/post-compact-recovery.test.sh	SC2181	4
+plugins/tracking/scripts/session-context.test.sh	SC2155	4
+plugins/tracking/scripts/workgraph-docs.test.sh	SC2016	6
+plugins/tracking/scripts/workgraph-docs.test.sh	SC2034	1
+plugins/tracking/scripts/workgraph-lifecycle.test.sh	SC2016	1
+plugins/tracking/scripts/workgraph-template.test.sh	SC2016	2
+plugins/worktrees/scripts/b02-usage-skill.test.sh	SC2034	1
+plugins/worktrees/scripts/b03-per-worker-skill.test.sh	SC2016	1
+scripts/architecture-doc.test.sh	SC2016	1
+scripts/architecture-lint.sh	SC2207	1
+scripts/architecture-lint.sh	SC2295	1
+scripts/claude-md.test.sh	SC2016	5
+scripts/dispatch-issues-skill.test.sh	SC2016	1
+scripts/marketplace-lint.test.sh	SC2034	1
+scripts/migration-audit-surfaces.test.sh	SC2016	2
+scripts/protocol-specs.test.sh	SC2016	1
+scripts/setup-hooks.test.sh	SC2086	1
+scripts/version-bump-lint.sh	SC2181	2

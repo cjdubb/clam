@@ -52,12 +52,17 @@ ahead/behind indicator (`↓N ↑M`) when `.local/.git-sync.json` exists, the
 clam session mode from `.local/MODE`, and the session State
 (colour from the shared states manifest) read from `.local/TODO.md`. Every
 segment past the path is omitted when its source isn't there, so a plain
-directory outside a repo renders just the path. The two badge files are
-expected to come from refresher engines (`lib/pr-status-refresh.sh`,
-`lib/git-sync-refresh.sh`) that `context.sh` launches in the background when
-their cache goes stale — this plugin does not currently ship those two
-scripts itself, so the badges only populate when something else writes those
-files.
+directory outside a repo renders just the path. The two badge files come
+from refresher engines that `context.sh` launches in the background when
+their cache goes stale. This plugin ships its own copy of the PR-status
+engine (`lib/pr-status-refresh.sh`, with the `lib/pr-status.sh` fetch
+helper beside it), conforming to the repo-level
+[PR-status cache protocol](../../docs/protocols/pr-status-cache.md), so the
+PR badge populates on its own in any worktree with a `.local/` directory —
+and the cache is shared, so anything else writing the same protocol files
+is picked up too. The git-sync engine (`lib/git-sync-refresh.sh`) is not
+shipped yet, so that badge only populates when something else writes
+`.local/.git-sync.json`.
 
 **Line 2 — the burnrate line.** Four groups joined by a dim `│`. A group with
 no data vanishes together with its separator, so the line never shows a

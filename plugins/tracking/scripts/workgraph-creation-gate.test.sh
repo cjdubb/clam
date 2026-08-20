@@ -57,7 +57,7 @@ make_wt() { # -> echoes path
 }
 
 write_todo() { # wt state
-    printf 'State: %s\nCurrent Task: doing the thing\nLast Updated: 2026-01-01 00:00\n' "$2" > "$1/.local/TODO.md"
+    printf 'State: %s\nCurrent Task: doing the thing\nLive view: none\nLast Updated: 2026-01-01 00:00\n' "$2" > "$1/.local/TODO.md"
 }
 
 # A plan that satisfies the (recurring) Block Design plan gate.

@@ -993,12 +993,12 @@ reason="Stop hook: .local/TODO.md State is \"${state:-<unset>}\", which is not a
 
 States that END the turn (these must match EXACTLY):
   - Complete: work done (an open PR still needs a monitoring cron).
-  - Blocked / Waiting For Decision: needs the user. Set the reason field, then run notify <worktree-name> if the notify helper is installed (check with command -v notify; skip silently otherwise).
+  - Blocked / Waiting For Decision: needs the user. Set the reason field.
   - Parked, resumes on its own with no user action: ${parked_list}
 
 If you wrote a near-miss (e.g. \"Awaiting Review\" instead of \"Awaiting Human Review\"), correct it to the precise name above. Do NOT downgrade to Complete just to satisfy this hook; that reports the work as finished when it is not.
 
-If you need the user: set Blocked or Waiting For Decision (with a reason in Blocked Reason: or Decision Needed:), run notify <worktree-name> if that helper is installed, then write a final user-facing message that restates the blocker/decision in plain terms (the user sees this screen-bottom line first; do not assume they will scroll up).
+If you need the user: set Blocked or Waiting For Decision (with a reason in Blocked Reason: or Decision Needed:), then write a final user-facing message that restates the blocker/decision in plain terms (the user sees this screen-bottom line first; do not assume they will scroll up).
 
 Otherwise the work is not done: continue working. Do NOT invent work just because this reminder fired."
 

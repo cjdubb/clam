@@ -89,7 +89,9 @@ What replaces each thing that config carried:
 
 - Skills: `create-pr`, `address-pr-feedback`, `get-pr-comments`,
   `find-reviewer`, `pr-author-checklist`, `pre-pr-verify`, `pr-retrospective`,
-  `pr-review`, `pr-review-perfect`, `pr-status`, `status-sync`,
+  `pr-review`, `pr-review-perfect`, `pr-status` (ported, then reassigned
+  to **tracking** — see the tracking section; only the fetch scripts and
+  the cache-refresh Stop hook remain on the forge side), `status-sync`,
   `issue-tracker` (keeps its jira/github/none provider seam and `CLAM_*` knobs),
   `doc-sync` (pre-PR documentation-accuracy gate; reassigned from decision-log)
 - Docs: `skills/PR-WORKFLOW.md`

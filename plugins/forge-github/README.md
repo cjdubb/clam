@@ -38,11 +38,7 @@ compose flowing-prose descriptions rather than hard-wrapped text, so the
 result renders cleanly on GitHub. Running
 `/forge-github:address-pr-feedback` fetches a PR's review comments,
 proposes a resolution and draft reply for each, and stops for your
-approval before changing any code or posting anything. Running
-`/forge-github:pr-status` renders a live table of every PR under a
-coordination worktree's remit — reviews, CI, merge-queue position, and
-merge-readiness sorting — degrading to the branch's own PR in a
-single-branch worktree.
+approval before changing any code or posting anything.
 
 One thing runs without being invoked: a Stop hook that refreshes the
 worktree's PR-status cache (`.local/.pr-status.json` and
@@ -52,6 +48,11 @@ the end of each turn, so any consumer of that cache renders a current
 picture. It is silent, only writes inside a worktree that already has a
 `.local/` directory, skips entirely when the cache is under 60 seconds
 old, and never fails the session on a network or `gh` error.
+
+Fetching PR state and rendering it are separate concerns, and this plugin
+owns only the first. It supplies the cache; whichever installed capability
+reports on session state renders it. There is deliberately no PR-status
+table skill here.
 
 ## Common workflows
 
@@ -66,13 +67,14 @@ addressing review feedback, run `/forge-github:sync-pr` to recompose the
 description from the branch's current state and apply it with `gh pr
 edit`. It works on a PR opened by create-pr, by another tool, or by hand.
 
-**Check where everything stands.** Run `/forge-github:pr-status` for a
-sorted table of every PR under the effort's remit: state (including
-merge-queue position or ejection), reviews, pending reviewers, CI, and a
-Notes column surfacing conflicts, unreplied comments, and dependencies.
-A coordination worktree (non-empty `.local/.orchestrator`) shows every
-PR its planning documents reference; a single-branch worktree degrades
-to its own PR.
+**Check where everything stands.** The Stop hook keeps
+`.local/.pr-status.json` current — state (including merge-queue position
+or ejection), reviews, pending reviewers, CI, conflicts, unreplied
+comments, and a pre-computed merge-readiness tier per PR. A coordination
+worktree (non-empty `.local/.orchestrator`) has every PR its planning
+documents reference cached; a single-branch worktree has its own. Reading
+that cache into a table is a reporting job, so it belongs to whichever
+session-state reporting capability you have installed, not here.
 
 **Work through review feedback.** When a reviewer leaves comments, run
 `/forge-github:address-pr-feedback`. It fetches every comment as
@@ -92,13 +94,10 @@ re-review request.
 - `/forge-github:address-pr-feedback` — triage a pull request's review
   comments, propose resolutions and draft replies for approval, execute
   the approved changes, and request re-review.
-- `/forge-github:pr-status` — show a live status table of every PR a
-  coordination worktree is shepherding (degrading to the branch's own
-  PR in a single-branch worktree), sorted by merge readiness.
 
 Their full behavioral contracts live in the skills' SKILL.md files
 (`skills/create-pr/SKILL.md`, `skills/sync-pr/SKILL.md`,
-`skills/address-pr-feedback/SKILL.md`, `skills/pr-status/SKILL.md`).
+`skills/address-pr-feedback/SKILL.md`).
 
 ## Relationships to other plugins
 

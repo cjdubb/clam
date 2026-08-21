@@ -71,6 +71,20 @@ view of the graph shows dispatch progress in real time, with several nodes
 in progress at once during a parallel wave. A missing graph or node is
 tolerated: skip the mirror silently and never block dispatch on it.
 
+**Waves get phase nodes.** Each wave dispatch also adds a child node to the
+graph, under the block's node, at the moment the wave's brief is written:
+the next free `N<NN>` id, a title like `<block name> — test wave` or
+`<block name> — implementation wave`, `Parent:` the block's node, `Deps:`
+none, `Status: in progress`. The node flips to `done` at that wave's
+acceptance; a rejected wave keeps it `in progress` with the deficiency as
+the status reason until the redispatch is accepted. Notes carries a link to
+the wave's brief file. This is what makes subagent-level work visible on
+the live graph — a phase node in progress means a worker is on it right
+now, and a block whose test-wave child is done but whose implementation
+child is absent is between phases. A multi-block wave adds one phase node
+per block it covers, so per-block progress stays independently readable.
+The same tolerance applies: no graph, no phase nodes, no error.
+
 That plan document is `.local/plans/NNN-<slug>.md`, and its
 Landing strategy section is where dispatch reads how this work is delivered —
 which PR groups exist, what each is called, the budget the design was sized
@@ -196,7 +210,12 @@ The Timeline records, as they happen: each brief written (its `NN`, wave,
 and blocks), each wave dispatched, each acceptance, each rejection (naming
 the specific deficiency and the brief/report `NN`s involved), each
 escalation and its resolution, each teammate release, and each phase
-commit.
+commit. Its final entry, written immediately before step 4's `merge`
+archives the file, records the unit's local merge and the merge commit —
+an archived status file that ends mid-wave misreports a finished unit as
+abandoned. Per-block status lives in `blocks.md` alone; the Timeline
+narrates events and cites block ids, it does not carry a second copy of
+any block's `Status:` value.
 
 ## Dispatch order
 

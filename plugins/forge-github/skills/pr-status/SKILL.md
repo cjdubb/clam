@@ -1,11 +1,14 @@
 ---
 name: pr-status
-description: Show a live status table of the GitHub PRs for the current worktree — the branch's own PR, or every PR a coordination worktree is shepherding — with reviews, CI, merge-queue state, and merge-readiness sorting. Use when the user asks for PR status, "where are my PRs", or a holistic view of review and CI state.
+description: Show a live status table of every GitHub PR under the current effort's remit — reviews, CI, merge-queue state, and merge-readiness sorting. Built for coordination worktrees (non-empty .local/.orchestrator) shepherding PRs on delegated branches; in a single-branch worktree it degrades gracefully to a one-row table for the branch's own PR. Use when the user asks for PR status across an effort, "where are my PRs", or a holistic view of review and CI state.
 ---
 
 # PR Status
 
-Show a live status table for all PRs related to the current work.
+Show a live status table of every PR under the current effort's remit.
+This skill earns its keep in a coordination worktree, where the PRs live
+on delegated branches and no single `gh` call covers them; in a
+single-branch worktree it degrades gracefully to the branch's own PR.
 
 ## Step 1: Detect context
 
@@ -21,7 +24,7 @@ planning documents, preferring the most structured source: `**PR:**` fields
 in `.local/PLAN.md` and `.local/plans/*.md`; when none, any PR URL in
 `.local/TODO.md`, then `.local/PLAN.md`, then `.local/WORKGRAPH.md`.
 
-**Standalone:** resolve the current branch's PR:
+**Standalone (degraded):** resolve the current branch's own PR:
 
 ```bash
 pr_number=$(gh pr list --head $(git branch --show-current) --json number --jq '.[0].number')

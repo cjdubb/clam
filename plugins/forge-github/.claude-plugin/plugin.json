@@ -1,7 +1,7 @@
 {
   "name": "forge-github",
   "description": "GitHub forge implementation: creates pull requests, keeps their descriptions in sync, works review feedback through an approval-gated triage-and-respond flow, and tracks PR review/CI/merge-queue status (a /pr-status table plus a turn-end cache refresh), all via the gh CLI with flowing-prose formatting conventions. Implements the forge interface that the landing plugin delegates to; also works standalone.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

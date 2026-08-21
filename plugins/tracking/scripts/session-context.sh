@@ -188,9 +188,7 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
 
 Never park on \`Blocked\`/\`Waiting For Decision\` when no user action is
 required; summon only when the user must act, so that every summons is
-actionable. On the
-transition into a summoning state, run \`notify <worktree-basename>\` if that
-helper is installed (\`command -v notify\`; skip silently otherwise).
+actionable.
 
 A turn ending in a summoning state must END with a user-facing message that
 restates the blocker or decision in plain terms — what is needed, from whom,

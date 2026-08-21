@@ -15,6 +15,7 @@ Focus: none
 - Status: open | in progress | done | dropped ([reason])
 - Parent: none | N<NN>
 - Deps: none | N<NN>[, N<NN>...]
+- Delivery: local | pr <ref> | merged | deployed [optional; only on nodes whose work produces a code change]
 - Notes: [optional context; a relative markdown link to the artifact that owns this node's detail — a plan section, a ledger entry — rather than a copy of it]
 
 `N<NN>` is a zero-padded sequence number scoped to this file (N01, N02,
@@ -46,6 +47,14 @@ Nodes owned by another artifact link to it from `Notes:` and duplicate
 only `Status:` — status is what live views display, so it is updated in
 the same edit as the owning artifact's own transition: `in progress` the
 moment work on the node starts, `done`/`dropped` at its resolution.
+
+On a node whose work produces a code change, `Delivery:` records how far
+that change has travelled — `local` (worktree or local branch only),
+`pr <ref>` (in review), `merged` (on the default or integration branch),
+`deployed` (running where users meet it) — updated in place by whoever
+moves the change forward. Where `Status:` answers "is the problem
+solved", `Delivery:` answers "has it shipped": a node can be `done` yet
+still `local`. Omit the field on nodes with no code change.
 
 The `- Status: open` / `- Status: in progress` lines are machine-read
 markers, matched literally, modulo trailing whitespace. Reword one and a

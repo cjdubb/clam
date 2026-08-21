@@ -450,6 +450,22 @@ else
   fail "invariant: SYNTH_SEL changed from the pre-B02 baseline ('$SYNTH_SEL_BASELINE' -> '$current_synth_sel')"
 fi
 
+# --- F14: always-visible legend and label badges ------------------------------
+# The legend names both edge kinds and the status colours; badges surface
+# Unit/Block/PR-group ids from Notes/Goal prose on the graph label.
+for needle in 'wg-graph-legend' 'contains (Parent)' 'depends on (Deps)' 'buildGraphLegend' 'wgNodeBadge'; do
+  if grep -qF "$needle" "$APP_JS"; then
+    pass "F14: app script carries '$needle'"
+  else
+    fail "F14: app script missing '$needle'"
+  fi
+done
+if grep -qF 'pointer-events: none' "$TEMPLATE"; then
+  pass "F14: legend never intercepts pointer input (pointer-events: none pinned)"
+else
+  fail "F14: legend pointer-events: none missing from template CSS"
+fi
+
 # --- Invariant: no new external resources -----------------------------------
 if grep -E '<link[^>]+href="https?:|src="https?:|src='"'"'https?:|url\(https?:|@import|fonts\.googleapis' "$APP_JS" > /dev/null; then
   fail "invariant: app script references an external URL/CDN"

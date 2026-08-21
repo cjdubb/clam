@@ -357,7 +357,7 @@ fi
 # linked-doc section (marked's output again). Node data must never reach the
 # panel unsanitized; the guards below pin the two panel paths to their
 # sanitizer and to marked respectively.
-pinned 'innerHTML[[:space:]]*=' 3 "escaping: innerHTML assignments limited to marked output and the sanitized Notes value"
+pinned 'innerHTML[[:space:]]*=' 4 "escaping: innerHTML assignments limited to marked output, the sanitized Notes value, and the static legend markup"
 pinned 'nv\.innerHTML = node\.notesHtml' 1 "escaping: the Notes assignment consumes only the wgFieldHtml-sanitized value"
 pinned 'content\.innerHTML = marked\.parse' 1 "escaping: the hydrated section is marked's own output, nothing hand-built"
 pinned 'https?://' 0 "no new external resources: the app script introduces no absolute URL"

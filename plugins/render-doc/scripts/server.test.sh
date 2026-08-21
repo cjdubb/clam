@@ -381,7 +381,12 @@ esac
 # --- 2. GET /health ----------------------------------------------------------
 expect_code "GET /health" 200 "$BASE/health"
 
-SERVE_SHA="$(sha_of "$SERVE")"
+# The health "version" covers serve.py AND the template (F21): compute the
+# same combined digest the server reports.
+SERVE_SHA="$(python3 -c "import hashlib, sys
+with open(sys.argv[1], 'rb') as f: a = f.read()
+with open(sys.argv[2], 'rb') as f: b = f.read()
+print(hashlib.sha256(a + b).hexdigest())" "$SERVE" "$TEMPLATE")"
 if python3 - "$BODY" "$SERVE_SHA" "$SRV_PID" "$PORT_A" << 'PY' 2> /dev/null
 import json, sys
 with open(sys.argv[1]) as f:
@@ -393,7 +398,7 @@ assert h['pid'] == int(sys.argv[3]), h
 assert h['port'] == int(sys.argv[4]), h
 PY
 then
-  pass "/health: app marker, version = sha256 of serve.py on disk, int pid, bound port"
+  pass "/health: app marker, version = sha256 of serve.py + template on disk, int pid, bound port"
 else
   fail "/health: payload does not match {app: render-doc, version: $SERVE_SHA, pid: $SRV_PID, port: $PORT_A} (got: $(cat "$BODY" 2> /dev/null))"
 fi
@@ -478,7 +483,10 @@ fi
 FRESH_MD="$SRV_WORK/fresh.md"
 FRESH_HTML="$SRV_WORK/fresh.html"
 printf '# Fresh\n\nFRESH-DOC-MARKER\n' > "$FRESH_MD"
-printf 'UNTOUCHED-HTML-SENTINEL\n' > "$FRESH_HTML"
+# Up-to-date now also means carrying the template-sha marker (F21): an html
+# without it, or with a stale one, is re-rendered regardless of mtimes.
+TPL_SHA="$(sha_of "$TEMPLATE")"
+printf 'UNTOUCHED-HTML-SENTINEL\n<!-- render-doc-template-sha256: %s -->\n' "$TPL_SHA" > "$FRESH_HTML"
 touch -t 202001010000 "$FRESH_MD"
 touch "$FRESH_HTML"
 FRESH_HTML_SHA="$(sha_of "$FRESH_HTML")"

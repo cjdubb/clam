@@ -68,7 +68,6 @@ plugins/render-doc/scripts/open.test.sh	SC2034	1
 plugins/render-doc/scripts/render.test.sh	SC2016	1
 plugins/render-doc/scripts/render.test.sh	SC2088	2
 plugins/render-doc/scripts/server.test.sh	SC2016	1
-plugins/render-doc/scripts/server.test.sh	SC2034	1
 plugins/render-doc/scripts/structure.test.sh	SC2016	7
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2016	1
 plugins/render-doc/scripts/workgraph-docs.test.sh	SC2034	1

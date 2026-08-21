@@ -688,7 +688,12 @@ fi
 SHIM_PATH="$OPEN_BIN:$PATH"     # everything real, openers shadowed and logged
 MIRROR_PATH="$OPEN_BIN:$MIRROR" # ...and no python3 either
 
-SERVE_SHA="$(sha_of "$SERVE")"
+# The health "version" covers serve.py AND the template (F21): compute the
+# same combined digest the server reports.
+SERVE_SHA="$(python3 -c "import hashlib, sys
+with open(sys.argv[1], 'rb') as f: a = f.read()
+with open(sys.argv[2], 'rb') as f: b = f.read()
+print(hashlib.sha256(a + b).hexdigest())" "$SERVE" "$SCRIPT_DIR/../assets/template.html")"
 
 # =============================================================================
 # Acceptance signal: the scaffold's stub is gone from the source.

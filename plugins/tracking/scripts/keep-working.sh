@@ -413,7 +413,11 @@ state=$(todo_field "$todo" State)
 #                      entirely (default enabled).
 #   CLAM_TRACKING_FRESHNESS_THRESHOLD — integer >= 1; prompts-since-mtime at
 #                      or above this block. Default 2 (tolerates a single
-#                      pleasantry turn); invalid / <1 → 2.
+#                      pleasantry turn); invalid / <1 → 2. When the env var
+#                      is unset, summons states (Waiting For Decision,
+#                      Awaiting User Review, Blocked) use threshold 1: a
+#                      summons rests on a reason/question written this turn,
+#                      so TODO.md untouched since the last prompt is stale.
 #
 # Outputs:
 #   Return 0  — fresh (or any fail-open path): caller proceeds to the normal
@@ -471,6 +475,16 @@ check_tracking_freshness() {
 
     local threshold="${CLAM_TRACKING_FRESHNESS_THRESHOLD:-2}"
     [[ "$threshold" =~ ^[0-9]+$ && "$threshold" -ge 1 ]] || threshold=2
+
+    # Summons states park the session on the engineer reading a reason or
+    # question the agent wrote THIS turn; parking on last checkpoint's text
+    # is stale evidence, not a summons. With no explicit env override, any
+    # prompt since the last TODO.md write blocks once for these states.
+    if [[ -z "${CLAM_TRACKING_FRESHNESS_THRESHOLD:-}" ]]; then
+        case "$state" in
+            "Waiting For Decision"|"Awaiting User Review"|"Blocked") threshold=1 ;;
+        esac
+    fi
 
     local count
     count=$(activity_prompts_since "$ref_epoch" "$transcript_path")

@@ -185,11 +185,11 @@ echo "--- Parked state + stale docs: BLOCK once, with full reason detail ---"
 # 5 qualifying prompts against the default threshold (2) — a count clearly
 # distinct from the threshold digit, so pattern assertions below can't
 # accidentally match the wrong number.
-read -r wt tp <<< "$(setup_scenario "Awaiting User Review" 5)"
+read -r wt tp <<< "$(setup_scenario "Awaiting CI" 5)"
 run "$wt" "$tp"
-assert_block "parked state ('Awaiting User Review') + 5 stale prompts (default threshold 2): BLOCK"
+assert_block "parked state ('Awaiting CI') + 5 stale prompts (default threshold 2): BLOCK"
 assert_exit0 "parked state + stale: exit 0"
-assert_reason_matches "block reason names the State verbatim" "Awaiting User Review"
+assert_reason_matches "block reason names the State verbatim" "Awaiting CI"
 assert_reason_matches "block reason names the prompt count (5)" "\\b5\\b"
 assert_reason_matches "block reason names the threshold (2, default)" "\\b2\\b"
 assert_reason_matches "block reason mentions TODO.md" "TODO(\\.md)?"
@@ -214,15 +214,38 @@ run "$wt" "$tp"
 assert_allow "TODO.md touched after the newest prompt: allow (docs fresh)"
 assert_exit0 "fresh docs: exit 0"
 
-echo "--- Threshold boundary: default 2 ---"
+echo "--- Threshold boundary: default 2 (non-summons parked state) ---"
 
-read -r wt tp <<< "$(setup_scenario "Awaiting User Review" 1)"
+read -r wt tp <<< "$(setup_scenario "Awaiting CI" 1)"
 run "$wt" "$tp"
 assert_allow "1 prompt (threshold-1 at the default threshold 2): allow"
 
-read -r wt tp <<< "$(setup_scenario "Awaiting User Review" 2)"
+read -r wt tp <<< "$(setup_scenario "Awaiting CI" 2)"
 run "$wt" "$tp"
 assert_block "2 prompts (== default threshold 2): block"
+
+echo "--- Summons states default to threshold 1 (F18) ---"
+
+for summons_state in "Waiting For Decision" "Awaiting User Review" "Blocked"; do
+    read -r wt tp <<< "$(setup_scenario "$summons_state" 1)"
+    run "$wt" "$tp"
+    assert_block "summons state '$summons_state' + 1 stale prompt: block (threshold 1)"
+    assert_log_disposition "$LOG" "block_freshness" "summons state '$summons_state': disposition is block_freshness"
+done
+
+# Allow-side cases use only the summons states whose OWN state gates pass on
+# this minimal fixture ("Waiting For Decision" additionally requires a
+# decision file, which would block for reasons outside this contract).
+for summons_state in "Awaiting User Review" "Blocked"; do
+    read -r wt tp <<< "$(setup_scenario "$summons_state" 1)"
+    touch "$wt/.local/TODO.md"
+    run "$wt" "$tp"
+    assert_allow "summons state '$summons_state', TODO.md written this turn: allow"
+done
+
+read -r wt tp <<< "$(setup_scenario "Awaiting User Review" 1)"
+run "$wt" "$tp" CLAM_TRACKING_FRESHNESS_THRESHOLD=2
+assert_allow "explicit CLAM_TRACKING_FRESHNESS_THRESHOLD=2 overrides the summons default: 1 prompt allows"
 
 echo "--- CLAM_TRACKING_FRESHNESS_THRESHOLD override ---"
 

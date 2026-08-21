@@ -68,7 +68,7 @@
 #     (impl mode; in test mode it is ignored with a warning on stderr).
 #   - --stub <path>: repeatable; stub files for CONTRACT-DIFF (impl mode).
 #   - --collection-pattern "<ERE>": overrides the default pattern
-#     "SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|ParseError|collection error".
+#     "SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|collection error".
 #   - Optional trailing diff-range (any argument after options not starting
 #     with --), passed through verbatim to realm-check.sh; absent means
 #     realm-check's uncommitted-changes mode.
@@ -121,7 +121,12 @@
 set -uo pipefail
 
 USAGE_MSG="usage: wave-check.sh <test|impl> [--test-cmd \"<command>\"] [--scaffold-ref <ref>] [--stub <path>]... [--collection-pattern \"<ERE>\"] [diff-range]"
-DEFAULT_COLLECTION_PATTERN="SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|ParseError|collection error"
+# ParseError is deliberately NOT an alternative: it is a common name for a
+# repo's own domain error class, so legitimate red-run assertion messages
+# ("expected error to be instance of ParseError") matched it and failed the
+# wave as COLLECTION. A parser-framework collection failure still surfaces
+# as one of the remaining alternatives; --collection-pattern covers the rest.
+DEFAULT_COLLECTION_PATTERN="SyntaxError|ImportError|ModuleNotFoundError|cannot find module|command not found|CompileError|compilation failed|collection error"
 
 # Lines excluded from the collection-error scan: test-framework output
 # announcing a test that PASSED. Every alternative of the default collection

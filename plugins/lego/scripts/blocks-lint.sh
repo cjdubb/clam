@@ -155,7 +155,7 @@ CEILING=$((BUDGET / 2))
 # heading opens a block entry; any other "## " heading is a prose section,
 # skipped without being counted or linted.
 # ---------------------------------------------------------------------------
-mapfile -t LINES < <(sed 's/\r$//' -- "$MAP_PATH")
+mapfile -t LINES < <(tr -d '\r' < "$MAP_PATH")
 N="${#LINES[@]}"
 
 FINDINGS=()

@@ -71,6 +71,22 @@ view of the graph shows dispatch progress in real time, with several nodes
 in progress at once during a parallel wave. A missing graph or node is
 tolerated: skip the mirror silently and never block dispatch on it.
 
+The graph's optional `Delivery:` field is mirrored the same way, at the
+transition it describes — never only at scaffold time. A unit's block nodes
+read `Delivery: local` from the commit that first carries their accepted
+work, and advance in the same edit as the step that moves the change: to
+`merged` with step 4's local merge when the integration branch is itself the
+mainline, or — under `main-prs` — to `pr <ref>` when the group's PR opens
+and `merged` when it lands. A node that is `done` with a stale `Delivery:`
+misreports how far the change travelled, which is the one thing the field
+exists to say.
+
+The approval-gate node the plan created — the engineer-approves-the-design
+node this skill's precondition rests on — flips to `done` in the same edit
+that records dispatch starting. That gate concluded the moment dispatch was
+admitted; a gate node left `in progress` overcounts live work for every
+reader of the graph from then on.
+
 **Waves get phase nodes.** Each wave dispatch also adds a child node to the
 graph, under the block's node, at the moment the wave's brief is written:
 the next free `N<NN>` id, a title like `<block name> — test wave` or
@@ -210,10 +226,13 @@ The Timeline records, as they happen: each brief written (its `NN`, wave,
 and blocks), each wave dispatched, each acceptance, each rejection (naming
 the specific deficiency and the brief/report `NN`s involved), each
 escalation and its resolution, each teammate release, and each phase
-commit. Its final entry, written immediately before step 4's `merge`
-archives the file, records the unit's local merge and the merge commit —
-an archived status file that ends mid-wave misreports a finished unit as
-abandoned. Per-block status lives in `blocks.md` alone; the Timeline
+commit. Its final entry records the unit's local merge and quotes the merge
+commit sha. Because step 4's `merge` both creates that commit and archives
+the file, this entry is written immediately after `merge` returns — appended
+to the archived copy at `.local/units/<plan-slug>/<unit-id>/status.md` — not
+before the merge runs: an entry announcing "merging into master" with no sha
+after it, like an archived file that ends mid-wave, misreports a finished
+unit as abandoned. Per-block status lives in `blocks.md` alone; the Timeline
 narrates events and cites block ids, it does not carry a second copy of
 any block's `Status:` value.
 
@@ -863,6 +882,14 @@ next `NN`. That promise outlives the unit worktree: once the unit merges,
 those files actually live on, so they stay put even after `merge` removes
 the unit worktree they were written in.
 
+A follow-up filed during dispatch — a spot-review observation, a defect an
+engineer ruling deliberately scoped out, anything destined for
+`.local/FOLLOWUPS.md` — gets its graph node in the same edit as the
+FOLLOWUPS entry: `Status: open`, Notes linking the entry. A follow-up
+carried for a future round stays `open` in both places; `dropped` is
+reserved for work nobody should ever pick up, and "no issue tracker exists"
+is never a reason to drop one — the FOLLOWUPS file is the tracker.
+
 Log every escalation and its resolution in the plan's Changelog as it
 happens, and in the unit worktree's `.local/status.md` Timeline (see "Unit
 status file" above) as it happens. Track `Escalated` — and its resolution
@@ -887,6 +914,12 @@ This removes any lego branches and worktrees that survived the normal flow for
 the given plan — scoped to `lego/<plan-slug>/*` and `lego/deliver/<plan-slug>/*`.
 It is best-effort (exits 0 always) and safe to run at any time. Use `--all`
 instead of `<plan-slug>` for a global sweep across all plans.
+
+Sweep teammates the same way: any worker teammate still alive at this point
+should already have been released at its wave's acceptance (steps 2 and 4),
+so end each survivor with `TaskStop` now and note the miss in the plan
+Changelog — and treat any notification that later arrives from a released
+worker as a defect to record, not ambient noise to wave off.
 
 Present the engineer a contract-level summary: which blocks exist, what
 changed since approval, where the map lives. No lego worktrees remain.

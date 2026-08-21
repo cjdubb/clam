@@ -98,7 +98,19 @@ check "phase nodes: child added under the block node at brief time" \
 check "phase nodes: absence tolerance restated" \
   "$(has_f "$RAW" 'no graph, no phase nodes, no error')" "yes"
 check "status closeout: final Timeline entry records the local merge" \
-  "$(has_f "$RAW" "records the unit's local merge and the merge commit")" "yes"
+  "$(has_f "$RAW" "records the unit's local merge and quotes the merge")" "yes"
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
+check "status closeout: entry written after merge, to the archived copy" \
+  "$(has_f "$RAW" 'written immediately after `merge` returns')" "yes"
+check "graph mirror: Delivery advances at the transition it describes" \
+  "$(has_f "$RAW" "never only at scaffold time")" "yes"
+check "graph mirror: approval-gate node flips done at dispatch start" \
+  "$(has_f "$RAW" "records dispatch starting")" "yes"
+check "follow-ups get graph nodes at capture" \
+  "$(has_f "$RAW" "gets its graph node in the same edit as the")" "yes"
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
+check "done: teammate sweep with TaskStop" \
+  "$(has_f "$RAW" 'end each survivor with `TaskStop` now')" "yes"
 check "status file carries no second copy of block Status" \
   "$(has_f "$RAW" 'does not carry a second copy')" "yes"
 

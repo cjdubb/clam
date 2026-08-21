@@ -65,11 +65,12 @@ order:
   travelled": `local` (exists only in a worktree or local branch),
   `pr <ref>` (in review, `<ref>` naming the PR), `merged` (on the default
   or integration branch), or `deployed` (running where users meet it).
-  Written by whoever advances the landing — a node can be `done` yet still
+  Written by whoever moves the change forward — a node can be `done` yet still
   `local`, and that difference is the point: a graph whose done nodes all
   read `merged` is a shippable state, one full of `done` + `local` is not.
   Views render it as a second badge beside status; a node without the
   field renders exactly as before.
+- `Notes:` — optional context; the field may be omitted. When the node's
   work is owned by another artifact — a plan section, a ledger entry, a
   follow-up — `Notes:` carries a relative markdown link to it, resolvable
   from this file's own directory. The link is the whole obligation: the

@@ -47,7 +47,7 @@ PLUGIN_JSON="$PLUGIN_DIR/.claude-plugin/plugin.json"
 # per the plan's landing strategy, which assigns 0.16.2. Later bumps move
 # this anchor with them; currently 0.24.0 (work-graph nodes written at plan time and
 # empty-frontier approval gate).
-EXPECTED_VERSION='0.24.0'
+EXPECTED_VERSION='0.25.0'
 
 FAILED=0
 

@@ -469,6 +469,15 @@
   .wg-status-pill.wg-status-in-progress { color: #8ab4f8; border-color: rgba(138, 180, 248, 0.4); background: rgba(138, 180, 248, 0.1); }
   .wg-status-pill.wg-status-done { color: var(--green); border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.1); }
   .wg-status-pill.wg-status-dropped { color: var(--coral); border-color: rgba(255, 138, 107, 0.4); background: rgba(255, 138, 107, 0.1); }
+  .wg-delivery-pill {
+    display: inline-block; font-size: 0.72rem; font-weight: 600;
+    padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid;
+    text-transform: none; letter-spacing: 0.02em;
+  }
+  .wg-delivery-pill.wg-delivery-local { color: var(--muted, #908caa); border-color: rgba(144, 140, 170, 0.4); background: rgba(144, 140, 170, 0.1); }
+  .wg-delivery-pill.wg-delivery-pr { color: #c4a7e7; border-color: rgba(196, 167, 231, 0.4); background: rgba(196, 167, 231, 0.1); }
+  .wg-delivery-pill.wg-delivery-merged { color: var(--green); border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.1); }
+  .wg-delivery-pill.wg-delivery-deployed { color: #2dd4bf; border-color: rgba(45, 212, 191, 0.4); background: rgba(45, 212, 191, 0.1); }
   .wg-dep-badge {
     font-family: var(--mono); font-size: 11px; font-weight: 600;
     padding: 2px 9px; border-radius: 999px;
@@ -1365,7 +1374,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var elements = [];
       model.nodes.forEach(function (node) {
         var badge = wgNodeBadge(node);
-        var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "");
+        var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "") + (node.delivery ? " ⟨" + node.delivery + "⟩" : "");
         var classes = "wg-graph-" + node.statusKind + (node.id === model.focus ? " wg-graph-focus" : "");
         elements.push({ data: { id: node.id, label: label }, classes: classes });
       });
@@ -1658,6 +1667,13 @@ __CYTOSCAPE_DAGRE_SPLICE__
       pillWrap.appendChild(pill);
       body.appendChild(panelRowNode("Status", pillWrap));
 
+      var npDp = wgDeliveryPill(node);
+      if (npDp) {
+        var dpWrap = document.createElement("span");
+        dpWrap.appendChild(npDp);
+        body.appendChild(panelRowNode("Delivery", dpWrap));
+      }
+
       if (node.goal) body.appendChild(panelRow("Goal", node.goal));
 
       if (node.parent) {
@@ -1881,13 +1897,13 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var first = li.firstChild;
       while (first && first.nodeType === 3 && !first.nodeValue.trim()) first = first.nextSibling;
       if (!first || first.nodeType !== 3) return null;
-      var m = first.nodeValue.match(/^\s*(Goal|Status|Parent|Deps|Notes)\s*:\s*/i);
+      var m = first.nodeValue.match(/^\s*(Goal|Status|Parent|Deps|Delivery|Notes)\s*:\s*/i);
       return m ? m[1].toLowerCase() : null;
     }
 
     function wgFieldText(li) {
       var text = li.textContent.replace(/\s+/g, " ").trim();
-      return text.replace(/^(Goal|Status|Parent|Deps|Notes)\s*:\s*/i, "").trim();
+      return text.replace(/^(Goal|Status|Parent|Deps|Delivery|Notes)\s*:\s*/i, "").trim();
     }
 
     /* Preserve child nodes (e.g. a highlighted @TAG span) while dropping only
@@ -1963,6 +1979,18 @@ __CYTOSCAPE_DAGRE_SPLICE__
         }
       }
 
+      /* Optional Delivery field (protocol: local | pr <ref> | merged |
+         deployed). An absent or unrecognized value renders as no badge —
+         the field is additive, never a reason to exclude the node. */
+      var delivery = null, deliveryKind = null;
+      if (fields.delivery) {
+        var deliveryText = wgFieldText(fields.delivery);
+        if (/^(local|merged|deployed|pr\s+\S.*)$/i.test(deliveryText)) {
+          delivery = deliveryText;
+          deliveryKind = /^pr\b/i.test(deliveryText) ? "pr" : deliveryText.toLowerCase();
+        }
+      }
+
       return {
         id: m[1],
         title: m[2].trim(),
@@ -1972,6 +2000,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
         notesNodes: fields.notes ? wgFieldContentNodes(fields.notes) : null,
         statusKind: statusKind,
         statusReason: statusReason,
+        delivery: delivery,
+        deliveryKind: deliveryKind,
         parent: /^none$/i.test(parentText) ? null : parentText,
         deps: deps
       };
@@ -1980,6 +2010,14 @@ __CYTOSCAPE_DAGRE_SPLICE__
     /* Replace the raw field bullet list with a status pill, one dep badge per
        Deps entry, and Goal/Notes prose — all inside one .wg-summary block so
        the whole thing stays one quotable unit (the .tl-entry precedent). */
+    function wgDeliveryPill(node) {
+      if (!node.delivery) return null;
+      var pill = document.createElement("span");
+      pill.className = "wg-delivery-pill wg-delivery-" + node.deliveryKind;
+      pill.textContent = node.delivery;
+      return pill;
+    }
+
     function decorateWorkGraphNode(node) {
       var pill = document.createElement("span");
       pill.className = "wg-status-pill wg-status-" + node.statusKind;
@@ -1988,6 +2026,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var meta = document.createElement("div");
       meta.className = "wg-meta";
       meta.appendChild(pill);
+      var dp = wgDeliveryPill(node);
+      if (dp) meta.appendChild(dp);
       node.deps.forEach(function (dep) {
         var badge = document.createElement("span");
         badge.className = "wg-dep-badge";
@@ -2121,6 +2161,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
             title: parsed.title,
             statusKind: parsed.statusKind,
             statusReason: parsed.statusReason,
+            delivery: parsed.delivery,
+            deliveryKind: parsed.deliveryKind,
             goal: goalText,
             notes: notesText,
             notesHtml: notesHtml,
@@ -2735,7 +2777,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
        transforms (badges, option numbers, arrows, labels) are skipped, so the
        copied anchor is always greppable in the source document. */
     var BLOCK_SEL = "p, li, blockquote, tr, .tl-entry, .wg-summary";
-    var SYNTH_SEL = ".rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-dep-badge, .wg-focus-banner";
+    var SYNTH_SEL = ".rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-delivery-pill, .wg-dep-badge, .wg-focus-banner";
 
     function annotatableBlock(el) {
       if (!el || el.nodeType !== 1) return null;

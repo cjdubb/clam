@@ -199,6 +199,38 @@ directory removed. A `renames` entry in `marketplace.json` maps
 `make-progress` → `tracking` so existing installs auto-resolve on sync
 (requires Claude Code v2.1.193+).
 
+Tracking v0.17.0 takes the situation-reporting concern, which is two
+skills, reassigned from two different rows of this map.
+
+`sitrep` is **ported (from clam-code)**, reassigned here from the planned
+session-modes cluster below. Five of its six clam-code information sources
+are the `.local/` documents tracking already owns and enforces, so the
+plugin that owns the write path owns the read path; a session-modes plugin
+would have had to read tracking's documents without owning them. Port
+changes: the work graph (`.local/WORKGRAPH.md`) becomes the first
+information source, since it did not exist in clam-code and is now the
+primary structural record; clam-code's chunk vocabulary (`.local/.chunk-of`,
+the Chunk and Worktree table columns) is **dropped**, having no artifact in
+this repo; and the Jira reference is generalized to whatever ticket
+`.local/TODO.md`'s header names.
+
+`pr-status` moves here from **forge-github**, reassigned from the planned
+pr-workflow cluster below, on the same reasoning: its purpose is letting a
+coordinating session see where the PRs under its remit stand, which is
+reporting on session state rather than forge mechanics. Only the skill
+moves. `pr-status.sh`, `pr-status-refresh.sh`, and the Stop hook that
+refreshes the cache stay in forge-github, because they are `gh` calls.
+Port change: tracking's copy **renders the cache and never fetches** —
+`.local/.pr-status.json` per `docs/protocols/pr-status-cache.md` — where
+forge-github's copy ran the fetch helper directly. A consumer renders what
+is on disk and labels its age; refreshing belongs to whichever engine is
+installed.
+
+The boundary written into both skills is **report, never drive**: tracking
+observes and renders PR state, and every action a row calls for belongs to
+a capability that acts on pull requests. Driving a request through to merge
+is a separate concern with a separate owner (#179).
+
 ## statusline — ported (from clam-code)
 
 Reassigned from the out-of-scope list: plugins cannot set `statusLine` (no
@@ -214,8 +246,9 @@ install-changes-nothing constraint holds.
 
 ## session-modes — planned
 
-- Skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`,
-  `planning`, `orchestrator-handover` (moved to **orchestrator-handover**)
+- Skills: `start`, `orient`, `role-check`, `whats-cooking`,
+  `planning`, `orchestrator-handover` (moved to **orchestrator-handover**),
+  `sitrep` (moved to **tracking**; see the tracking section above)
 - Hooks: `session-start.sh` (grows into the workflow-rules injection that
   replaces the `clam` alias — content sourced from `general/system-prompt.md`;
   the Work Management section is already carried by the tracking plugin's
@@ -609,7 +642,7 @@ gap).
 | --- | --- | --- | --- | --- |
 | pr-workflow plugin cluster (12 skills incl. `create-pr`, `address-pr-feedback`, `get-pr-comments`, `find-reviewer`, `pr-author-checklist`, `pr-retrospective`, `pr-review`, `pr-review-perfect`, `pr-status`, `status-sync`, `issue-tracker`, `doc-sync`; `skills/PR-WORKFLOW.md`; `reviewer` agent; `pr-status.sh` hook) | clam-code general/skills+hooks (clam-generic preferred where a skill diverges — see the divergence audit) | planned | port | Whole plugin is assigned but not yet built; `pre-pr-verify` is disambiguated into its own row below rather than folded in here. |
 | `pre-pr-verify` skill (clam-generic's provider-agnostic copy) | clam-generic general/skills/pre-pr-verify | planned (pr-workflow) | port | The gate sequence pr-workflow is planned to absorb; generalized from repos/clipboard's Clipboard-hardcoded copy, listed separately (out of scope) below — same name, different surface. |
-| session-modes plugin cluster (skills: `start`, `orient`, `sitrep`, `role-check`, `whats-cooking`, `planning`; hook: `session-start.sh`; lib dependency: `worktree-naming.sh`) | clam-code general/skills/{start,orient,sitrep,role-check,whats-cooking,planning}, general/hooks/session-start.sh, general/lib/worktree-naming.sh | planned | port | Whole plugin assigned but not yet built; `session-start.sh` must absorb `system-prompt.md`'s workflow-rules content (the alias mechanism itself is out of scope, below), and `worktree-naming.sh` is `/start`'s un-shipped lib dependency, surfaced by the divergence audit. |
+| session-modes plugin cluster (skills: `start`, `orient`, `role-check`, `whats-cooking`, `planning`; hook: `session-start.sh`; lib dependency: `worktree-naming.sh`) | clam-code general/skills/{start,orient,role-check,whats-cooking,planning}, general/hooks/session-start.sh, general/lib/worktree-naming.sh | planned | port | Whole plugin assigned but not yet built; `session-start.sh` must absorb `system-prompt.md`'s workflow-rules content (the alias mechanism itself is out of scope, below), and `worktree-naming.sh` is `/start`'s un-shipped lib dependency, surfaced by the divergence audit. `sitrep` was reassigned out of this cluster to **tracking** and is ported; see the tracking section. |
 | team-review plugin cluster (skills: `team-code-review`, `team-council`, `team-exploration`, `independent-review`, `independence-protocol`, `subagent-orchestration`; agents: `Explore`, `browser`) | clam-code general/skills/{...}, general/agents/{Explore,browser} | planned | port | Whole plugin assigned but not yet built; no hook (`orchestrator-guard.sh` is dropped, incompatible with the lego scaffold phase). |
 | permissions plugin cluster (hook: `permission-audit.sh`; skill: `analyze-permissions.sh` promoted to `/permissions:analyze`) | clam-code general/hooks/permission-audit.sh, general/analyze-permissions.sh (unwired CLI helper) | planned | port | Whole plugin assigned but not yet built; the doc-referenced `fewer-permission-prompts` gap is a separate open call, listed under needs decision below. |
 | git-guard plugin cluster (hook: `git-guard.sh` + `git-guard.test.sh`) | clam-code general/hooks/git-guard.sh | planned | port | Single guard assigned but not yet built; shares the `CLAM_AUTO_REVIEWER` knob with pr-workflow. |

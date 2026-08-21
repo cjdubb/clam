@@ -216,6 +216,34 @@ as resolved, or the Focus pointer stops resolving to a real node at all.
 
 ### Skills
 
+- **`/tracking:sitrep`** — user-invoked only
+  (`disable-model-invocation: true`). A read-only situation report for
+  orienting after a `/clear`, a compaction, or a switch between
+  conversations. It reads `.local/WORKGRAPH.md` first (the decomposition,
+  per-node status, and the Focus pointer), then `TODO.md`, `PLAN.md`,
+  `IMPLEMENTATION-PLAN.md`, `TROUBLESHOOTING.md`, `FOLLOWUPS.md`, and
+  `decisions/`, plus the branch's commits against its merge base and
+  anything discussed but not yet written down. It reports in four sections
+  — Goal, PRs, Progress, Next — omitting any that do not apply, and
+  embeds the `/tracking:pr-status` table rather than restating PR state in
+  prose. It writes nothing and takes no action, including work that looks
+  obviously next. Absence on disk is reported as absence ("no plan
+  document found"), never as a claim about history.
+
+- **`/tracking:pr-status`** — where every PR under the current effort's
+  remit stands, in one table: 7 columns (Title, PR, State, Reviews,
+  Requested, CI, Notes), a per-row indicator for whether it is your turn
+  (🔴 act, 🟡 monitor, 🚂 in the queue, 🟢 someone else's turn, ✅ merged,
+  🚫 ejected from the queue), sorted by merge-readiness tier. Every field
+  is read from `.local/.pr-status.json`, the cache specified in
+  `docs/protocols/pr-status-cache.md`; the skill never calls out to a
+  forge and never blocks on the network, so it renders whatever the last
+  refresh left on disk and labels the age when that is over five minutes
+  old. No cache means no report — genuine absence, not an error. It
+  reports only: it never merges, enqueues, closes, approves, requests
+  review, replies, or edits a PR. Refreshing the cache is a separate
+  concern, owned by whichever conforming refresh engine is installed.
+
 - **`/tracking:make-progress`** — user-invoked only
   (`disable-model-invocation: true`; never auto-triggered, never called
   from crons or other skills). Run when a session stalled after a unit of

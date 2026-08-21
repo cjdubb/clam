@@ -338,13 +338,23 @@ checklist before accepting:
    real test.
 3. **Contract, not internals.** Spot-read the tests: no private state, no
    imagined implementation mirrored in assertions.
-4. **Never block on a report.** A worker that has gone idle without writing
+4. **Consistency, not just coverage.** Two checks the clause walk alone
+   misses. When a clause makes a claim about another block's behavior —
+   "surfaces its ValidationError", "the service rejects it" — open that
+   block's docblock and check the claim against what it actually promises;
+   cross-block claims are the highest-risk clause kind, because each
+   contract can be individually faithful while the pair disagrees. And
+   spot-check each test's asserted values against each other: a test whose
+   expected total contradicts the rows it itself asserts is unsatisfiable
+   by any implementation, and a coverage walk that only pairs clauses with
+   tests never notices.
+5. **Never block on a report.** A worker that has gone idle without writing
    its report file does not hold acceptance hostage: inspect the worktree
    diff, run this whole checklist yourself, and accept or reject on your own
    evidence. Archive a report that lands afterwards with a timing note
    saying when it arrived relative to the decision. Reports have straggled
    in after the PR merged; a session that waits for one stalls indefinitely.
-5. **Never verify concurrently with a resumed worker.** Pinging an idle
+6. **Never verify concurrently with a resumed worker.** Pinging an idle
    worker resumes it, and a resumed test-writer may re-run its own red-run
    proof — including stash-based reverts of shared files — while your run is
    in flight. Your suite then reads a mid-stash tree and reports a flake
@@ -866,6 +876,14 @@ Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
   plan Changelog, re-scaffold the affected blocks, re-run their test wave,
   then re-dispatch (again, a fresh-`NN` brief). Affected dependents get
   re-verified.
+
+  An amendment meets the same evidence bar as the escalation that prompted
+  it: any behavioral claim it writes into a contract — especially an Errors
+  or edge-case clause about runtime, library, or database behavior — is
+  demonstrated by execution before it is written, never reasoned out on
+  paper. An amendment is how an unverified claim ships into a contract with
+  no wave left downstream to catch it; a corrected clause that is itself
+  untested has already re-created the defect it fixes.
 
   Wait for the engineer's full decision before re-scaffolding or
   re-dispatching. If their response only answers part of the escalation,

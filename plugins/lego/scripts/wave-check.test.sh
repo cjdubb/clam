@@ -1487,6 +1487,62 @@ test_contract_diff_pass_when_only_the_body_was_implemented() {
   assert_eq 0 "$RUN_EXIT" "body-only change: exit code (stderr: $RUN_ERR)"
 }
 
+# F23: scaffolded stubs underscore-prefix unused parameters, so implementing
+# a function renames `_pool` to `pool` with type, arity, and docblock
+# unchanged. That rename is not a contract change and must not read DIRTY.
+test_contract_diff_pass_when_unused_param_underscore_dropped() {
+  local repo cmd ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  mkdir -p "$repo/src"
+  mkdir -p "$repo/src"
+  mkdir -p "$repo/src"
+  cat > "$repo/src/mod.py" <<'EOF'
+# <!--
+# Contract: FIXTURE ensure_default
+#
+# Behavior:
+#   Ensures the default row exists.
+# -->
+def ensure_default(_pool):
+    raise NotImplementedError
+EOF
+  git -C "$repo" add -- src/mod.py
+  git -C "$repo" commit -q -m "scaffold src/mod.py"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  commit_sed "$repo" "src/mod.py" 's/^def ensure_default(_pool):$/def ensure_default(pool):/' "use the parameter"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/mod.py
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "PASS" "underscore-prefixed unused param renamed on use: not a contract change"
+  assert_eq 0 "$RUN_EXIT" "underscore rename: exit code (stderr: $RUN_ERR)"
+}
+
+# The normalization strips a leading underscore only: any other parameter
+# rename is still a changed signature.
+test_contract_diff_fail_when_param_renamed_beyond_underscore() {
+  local repo cmd ref
+  repo="$(new_git_repo)"
+  cmd="$(green_cmd)"
+  mkdir -p "$repo/src"
+  mkdir -p "$repo/src"
+  mkdir -p "$repo/src"
+  cat > "$repo/src/mod.py" <<'EOF'
+# <!--
+# Contract: FIXTURE ensure_default
+# -->
+def ensure_default(_pool):
+    raise NotImplementedError
+EOF
+  git -C "$repo" add -- src/mod.py
+  git -C "$repo" commit -q -m "scaffold src/mod.py"
+  ref="$(git -C "$repo" rev-parse HEAD)"
+  commit_sed "$repo" "src/mod.py" 's/^def ensure_default(_pool):$/def ensure_default(db):/' "rename the parameter outright"
+
+  run_wave "$repo" impl --test-cmd "$cmd" --scaffold-ref "$ref" --stub src/mod.py
+  assert_check "$RUN_OUT" "CONTRACT-DIFF" "FAIL" "a real parameter rename is still a changed signature"
+  assert_eq 1 "$RUN_EXIT" "real parameter rename: exit code"
+}
+
 test_contract_diff_fail_when_a_docblock_line_is_changed() {
   local repo cmd ref
   repo="$(new_git_repo)"
@@ -2095,6 +2151,8 @@ run_test "REALM: empty diff-range passes its verdict through" test_empty_diff_ra
 run_test "CONTRACT-DIFF: no --scaffold-ref -> SKIPPED, visible" test_contract_diff_skipped_without_scaffold_ref
 run_test "CONTRACT-DIFF: --scaffold-ref with no --stub -> vacuous PASS" test_contract_diff_vacuous_pass_without_stubs
 run_test "CONTRACT-DIFF: body implemented, contract intact -> PASS" test_contract_diff_pass_when_only_the_body_was_implemented
+run_test "CONTRACT-DIFF: unused-param underscore dropped -> PASS (F23)" test_contract_diff_pass_when_unused_param_underscore_dropped
+run_test "CONTRACT-DIFF: param renamed beyond the underscore -> FAIL" test_contract_diff_fail_when_param_renamed_beyond_underscore
 run_test "CONTRACT-DIFF: docblock line changed -> FAIL" test_contract_diff_fail_when_a_docblock_line_is_changed
 run_test "CONTRACT-DIFF: docblock line removed -> FAIL" test_contract_diff_fail_when_a_docblock_line_is_removed
 run_test "CONTRACT-DIFF: signature line changed -> FAIL" test_contract_diff_fail_when_a_signature_line_is_changed

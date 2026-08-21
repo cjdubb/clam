@@ -108,6 +108,12 @@ check "graph mirror: approval-gate node flips done at dispatch start" \
   "$(has_f "$RAW" "records dispatch starting")" "yes"
 check "follow-ups get graph nodes at capture" \
   "$(has_f "$RAW" "gets its graph node in the same edit as the")" "yes"
+check "test wave: consistency check beyond clause coverage (F30)" \
+  "$(has_f "$RAW" 'Consistency, not just coverage.')" "yes"
+check "test wave: cross-block claims checked against the other contract" \
+  "$(has_fn "$RAW" 'open that block'"'"'s docblock and check the claim')" "yes"
+check "escalation: amendments meet the escalation evidence bar (F28)" \
+  "$(has_fn "$RAW" 'demonstrated by execution before it is written')" "yes"
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
 check "done: teammate sweep with TaskStop" \
   "$(has_f "$RAW" 'end each survivor with `TaskStop` now')" "yes"

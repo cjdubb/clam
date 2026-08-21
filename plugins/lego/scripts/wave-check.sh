@@ -379,12 +379,21 @@ check_contract_diff_stub() {
   # exiting at its first match kills the writer with SIGPIPE, and under
   # `set -o pipefail` an early match in an oversized stub surfaces as 141 --
   # read here as "signature absent", a false DIRTY (issue #330).
-  local sig_line
+  # Scaffolded stubs underscore-prefix unused parameters, so an implementation
+  # that starts using one renames `_pool` to `pool` — same type, arity, and
+  # return. That rename is not a contract change: before reporting DIRTY,
+  # retry the match with leading underscores stripped from parameter
+  # positions (after `(` or `,`) on both sides. The stub side reads via
+  # process substitution, never a writer-side pipeline (issue #330).
+  local sig_line sig_norm
   while IFS= read -r sig_line; do
     [ -n "$sig_line" ] || continue
     if ! grep -qxF -- "$sig_line" "$stub"; then
-      printf '%s' "DIRTY"
-      return
+      sig_norm="$(printf '%s\n' "$sig_line" | sed -E 's/([(,][[:space:]]*)_+([A-Za-z0-9])/\1\2/g')"
+      if ! grep -qxF -- "$sig_norm" <(sed -E 's/([(,][[:space:]]*)_+([A-Za-z0-9])/\1\2/g' "$stub"); then
+        printf '%s' "DIRTY"
+        return
+      fi
     fi
   done < <(printf '%s\n' "$ref_content" | grep -Ev '^[[:space:]]*#' | grep -E "$SIG_PATTERN")
 

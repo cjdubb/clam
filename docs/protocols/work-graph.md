@@ -59,6 +59,17 @@ order:
 - `Deps:` — `none | N<NN>[, N<NN>...]`, ordering edges: nodes that must
   be done before this one can start. Soft references such as issue or
   PR refs do not belong here; only node ids.
+- `Delivery:` — optional; the field may be omitted, and is meaningful only
+  on nodes whose work produces a code change. Where `Status:` answers "is
+  the problem solved", `Delivery:` answers "how far has the change
+  travelled": `local` (exists only in a worktree or local branch),
+  `pr <ref>` (in review, `<ref>` naming the PR), `merged` (on the default
+  or integration branch), or `deployed` (running where users meet it).
+  Written by whoever moves the change forward — a node can be `done` yet still
+  `local`, and that difference is the point: a graph whose done nodes all
+  read `merged` is a shippable state, one full of `done` + `local` is not.
+  Views render it as a second badge beside status; a node without the
+  field renders exactly as before.
 - `Notes:` — optional context; the field may be omitted. When the node's
   work is owned by another artifact — a plan section, a ledger entry, a
   follow-up — `Notes:` carries a relative markdown link to it, resolvable

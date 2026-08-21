@@ -90,6 +90,18 @@ check "token: orchestrator-owned" \
 check "token: update the status file at every transition" \
   "$(has_f "$RAW" 'update the status file at every transition')" "yes"
 
+# --- F11/F13 (round-4 eval): phase nodes and status closeout -------------
+check "token: Waves get phase nodes." \
+  "$(has_f "$RAW" 'Waves get phase nodes.')" "yes"
+check "phase nodes: child added under the block node at brief time" \
+  "$(has_f "$RAW" 'adds a child node')" "yes"
+check "phase nodes: absence tolerance restated" \
+  "$(has_f "$RAW" 'no graph, no phase nodes, no error')" "yes"
+check "status closeout: final Timeline entry records the local merge" \
+  "$(has_f "$RAW" "records the unit's local merge and the merge commit")" "yes"
+check "status file carries no second copy of block Status" \
+  "$(has_f "$RAW" 'does not carry a second copy')" "yes"
+
 # --- Invariants (contract: "Invariants" heading list) ---------------------
 # These headings must survive the edit unchanged.
 for h in "## The per-unit pipeline" "### 1. Create the worktree" \

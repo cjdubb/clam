@@ -487,10 +487,43 @@
 
   /* ---------- Schema: work-graph graph view ---------- */
   .graph-view {
+    position: relative; /* anchors the .wg-graph-legend overlay */
     min-height: 72vh;
     border: 1px solid var(--border);
     border-radius: 14px;
     background: var(--card);
+  }
+  .wg-graph-legend {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 5;
+    pointer-events: none; /* never intercepts pan/zoom/tap */
+    background: rgba(5, 8, 16, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+  .wg-graph-legend .lg-row { display: flex; align-items: center; gap: 7px; }
+  .wg-graph-legend .lg-line {
+    display: inline-block;
+    width: 24px;
+    border-top: 2px solid #6e6a86;
+  }
+  .wg-graph-legend .lg-line.lg-dep { border-top-style: dashed; border-top-color: #c4a7e7; }
+  .wg-graph-legend .lg-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .wg-graph-legend .lg-focus {
+    background: transparent;
+    border: 2px solid #2dd4bf;
+    border-radius: 4px;
   }
   @keyframes wg-jump-flash {
     0% { box-shadow: 0 0 0 3px var(--border-glow); }
@@ -1331,7 +1364,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var model = workGraphModel;
       var elements = [];
       model.nodes.forEach(function (node) {
-        var label = node.id + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "");
+        var badge = wgNodeBadge(node);
+        var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "");
         var classes = "wg-graph-" + node.statusKind + (node.id === model.focus ? " wg-graph-focus" : "");
         elements.push({ data: { id: node.id, label: label }, classes: classes });
       });
@@ -1397,6 +1431,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
         ]
       });
 
+      container.appendChild(buildGraphLegend());
+
       cy.on("tap", "node", function (evt) {
         var id = evt.target.id();
         try {
@@ -1410,6 +1446,40 @@ __CYTOSCAPE_DAGRE_SPLICE__
       });
 
       return cy;
+    }
+
+    /* Surface work-item ids that a node's Notes/Goal prose carries (e.g.
+       "Unit U05", "Block B11", "PR group G05") on the graph label, so the
+       graph speaks the same vocabulary as the planning artifacts without
+       the reader opening the panel. Absence of any such phrase means no
+       badge — nothing document-specific is required. */
+    function wgNodeBadge(node) {
+      var src = (node.notes || "") + " " + (node.goal || "");
+      var re = /\b(?:Unit|Block|PR group)\s+([A-Za-z]{1,3}\d{1,4})\b/g;
+      var out = [], seen = {}, m;
+      while ((m = re.exec(src)) !== null) {
+        if (!seen[m[1]]) { seen[m[1]] = true; out.push(m[1]); }
+        if (out.length >= 3) break;
+      }
+      return out.join(" · ");
+    }
+
+    /* Always-visible corner legend naming the two edge kinds and the node
+       status colours — the visual language is otherwise unexplained on
+       screen. Static trusted markup only; pointer-events: none keeps it
+       out of the way of pan/zoom/tap. */
+    function buildGraphLegend() {
+      var legend = document.createElement("div");
+      legend.className = "wg-graph-legend";
+      legend.innerHTML =
+        '<div class="lg-row"><span class="lg-line"></span>contains (Parent)</div>' +
+        '<div class="lg-row"><span class="lg-line lg-dep"></span>depends on (Deps)</div>' +
+        '<div class="lg-row"><span class="lg-dot" style="background:#f6c177"></span>open' +
+        '<span class="lg-dot" style="background:#8ab4f8"></span>in progress</div>' +
+        '<div class="lg-row"><span class="lg-dot" style="background:#4ade80"></span>done' +
+        '<span class="lg-dot" style="background:#ff8a6b"></span>dropped</div>' +
+        '<div class="lg-row"><span class="lg-dot lg-focus"></span>focus</div>';
+      return legend;
     }
 
     /* 229-B02's original click-to-card, kept as the degrade path for a panel

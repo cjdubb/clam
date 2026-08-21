@@ -294,6 +294,7 @@ GOAL_TEXT_B02='- Goal: [what done looks like for this node]'
 STATUS_TEXT_B02='- Status: open | in progress | done | dropped ([reason])'
 PARENT_TEXT_B02='- Parent: none | N<NN>'
 DEPS_TEXT_B02='- Deps: none | N<NN>[, N<NN>...]'
+DELIVERY_TEXT_B02='- Delivery: local | pr <ref> | merged | deployed [optional; only on nodes whose work produces a code change]'
 NOTES_TEXT_B02="- Notes: [optional context; a relative markdown link to the artifact that owns this node's detail — a plan section, a ledger entry — rather than a copy of it]"
 
 b02_heading_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$HEADING_TEXT_B02")
@@ -301,6 +302,7 @@ b02_goal_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$GOAL_TEXT_B02")
 b02_status_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$STATUS_TEXT_B02")
 b02_parent_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$PARENT_TEXT_B02")
 b02_deps_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$DEPS_TEXT_B02")
+b02_delivery_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$DELIVERY_TEXT_B02")
 b02_notes_line=$(body_exact_line_no "$B02_FILE" "$B02_END" "$NOTES_TEXT_B02")
 
 check "B02: example entry heading is exactly '$HEADING_TEXT_B02'" \
@@ -313,20 +315,24 @@ check "B02: Parent field line is exactly '$PARENT_TEXT_B02'" \
   "$([[ -n "$b02_parent_line" ]] && echo yes || echo no)" "yes"
 check "B02: Deps field line is exactly '$DEPS_TEXT_B02'" \
   "$([[ -n "$b02_deps_line" ]] && echo yes || echo no)" "yes"
+check "B02: Delivery field line is exactly '$DELIVERY_TEXT_B02'" \
+  "$([[ -n "$b02_delivery_line" ]] && echo yes || echo no)" "yes"
 check "B02: Notes field line is exactly '$NOTES_TEXT_B02'" \
   "$([[ -n "$b02_notes_line" ]] && echo yes || echo no)" "yes"
 
 b02_order_ok=no
 if [[ -n "$b02_heading_line" && -n "$b02_goal_line" && -n "$b02_status_line" \
-      && -n "$b02_parent_line" && -n "$b02_deps_line" && -n "$b02_notes_line" ]] \
+      && -n "$b02_parent_line" && -n "$b02_deps_line" \
+      && -n "$b02_delivery_line" && -n "$b02_notes_line" ]] \
    && (( b02_goal_line == b02_heading_line + 1 \
          && b02_status_line == b02_goal_line + 1 \
          && b02_parent_line == b02_status_line + 1 \
          && b02_deps_line == b02_parent_line + 1 \
-         && b02_notes_line == b02_deps_line + 1 )); then
+         && b02_delivery_line == b02_deps_line + 1 \
+         && b02_notes_line == b02_delivery_line + 1 )); then
   b02_order_ok=yes
 fi
-check "B02: example entry fields are contiguous and in order: heading, Goal, Status, Parent, Deps, Notes" \
+check "B02: example entry fields are contiguous and in order: heading, Goal, Status, Parent, Deps, Delivery, Notes" \
   "$b02_order_ok" "yes"
 
 # Edge case: the example Status line shows the vocabulary and must NOT
@@ -560,6 +566,18 @@ assert_contains_re_i "B21/B02: template states a follow-up captured mid-effort g
   "$B02_BODY" "$B21_FU_CAPTURE_RE"
 assert_contains_re_i "B21/B02: template states the follow-up's disposition is mirrored onto that node" \
   "$B02_BODY" 'mirror'
+
+# Delivery field (protocol's optional per-node delivery dimension): the
+# template's node skeleton carries the field and its prose names all four
+# values and the done-yet-local distinction.
+assert_contains_re_i "template skeleton carries a Delivery: field" \
+  "$B02_BODY" '- Delivery: local \| pr <ref> \| merged \| deployed'
+assert_contains_re_i "template prose: Delivery records how far the change has travelled" \
+  "$B02_BODY" 'how far[[:space:]]+that change has travelled'
+assert_contains_re_i "template prose: a node can be done yet still local" \
+  "$B02_BODY" 'can be .done. yet[[:space:]]+still .local.'
+assert_contains_re_i "template prose: the field is omitted on nodes with no code change" \
+  "$B02_BODY" 'Omit the field on nodes with no code change'
 
 # Acceptance: the 003-B21 protocol-half contract comment is removed (checked
 # against the raw file, same as the B01/B02 checks above).

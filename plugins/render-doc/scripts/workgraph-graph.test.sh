@@ -347,18 +347,26 @@ else
   fail "app script: no \" (dropped)\" label suffix found"
 fi
 
-# --- Clause: edges — parent gray/triangle, dep violet/dashed/vee, bezier ---
-for hex in 6e6a86 c4a7e7; do
-  if grep -qi "$hex" "$APP_JS"; then
-    pass "app script: edge color #$hex referenced"
-  else
-    fail "app script: edge color #$hex not referenced"
-  fi
-done
-if grep -qi 'triangle' "$APP_JS"; then
-  pass "app script: 'triangle' arrow shape referenced (parent edge)"
+# --- Clause: decomposition as containment (F22), deps the only edges ------
+if grep -qi 'c4a7e7' "$APP_JS"; then
+  pass "app script: dep edge color #c4a7e7 referenced"
 else
-  fail "app script: no 'triangle' arrow shape found"
+  fail "app script: dep edge color #c4a7e7 not referenced"
+fi
+if grep -qi 'triangle' "$APP_JS"; then
+  fail "app script: 'triangle' arrow shape still present (parent renders as containment, never an edge)"
+else
+  pass "app script: no parent arrow shape (containment replaced the parent edge)"
+fi
+if grep -qF '":parent"' "$APP_JS"; then
+  pass "app script: compound :parent scope-box style present"
+else
+  fail "app script: no :parent compound style found"
+fi
+if grep -qF 'data.parent = parentOf[node.id]' "$APP_JS"; then
+  pass "app script: children carry the cycle-broken parent as compound data.parent"
+else
+  fail "app script: no compound data.parent wiring found"
 fi
 if grep -qiE '\bvee\b' "$APP_JS"; then
   pass "app script: 'vee' arrow shape referenced (dep edge)"
@@ -487,6 +495,31 @@ if grep -qE 'Goal\|Status\|Parent\|Deps\|Delivery\|Notes' "$APP_JS"; then
 else
   fail "F15: field label parser does not recognize Delivery"
 fi
+
+# --- F22: legend speaks the containment language ------------------------------
+if grep -qF 'lg-box' "$APP_JS" && grep -qF '.lg-box' "$TEMPLATE"; then
+  pass "F22: legend shows a scope box for contains (Parent)"
+else
+  fail "F22: legend scope-box marker (lg-box) missing"
+fi
+
+# --- F24: canvas grows with the layout; fit never magnifies past 1:1 ----------
+for needle in 'container.style.height' 'cy.zoom() > 1' 'cy.fit(cy.elements()' ; do
+  if grep -qF "$needle" "$APP_JS"; then
+    pass "F24: app script carries '$needle'"
+  else
+    fail "F24: app script missing '$needle'"
+  fi
+done
+
+# --- F19: #<node-id> fragment deep-links a node's panel on first load ---------
+for needle in 'applyWorkGraphDeepLink' 'location.hash' 'wgHashDismissed'; do
+  if grep -qF "$needle" "$APP_JS"; then
+    pass "F19: app script carries '$needle'"
+  else
+    fail "F19: app script missing '$needle'"
+  fi
+done
 
 # --- Invariant: no new external resources -----------------------------------
 if grep -E '<link[^>]+href="https?:|src="https?:|src='"'"'https?:|url\(https?:|@import|fonts\.googleapis' "$APP_JS" > /dev/null; then

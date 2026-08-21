@@ -106,7 +106,7 @@
      auto-placement would drop #main into the 250px TOC column — squeezing
      the cytoscape canvas into a strip at the left edge. Collapse to a
      single full-width column for the graph's lifetime instead. */
-  .layout.graph-active { grid-template-columns: minmax(0, 1fr); }
+  .layout.graph-active { grid-template-columns: minmax(0, 1fr); max-width: none; }
 
   /* ---------- TOC ---------- */
   .toc {
@@ -523,6 +523,14 @@
     border-top: 2px solid #6e6a86;
   }
   .wg-graph-legend .lg-line.lg-dep { border-top-style: dashed; border-top-color: #c4a7e7; }
+  .wg-graph-legend .lg-box {
+    display: inline-block;
+    width: 18px;
+    height: 12px;
+    border: 1.5px solid #6e6a86;
+    border-radius: 3px;
+    background: rgba(110, 106, 134, 0.15);
+  }
   .wg-graph-legend .lg-dot {
     display: inline-block;
     width: 10px;
@@ -670,7 +678,12 @@
     border-top: none; border-right: none; border-bottom: none;
     box-shadow: -18px 0 60px rgba(0, 0, 0, 0.45);
   }
-  body.wg-split .graph-view { margin-right: calc(min(46vw, 720px) + 14px); }
+  /* The whole page column reflows to the left of the docked panel — prose
+     and canvas alike — rather than the panel overlaying content; and in
+     split mode the card chrome around the canvas is dropped so the graph
+     half is all drawing surface. */
+  body.wg-split .layout.graph-active { padding-right: calc(min(46vw, 720px) + 14px); }
+  body.wg-split .graph-view { border: none; border-radius: 0; background: transparent; }
   .np-title { font-size: 16px; font-family: var(--display); font-weight: 700; margin-bottom: 10px; }
   .np-ref { display: inline-block; margin: 0 6px 6px 0; padding: 2px 10px;
     border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.04);
@@ -1054,6 +1067,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
       if (state.graphOn) {
         if (workGraphModel) {
           activateGraphView();
+          applyWorkGraphDeepLink();
         } else {
           deactivateGraphView();
           state.graphOn = false;
@@ -1329,9 +1343,15 @@ __CYTOSCAPE_DAGRE_SPLICE__
          - Focus node: teal #2dd4bf ring (thicker border + soft underlay);
            Focus: none, or an id with no matching node, means no ring
            anywhere.
-         - Edges: parent->child solid gray #6e6a86 with triangle arrows;
-           dep->dependent dashed violet #c4a7e7 with vee arrows; a pair
-           connected both ways shows both edges distinctly (bezier).
+         - Decomposition: Parent renders as containment — a cytoscape
+           compound box around the children (faint status tint,
+           status-coloured border, label on the top edge) — never as an
+           edge, so dagre ranks on dep edges alone.
+         - Edges: deps only — dep->dependent dashed violet #c4a7e7 with
+           vee arrows (bezier). A pair related both ways shows the box
+           nesting plus the dep arrow.
+         - Sizing: a layout taller than the canvas grows the canvas (the
+           page scrolls); fit never zooms past 1:1.
          - Pan (drag) and zoom (wheel) enabled.
          - Tapping a node switches back to the card view and scrolls that
            node's card into view with a transient highlight
@@ -1372,24 +1392,35 @@ __CYTOSCAPE_DAGRE_SPLICE__
          document type able to produce that shape renders here unchanged. */
       var model = workGraphModel;
       var elements = [];
+      /* Parent is containment, not an edge: each child carries its
+         cycle-broken parent as the cytoscape compound `parent` field, so
+         decomposition renders as nested boxes (scope) and the only drawn
+         arrows are deps (order). Dagre then ranks on dep edges alone,
+         which keeps the drawing readable as the node count grows. */
+      var parentOf = {};
+      model.edges.forEach(function (edge) {
+        if (edge.kind === "parent") parentOf[edge.target] = edge.source;
+      });
       model.nodes.forEach(function (node) {
         var badge = wgNodeBadge(node);
         var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "") + (node.delivery ? " ⟨" + node.delivery + "⟩" : "");
         var classes = "wg-graph-" + node.statusKind + (node.id === model.focus ? " wg-graph-focus" : "");
-        elements.push({ data: { id: node.id, label: label }, classes: classes });
+        var data = { id: node.id, label: label };
+        if (parentOf[node.id]) data.parent = parentOf[node.id];
+        elements.push({ data: data, classes: classes });
       });
       model.edges.forEach(function (edge) {
+        /* Parent edges stay in the element set solely to rank the layout —
+           without them, dep-poor siblings all land on one rank and the
+           drawing degenerates into a single wide row. They are styled
+           fully invisible; the box nesting is the visible decomposition. */
         elements.push({
           data: { id: edge.id, source: edge.source, target: edge.target },
           classes: "wg-graph-edge-" + edge.kind
         });
       });
 
-      var cy = cytoscape({
-        container: container,
-        elements: elements,
-        layout: { name: "dagre", rankDir: "TB", nodeSep: 36, rankSep: 64 },
-        style: [
+      var styleDefs = [
           {
             selector: "node",
             style: {
@@ -1414,16 +1445,33 @@ __CYTOSCAPE_DAGRE_SPLICE__
           { selector: "node.wg-graph-in-progress", style: { "background-color": "#8ab4f8", "border-color": "#8ab4f8" } },
           { selector: "node.wg-graph-done", style: { "background-color": "#4ade80", "border-color": "#4ade80" } },
           { selector: "node.wg-graph-dropped", style: { "background-color": "#ff8a6b", "border-color": "#ff8a6b", "border-style": "dotted" } },
+          {
+            /* A compound parent is a scope box, not a card: faint status
+               tint, status-coloured border, label along the top edge, and
+               light text since the fill is nearly transparent. Placed after
+               the status classes so these keys win on parents. */
+            selector: ":parent",
+            style: {
+              "background-opacity": 0.07,
+              "border-width": 1.5,
+              "padding": "16px",
+              "text-valign": "top",
+              "text-halign": "center",
+              "font-size": "12px",
+              "color": "#e0def4"
+            }
+          },
           { selector: "node.wg-graph-focus", style: { "border-width": 4, "border-color": "#2dd4bf" } },
           {
+            /* Ranking-only: never drawn (opacity 0, no arrow), but present
+               for dagre so the decomposition tree shapes the layout. */
             selector: "edge.wg-graph-edge-parent",
             style: {
-              "width": 2,
+              "width": 1,
+              "opacity": 0,
               "curve-style": "bezier",
-              "line-color": "#6e6a86",
-              "target-arrow-color": "#6e6a86",
-              "target-arrow-shape": "triangle",
-              "line-style": "solid"
+              "target-arrow-shape": "none",
+              "events": "no"
             }
           },
           {
@@ -1437,13 +1485,65 @@ __CYTOSCAPE_DAGRE_SPLICE__
               "line-style": "dashed"
             }
           }
-        ]
+      ];
+
+      /* Compound parents defeat dagre's ranker — the vendored adapter drops
+         every edge touching a parent — so positions come from a first,
+         flat pass: same labels, same styles (label-driven sizing), both
+         edge families, no compound nesting. The visible compound instance
+         then lays out preset on those positions; parents get no preset
+         position (a compound derives its box from its children, and
+         setting one would drag the children with it). */
+      var isCompound = {};
+      Object.keys(parentOf).forEach(function (child) { isCompound[parentOf[child]] = true; });
+      var flat = elements.map(function (el) {
+        if (el.data.source) return { data: { id: el.data.id, source: el.data.source, target: el.data.target } };
+        return { data: { id: el.data.id, label: el.data.label } };
       });
+      var cy0 = cytoscape({
+        container: container,
+        elements: flat,
+        layout: { name: "dagre", rankDir: "TB", nodeSep: 36, rankSep: 64 },
+        style: styleDefs
+      });
+      var pos = {};
+      cy0.nodes().forEach(function (n) { pos[n.id()] = { x: n.position("x"), y: n.position("y") }; });
+      cy0.destroy();
+      container.replaceChildren();
+
+      var cy = cytoscape({
+        container: container,
+        elements: elements,
+        layout: {
+          name: "preset",
+          fit: true,
+          padding: 30,
+          positions: function (n) { return isCompound[n.id()] ? undefined : pos[n.id()]; }
+        },
+        style: styleDefs
+      });
+
+      /* A graph taller than the card grows the canvas (the page scrolls)
+         instead of shrinking every label; the fit may only shrink to show
+         everything, never magnify past 1:1. Presentation tuning only — a
+         throw here must not take down the graph. */
+      try {
+        var bb = cy.elements().boundingBox();
+        cy.fit(cy.elements(), 30);
+        if (cy.zoom() > 1) { cy.zoom(1); }
+        var h = Math.max(360, Math.min(bb.h * cy.zoom() + 60, 6000));
+        container.style.minHeight = "0";
+        container.style.height = h + "px";
+        cy.resize();
+        cy.fit(cy.elements(), 30);
+        if (cy.zoom() > 1) { cy.zoom(1); cy.center(); }
+      } catch (err) { /* keep the layout's own fit */ }
 
       container.appendChild(buildGraphLegend());
 
       cy.on("tap", "node", function (evt) {
         var id = evt.target.id();
+        wgHashDismissed = true; // the reader is navigating; the deep link is spent
         try {
           if (openNodePanel(id)) return;
         } catch (err) { /* degrade below */ }
@@ -1451,7 +1551,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
       });
 
       cy.on("tap", function (evt) {
-        if (evt.target === cy) closeNodePanel();
+        if (evt.target === cy) { wgHashDismissed = true; closeNodePanel(); }
       });
 
       return cy;
@@ -1481,7 +1581,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
       var legend = document.createElement("div");
       legend.className = "wg-graph-legend";
       legend.innerHTML =
-        '<div class="lg-row"><span class="lg-line"></span>contains (Parent)</div>' +
+        '<div class="lg-row"><span class="lg-box"></span>contains (Parent)</div>' +
         '<div class="lg-row"><span class="lg-line lg-dep"></span>depends on (Deps)</div>' +
         '<div class="lg-row"><span class="lg-dot" style="background:#f6c177"></span>open' +
         '<span class="lg-dot" style="background:#8ab4f8"></span>in progress</div>' +
@@ -1569,6 +1669,25 @@ __CYTOSCAPE_DAGRE_SPLICE__
       state.graphOn = false;
     }
 
+    /* A checkpoint can put a specific node on screen by opening the graph's
+       served URL with a #<node-id> fragment: on first load the graph view opens with
+       that node's panel docked, so the artifact under review is read in
+       place beside the graph. Re-applied on every render (render() closes
+       the panel while it rebuilds sections) until the reader interacts
+       with the graph themselves — a tap or an explicit close dismisses
+       the deep link, so no re-render ever re-opens a panel the reader
+       navigated away from. */
+    var wgHashDismissed = false;
+    function applyWorkGraphDeepLink() {
+      if (wgHashDismissed) return;
+      try {
+        var m = /^#(N\d+)$/i.exec(location.hash || "");
+        if (!m) return;
+        var id = m[1].toUpperCase();
+        if (workGraphModel && workGraphModel.byId[id]) openNodePanel(id);
+      } catch (err) { /* a bad fragment never breaks rendering */ }
+    }
+
     /* ---------- Graph node detail panel (003-B19) ----------
        One panel element, reused: opening a second node repaints it rather
        than stacking, so the same node tapped twice can never duplicate. */
@@ -1590,7 +1709,11 @@ __CYTOSCAPE_DAGRE_SPLICE__
     function wgResizeGraph() {
       requestAnimationFrame(function () {
         if (cyInstance) {
-          try { cyInstance.resize(); } catch (err) { /* mid-teardown */ }
+          try {
+            cyInstance.resize();
+            cyInstance.fit(cyInstance.elements(), 30);
+            if (cyInstance.zoom() > 1) { cyInstance.zoom(1); cyInstance.center(); }
+          } catch (err) { /* mid-teardown */ }
         }
       });
     }
@@ -3111,6 +3234,7 @@ __CYTOSCAPE_DAGRE_SPLICE__
       document.getElementById("drawer").classList.toggle("show");
     });
     document.getElementById("panel-close").addEventListener("click", function () {
+      wgHashDismissed = true; // an explicit close outlives any deep link
       closeNodePanel();
     });
 

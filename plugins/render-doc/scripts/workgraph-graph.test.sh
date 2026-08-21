@@ -436,7 +436,7 @@ fi
 # must not grow BLOCK_SEL/SYNTH_SEL at all (pinned to the value as of this
 # test wave; canvas content is not block-annotatable per contract).
 BLOCK_SEL_BASELINE='p, li, blockquote, tr, .tl-entry, .wg-summary'
-SYNTH_SEL_BASELINE='.rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-dep-badge, .wg-focus-banner'
+SYNTH_SEL_BASELINE='.rec-flag, .opt-num, .crit-badge, .edge-arrow, .pros-lbl, .cons-lbl, .dq-rec-lbl, .block-annotate, .composer, .wg-status-pill, .wg-delivery-pill, .wg-dep-badge, .wg-focus-banner'
 current_block_sel="$(sed -nE 's/.*var BLOCK_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
 current_synth_sel="$(sed -nE 's/.*var SYNTH_SEL = "([^"]*)".*/\1/p' "$TEMPLATE" | head -1)"
 if [ "$current_block_sel" = "$BLOCK_SEL_BASELINE" ]; then
@@ -464,6 +464,28 @@ if grep -qF 'pointer-events: none' "$TEMPLATE"; then
   pass "F14: legend never intercepts pointer input (pointer-events: none pinned)"
 else
   fail "F14: legend pointer-events: none missing from template CSS"
+fi
+
+# --- F15: optional Delivery field rendered as a second badge ------------------
+# The protocol's Delivery: field (local | pr <ref> | merged | deployed) shows
+# as a second pill on cards and the panel and a second bracket on graph labels;
+# a node without the field renders exactly as before.
+for needle in 'wgDeliveryPill' 'wg-delivery-pill' 'deliveryKind'; do
+  if grep -qF "$needle" "$APP_JS"; then
+    pass "F15: app script carries '$needle'"
+  else
+    fail "F15: app script missing '$needle'"
+  fi
+done
+if grep -qF 'wg-delivery-merged' "$TEMPLATE"; then
+  pass "F15: per-kind delivery pill CSS present in template"
+else
+  fail "F15: per-kind delivery pill CSS missing from template"
+fi
+if grep -qE 'Goal\|Status\|Parent\|Deps\|Delivery\|Notes' "$APP_JS"; then
+  pass "F15: field label parser recognizes Delivery"
+else
+  fail "F15: field label parser does not recognize Delivery"
 fi
 
 # --- Invariant: no new external resources -----------------------------------

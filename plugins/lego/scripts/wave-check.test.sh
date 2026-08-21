@@ -1121,7 +1121,6 @@ test_red_run_collection_fail_default_pattern() {
     "command not found" \
     "CompileError" \
     "compilation failed" \
-    "ParseError" \
     "collection error"; do
     cmd="$(make_test_cmd 1 "$token: while loading the suite" "" "" "")"
     run_wave "$repo" test --test-cmd "$cmd"
@@ -1129,6 +1128,17 @@ test_red_run_collection_fail_default_pattern() {
     assert_contains "$(check_line "$RUN_OUT" "RED-RUN")" "COLLECTION" "collection alternative '$token': the FAIL is labeled COLLECTION"
     assert_eq 1 "$RUN_EXIT" "collection alternative '$token': exit code"
   done
+}
+
+# A domain error class named ParseError must NOT trip the collection scan:
+# a red run whose failing assertion merely names ParseError is a legitimate
+# red, not a collection failure (round-4 eval false positive).
+test_red_run_parseerror_is_not_collection() {
+  local repo cmd
+  repo="$(new_git_repo)"
+  cmd="$(make_test_cmd 1 "expected error to be instance of ParseError" "" "" "")"
+  run_wave "$repo" test --test-cmd "$cmd"
+  assert_check "$RUN_OUT" "RED-RUN" "PASS" "assertion message naming ParseError stays a legitimate red run"
 }
 
 # The pattern is matched against the COMBINED output: a collection error that
@@ -2059,6 +2069,7 @@ run_test "RED-RUN: honest red -> PASS" test_red_run_pass_on_honest_red
 run_test "RED-RUN: command exits 0 -> FAIL" test_red_run_fail_when_test_command_exits_zero
 run_test "RED-RUN: non-zero with empty output -> PASS" test_red_run_pass_on_silent_red
 run_test "RED-RUN: default collection pattern alternatives -> FAIL COLLECTION" test_red_run_collection_fail_default_pattern
+run_test "RED-RUN: assertion naming ParseError is not COLLECTION" test_red_run_parseerror_is_not_collection
 run_test "RED-RUN: collection error on stderr is still detected" test_red_run_collection_detected_on_stderr_too
 run_test "RED-RUN: conservative match, then --collection-pattern escape hatch" test_collection_pattern_conservative_then_overridden
 run_test "RED-RUN: --collection-pattern replaces the default and is an ERE" test_collection_pattern_override_is_an_ere

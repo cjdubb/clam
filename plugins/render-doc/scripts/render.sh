@@ -69,7 +69,7 @@ die() {
 }
 
 usage() {
-  printf 'Usage: render.sh <doc.md> [--open|--serve]\n' >&2
+  printf 'Usage: render.sh <doc.md> [--open|--serve] [--node=<id>]\n' >&2
   exit 1
 }
 
@@ -77,11 +77,13 @@ usage() {
 DOC=""
 OPEN=0
 SERVE_MODE=0
+NODE_ID=""
 for arg in "$@"; do
   case "$arg" in
     --open) OPEN=1 ;;
     --serve) SERVE_MODE=1 ;;
-    --*) die "unknown flag: $arg (only --open and --serve are supported)" ;;
+    --node=*) NODE_ID="${arg#--node=}" ;;
+    --*) die "unknown flag: $arg (only --open, --serve and --node=<id> are supported)" ;;
     *)
       [ -n "$DOC" ] && usage
       DOC="$arg"
@@ -94,6 +96,15 @@ done
 # cannot promise both. (SERVE_MODE, not SERVE: the --open block below owns
 # SERVE as the serve.py path.)
 [ "$OPEN" -eq 1 ] && [ "$SERVE_MODE" -eq 1 ] && usage
+# --node deep-links a work-graph node in the served view (F19): it only
+# means anything on an --open of a served page, and must be a bare node id
+# safe to place in a URL fragment.
+if [ -n "$NODE_ID" ]; then
+  [ "$OPEN" -eq 1 ] || usage
+  case "$NODE_ID" in
+    *[!A-Za-z0-9]*) die "--node must be a bare node id (letters and digits), got: $NODE_ID" ;;
+  esac
+fi
 
 # Resolve to absolute path for the source-path splice.
 DOC_ABS="$(cd "$(dirname "$DOC")" && pwd)/$(basename "$DOC")"
@@ -352,7 +363,10 @@ if [ "$OPEN" -eq 1 ]; then
       open_file "$OUT"
     else
       DOC_URL_PATH="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$DOC_ABS")"
-      open_file "$BASE/doc$DOC_URL_PATH"
+      # --node rides along as a fragment; the template opens that node's
+      # panel on load. A file:// fallback drops it (fragment still valid,
+      # but the fallback path opens the local file directly).
+      open_file "$BASE/doc$DOC_URL_PATH${NODE_ID:+#$NODE_ID}"
     fi
   else
     open_file "$OUT"

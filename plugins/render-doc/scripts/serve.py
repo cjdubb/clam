@@ -57,7 +57,8 @@ Usage: serve.py   (port from RENDER_DOC_PORT, default 27183)
 #   2. GET /health -> 200 with JSON {"app", "version", "pid", "port"}.
 #      "app" is exactly the string "render-doc" — the marker a client uses
 #      to tell this server apart from a foreign process on the same port.
-#      "version" is the sha256 hex digest of THIS FILE's bytes, computed at
+#      "version" is the sha256 hex digest of THIS FILE's bytes concatenated
+#      with the template's bytes (assets/template.html), computed at
 #      import; a client compares it against the digest of serve.py on disk
 #      to detect a server running outdated code. "pid" is an int, "port"
 #      the bound port.
@@ -166,8 +167,36 @@ RENDER_SH = os.path.join(SCRIPT_DIR, 'render.sh')
 TEMPLATE = os.path.realpath(os.path.join(SCRIPT_DIR, '..', 'assets', 'template.html'))
 RENDER_TIMEOUT = 30  # seconds for one render.sh run
 
+# VERSION covers this file AND the template: across plugin releases the
+# server code can be byte-identical while the template (the part every
+# rendered page is built from) changed, and a version check on serve.py
+# alone would keep reusing the stale server (F21a). TEMPLATE_SHA is the
+# template half on its own, compared against the hash render.sh embeds in
+# each rendered .html (F21b).
 with open(os.path.abspath(__file__), 'rb') as f:
-    VERSION = hashlib.sha256(f.read()).hexdigest()
+    _self_bytes = f.read()
+try:
+    with open(TEMPLATE, 'rb') as f:
+        _template_bytes = f.read()
+except OSError:
+    _template_bytes = b''
+VERSION = hashlib.sha256(_self_bytes + _template_bytes).hexdigest()
+TEMPLATE_SHA = hashlib.sha256(_template_bytes).hexdigest()
+
+
+def html_template_sha(path):
+    """The template hash render.sh embedded in a rendered .html, read from
+    its trailing bytes; empty string when unreadable or absent (older
+    renders), which callers treat as stale."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, 'rb') as f:
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return ''
+    m = re.search(r'render-doc-template-sha256:\s*([0-9a-f]{64})', tail)
+    return m.group(1) if m else ''
 
 
 def in_git_worktree(path):
@@ -967,7 +996,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             stale = (not os.path.isfile(html)
                      or os.path.getmtime(html) < os.path.getmtime(md_real)
-                     or os.path.getmtime(html) < os.path.getmtime(TEMPLATE))
+                     or os.path.getmtime(html) < os.path.getmtime(TEMPLATE)
+                     # Cross-version staleness is invisible to mtime: an
+                     # .html rendered by another plugin version can be newer
+                     # than both the .md and this template (F21b). The
+                     # embedded template hash catches it; absent (an older
+                     # render) reads as stale.
+                     or html_template_sha(html) != TEMPLATE_SHA)
         except OSError:
             stale = True
         if stale:

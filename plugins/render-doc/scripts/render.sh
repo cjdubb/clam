@@ -159,6 +159,23 @@ if grep -q '__MARKED_SPLICE__\|__DOC_B64_SPLICE__\|__SOURCE_PATH_SPLICE__\|__CYT
 fi
 [ -s "$OUT_TMP" ] || die "splice produced an empty file"
 
+# Embed the template's content hash as a trailing comment so the annotation
+# server can detect cross-version staleness: an .html whose embedded hash
+# differs from the serving template's is re-rendered even when its mtime is
+# newer than both the .md and the template (F21). Best-effort: with no
+# hashing tool the marker is omitted and the server re-renders per request.
+sha256_file() {
+  if command -v shasum > /dev/null 2>&1; then
+    shasum -a 256 "$1" 2> /dev/null | awk '{print $1}'
+  elif command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" 2> /dev/null | awk '{print $1}'
+  fi
+}
+TPL_SHA="$(sha256_file "$TEMPLATE")"
+if [ -n "$TPL_SHA" ]; then
+  printf '\n<!-- render-doc-template-sha256: %s -->\n' "$TPL_SHA" >> "$OUT_TMP"
+fi
+
 # mktemp files are 0600; make the artifact world-readable like a normal file.
 if ! cp "$OUT_TMP" "$OUT"; then
   die "could not write output: $OUT"
@@ -209,7 +226,7 @@ open_file() {
 #      - Health answers with "app" != "render-doc": a foreign process owns
 #        the port. Print a stderr notice naming the port, then file:// open.
 #      - Health answers with "app" == "render-doc" and "version" equal to
-#        the sha256 of serve.py on disk: reuse this server.
+#        the sha256 of serve.py-plus-template on disk: reuse this server.
 #      - Health answers with "app" == "render-doc" but a different
 #        "version": the server runs outdated code. Kill it (by the pid in
 #        the health payload, and by /tmp/render-doc-serve-$PORT.pid), poll
@@ -267,7 +284,7 @@ if [ "$OPEN" -eq 1 ]; then
 
     # --- Ensure the shared server is running and current ----------------------
     # The fixed port is the lock. If /health answers with our app marker and
-    # the sha256 of serve.py on disk, reuse the server; a stale version gets
+    # the sha256 of serve.py-plus-template on disk, reuse the server; a stale version gets
     # killed and respawned; a foreign process on the port means file://
     # fallback. A losing EADDRINUSE racer exits 0 by design and the winner
     # answers the health poll, so concurrent sessions never fight.
@@ -279,7 +296,7 @@ if [ "$OPEN" -eq 1 ]; then
         FALLBACK=1
       else
         RUNNING_SHA="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2> /dev/null || true)"
-        DISK_SHA="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$SERVE" 2> /dev/null || true)"
+        DISK_SHA="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()+open(sys.argv[2],'rb').read()).hexdigest())" "$SERVE" "$TEMPLATE" 2> /dev/null || true)"
         if [ "$RUNNING_SHA" != "$DISK_SHA" ]; then
           # Outdated server (e.g. after a master pull): kill it, wait for the
           # port to clear, then respawn the current code below.
@@ -414,7 +431,7 @@ if [ "$SERVE_MODE" -eq 1 ]; then
     fi
 
     RUNNING_SHA="$(printf '%s' "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2> /dev/null || true)"
-    DISK_SHA="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$SERVE" 2> /dev/null || true)"
+    DISK_SHA="$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()+open(sys.argv[2],'rb').read()).hexdigest())" "$SERVE" "$TEMPLATE" 2> /dev/null || true)"
     if [ "$RUNNING_SHA" != "$DISK_SHA" ]; then
       # Outdated server: kill it, wait for the port to clear, then respawn
       # the current code below.

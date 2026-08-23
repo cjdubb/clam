@@ -94,7 +94,13 @@ the next free `N<NN>` id, a title like `<block name> — test wave` or
 none, `Status: in progress`. The node flips to `done` at that wave's
 acceptance; a rejected wave keeps it `in progress` with the deficiency as
 the status reason until the redispatch is accepted. Notes carries a link to
-the wave's brief file. This is what makes subagent-level work visible on
+the wave's brief file. Notes also names the holder: `Worker: <teammate
+name>` (e.g. `Worker: U04-test-03`), written in the same edit as the
+dispatch that names the teammate, updated to the new name on a fresh-`NN`
+re-dispatch, and rewritten to `Worker: released` in the same edit as the
+release that ends the teammate (steps 2 and 4) — so an in-progress phase
+node always answers which agent is on it, by the name the engineer sees
+elsewhere. This is what makes subagent-level work visible on
 the live graph — a phase node in progress means a worker is on it right
 now, and a block whose test-wave child is done but whose implementation
 child is absent is between phases. A multi-block wave adds one phase node
@@ -347,7 +353,12 @@ checklist before accepting:
    spot-check each test's asserted values against each other: a test whose
    expected total contradicts the rows it itself asserts is unsatisfiable
    by any implementation, and a coverage walk that only pairs clauses with
-   tests never notices.
+   tests never notices. Provenance is the third check of this kind: a
+   clause obliging the block to record or emit a value must have a source
+   the block can actually reach — a parameter, its own data, or a
+   dependency return type that carries it. Tests assert such a clause
+   happily against mocks; if no in-realm signature supplies the value, the
+   defect surfaces only when an implementer escalates, so catch it here.
 5. **Never block on a report.** A worker that has gone idle without writing
    its report file does not hold acceptance hostage: inspect the worktree
    diff, run this whole checklist yourself, and accept or reject on your own
@@ -876,6 +887,13 @@ Workers stop and return `STATUS: ESCALATION` rather than design. On receipt:
   plan Changelog, re-scaffold the affected blocks, re-run their test wave,
   then re-dispatch (again, a fresh-`NN` brief). Affected dependents get
   re-verified.
+
+  A dispatch park that writes a decision file takes `/lego:plan`'s standing
+  gate-node rule: the same edit that writes `.local/decisions/NNN-*.md`
+  adds the decision's gate node to the graph (`Status: in progress`,
+  `Parent:` the focus node, Notes linking the file), the park is presented
+  graph-first at that node, and the node flips `done` in the same edit that
+  records the engineer's resolution.
 
   An amendment meets the same evidence bar as the escalation that prompted
   it: any behavioral claim it writes into a contract — especially an Errors

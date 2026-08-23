@@ -103,11 +103,11 @@ auto-update doesn't refresh the recorded install path
 
 | Plugin | Status | What it does |
 |--------|--------|--------------|
-| [lego](plugins/lego/) | ✅ v0.27.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
+| [lego](plugins/lego/) | ✅ v0.28.0 | Contract-first planning, scaffolded stubs, realm-restricted test and implementation agent waves. Ported from clam-v2. |
 | pr-workflow | planned | PR lifecycle: create, review, address feedback, author checklist, pre-PR verify, doc-sync gate, retrospective, reviewer agent, issue-tracker seam. |
 | session-modes | planned | Session workflow modes (`/start`, orient, sitrep, make-progress, …) plus the session-lifecycle hooks and the SessionStart workflow-rules injection that replaces the old `clam` alias. |
 | [decision-log](plugins/decision-log/) | ✅ v0.2.1 | Decision Logs: `/decision-log:create`, `/decision-log:interactive`, `/decision-log:rundown`. Ported from clam-code. |
-| [tracking](plugins/tracking/) | ✅ v0.18.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
+| [tracking](plugins/tracking/) | ✅ v0.19.0 | Tracking documents: `.local/TODO.md` as session state of record, 13-state lifecycle with Stop-hook enforcement, resume after `/clear` via SessionStart injection. Powers agent-dash and the statusline State segment. |
 | [statusline](plugins/statusline/) | ✅ v0.13.0 | Statusline: path, branch, tracking State, model and effort, weekly and 5-hour plan limits paced to the hours you actually work, context usage. One explicit global write via `/statusline:setup`. |
 | [landing](plugins/landing/) | ✅ v0.4.0 | The landing seam: `/landing:land` lands finished work per the repo's landing policy (github-pr or local-merge); `/landing:init` detects and records it in user-local storage. |
 | [orchestrator-handover](plugins/orchestrator-handover/) | ✅ v0.1.5 | Orchestrator-to-orchestrator handover: `/orchestrator-handover:create` writes a handover document, scaffolds the recipient worktree, populates its `.local/`, and hands off to the user. |

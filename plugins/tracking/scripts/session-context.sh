@@ -170,10 +170,20 @@ State lifecycle (\`State:\` field in TODO.md). Three states summon the user
   recommended option, and the file path). Every artifact a decision document
   references — a plan, a graph, another decision, a piece of code — is carried
   as a relative markdown link resolvable from that decision file's own
-  directory, never as a bare path in backticks. The moment the decision file
-  is written, check the skill catalog for a skill that renders a markdown
-  document to an HTML view opened in the engineer's browser; when one is
-  available, open the decision file through it before ending the turn.
+  directory, never as a bare path in backticks. When a work graph exists at
+  \`.local/WORKGRAPH.md\`, the same edit that writes the decision file adds
+  a gate node for it: the next free \`N<NN>\` id, a plain-language title
+  stating the question, \`Parent:\` the current Focus node,
+  \`Status: in progress\`, and \`Notes:\` carrying a relative link to the
+  decision file; the node flips to \`done\` in the same edit that records
+  the resolution (no graph, no gate node, no error). The moment the
+  decision file is written, check the skill catalog for a skill that
+  renders a markdown document to an HTML view opened in the engineer's
+  browser; when one is available, open the decision through it before
+  ending the turn — and when the decision has a gate node, open the
+  *graph* at that node (skills that take a node id open the view focused
+  there) rather than the bare decision file, so the engineer lands on the
+  graph with the decision one click away.
   Opening is the point — registering a document on a background server
   without opening it does not present it, and does not satisfy this rule.
 - **Parked, summons once then waits:** \`Awaiting User Review\` (draft PR up,
@@ -208,7 +218,11 @@ document, not just its path. The rule stated above for decision files
 applies to all of them: check the skill catalog for a skill that renders a
 markdown document to an HTML view opened in the engineer's browser; when
 one is available, open the document through it before ending the turn, and
-name the document's path in the closing message either way. Registering the
+name the document's path in the closing message either way. When the
+document is linked from a work-graph node, present the graph opened at that
+node instead of the bare document; and when one stop opens both the graph
+and another document, open the graph last, so it is the surface on top when
+the engineer arrives. Registering the
 document on a background server, or citing its path alone, does not present
 it. When no such skill is available, the path in the closing message is the
 fallback — skip the render silently, never block the summons on it.

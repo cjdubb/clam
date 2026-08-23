@@ -2331,7 +2331,7 @@ check "the off-switch section still covers the statusLine key" \
 
 # B18 bumps both surfaces together; version-bump-lint reads committed state,
 # so an edit without the bump is invisible to installed users.
-B18_VERSION="0.13.0"
+B18_VERSION="0.14.0"
 check "plugin.json version is exactly $B18_VERSION" \
   "$PLUGIN_VERSION" "$B18_VERSION"
 check "the root README row's version cell is exactly v$B18_VERSION" \

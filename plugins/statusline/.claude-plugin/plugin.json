@@ -1,7 +1,7 @@
 {
   "name": "statusline",
   "description": "Cam's Claude Code statusline, in two lines: path, git branch and the tracking plugin's session State; then model, reasoning effort, context-window occupancy, and weekly and 5-hour plan limits paced against your working week. Also renders the agent panel's subagent rows, each from that task's own model, effort, directory and context. Wired explicitly via /statusline:setup — installing changes nothing.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "author": {
     "name": "Cam Williamson",
     "email": "camwilliamson@pm.me"

@@ -50,7 +50,10 @@ exists at the worktree root — `ok`, `queued` and `merged` collapse to counts,
 while `todo`, `wip` and `ejected` render per PR as a clickable `#N` — a git
 ahead/behind indicator (`↓N ↑M`) when `.local/.git-sync.json` exists, the
 clam session mode from `.local/MODE`, and the session State
-(colour from the shared states manifest) read from `.local/TODO.md`. Every
+(colour from the shared states manifest) read from `.local/TODO.md`. When
+that document's optional `Live view:` field (todo-format protocol) holds an
+http(s) URL, the State segment gains a clickable `live` hyperlink to it;
+`none` or any other value renders nothing. Every
 segment past the path is omitted when its source isn't there, so a plain
 directory outside a repo renders just the path. The two badge files come
 from refresher engines that `context.sh` launches in the background when
@@ -347,6 +350,7 @@ bash plugins/statusline/scripts/context.test.sh
 bash plugins/statusline/scripts/ccost.test.sh
 bash plugins/statusline/scripts/render-budget.test.sh
 bash plugins/statusline/scripts/readme.test.sh
+bash plugins/statusline/scripts/live-view.test.sh
 bash plugins/statusline/lib/burn-math.test.sh
 bash plugins/statusline/lib/burn-theme.test.sh
 ```

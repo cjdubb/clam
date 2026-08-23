@@ -1194,6 +1194,21 @@ if ! sl_bundle_read; then
       color_seq=$(printf '\033[38;5;%sm' "$(state_color "$state")")
       state_segment="  ${color_seq}${state}"$'\033[0m'
     fi
+    # Live-view link (todo-format protocol's optional "Live view:" field): when
+    # something is serving a live rendering of this worktree's work graph, the
+    # TODO.md Status section carries its URL. Surface it as an OSC 8 hyperlink
+    # labelled "live". http(s) URLs only — "none", empty, or any other value
+    # degrades silently to no tag (the protocol's stated reader behavior).
+    # First whitespace-delimited token only, so trailing prose can't ride into
+    # the escape sequence. Text label, no emoji (the B10 contract removed
+    # emoji from line 1).
+    live_url=$(todo_field "$toplevel/.local/TODO.md" "Live view")
+    live_url="${live_url%%[[:space:]]*}"
+    case "$live_url" in
+      http://*|https://*)
+        state_segment="${state_segment}  "$'\033[38;5;51m\033]8;;'"${live_url}"$'\033\\live\033]8;;\033\\\033[0m'
+        ;;
+    esac
   fi
 
   # Clam session mode from .local/MODE (written once per worktree by /start).

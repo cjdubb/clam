@@ -30,6 +30,15 @@ The `## Status` section carries five fields, each on its own line:
   Decision: the question, the recommended option, and a path to the
   relevant decision file (per docs/protocols/decision-file.md).
 
+One optional field may also appear in the section:
+
+- `Live view:` — the URL of a live, self-updating HTML view of this
+  worktree's work graph, when a serving capability has registered one;
+  `Live view: none` when none is available. Written by whatever serves
+  the view; read by anything that wants to surface the link (a status
+  bar, a dashboard). Absent, `none`, or a non-URL value all mean the
+  same thing to a reader: no link to show.
+
 ## Required sections
 
 Six sections appear, in this order: `## Status`, `## Testing`,

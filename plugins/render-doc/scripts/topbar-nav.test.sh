@@ -295,7 +295,9 @@ fi
 # the target URL is the server's JSON error in the browser, not page breakage.
 # Baseline 2 (/annotate POST, /raw live-update poll) plus the split-view
 # panel's /raw hydration fetch — the topbar links themselves add none.
-pinned 'fetch\(|XMLHttpRequest' 3 \
+# Count raised 3 -> 4 by the park banner (round-6 F34): one fetch of the
+# sibling tracking document's /raw route; the topbar links still issue none.
+pinned 'fetch\(|XMLHttpRequest' 4 \
   "errors: the links navigate rather than fetch (no new request is issued)"
 pinned '\balert\(|\bconfirm\(' 0 "errors: no user-facing dialog is introduced"
 pinned '/annotate' 1 "same-server invariant: /annotate is still the only route the page POSTs to"
@@ -306,7 +308,9 @@ pinned 'https?://' 0 "same-origin invariant: no absolute or external URL is intr
 # hang off a docType branch
 # =============================================================================
 
-pinned 'docType[[:space:]]*[!=]==' 11 \
+# Count raised 11 -> 12 by the park banner (round-6 F34): the banner is
+# gated to work-graph documents; the topbar links remain ungated.
+pinned 'docType[[:space:]]*[!=]==' 12 \
   "every docType: no new docType comparison — the links are not gated on the kind of document"
 
 # =============================================================================

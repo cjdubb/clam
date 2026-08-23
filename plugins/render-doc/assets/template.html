@@ -516,6 +516,24 @@
     line-height: 1.7;
     color: var(--muted);
   }
+  /* Park banner: shown only when the sibling tracking document's Status
+     block reports a summoning state — the first thing an arriving reader
+     needs to know is whether this session is waiting on them, and for what. */
+  .wg-park-banner {
+    display: none;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border: 1px solid #f6c177;
+    border-left-width: 4px;
+    border-radius: 8px;
+    background: rgba(246, 193, 119, 0.08);
+    color: #e0def4;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .wg-park-banner.show { display: block; }
+  .wg-park-banner .pb-state { color: #f6c177; font-weight: 700; margin-right: 8px; }
+
   .wg-graph-legend .lg-row { display: flex; align-items: center; gap: 7px; }
   .wg-graph-legend .lg-line {
     display: inline-block;
@@ -782,6 +800,7 @@
     </nav>
     <main id="main">
       <div class="hero" id="hero"></div>
+      <div id="wg-park-banner" class="wg-park-banner" role="status"></div>
       <div id="doc"></div>
       <div id="graph-view" class="graph-view" hidden></div>
     </main>
@@ -1346,7 +1365,17 @@ __CYTOSCAPE_DAGRE_SPLICE__
          - Decomposition: Parent renders as containment — a cytoscape
            compound box around the children (faint status tint,
            status-coloured border, label on the top edge) — never as an
-           edge, so dagre ranks on dep edges alone.
+           edge, so dagre ranks on dep edges alone. Sibling boxes are
+           laid out as hard disjoint constraints: each cluster's members
+           are laid out among themselves, the cluster then places as a
+           fixed rectangle in its parent's layout (dep edges aggregated
+           to the sibling level; per-set rank direction picked for a
+           readable aspect), so a node can never render inside two boxes.
+           A throw in that pass degrades to the flat single-pass
+           positions rather than losing the graph.
+         - In-progress nodes whose Notes name a holder ("Worker: <name>",
+           trailing prose punctuation ignored) carry a "⚙ <name>" label
+           line; the released marker ("Worker: released") shows nothing.
          - Edges: deps only — dep->dependent dashed violet #c4a7e7 with
            vee arrows (bezier). A pair related both ways shows the box
            nesting plus the dep arrow.
@@ -1403,7 +1432,8 @@ __CYTOSCAPE_DAGRE_SPLICE__
       });
       model.nodes.forEach(function (node) {
         var badge = wgNodeBadge(node);
-        var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "") + (node.delivery ? " ⟨" + node.delivery + "⟩" : "");
+        var worker = wgNodeWorker(node);
+        var label = node.id + (badge ? " [" + badge + "]" : "") + " — " + node.title + (node.statusKind === "dropped" ? " (dropped)" : "") + (node.delivery ? " ⟨" + node.delivery + "⟩" : "") + (worker ? "\n⚙ " + worker : "");
         var classes = "wg-graph-" + node.statusKind + (node.id === model.focus ? " wg-graph-focus" : "");
         var data = { id: node.id, label: label };
         if (parentOf[node.id]) data.parent = parentOf[node.id];
@@ -1507,9 +1537,136 @@ __CYTOSCAPE_DAGRE_SPLICE__
         style: styleDefs
       });
       var pos = {};
-      cy0.nodes().forEach(function (n) { pos[n.id()] = { x: n.position("x"), y: n.position("y") }; });
+      var dims = {};
+      cy0.nodes().forEach(function (n) {
+        pos[n.id()] = { x: n.position("x"), y: n.position("y") };
+        var bb = n.boundingBox({ includeLabels: false });
+        dims[n.id()] = { w: bb.w, h: bb.h };
+      });
       cy0.destroy();
       container.replaceChildren();
+
+      /* Cluster-aware positions: the flat pass above ignores containment,
+         so at decomposition scale sibling boxes overlap and a node can
+         render inside two boxes at once — ambiguous parentage, which is
+         the one thing the boxes exist to state. Boxes are therefore laid
+         out as hard disjoint constraints: each cluster's members are laid
+         out among themselves (dagre over their aggregated dep edges),
+         the cluster becomes a fixed-size rectangle in ITS parent's
+         layout, and so on up to the roots — members can then never leave
+         their allocated rectangle, so sibling boxes cannot intersect.
+         Any throw keeps the flat positions as the degrade path. */
+      try {
+        var childrenOf = {};
+        model.nodes.forEach(function (node) {
+          var p = parentOf[node.id];
+          if (p) (childrenOf[p] = childrenOf[p] || []).push(node.id);
+        });
+        var depEdges = model.edges.filter(function (e) { return e.kind === "dep"; });
+
+        /* PADX/PADTOP/PADBOT reserve room for the drawn compound's own
+           16px padding, border, and top-edge label, so the allocated
+           rectangle always contains the rendered box. */
+        var PADX = 22, PADTOP = 40, PADBOT = 20;
+        var size = {}; /* id -> allocated {w,h} */
+        var rel = {};  /* id -> {x,y} top-left inside its parent's content area */
+
+        var descOwner = {}; /* descendant id -> its ancestor within the sibling set being laid out */
+        function markDesc(id, owner) {
+          descOwner[id] = owner;
+          (childrenOf[id] || []).forEach(function (c) { markDesc(c, owner); });
+        }
+
+        /* Lay out one sibling set with dagre: members are fixed-size
+           rectangles, edges are the dep edges between their subtrees.
+           Writes rel[] for each member; returns the content bbox. */
+        function layoutSiblings(ids) {
+          descOwner = {};
+          ids.forEach(function (id) { markDesc(id, id); });
+          var els = ids.map(function (id) {
+            return { data: { id: id, w: size[id].w, h: size[id].h } };
+          });
+          var seen = {};
+          depEdges.forEach(function (e) {
+            var a = descOwner[e.source], b = descOwner[e.target];
+            if (!a || !b || a === b) return;
+            var key = a + ">" + b;
+            if (seen[key]) return;
+            seen[key] = true;
+            els.push({ data: { id: "cl-" + key, source: a, target: b } });
+          });
+          /* Try both rank directions and keep the squarer drawing: deep
+             dep chains under TB otherwise stack every level into one tall
+             narrow column while the canvas width goes unused. */
+          function runDir(dir) {
+            var cyl = cytoscape({
+              headless: true,
+              styleEnabled: true,
+              elements: els,
+              style: [{ selector: "node", style: { shape: "rectangle", width: "data(w)", height: "data(h)" } }]
+            });
+            cyl.layout({ name: "dagre", rankDir: dir, nodeSep: 30, rankSep: 56 }).run();
+            var x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+            var out = {};
+            ids.forEach(function (id) {
+              var p = cyl.getElementById(id).position();
+              var tlx = p.x - size[id].w / 2, tly = p.y - size[id].h / 2;
+              out[id] = { x: tlx, y: tly };
+              if (tlx < x1) x1 = tlx;
+              if (tly < y1) y1 = tly;
+              if (tlx + size[id].w > x2) x2 = tlx + size[id].w;
+              if (tly + size[id].h > y2) y2 = tly + size[id].h;
+            });
+            cyl.destroy();
+            ids.forEach(function (id) { out[id].x -= x1; out[id].y -= y1; });
+            return { rel: out, w: x2 - x1, h: y2 - y1 };
+          }
+          var tb = runDir("TB");
+          var pick = tb;
+          if (ids.length > 1 && (tb.h > tb.w * 1.8 || tb.w > tb.h * 3.5)) {
+            var lr = runDir("LR");
+            var TARGET = 1.6; /* mildly wide reads best on a landscape canvas */
+            function badness(r) { var a = r.w / Math.max(1, r.h); return Math.abs(Math.log(a / TARGET)); }
+            if (badness(lr) < badness(tb)) pick = lr;
+          }
+          ids.forEach(function (id) { rel[id] = pick.rel[id]; });
+          return { w: pick.w, h: pick.h };
+        }
+
+        function computeSize(id) {
+          var kids = childrenOf[id];
+          if (!kids || !kids.length) {
+            size[id] = { w: dims[id].w, h: dims[id].h };
+            return;
+          }
+          kids.forEach(computeSize);
+          var bb = layoutSiblings(kids);
+          size[id] = { w: bb.w + PADX * 2, h: bb.h + PADTOP + PADBOT };
+        }
+
+        var tops = model.nodes.filter(function (n) { return !parentOf[n.id]; }).map(function (n) { return n.id; });
+        if (!tops.length) throw new Error("no top-level nodes");
+        tops.forEach(computeSize);
+        layoutSiblings(tops);
+
+        var clusterPos = {};
+        function place(id, ox, oy) { /* ox,oy: allocated rect's top-left */
+          var kids = childrenOf[id];
+          if (!kids || !kids.length) {
+            clusterPos[id] = { x: ox + size[id].w / 2, y: oy + size[id].h / 2 };
+            return;
+          }
+          kids.forEach(function (k) {
+            place(k, ox + PADX + rel[k].x, oy + PADTOP + rel[k].y);
+          });
+        }
+        tops.forEach(function (id) { place(id, rel[id].x, rel[id].y); });
+
+        model.nodes.forEach(function (node) {
+          if (!isCompound[node.id] && !clusterPos[node.id]) throw new Error("unplaced node " + node.id);
+        });
+        pos = clusterPos;
+      } catch (err) { /* flat positions remain — overlap over breakage */ }
 
       var cy = cytoscape({
         container: container,
@@ -1571,6 +1728,19 @@ __CYTOSCAPE_DAGRE_SPLICE__
         if (out.length >= 3) break;
       }
       return out.join(" · ");
+    }
+
+    /* The holder a phase node's Notes name (artifact convention:
+       "Worker: <name>"). Shown only while the node is in progress and the
+       name is not the released marker — an engineer holding a worker name
+       can then find it on the canvas instead of opening every panel. */
+    function wgNodeWorker(node) {
+      if (node.statusKind !== "in-progress") return null;
+      var m = /\bWorker:\s*([A-Za-z0-9._\/-]+)/.exec(node.notes || "");
+      if (!m) return null;
+      var name = m[1].replace(/[.,;:]+$/, ""); /* prose punctuation, not part of the name */
+      if (!name || /^released$/i.test(name)) return null;
+      return name;
     }
 
     /* Always-visible corner legend naming the two edge kinds and the node
@@ -3210,6 +3380,61 @@ __CYTOSCAPE_DAGRE_SPLICE__
       if (!SAVE_ENABLED) return;
       if (!sourcePath) return;
       scheduleLivePoll(POLL_MS);
+      startParkBanner();
+    }
+
+    /* Park banner. A work-graph page answers "is this session waiting on
+       me, and for what" from the sibling tracking document's Status block
+       (docs/protocols/todo-format.md: State, Blocked Reason, Decision
+       Needed) — an artifact convention, the surface that protocol already
+       declares parseable by other tooling; no plugin is named or assumed.
+       The banner shows only while State is a summoning one (Blocked /
+       Waiting For Decision), carries that state and its reason text, and
+       disappears the moment the state moves on. Every failure — no
+       TODO.md beside the graph, a scope-refused fetch, malformed content —
+       hides the banner silently; the page never breaks over it. */
+    var PARK_POLL_MS = 3000;
+    var parkBannerStarted = false;
+
+    function startParkBanner() {
+      if (parkBannerStarted) return;
+      if (docType !== "work-graph") return;
+      var todoPath = sourcePath.replace(/\/[^\/]*$/, "/TODO.md");
+      if (todoPath === sourcePath) return;
+      parkBannerStarted = true;
+      function tick() {
+        fetch("/raw/" + encodeURI(todoPath)).then(function (res) {
+          if (!res.ok) throw new Error("no tracking doc");
+          return res.text();
+        }).then(function (text) {
+          renderParkBanner(text);
+        })["catch"](function () {
+          var el = document.getElementById("wg-park-banner");
+          if (el) el.classList.remove("show");
+        });
+        setTimeout(tick, PARK_POLL_MS);
+      }
+      tick();
+    }
+
+    function renderParkBanner(text) {
+      var el = document.getElementById("wg-park-banner");
+      if (!el) return;
+      var sm = /^State:[ \t]*(.+)$/m.exec(text);
+      var state = sm ? sm[1].trim() : "";
+      if (!/^(Blocked|Waiting For Decision)$/i.test(state)) {
+        el.classList.remove("show");
+        return;
+      }
+      var reasonField = /^Blocked$/i.test(state) ? "Blocked Reason" : "Decision Needed";
+      var rm = new RegExp("^" + reasonField + ":[ \\t]*(\\S.*)$", "m").exec(text);
+      el.textContent = "";
+      var b = document.createElement("span");
+      b.className = "pb-state";
+      b.textContent = "⏸ Parked — " + state;
+      el.appendChild(b);
+      el.appendChild(document.createTextNode(rm ? rm[1].trim() : "see the session tracking document"));
+      el.classList.add("show");
     }
 
     function showSaveStatus(msg, ok) {

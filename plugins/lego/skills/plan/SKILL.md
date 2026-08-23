@@ -63,6 +63,26 @@ alike:
   When no such skill is available, the path is the fallback — skip the
   render silently, never block the gate on it. Registering a document on a
   background server without opening it does not present it.
+
+  **The graph is the primary surface.** When the artifact being presented
+  is linked from a node in `.local/WORKGRAPH.md` — a decision file from its
+  gate node, a plan document from the focus node's Notes — present the
+  *graph*, opened at that node (render skills that take a node id open the
+  view focused there), so the engineer lands on the graph with the artifact
+  one click away; open the bare artifact only when no node links it. And
+  when a stop opens both the graph and an artifact, open the graph LAST, so
+  it is the surface on top when the engineer arrives.
+- **A decision that parks the engagement gets a gate node.** Whenever an
+  open question goes to the engineer as a decision file
+  (`.local/decisions/NNN-*.md`) — during planning or mid-dispatch alike —
+  and a work graph exists at `.local/WORKGRAPH.md`, the same edit that
+  writes the decision file adds a gate node to the graph: the next free
+  `N<NN>` id, a plain-language title stating the question, `Parent:` the
+  current focus node, `Status: in progress`, and `Notes:` carrying a
+  relative link to the decision file. The node flips to `done` in the same
+  edit that records the resolution. The usual tolerance applies — no graph,
+  no gate node, no error. This node is what makes the park visible on the
+  graph, and it is the node the presentation rule above deep-links to.
 - **Delivery knowledge is orchestrator-only.** The PR size budget, the
   delivery mode, and the PR grouping are plan facts the orchestrator holds
   and acts on: they shape how work is dispatched and landed, never how a
@@ -671,6 +691,29 @@ order:
 
 Record which rung ran in the plan document. Fix scaffold errors here; a scaffold
 that fails its gate must not be dispatched.
+
+Two judgment checks run beside the mechanical rung, across the stubs as a
+set — each contract can be individually sound while the set is
+unsatisfiable, and no compiler rung sees prose:
+
+- **Deferral triggers must not self-invalidate.** Wherever a stub or its
+  comments defer work to a later block — "stays pre-feature until B01's
+  migration lands" — check the named trigger against the wave order: does
+  the trigger event itself break the deferred code? A migration that makes
+  a column required while a later block's write still omits it is a
+  sequencing defect to fix now, not a red run for a test wave to explain
+  later. Treat every schema-constraint claim in one block (NOT NULL,
+  UNIQUE, foreign keys) as a claim about every writer of that table in
+  every other block, checked against the order their waves land in.
+- **Every obliged value has a named source.** For each contract clause that
+  obliges a block to use, record, or emit a value — a before-image for an
+  audit row, a derived flag, a formatted field — name where the value comes
+  from: a parameter, the block's own query, or a dependency's return type —
+  and verify that the named source's signature actually carries it. A
+  clause whose value exists nowhere in the block's reach passes contract
+  review and its test wave (tests can assert it against mocks) and then
+  fails at implementation; a clause whose source would require widening
+  another block's contract is a design defect to take back to Step 3.
 
 ### Step 6a: Blocks with no red/green cycle
 

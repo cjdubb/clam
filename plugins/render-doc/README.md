@@ -356,6 +356,7 @@ bash plugins/render-doc/scripts/hostname-docs.test.sh
 bash plugins/render-doc/scripts/node-panel.test.sh
 bash plugins/render-doc/scripts/toc-graph-view.test.sh
 bash plugins/render-doc/scripts/graph-layout-width.test.sh
+bash plugins/render-doc/scripts/round6-graph-view.test.sh
 ```
 
 ## Provenance

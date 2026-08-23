@@ -531,7 +531,9 @@ grew 'servedOverNetwork|SAVE_ENABLED|location\.protocol' 7 \
 pinned '/docs\.json|/health' 0 "no existence check: the page calls no inventory or health route"
 # Baseline 2 (/annotate POST, /raw live-update poll) plus the split-view
 # panel's /raw hydration fetch — still none issued by linkification itself.
-pinned 'fetch\(' 3 "no existence check: no new fetch is introduced by linkification"
+# Count raised 3 -> 4 by the park banner (round-6 F34): one fetch of the
+# sibling tracking document's /raw route; linkification itself still adds none.
+pinned 'fetch\(' 4 "no existence check: no new fetch is introduced by linkification"
 absent 'method:[[:space:]]*(["'"'"'])HEAD\1' "no existence check: no HEAD probe of a link target"
 
 # --- Errors: linkification never breaks rendering ----------------------------

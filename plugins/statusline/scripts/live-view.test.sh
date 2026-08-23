@@ -6,6 +6,9 @@
 # These are wrap-tolerant fixed-string pins on the source, the same style as
 # the round-6 suites in lego/tracking/render-doc.
 # Run: bash plugins/statusline/scripts/live-view.test.sh   (exits non-zero on failure)
+#
+# shellcheck disable=SC2016  # the single-quoted needles are literal source
+# text pinned byte-for-byte; expansion is exactly what they must not do.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTEXT="$SCRIPT_DIR/context.sh"

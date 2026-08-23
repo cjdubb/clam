@@ -22,7 +22,7 @@ check() { # label got expected
 # sequences, so both real newlines and the two-character \n are collapsed
 # to spaces before matching.
 has_fn() { # literal
-  if sed 's/\\n/ /g' <<<"$CONTEXT" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$1"; then echo yes; else echo no; fi
+  if tr '\n' ' ' <<<"${CONTEXT//\\n/ }" | tr -s ' ' | grep -qF -- "$1"; then echo yes; else echo no; fi
 }
 
 check "decision file gains a gate node in the same edit" \

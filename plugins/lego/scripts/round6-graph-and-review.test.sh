@@ -36,7 +36,7 @@ check "plan: the gate node is written in the same edit as the decision file" \
 check "plan: gate node links the decision file from Notes" \
   "$(has_fn "$PLAN" 'relative link to the decision file')" "yes"
 check "plan: gate node resolves in the same edit as the resolution" \
-  "$(has_fn "$PLAN" 'flips to `done` in the same edit that records the resolution')" "yes"
+  "$(has_fn "$PLAN" "flips to \`done\` in the same edit that records the resolution")" "yes"
 
 # F32: graph-primary presentation, and the graph lands on top.
 check "plan: the graph is the primary presented surface" \

@@ -1,0 +1,9 @@
+{
+  "name": "sleep-gate",
+  "description": "NotImplemented: B02 — stub description, replaced at implementation with one naming the Bash tool and the completion-wait misuse.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}

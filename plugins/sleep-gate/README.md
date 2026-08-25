@@ -131,6 +131,7 @@ variables. The gate is unconditional while installed.
 
 ```bash
 bash plugins/sleep-gate/scripts/sleep-gate.test.sh
+bash plugins/sleep-gate/scripts/structure.test.sh
 bash plugins/sleep-gate/scripts/readme.test.sh
 ```
 

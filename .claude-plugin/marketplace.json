@@ -133,7 +133,7 @@
     {
       "name": "sleep-gate",
       "source": "./plugins/sleep-gate",
-      "description": "NotImplemented: B03 — stub description, replaced at implementation with one naming the Bash tool and the completion-wait misuse.",
+      "description": "Denies a Bash command that uses a fixed sleep as a stand-in for a completion signal, and points at ways to wait on the real thing finishing; poll loops and wait are left alone.",
       "category": "session-ux"
     }
   ]

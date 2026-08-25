@@ -787,8 +787,11 @@ check "b08: neither lint nor test declares a needs edge onto test_macos" \
       && [ "$(job_needs test test_macos)" = no ]; then echo yes; else echo no; fi
   )" "yes"
 
-# The aggregator gains the job and asserts its result on == 'success', so a
-# cancelled or skipped macOS stage counts as failure like every other stage.
+# The aggregator gains the job and asserts its result on == 'success', with
+# one tolerated exception: `skipped`. The job is gated to push events
+# (decision 2026-08-25, clipboard-app migration — macOS minutes bill at
+# 10x), so on pull requests it reports `skipped` and the gate passes; a
+# cancelled or failed macOS stage still counts as failure.
 check "b08: the ci job needs test_macos" \
   "$(job_needs ci test_macos)" "yes"
 check "b08: the ci job compares needs.test_macos.result against the literal 'success'" \
@@ -800,8 +803,10 @@ check "b08 edge case: the macOS stage fails -> the ci guard fails" \
   "$(simulate_ci success success success failure)" "fail"
 check "b08 edge case: the macOS stage is CANCELLED -> the ci guard fails" \
   "$(simulate_ci success success success cancelled)" "fail"
-check "b08 edge case: the macOS stage is SKIPPED -> the ci guard fails" \
-  "$(simulate_ci success success success skipped)" "fail"
+check "b08 edge case: the macOS stage is SKIPPED (PR event; job is push-gated) -> the ci guard passes" \
+  "$(simulate_ci success success success skipped)" "pass"
+check "b08: the test_macos job is gated to push events" \
+  "$(job_grep test_macos 'if:[[:space:]]*github\.event_name[[:space:]]*==[[:space:]].push.')" "yes"
 
 # ===========================================================================
 # Contract: B19 ci-bash3-gate — the fourth job.

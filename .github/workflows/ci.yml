@@ -15,7 +15,9 @@
 # Outputs:    Check contexts `lint`, `test`, and `ci` (plus sibling stage
 #             jobs added by later blocks below, e.g. B08 and B19). The `ci`
 #             context is green if and only if `lint`, `test`, and every
-#             sibling stage job succeeded.
+#             sibling stage job succeeded — except `test_macos`, which is
+#             gated to push events and may be `skipped` on pull requests
+#             (see its job comment).
 #             Neither stage's console output, ordering, or exit code changes;
 #             `scripts/ci.sh` is not modified by this block and still owns
 #             everything the stages print.
@@ -168,14 +170,23 @@ jobs:
           LC_ALL: en_US.UTF-8
 
   test_macos:
-    # Plan 001-macos-test-portability: macOS runners are free for public
-    # repos. Runs the test stage under macOS's native BSD-flavored userland
-    # (date/sed/grep/find etc.) on a macos-latest runner, alongside `lint`
-    # and `test`. macOS runners ship `en_US.UTF-8` already, so no locale-gen
-    # step is needed (locale-gen does not exist on macOS). The runner's
-    # /bin/bash is 3.2, which lacks mapfile and other constructs ci.sh
-    # relies on, so the stage runs under Homebrew bash — the same
+    # Plan 001-macos-test-portability. Runs the test stage under macOS's
+    # native BSD-flavored userland (date/sed/grep/find etc.) on a
+    # macos-latest runner. macOS runners ship `en_US.UTF-8` already, so no
+    # locale-gen step is needed (locale-gen does not exist on macOS). The
+    # runner's /bin/bash is 3.2, which lacks mapfile and other constructs
+    # ci.sh relies on, so the stage runs under Homebrew bash — the same
     # interpreter a Homebrew macOS dev box resolves first in PATH.
+    #
+    # Push-only gate (decision 2026-08-25, migration to clipboard-app):
+    # macOS minutes bill at 10x, so this job runs only on pushes to master,
+    # not on every pull-request push. On PR events it reports `skipped`,
+    # which the `ci` aggregator accepts FOR THIS JOB ONLY; BSD-userland
+    # breakage therefore surfaces on master's post-merge run (fix forward
+    # or revert) instead of blocking the PR. A cancelled or timed-out run
+    # on a push event still fails `ci` — `skipped` is the only non-success
+    # result the aggregator tolerates here.
+    if: github.event_name == 'push'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -232,7 +243,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check lint, test, test_macos and bash3_gate results
+        # test_macos alone may be `skipped` — it is gated to push events
+        # (see its comment). Every other non-success result, including
+        # `cancelled` on a push run, still fails the gate.
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.test_macos.result }}" != "success" ] || [ "${{ needs.bash3_gate.result }}" != "success" ]; then
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.bash3_gate.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test_macos.result }}" != "success" ] && [ "${{ needs.test_macos.result }}" != "skipped" ]; then
             exit 1
           fi

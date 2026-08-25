@@ -689,3 +689,12 @@ delegates PR mechanics (`/forge-github:create-pr`, `/forge-github:sync-pr`)
 instead of owning `gh` calls itself. The PR-description flowing-prose
 conventions it carries originate from this repo's issue #53, not from any
 clam-code element.
+
+## sleep-gate — new (not a port)
+
+No clam-code/clam-generic ancestor. Neither source repo carries any
+mechanism that inspects Bash commands for waiting behaviour, and neither
+contains guidance on how an agent should wait for a backgrounded process.
+This plugin's PreToolUse deny (`scripts/sleep-gate.sh`), which blocks
+`sleep` used as a completion-wait and names the event-based alternatives in
+its denial reason, has no source-repo precedent.

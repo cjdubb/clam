@@ -1,0 +1,9 @@
+{
+  "name": "sleep-gate",
+  "description": "Denies a Bash command that uses a fixed sleep as a stand-in for a completion signal, and points at ways to wait on the real thing finishing; poll loops and wait are left alone.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Cam Williamson",
+    "email": "camwilliamson@pm.me"
+  }
+}
